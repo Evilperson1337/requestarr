@@ -1,0 +1,43 @@
+# Reference projects are architectural/UX research inputs, not Requestarr dependencies.
+# `branch` values reflect the upstream default/development branches observed during scaffold creation.
+references:
+  - id: seerr
+    url: https://github.com/seerr-team/seerr.git
+    branch: develop
+    purpose: request UX, availability/media-server sync, permissions, notification architecture
+    license: MIT
+  - id: radarr
+    url: https://github.com/Radarr/Radarr.git
+    branch: develop
+    purpose: local-state performance, commands/events, refresh/rescan architecture
+    license: GPL-3.0
+  - id: sonarr
+    url: https://github.com/Sonarr/Sonarr.git
+    branch: develop
+    purpose: local-state performance, series/season model, background refresh
+    license: GPL-3.0
+  - id: lidarr
+    url: https://github.com/Lidarr/Lidarr.git
+    branch: develop
+    purpose: music identity/library modeling, local-state architecture
+    license: GPL-3.0
+  - id: ggrequestz
+    url: https://github.com/XTREEMMAK/ggrequestz.git
+    branch: main
+    purpose: IGDB/game request UX, RomM integration, OIDC, progressive loading
+    license: GPL-3.0
+  - id: romm
+    url: https://github.com/rommapp/romm.git
+    branch: master
+    purpose: game/platform inventory and IGDB-enriched library representation
+    license: AGPL-3.0
+  - id: apprise
+    url: https://github.com/caronc/apprise.git
+    branch: master
+    purpose: notification service semantics
+    license: BSD-2-Clause
+  - id: apprise-api
+    url: https://github.com/caronc/apprise-api.git
+    branch: master
+    purpose: external notification gateway REST contract
+    license: BSD-2-Clause

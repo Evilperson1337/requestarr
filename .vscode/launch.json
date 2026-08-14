@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Requestarr API",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/requestarr",
+      "envFile": "${workspaceFolder}/.env",
+      "args": []
+    },
+    {
+      "name": "Requestarr API (setup bootstrap)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/requestarr",
+      "env": {
+        "REQUESTARR_SETUP_TOKEN": "dev-setup-token",
+        "REQUESTARR_LOG_LEVEL": "debug"
+      }
+    }
+  ]
+}

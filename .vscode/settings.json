@@ -1,0 +1,11 @@
+{
+  "editor.formatOnSave": true,
+  "files.eol": "\n",
+  "go.toolsManagement.autoUpdate": true,
+  "go.testFlags": ["-count=1"],
+  "eslint.workingDirectories": ["web"],
+  "typescript.tsdk": "web/node_modules/typescript/lib",
+  "files.exclude": {
+    "references/source/checkouts": true
+  }
+}

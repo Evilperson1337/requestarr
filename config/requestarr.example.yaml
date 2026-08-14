@@ -1,0 +1,31 @@
+server:
+  addr: ":8080"
+  public_url: "https://requests.example.com"
+
+auth:
+  oidc:
+    issuer: "https://keycloak.example.com/realms/home"
+    client_id: "requestarr"
+    client_secret: "${REQUESTARR_OIDC_CLIENT_SECRET}"
+    scopes: ["openid", "profile", "email"]
+    groups_claim: "groups"
+    group_role_map:
+      admin: admin
+      requester: requester
+      user: viewer
+
+requests:
+  notes_enabled: true
+  approval_required:
+    movie: true
+    tv: true
+    album: true
+    song: true
+    game: true
+
+notifications:
+  in_app: true
+  apprise:
+    enabled: true
+    base_url: "https://apprise.example.com"
+    config_key: "requestarr"

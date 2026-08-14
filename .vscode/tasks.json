@@ -1,0 +1,10 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Go: test", "type": "shell", "command": "make test", "group": "test", "problemMatcher": ["$go"] },
+    { "label": "Go: build", "type": "shell", "command": "make build", "group": "build", "problemMatcher": ["$go"] },
+    { "label": "Web: dev", "type": "shell", "command": "make web-dev", "isBackground": true, "problemMatcher": [] },
+    { "label": "Dev services: up", "type": "shell", "command": "make dev-up", "problemMatcher": [] },
+    { "label": "Dev services: down", "type": "shell", "command": "make dev-down", "problemMatcher": [] }
+  ]
+}

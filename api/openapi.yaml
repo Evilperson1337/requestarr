@@ -1,0 +1,69 @@
+openapi: 3.1.0
+info:
+  title: Requestarr API
+  version: 0.0.0
+  description: >-
+    Initial contract scaffold. Keep this synchronized with implemented handlers and
+    generate clients/types only after endpoint semantics are reviewed.
+servers:
+  - url: /api/v1
+paths:
+  /version:
+    get:
+      operationId: getVersion
+      responses:
+        '200':
+          description: Build information
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, commit, date]
+                properties:
+                  version: { type: string }
+                  commit: { type: string }
+                  date: { type: string }
+  /setup/status:
+    get:
+      operationId: getSetupStatus
+      responses:
+        '200':
+          description: First-run setup state
+  /resolve:
+    post:
+      operationId: resolveUrl
+      summary: Resolve a supported metadata URL without creating a request
+      responses:
+        '501': { description: Scaffold placeholder }
+  /requests:
+    get:
+      operationId: listRequests
+      summary: List the shared request queue with filters
+      responses:
+        '501': { description: Scaffold placeholder }
+    post:
+      operationId: createRequest
+      summary: Create the one canonical shared request for an item
+      responses:
+        '501': { description: Scaffold placeholder }
+  /requests/{requestId}/subscription:
+    put:
+      operationId: subscribeToRequest
+      summary: Enable Notify Me for the current user
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '501': { description: Scaffold placeholder }
+    delete:
+      operationId: unsubscribeFromRequest
+      summary: Disable a manual subscription; requester subscription policy is enforced server-side
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '501': { description: Scaffold placeholder }

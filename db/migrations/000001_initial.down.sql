@@ -1,0 +1,11 @@
+BEGIN;
+DROP TABLE IF EXISTS notification_deliveries;
+DROP TABLE IF EXISTS inventory_items;
+DROP TABLE IF EXISTS library_sources;
+DROP TABLE IF EXISTS request_events;
+DROP TABLE IF EXISTS request_subscriptions;
+DROP TABLE IF EXISTS requests;
+DROP TABLE IF EXISTS catalog_items;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS setup_state;
+COMMIT;

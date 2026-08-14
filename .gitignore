@@ -1,0 +1,61 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+
+# Go
+/bin/
+/dist/
+/requestarr
+/coverage/
+coverage.out
+*.test
+*.prof
+*.pprof
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+web/coverage/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.log
+
+# Generated API/client artifacts
+internal/generated/
+web/src/generated/
+
+# Local data
+/data/
+/tmp/
+*.db
+*.sqlite
+*.sqlite3
+
+# Dev container/local compose
+.devcontainer/.env
+
+# External source references are fetched on demand
+references/source/checkouts/
+
+# Superseded exploratory mockups; authoritative mockups live under final/
+references/mockups/archive/
+
+# Tool caches
+.cache/
+.golangci-lint-cache/

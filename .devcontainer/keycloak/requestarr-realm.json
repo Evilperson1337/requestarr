@@ -1,0 +1,79 @@
+{
+  "realm": "requestarr",
+  "enabled": true,
+  "registrationAllowed": false,
+  "groups": [
+    {
+      "name": "admin"
+    },
+    {
+      "name": "requester"
+    },
+    {
+      "name": "user"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "requestarr",
+      "name": "Requestarr (development)",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "requestarr-dev-secret",
+      "redirectUris": [
+        "http://localhost:8080/auth/callback",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://localhost:8080"
+      ],
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "roles",
+        "profile",
+        "email"
+      ],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "groups"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "requestarr-admin",
+      "enabled": true,
+      "email": "admin@requestarr.local",
+      "emailVerified": true,
+      "firstName": "Requestarr",
+      "lastName": "Admin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "requestarr-admin",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/admin"
+      ]
+    }
+  ]
+}

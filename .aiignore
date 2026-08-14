@@ -1,0 +1,31 @@
+# Secrets and local state
+.env
+.env.*
+!.env.example
+secrets/
+data/
+*.pem
+*.key
+*.crt
+*.db
+*.sqlite*
+
+# Dependencies/build outputs
+web/node_modules/
+web/dist/
+dist/
+bin/
+coverage/
+.cache/
+
+# Third-party source is reference-only. Do not ingest/copy it into implementation.
+references/source/checkouts/
+
+# Historical mockups are context only; final mockups are authoritative.
+references/mockups/archive/
+
+# Large/binary artifacts
+*.zip
+*.tar
+*.gz
+*.7z

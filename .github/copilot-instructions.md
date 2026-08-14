@@ -1,0 +1,1 @@
+Read `/AGENTS.md`, `/docs/V1_SCOPE.md`, and `/docs/DECISIONS.md` before generating implementation code. Treat those files as authoritative. Do not add acquisition/downloader behavior. Do not copy implementation code from `/references/source/checkouts/`; those repositories are architectural/UX references with independent licenses.

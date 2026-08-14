@@ -1,0 +1,15 @@
+name: Bug report
+description: Report reproducible Requestarr behavior that conflicts with documented intent.
+title: "[Bug]: "
+body:
+  - type: textarea
+    id: summary
+    attributes: { label: Summary }
+    validations: { required: true }
+  - type: textarea
+    id: reproduce
+    attributes: { label: Steps to reproduce }
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes: { label: Relevant redacted logs }
