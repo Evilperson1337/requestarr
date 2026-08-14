@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.26-bookworm AS build
+FROM golang:1.26.6-bookworm AS build
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
+RUN go mod download
 COPY cmd ./cmd
+COPY db ./db
 COPY internal ./internal
 ARG VERSION=dev
 ARG COMMIT=none

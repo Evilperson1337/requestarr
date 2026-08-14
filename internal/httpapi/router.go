@@ -1,18 +1,40 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/example/requestarr/internal/buildinfo"
+	"git.example.com/evilperson1337/Requestarr/internal/buildinfo"
 )
 
-func New(logger *slog.Logger, build buildinfo.Info) http.Handler {
+const readinessTimeout = 2 * time.Second
+
+// ReadinessChecker is owned by the HTTP consumer and hides concrete database details.
+type ReadinessChecker interface {
+	Ready(context.Context) error
+}
+
+type probeResponse struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+func New(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "time": time.Now().UTC()})
+		writeJSON(w, http.StatusOK, probeResponse{Status: "ok"})
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout)
+		defer cancel()
+		if readiness == nil || readiness.Ready(ctx) != nil {
+			writeJSON(w, http.StatusServiceUnavailable, probeResponse{Status: "not_ready", Reason: "database_unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, probeResponse{Status: "ready"})
 	})
 	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, build)

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/example/requestarr/internal/notifications"
+	"git.example.com/evilperson1337/Requestarr/internal/notifications"
 )
 
 type Client struct {

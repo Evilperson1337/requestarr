@@ -1,5 +1,7 @@
 # Development Services
 
+The workspace image installs pinned Go 1.26.6 from the official multi-architecture Go image, matching the module's Go 1.26 minimum and the CI, production-build, and release toolchain. The underlying Microsoft devcontainer image remains pinned to its available Debian Bookworm variant; the Dockerfile replaces its Go installation from that pinned toolchain stage.
+
 `compose.dev.yaml` provides PostgreSQL, Keycloak, and Apprise API. The imported development realm includes a disposable user `requestarr-admin` / `requestarr-admin` in the `admin` group. These credentials are development-only and must never be used in production.
 
 The Dev Container merges `compose.dev.yaml` first and `.devcontainer/docker-compose.devcontainer.yaml` second. Docker Compose resolves relative build and bind-mount paths from the first Compose file's project directory, so paths in the workspace override are repository-root-relative. The same merged model can be checked from the repository root with:

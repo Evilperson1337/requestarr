@@ -4,6 +4,7 @@ This roadmap turns the current scaffold into the modular monolith described in [
 
 ## Non-negotiable boundaries
 
+- Go 1.26 is the unified minimum and current toolchain for the module, development container, CI, production build, and releases. D013's earlier Go 1.23 baseline is superseded because reviewed critical vulnerabilities in the direct PostgreSQL driver materially invalidated it.
 - Requestarr remains request, availability, and notification software. It does not acquire media or integrate with download clients, indexers, Usenet/torrent clients, or *arr applications.
 - OIDC remains required for normal operation. The setup token is a temporary bootstrap mechanism, not local-password authentication.
 - Configured libraries are authoritative for availability. Metadata providers identify catalog items but never establish availability.
@@ -18,27 +19,24 @@ The repository is a coherent, buildable scaffold, not yet a production service.
 
 ### Present
 
-- A single Go entry point validates basic HTTP and logging settings, installs signal cancellation, and delegates process composition to the application package ([entry point](../cmd/requestarr/main.go), [application composition](../internal/app/app.go)).
-- The HTTP server has bounded server timeouts and graceful shutdown. It exposes an unconditional liveness-style health response, build information, a scaffold setup response, and a temporary HTML root ([HTTP router](../internal/httpapi/router.go)).
+- A single Go entry point validates typed HTTP, logging, and required PostgreSQL URL settings without disclosing credentials, installs signal cancellation, and delegates process composition to the application package ([entry point](../cmd/requestarr/main.go), [runtime configuration](../internal/config/config.go), [application composition](../internal/app/app.go)).
+- Startup constructs and pings a long-lived `pgx` pool, applies embedded migrations before listening, and closes database resources during shutdown ([PostgreSQL adapter](../internal/store/postgres/), [embedded migrations](../db/migrations/embed.go)).
+- The HTTP server has bounded server timeouts and graceful shutdown. It exposes separate liveness and database-backed readiness probes, build information, a scaffold setup response, and a temporary HTML root ([HTTP router](../internal/httpapi/router.go)).
 - Domain types and narrow integration seams exist for requests, OIDC, metadata, inventory, reconciliation, notifications, jobs, setup, and persistence under [internal packages](../internal/).
 - The initial PostgreSQL schema models users, canonical catalog items, one shared request per item, subscriptions, events, authoritative library sources, normalized inventory, notification deliveries, and resumable setup state ([initial migration](../db/migrations/000001_initial.up.sql)).
 - Development definitions provide PostgreSQL 17, Keycloak, and Apprise API, including a PostgreSQL health check ([development Compose file](../compose.dev.yaml)).
-- A React/TypeScript UI scaffold, OpenAPI seed, container/release files, tests for existing configuration and domain behavior, and required Make targets are present ([web application](../web/), [OpenAPI contract](../api/openapi.yaml), [Makefile](../Makefile)).
+- A React/TypeScript UI scaffold, OpenAPI seed, container/release files, unit tests, real PostgreSQL integration coverage with random-schema isolation, and required Make targets are present ([web application](../web/), [OpenAPI contract](../api/openapi.yaml), [testing guide](TESTING.md), [Makefile](../Makefile)).
 
 ### Missing or incomplete
 
-- The Go module currently has no third-party dependencies, PostgreSQL driver, connection pool, migration runner, or database-backed store implementation ([Go module](../go.mod), [store package](../internal/store/store.go)).
-- Runtime configuration does not consume or validate the documented database URL even though the environment example declares it ([runtime configuration](../internal/config/config.go), [environment example](../.env.example)).
-- Startup does not connect to PostgreSQL or apply migrations. The HTTP listener can start while required persistence is unavailable.
-- The current health endpoint always reports success and there is no distinct readiness endpoint. It cannot tell an orchestrator whether startup dependencies and schema initialization succeeded.
 - Setup status is hard-coded, OIDC is not wired, and no API workflow persists state.
 - Provider, library, notification, and job packages are boundaries or placeholders rather than production adapters.
 - The Go server does not serve the built React application. The root route still serves scaffold HTML.
-- Migration integration tests, production frontend artifact selection, backup/upgrade documentation, and production container validation remain outstanding.
+- Production frontend artifact selection, backup/upgrade documentation, and production container validation remain outstanding.
 
 ## Decisions required before code
 
-Record durable or controversial choices in the [decision log](DECISIONS.md) before implementation. The first increment should settle the following in its issue or design notes; add a formal decision entry if the choice affects later packages or operator contracts.
+The Phase 1 gate is resolved by [D013 in the decision log](DECISIONS.md#d013--phase-1-production-persistence-contracts-2026-08-14). The contracts below are retained as roadmap context; implementation must follow D013 where it is more specific.
 
 1. **PostgreSQL driver and pool.** Prefer `pgx/v5` with `pgxpool` for explicit PostgreSQL support, context-aware operations, pool statistics, and no ORM. Confirm the minimum supported PostgreSQL version; the current development baseline is PostgreSQL 17.
 2. **Migration library.** Choose a library that can read an embedded filesystem, tracks ordered versions in PostgreSQL, fails on dirty/partial state, and supports testable up migrations. Prefer a small established runner over a custom migration engine.

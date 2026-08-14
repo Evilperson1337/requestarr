@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/example/requestarr/internal/domain"
+	"git.example.com/evilperson1337/Requestarr/internal/domain"
 )
 
 type Item struct {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/url"
 
-	"github.com/example/requestarr/internal/domain"
+	"git.example.com/evilperson1337/Requestarr/internal/domain"
 )
 
 // Resolver recognizes a provider URL and resolves it into Requestarr's

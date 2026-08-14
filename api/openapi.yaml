@@ -8,6 +8,36 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /healthz:
+    get:
+      operationId: getLiveness
+      summary: Dependency-free process liveness
+      servers: [{ url: / }]
+      responses:
+        '200':
+          description: Process is serving HTTP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Liveness'
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Migration-complete PostgreSQL readiness
+      servers: [{ url: / }]
+      responses:
+        '200':
+          description: Application and PostgreSQL are ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+        '503':
+          description: PostgreSQL is unavailable or initialization is incomplete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotReady'
   /version:
     get:
       operationId: getVersion
@@ -57,6 +87,7 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '501': { description: Scaffold placeholder }
+
     delete:
       operationId: unsubscribeFromRequest
       summary: Disable a manual subscription; requester subscription policy is enforced server-side
@@ -67,3 +98,24 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '501': { description: Scaffold placeholder }
+components:
+  schemas:
+    Liveness:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, const: ok }
+    Readiness:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, const: ready }
+    NotReady:
+      type: object
+      additionalProperties: false
+      required: [status, reason]
+      properties:
+        status: { type: string, const: not_ready }
+        reason: { type: string, const: database_unavailable }

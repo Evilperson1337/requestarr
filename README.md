@@ -66,15 +66,23 @@ scripts/                    development/reference helper scripts
 
 ## Quick start for development
 
-The scaffold intentionally keeps the Go starter build free of third-party dependencies, so the architecture can be reviewed before libraries are selected.
+Requestarr requires Go 1.26 or newer. Go 1.26 is the unified minimum and current toolchain used by the module, development container, CI, production build, and release workflow.
+
+Requestarr requires PostgreSQL at startup. The database URL is read only from the required `REQUESTARR_DATABASE_URL`; it must be an absolute `postgres://` or `postgresql://` URL with a database name. Startup opens one application pool, pings PostgreSQL, and applies embedded forward migrations before opening the HTTP listener.
 
 ```bash
 cp .env.example .env
+set -a; source .env; set +a
+docker compose -f compose.dev.yaml up -d postgres
 make test
 make run
 ```
 
-The API starts on `http://localhost:8080` by default. For the full development environment, open the repository in its Dev Container. PostgreSQL, Keycloak, and Apprise API are defined in `compose.dev.yaml`.
+The API starts on `http://localhost:8080` by default. `GET /healthz` is dependency-free process liveness. `GET /readyz` returns readiness only after migrations complete and a bounded PostgreSQL ping succeeds. For the full development environment, open the repository in its Dev Container. PostgreSQL, Keycloak, and Apprise API are defined in `compose.dev.yaml`; the devcontainer uses the `postgres` service hostname rather than `localhost`.
+
+Production startup migration is forward-only. Existing down migrations are retained for explicit development recovery, but the application never invokes them. Back up PostgreSQL before upgrades and roll back application binaries only when they remain schema-compatible; otherwise restore a tested backup.
+
+Migration advisory-lock acquisition is bounded by both golang-migrate's 15-second client guard and PostgreSQL's 15-second session `lock_timeout`. The runner API cannot attach a caller context directly to `Up`; cancellation is therefore graceful between migration files, while each migration operation is independently bounded by a 60-second statement timeout. With the current single migration, cancellation during SQL execution is enforced by that statement bound rather than immediately by the process context.
 
 The frontend scaffold lives under `web/`:
 
@@ -91,7 +99,7 @@ make snapshot
 make release-check
 ```
 
-Releases are defined by `.goreleaser.yaml`. GoReleaser v2 is expected; run `goreleaser check` before publishing. The project targets Go 1.23+ syntax for broad compatibility while the development container uses Go 1.24.
+Releases are defined by `.goreleaser.yaml`. GoReleaser v2 is expected; run `goreleaser check` before publishing. Builds and releases use Go 1.26, which is also the minimum supported Go version.
 
 ## Reference code
 

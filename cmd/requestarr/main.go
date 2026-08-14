@@ -9,9 +9,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/example/requestarr/internal/app"
-	"github.com/example/requestarr/internal/buildinfo"
-	"github.com/example/requestarr/internal/config"
+	"git.example.com/evilperson1337/Requestarr/internal/app"
+	"git.example.com/evilperson1337/Requestarr/internal/buildinfo"
+	"git.example.com/evilperson1337/Requestarr/internal/config"
 )
 
 var (

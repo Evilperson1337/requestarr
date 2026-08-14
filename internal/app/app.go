@@ -5,17 +5,32 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"time"
 
-	"github.com/example/requestarr/internal/buildinfo"
-	"github.com/example/requestarr/internal/config"
-	"github.com/example/requestarr/internal/httpapi"
+	"git.example.com/evilperson1337/Requestarr/internal/buildinfo"
+	"git.example.com/evilperson1337/Requestarr/internal/config"
+	"git.example.com/evilperson1337/Requestarr/internal/httpapi"
+	"git.example.com/evilperson1337/Requestarr/internal/store/postgres"
+	postgresmigrations "git.example.com/evilperson1337/Requestarr/internal/store/postgres/migrations"
 )
 
 func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buildinfo.Info) error {
+	pool, err := postgres.Open(ctx, cfg.DatabaseURL())
+	if err != nil {
+		return errors.New("startup database connection failed")
+	}
+	defer pool.Close()
+
+	if err := postgresmigrations.Up(ctx, cfg.DatabaseURL()); err != nil {
+		return errors.New("startup database migration failed")
+	}
+	readiness := &readinessChecker{database: pool}
+	readiness.migrationsComplete.Store(true)
+
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(logger, build),
+		Handler:           httpapi.New(logger, build, readiness),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -39,4 +54,20 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		}
 		return err
 	}
+}
+
+type databaseReadiness interface {
+	Ready(context.Context) error
+}
+
+type readinessChecker struct {
+	migrationsComplete atomic.Bool
+	database           databaseReadiness
+}
+
+func (r *readinessChecker) Ready(ctx context.Context) error {
+	if r == nil || !r.migrationsComplete.Load() || r.database == nil {
+		return errors.New("database initialization incomplete")
+	}
+	return r.database.Ready(ctx)
 }

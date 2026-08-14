@@ -1,4 +1,9 @@
+FROM golang:1.26.6-bookworm AS go-toolchain
+
 FROM mcr.microsoft.com/devcontainers/go:1-1.24-bookworm
+
+COPY --from=go-toolchain /usr/local/go /usr/local/go
+RUN go version
 
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get update \
