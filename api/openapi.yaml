@@ -9,6 +9,8 @@ servers:
   - url: /api/v1
 paths:
   /healthz:
+    parameters:
+      - $ref: '#/components/parameters/RequestID'
     get:
       operationId: getLiveness
       summary: Dependency-free process liveness
@@ -16,11 +18,16 @@ paths:
       responses:
         '200':
           description: Process is serving HTTP
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Liveness'
   /readyz:
+    parameters:
+      - $ref: '#/components/parameters/RequestID'
     get:
       operationId: getReadiness
       summary: Migration-complete PostgreSQL readiness
@@ -28,22 +35,33 @@ paths:
       responses:
         '200':
           description: Application and PostgreSQL are ready
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Readiness'
         '503':
           description: PostgreSQL is unavailable or initialization is incomplete
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/NotReady'
   /version:
+    parameters:
+      - $ref: '#/components/parameters/RequestID'
     get:
       operationId: getVersion
       responses:
         '200':
           description: Build information
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
           content:
             application/json:
               schema:
@@ -53,53 +71,100 @@ paths:
                   version: { type: string }
                   commit: { type: string }
                   date: { type: string }
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+    head:
+      operationId: headVersion
+      responses:
+        '200':
+          description: Build information headers without a response body
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
   /setup/status:
+    parameters:
+      - $ref: '#/components/parameters/RequestID'
     get:
       operationId: getSetupStatus
       responses:
         '200':
           description: First-run setup state
-  /resolve:
-    post:
-      operationId: resolveUrl
-      summary: Resolve a supported metadata URL without creating a request
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupStatus'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+    head:
+      operationId: headSetupStatus
       responses:
-        '501': { description: Scaffold placeholder }
-  /requests:
-    get:
-      operationId: listRequests
-      summary: List the shared request queue with filters
-      responses:
-        '501': { description: Scaffold placeholder }
-    post:
-      operationId: createRequest
-      summary: Create the one canonical shared request for an item
-      responses:
-        '501': { description: Scaffold placeholder }
-  /requests/{requestId}/subscription:
-    put:
-      operationId: subscribeToRequest
-      summary: Enable Notify Me for the current user
-      parameters:
-        - in: path
-          name: requestId
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '501': { description: Scaffold placeholder }
-
-    delete:
-      operationId: unsubscribeFromRequest
-      summary: Disable a manual subscription; requester subscription policy is enforced server-side
-      parameters:
-        - in: path
-          name: requestId
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '501': { description: Scaffold placeholder }
+        '200':
+          description: First-run setup state headers without a response body
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
 components:
+  parameters:
+    RequestID:
+      in: header
+      name: X-Request-ID
+      required: false
+      description: >-
+        Optional caller correlation ID. Values must contain 1-64 ASCII letters,
+        digits, period, underscore, or hyphen. Invalid values are replaced.
+      schema:
+        type: string
+        maxLength: 64
+        pattern: '^[A-Za-z0-9._-]+$'
+  headers:
+    RequestID:
+      description: The accepted or server-generated request correlation ID.
+      required: true
+      schema:
+        type: string
+        maxLength: 64
+        pattern: '^[A-Za-z0-9._-]+$'
+    AllowGet:
+      description: Methods supported by this resource.
+      required: true
+      schema:
+        type: string
+        const: GET, HEAD
+  responses:
+    MethodNotAllowed:
+      description: The resource exists but does not support the requested method.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+        Allow:
+          $ref: '#/components/headers/AllowGet'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIErrorEnvelope'
   schemas:
+    APIErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+              enum: [not_found, method_not_allowed]
+            message: { type: string }
+            request_id: { type: string }
     Liveness:
       type: object
       additionalProperties: false
@@ -119,3 +184,10 @@ components:
       properties:
         status: { type: string, const: not_ready }
         reason: { type: string, const: database_unavailable }
+    SetupStatus:
+      type: object
+      additionalProperties: false
+      required: [complete, scaffold]
+      properties:
+        complete: { type: boolean, const: false }
+        scaffold: { type: boolean, const: true }
