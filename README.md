@@ -91,7 +91,7 @@ make snapshot
 make release-check
 ```
 
-Releases are defined by `.goreleaser.yaml`. GoReleaser v2 is expected; run `goreleaser check` before publishing. The project targets Go 1.23+ syntax for broad compatibility while the development container uses the current Go 1.26 line.
+Releases are defined by `.goreleaser.yaml`. GoReleaser v2 is expected; run `goreleaser check` before publishing. The project targets Go 1.23+ syntax for broad compatibility while the development container uses Go 1.24.
 
 ## Reference code
 
