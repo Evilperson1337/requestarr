@@ -123,6 +123,77 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '503':
           $ref: '#/components/responses/SetupStatusUnavailableHead'
+  /setup/session:
+    parameters:
+      - $ref: '#/components/parameters/RequestID'
+      - $ref: '#/components/parameters/SetupOrigin'
+    post:
+      operationId: createSetupSession
+      summary: Exchange the temporary deployment token for a setup session
+      description: >-
+        Pre-OIDC bootstrap exchange. The token is accepted only in this bounded
+        JSON body. The configured public origin must match exactly. Success
+        returns only an environment-selected,
+        15-minute HttpOnly SameSite=Strict cookie and no response body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupSessionRequest'
+      responses:
+        '204':
+          description: A new independent setup session was issued.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              description: >-
+                Production uses __Host-requestarr_setup with Secure; explicit
+                loopback HTTP development uses requestarr_setup_dev without Secure.
+                Both are HttpOnly, SameSite=Strict, Path=/, Max-Age=900, and omit Domain.
+              required: true
+              schema: { type: string }
+        '400':
+          $ref: '#/components/responses/SetupInvalidRequest'
+        '401':
+          $ref: '#/components/responses/SetupTokenInvalid'
+        '403':
+          $ref: '#/components/responses/SetupForbidden'
+        '409':
+          $ref: '#/components/responses/SetupCompleted'
+        '423':
+          $ref: '#/components/responses/SetupLocked'
+        '429':
+          $ref: '#/components/responses/SetupRateLimited'
+        '503':
+          $ref: '#/components/responses/SetupUnavailable'
+    get:
+      operationId: rejectGetSetupSession
+      responses:
+        '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' }
+    head:
+      operationId: rejectHeadSetupSession
+      responses:
+        '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' }
+    put:
+      operationId: rejectPutSetupSession
+      responses:
+        '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' }
+    patch:
+      operationId: rejectPatchSetupSession
+      responses:
+        '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' }
+    delete:
+      operationId: rejectDeleteSetupSession
+      responses:
+        '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' }
+    options:
+      operationId: rejectOptionsSetupSession
+      responses:
+        '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' }
 components:
   parameters:
     RequestID:
@@ -136,6 +207,12 @@ components:
         type: string
         maxLength: 64
         pattern: '^[A-Za-z0-9._-]+$'
+    SetupOrigin:
+      in: header
+      name: Origin
+      required: true
+      description: Exactly one origin matching the normalized configured public URL.
+      schema: { type: string }
   headers:
     RequestID:
       description: The accepted or server-generated request correlation ID.
@@ -156,6 +233,14 @@ components:
       schema:
         type: string
         const: no-store
+    AllowPost:
+      description: The sole method supported by setup-session exchange.
+      required: true
+      schema: { type: string, const: POST }
+    RetryAfter:
+      description: Whole seconds until the next fixed rate-limit window, clamped to 1-900.
+      required: true
+      schema: { type: integer, minimum: 1, maximum: 900 }
   responses:
     MethodNotAllowed:
       description: The resource exists but does not support the requested method.
@@ -186,6 +271,73 @@ components:
           $ref: '#/components/headers/RequestID'
         Cache-Control:
           $ref: '#/components/headers/NoStore'
+    SetupSessionMethodNotAllowed:
+      description: Only POST is supported by this resource.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+        Allow: { $ref: '#/components/headers/AllowPost' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/APIErrorEnvelope' }
+    SetupInvalidRequest:
+      description: The content type, bounded JSON document, or token encoding is invalid.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SetupInvalidRequestError' }
+    SetupTokenInvalid:
+      description: The accepted-format candidate does not verify.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SetupTokenInvalidError' }
+    SetupForbidden:
+      description: Origin validation failed.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SetupOriginForbiddenError'
+    SetupCompleted:
+      description: Authoritative setup state is already complete.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SetupCompletedError' }
+    SetupLocked:
+      description: The incomplete instance has no valid deployment token configured.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SetupLockedError' }
+    SetupRateLimited:
+      description: The direct-peer or global fixed-window limit is exhausted.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SetupRateLimitedError' }
+    SetupUnavailable:
+      description: Required persistence or cryptographic randomness is unavailable.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SetupUnavailableError' }
   schemas:
     APIErrorEnvelope:
       type: object
@@ -199,7 +351,7 @@ components:
           properties:
             code:
               type: string
-              enum: [not_found, method_not_allowed, setup_status_unavailable]
+              enum: [not_found, method_not_allowed, setup_status_unavailable, invalid_request, setup_origin_forbidden, setup_csrf_forbidden, setup_token_invalid, setup_locked, setup_completed, setup_rate_limited, setup_unavailable]
             message: { type: string }
             request_id: { type: string }
     Liveness:
@@ -250,3 +402,49 @@ components:
             code: setup_status_unavailable
             message: Setup status is temporarily unavailable.
             request_id: 0123456789abcdef0123456789abcdef
+    SetupSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          description: Canonical unpadded base64url encoding of exactly 32 bytes.
+    SetupInvalidRequestError:
+      $ref: '#/components/schemas/SetupErrorInvalidRequest'
+    SetupOriginForbiddenError:
+      $ref: '#/components/schemas/SetupErrorOriginForbidden'
+    SetupTokenInvalidError:
+      $ref: '#/components/schemas/SetupErrorTokenInvalid'
+    SetupLockedError:
+      $ref: '#/components/schemas/SetupErrorLocked'
+    SetupCompletedError:
+      $ref: '#/components/schemas/SetupErrorCompleted'
+    SetupRateLimitedError:
+      $ref: '#/components/schemas/SetupErrorRateLimited'
+    SetupUnavailableError:
+      $ref: '#/components/schemas/SetupErrorUnavailable'
+    SetupErrorInvalidRequest:
+      $ref: '#/components/schemas/APIErrorEnvelope'
+      examples: [{ error: { code: invalid_request, message: The request body is invalid., request_id: 0123456789abcdef0123456789abcdef } }]
+    SetupErrorOriginForbidden:
+      $ref: '#/components/schemas/APIErrorEnvelope'
+      examples: [{ error: { code: setup_origin_forbidden, message: The request origin is not allowed., request_id: 0123456789abcdef0123456789abcdef } }]
+    SetupErrorTokenInvalid:
+      $ref: '#/components/schemas/APIErrorEnvelope'
+      examples: [{ error: { code: setup_token_invalid, message: The setup token is invalid., request_id: 0123456789abcdef0123456789abcdef } }]
+    SetupErrorLocked:
+      $ref: '#/components/schemas/APIErrorEnvelope'
+      examples: [{ error: { code: setup_locked, message: Setup is locked by server configuration., request_id: 0123456789abcdef0123456789abcdef } }]
+    SetupErrorCompleted:
+      $ref: '#/components/schemas/APIErrorEnvelope'
+      examples: [{ error: { code: setup_completed, message: Setup has already been completed., request_id: 0123456789abcdef0123456789abcdef } }]
+    SetupErrorRateLimited:
+      $ref: '#/components/schemas/APIErrorEnvelope'
+      examples: [{ error: { code: setup_rate_limited, message: Too many setup attempts. Try again later., request_id: 0123456789abcdef0123456789abcdef } }]
+    SetupErrorUnavailable:
+      $ref: '#/components/schemas/APIErrorEnvelope'
+      examples: [{ error: { code: setup_unavailable, message: Setup is temporarily unavailable., request_id: 0123456789abcdef0123456789abcdef } }]

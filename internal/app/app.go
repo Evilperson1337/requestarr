@@ -29,10 +29,23 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	readiness := &readinessChecker{database: pool}
 	readiness.migrationsComplete.Store(true)
 	setupStatus := setup.NewService(postgres.NewSetupStatusRepository(pool))
+	setupToken, setupConfigured := cfg.SetupToken()
+	setupBootstrap := setup.NewBootstrapService(postgres.NewSetupBootstrapRepository(pool), setupToken, setupConfigured).
+		WithCleanupFailureHandler(func() {
+			logger.Warn("setup cleanup failed", "category", "persistence_unavailable")
+		})
+	publicOrigin, err := setup.NormalizeOrigin(cfg.PublicURL)
+	if err != nil {
+		return errors.New("startup public URL policy invalid")
+	}
 
 	server := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(logger, build, readiness, setupStatus),
+		Addr: cfg.HTTPAddr,
+		Handler: httpapi.New(logger, build, readiness, setupStatus, httpapi.SetupSessionOptions{
+			Exchanger:    setupBootstrap,
+			PublicOrigin: publicOrigin,
+			SecureCookie: cfg.SetupCookieSecure(),
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

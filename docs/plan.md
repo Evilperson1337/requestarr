@@ -21,7 +21,7 @@ The repository is a coherent, buildable scaffold, not yet a production service.
 
 - A single Go entry point validates typed HTTP, logging, and required PostgreSQL URL settings without disclosing credentials, installs signal cancellation, and delegates process composition to the application package ([entry point](../cmd/requestarr/main.go), [runtime configuration](../internal/config/config.go), [application composition](../internal/app/app.go)).
 - Startup constructs and pings a long-lived `pgx` pool, applies embedded migrations before listening, and closes database resources during shutdown ([PostgreSQL adapter](../internal/store/postgres/), [embedded migrations](../db/migrations/embed.go)).
-- The HTTP server has bounded server timeouts and graceful shutdown. It exposes separate liveness and database-backed readiness probes, build information, a persistent completion-only setup-status response, and a temporary HTML root ([HTTP router](../internal/httpapi/router.go)).
+- The HTTP server has bounded server timeouts and graceful shutdown. It exposes separate liveness and database-backed readiness probes, build information, the public persistent completion-only setup gate, the temporary setup-token-to-session exchange, and a temporary HTML root ([HTTP router](../internal/httpapi/router.go)).
 - The HTTP transport now provides request correlation, stable JSON API errors for unknown routes and unsupported methods, secret-safe status-aware access logs, strict bounded JSON decoding, and a reusable no-store policy without introducing a router framework ([HTTP API package](../internal/httpapi/)).
 - Domain types and narrow integration seams exist for requests, OIDC, metadata, inventory, reconciliation, notifications, jobs, setup, and persistence under [internal packages](../internal/).
 - The initial PostgreSQL schema models users, canonical catalog items, one shared request per item, subscriptions, events, authoritative library sources, normalized inventory, notification deliveries, and resumable setup state ([initial migration](../db/migrations/000001_initial.up.sql)).
@@ -30,7 +30,7 @@ The repository is a coherent, buildable scaffold, not yet a production service.
 
 ### Missing or incomplete
 
-- Setup status reads the persistent singleton completion gate; setup mutation/bootstrap sessions and OIDC are not wired, and no API workflow writes state.
+- The public completion gate and temporary setup-session exchange are implemented. Richer session-authenticated setup reads and mutations, transactional configuration completion, OIDC, and the setup UI remain pending.
 - Provider, library, notification, and job packages are boundaries or placeholders rather than production adapters.
 - The Go server does not serve the built React application. The root route still serves scaffold HTML.
 - Production frontend artifact selection, backup/upgrade documentation, and production container validation remain outstanding.
@@ -122,16 +122,53 @@ This is the single best next task. Every V1 workflow depends on durable local st
 
 ### Phase 2 — Persistent setup state and OIDC bootstrap
 
-Implement this phase as separate reviewable increments. The first increment is the read-only persistent completion gate accepted in [D014](DECISIONS.md#d014--persistent-setup-status-read-contract-2026-08-14): unauthenticated `GET`/`HEAD /api/v1/setup/status` exposes exactly the Boolean `complete` field, requires no setup token, returns a stable non-secret unavailable error instead of guessing on repository or persisted-state failure, and uses the existing immutable `000001` singleton without a migration. Update the OpenAPI description from its scaffold shape when that runtime contract is implemented, not in advance.
+The read-only persistent completion gate accepted in [D014](DECISIONS.md#d014--persistent-setup-status-read-contract-2026-08-14) is implemented: unauthenticated `GET`/`HEAD /api/v1/setup/status` exposes exactly the Boolean `complete` field, requires no setup token, returns a stable non-secret unavailable error instead of guessing on repository or persisted-state failure, and uses the existing immutable `000001` singleton without a migration.
 
-The following increment adds the setup-token/bootstrap-session boundary and all richer setup reads or mutations. OIDC and the remaining wizard workflow should continue as independently reviewable work after that security boundary exists.
+The temporary bootstrap-session boundary governed by [D015](DECISIONS.md#d015--temporary-bootstrap-session-security-contract-2026-08-14) is also implemented in the current combined Phase 2B working tree: durable migration/persistence followed by configuration, policy, and the HTTP exchange. Richer setup reads and mutations, transactional configuration completion, OIDC, and the remaining wizard UI continue as independently reviewable increments after this security boundary.
+
+#### Phase 2B.1 — Setup session migration and persistence
+
+**Status:** Implemented in the current uncommitted combined Phase 2B working tree; validation remains required before review.
+
+**Implementation handoff**
+
+- Add append-only `000002_setup_bootstrap_sessions.up.sql` and matching local/test-only down migration exactly as specified by D015; do not edit `000001`.
+- Add focused PostgreSQL repositories for session digest creation/lookup/revocation, fixed-window rate counters, bounded cleanup, and setup security audit events. Keep transaction ownership behind setup-specific operations rather than exposing the pool or a generic repository.
+- Use PostgreSQL transaction time and row locking. Provide one exchange transaction operation that locks the setup singleton, distinguishes incomplete/complete/invalid state, atomically commits invalid-attempt counters, and atomically inserts a successful session plus audit event. Provide a completion transaction seam that can later revoke all sessions and audit completion in the same unit as final setup writes.
+- Do not add an HTTP route, cookie, token configuration, or runtime behavior in this persistence-only increment.
+
+**Acceptance criteria and required tests**
+
+- Clean PostgreSQL applies `000001` then `000002`; rerun is a no-op; expected tables, checks, foreign key, unique digest, primary key, and cleanup indexes exist; migration history is clean; down/up works only in the integration harness.
+- Constraint tests reject non-32-byte digests, invalid scopes/counts/timestamps, duplicate session digests, and duplicate rate keys for one window while allowing the same key in a later window.
+- Real-PostgreSQL concurrency tests prove atomic per-peer/global counter increments, exactly one rate-limit activation event per scope/key/window, completion locking versus exchange, and rollback without a session/event on injected failure.
+- Repository tests prove expiry/revocation checks use database time; revocation is idempotent; bounded cleanup cannot remove active rows; persisted rows contain no raw token, session, IP, cookie, CSRF, or Authorization material; and cancellation/unavailability maps to secret-safe setup errors.
+
+#### Phase 2B.2 — Token policy and session exchange endpoint
+
+**Status:** Implemented in the current uncommitted combined Phase 2B working tree; validation remains required before review.
+
+**Implementation handoff**
+
+- Extend typed environment configuration with the unexported setup token and strict production/local-public-URL cookie policy from D015. Add standard-library helpers for canonical base64url validation, HMAC domain separation, constant-time verification, cryptographic session generation, origin normalization, and canonical direct-peer IP extraction.
+- Add setup application policy around a narrow exchange transaction interface. Keep raw credentials and cookie mechanics out of PostgreSQL code, concrete SQL out of setup policy, and all method/body/header/cookie/error translation in the HTTP package.
+- Implement only `POST /api/v1/setup/session`, `Allow: POST`, the exact D015 status/code/message precedence, durable limits, the 204 cookie response, no-store behavior, and existing correlation/security middleware. Preserve D014's public status route unchanged. Update OpenAPI and deployment examples in this runtime increment, not during Phase 2B.1.
+- Do not add richer wizard reads/mutations, OIDC, reset/recovery, a logout/refresh route, proxy-header trust, CORS, new dependencies, or frontend behavior.
+
+**Acceptance criteria and required tests**
+
+- Configuration tests cover missing, malformed, padded, hex, UUID, whitespace, short, long, and non-canonical tokens; accepted 32-byte base64url; all redaction formatters/errors; HTTPS production; rejected production/non-loopback HTTP; and the exact loopback development exception.
+- Unit tests use deterministic injected randomness/clock boundaries where appropriate and prove HMAC domain separation, constant-time verifier path for accepted-format candidates, opaque 32-byte session generation, keyed session/rate digests, no raw-secret persistence parameters, origin normalization/default ports, ignored proxy headers, and direct-peer IPv4/IPv6 handling.
+- Handler tests cover exact success cookie attributes in production and local HTTP development; no body on 204; no cookie on every failure; malformed/body/content-type/method/origin/locked/completed/invalid/rate-limited/unavailable outcomes; `Retry-After`; request IDs/security headers/no-store; unchanged public status; and rejection of tokens in headers/query/cookies.
+- Real-PostgreSQL endpoint tests cover restart persistence, two application instances sharing sessions and limits, concurrent valid exchanges yielding independently valid sessions, exchange/completion ordering, token rotation invalidating old sessions, expiry/revocation/completion lockout, atomic rollback, cleanup bounds, and audit allowlists.
+- Secret-capture tests seed distinctive token/session/IP/header/body/database values and prove they are absent from logs, API bodies, audit JSON, database columns other than keyed digests, and formatted configuration/errors. Run `go test -race` over setup/config/HTTP/application/store packages plus the repository-required checks.
 
 **Scope**
 
-- Replace hard-coded setup status with the PostgreSQL-backed, completion-only public read defined by D014.
-- Implement the high-entropy setup-token bootstrap, short-lived setup session, transactional finalization, and token invalidation described in the [setup guide](SETUP_WIZARD.md) in a subsequent increment.
-- Implement OIDC discovery, authorization code flow with PKCE/state/nonce validation, secure sessions, Keycloak compatibility, role mapping, and server-side authorization.
-- Persist users by issuer/subject-compatible identity and expose only the minimum setup/auth API required by the UI.
+- The PostgreSQL-backed completion-only public read defined by D014 and the high-entropy setup-token exchange for short-lived server-side sessions defined by D015 are implemented.
+- Next, add richer session-authenticated setup reads and mutations plus transactional configuration completion and bootstrap-session revocation; do not treat the persistence completion seam alone as a complete configuration workflow.
+- Then implement OIDC discovery, authorization code flow with PKCE/state/nonce validation, secure sessions, Keycloak compatibility, role mapping, and server-side authorization.
+- Persist users by issuer/subject-compatible identity and expose only the minimum setup/auth API required by the still-pending UI.
 
 **Explicit non-goals**
 

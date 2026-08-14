@@ -80,9 +80,23 @@ make run
 
 The API starts on `http://localhost:8080` by default. `GET /healthz` is dependency-free process liveness. `GET /readyz` returns readiness only after migrations complete and a bounded PostgreSQL ping succeeds. For the full development environment, open the repository in its Dev Container. PostgreSQL, Keycloak, and Apprise API are defined in `compose.dev.yaml`; the devcontainer uses the `postgres` service hostname rather than `localhost`.
 
+### First-run bootstrap session
+
+Before OIDC setup exists, set `REQUESTARR_SETUP_TOKEN` to exactly 32 cryptographically random bytes encoded as canonical unpadded base64url (43 ASCII characters). Generate one without storing it in shell history where practical:
+
+```bash
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
+```
+
+The token is environment-only. Requestarr never generates, persists, prints, or returns it. Missing or malformed values do not prevent liveness, readiness, or the public completion-only setup status from starting; an incomplete instance instead returns `setup_locked` from `POST /api/v1/setup/session`. Accepted exchanges create independent server-side sessions with a 15-minute absolute lifetime; PostgreSQL stores only keyed digests.
+
+Production and every non-loopback deployment must configure an HTTPS `REQUESTARR_PUBLIC_URL`. The only HTTP exception is `REQUESTARR_ENV=development` with `localhost`, `127.0.0.0/8`, or `::1`. Production uses the Secure, HttpOnly, SameSite=Strict `__Host-requestarr_setup` cookie. The explicit loopback HTTP mode uses the separate non-Secure `requestarr_setup_dev` cookie. Requestarr does not trust forwarded headers for origin, cookie, or rate-limit decisions; a reverse proxy must preserve the configured public origin and terminate external TLS itself.
+
+The exchange endpoint accepts only an exact-origin JSON request; do not put the setup token in URLs, authorization headers, cookies, logs, or committed environment files. Future session-authenticated setup mutations additionally require `X-Requestarr-CSRF: 1`. Changing the token while setup is incomplete revokes practical use of existing setup sessions but is not a reset workflow. Completed setup remains complete regardless of later token changes.
+
 Production startup migration is forward-only. Existing down migrations are retained for explicit development recovery, but the application never invokes them. Back up PostgreSQL before upgrades and roll back application binaries only when they remain schema-compatible; otherwise restore a tested backup.
 
-Migration advisory-lock acquisition is bounded by both golang-migrate's 15-second client guard and PostgreSQL's 15-second session `lock_timeout`. The runner API cannot attach a caller context directly to `Up`; cancellation is therefore graceful between migration files, while each migration operation is independently bounded by a 60-second statement timeout. With the current single migration, cancellation during SQL execution is enforced by that statement bound rather than immediately by the process context.
+Migration advisory-lock acquisition is bounded by both golang-migrate's 15-second client guard and PostgreSQL's 15-second session `lock_timeout`. The runner API cannot attach a caller context directly to `Up`; cancellation is therefore graceful between migration files, while each migration operation is independently bounded by a 60-second statement timeout. During execution of any individual migration file, cancellation is enforced by that statement bound rather than immediately by the process context.
 
 The frontend scaffold lives under `web/`:
 

@@ -78,16 +78,6 @@ func Up(ctx context.Context, databaseURL string) error {
 	if err != nil {
 		return errors.New("embedded migration source has no versions")
 	}
-	current, dirty, err := migrator.Version()
-	if err != nil && !errors.Is(err, gomigrate.ErrNilVersion) {
-		return errors.New("migration history read failed")
-	}
-	if dirty {
-		return errors.New("migration history is dirty")
-	}
-	if err == nil && current > latest {
-		return fmt.Errorf("migration history version is newer than this binary")
-	}
 
 	stop := make(chan struct{})
 	go func() {
@@ -102,6 +92,18 @@ func Up(ctx context.Context, databaseURL string) error {
 	}()
 	err = migrator.Up()
 	close(stop)
+	// Read history only after Up has acquired and released the migration lock.
+	// Reading it before Up races with another migrator's transient dirty marker.
+	current, dirty, versionErr := migrator.Version()
+	if versionErr != nil && !errors.Is(versionErr, gomigrate.ErrNilVersion) {
+		return errors.New("migration history read failed")
+	}
+	if dirty {
+		return errors.New("migration history is dirty")
+	}
+	if versionErr == nil && current > latest {
+		return fmt.Errorf("migration history version is newer than this binary")
+	}
 	if err == nil || errors.Is(err, gomigrate.ErrNoChange) {
 		return nil
 	}

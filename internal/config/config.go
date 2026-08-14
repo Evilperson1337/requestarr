@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,16 +20,20 @@ type Config struct {
 	PublicURL   string
 	LogLevelRaw string
 	databaseURL string
+	setupToken  [32]byte
+	setupReady  bool
 }
 
 func FromEnv() Config {
-	return Config{
+	cfg := Config{
 		Environment: env("REQUESTARR_ENV", "development"),
 		HTTPAddr:    env("REQUESTARR_HTTP_ADDR", ":8080"),
 		PublicURL:   env("REQUESTARR_PUBLIC_URL", "http://localhost:8080"),
 		LogLevelRaw: env("REQUESTARR_LOG_LEVEL", "info"),
 		databaseURL: os.Getenv("REQUESTARR_DATABASE_URL"),
 	}
+	cfg.setupToken, cfg.setupReady = parseSetupToken(os.Getenv("REQUESTARR_SETUP_TOKEN"))
+	return cfg
 }
 
 func (c Config) Validate() error {
@@ -50,6 +55,9 @@ func (c Config) Validate() error {
 	if err := validateDatabaseURL(c.databaseURL); err != nil {
 		problems = append(problems, err.Error())
 	}
+	if err := validatePublicURL(c.Environment, c.PublicURL); err != nil {
+		problems = append(problems, err.Error())
+	}
 
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
@@ -63,9 +71,22 @@ func (c Config) DatabaseURL() string {
 	return c.databaseURL
 }
 
+// SetupToken returns decoded bootstrap key material only to the application
+// composition boundary. A false result is the intentional fail-closed locked
+// state for either an absent or malformed deployment token.
+func (c Config) SetupToken() ([32]byte, bool) {
+	return c.setupToken, c.setupReady
+}
+
+// SetupCookieSecure reports the validated environment-selected cookie policy.
+func (c Config) SetupCookieSecure() bool {
+	parsed, err := url.Parse(c.PublicURL)
+	return err == nil && parsed.Scheme == "https"
+}
+
 // String deliberately excludes secret-bearing configuration.
 func (c Config) String() string {
-	return fmt.Sprintf("Config{Environment:%q HTTPAddr:%q PublicURL:%q LogLevelRaw:%q DatabaseURL:<redacted>}", c.Environment, c.HTTPAddr, c.PublicURL, c.LogLevelRaw)
+	return fmt.Sprintf("Config{Environment:%q HTTPAddr:%q PublicURL:%q LogLevelRaw:%q DatabaseURL:<redacted> SetupToken:<redacted>}", c.Environment, c.HTTPAddr, c.PublicURL, c.LogLevelRaw)
 }
 
 // GoString prevents %#v diagnostics from exposing the database URL.
@@ -116,4 +137,42 @@ func validateDatabaseURL(value string) error {
 	}
 
 	return nil
+}
+
+func parseSetupToken(value string) ([32]byte, bool) {
+	var token [32]byte
+	if len(value) != base64.RawURLEncoding.EncodedLen(len(token)) {
+		return token, false
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil || len(decoded) != len(token) || base64.RawURLEncoding.EncodeToString(decoded) != value {
+		return token, false
+	}
+	copy(token[:], decoded)
+	return token, true
+}
+
+func validatePublicURL(environment, value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || !parsed.IsAbs() || parsed.Opaque != "" || parsed.User != nil || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("REQUESTARR_PUBLIC_URL must be an absolute origin without credentials, path, query, or fragment")
+	}
+	if parsed.Scheme == "https" {
+		return nil
+	}
+	if parsed.Scheme != "http" {
+		return errors.New("REQUESTARR_PUBLIC_URL must use https, except for loopback HTTP in development")
+	}
+	if !strings.EqualFold(environment, "development") || !loopbackHost(parsed.Hostname()) {
+		return errors.New("REQUESTARR_PUBLIC_URL must use https, except for loopback HTTP in development")
+	}
+	return nil
+}
+
+func loopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
