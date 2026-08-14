@@ -88,18 +88,27 @@ paths:
       - $ref: '#/components/parameters/RequestID'
     get:
       operationId: getSetupStatus
+      summary: Read the persistent setup completion gate
+      description: >-
+        Public completion-only signal used to choose setup or normal login. It
+        requires neither OIDC authentication nor a setup token and discloses no
+        current step, draft, configuration, or validation state.
       responses:
         '200':
-          description: First-run setup state
+          description: Persisted setup completion state; complete may be false or true
           headers:
             X-Request-ID:
               $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SetupStatus'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
+        '503':
+          $ref: '#/components/responses/SetupStatusUnavailable'
     head:
       operationId: headSetupStatus
       responses:
@@ -108,8 +117,12 @@ paths:
           headers:
             X-Request-ID:
               $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
+        '503':
+          $ref: '#/components/responses/SetupStatusUnavailableHead'
 components:
   parameters:
     RequestID:
@@ -137,6 +150,12 @@ components:
       schema:
         type: string
         const: GET, HEAD
+    NoStore:
+      description: Prevents storage of the public setup-routing signal or its errors.
+      required: true
+      schema:
+        type: string
+        const: no-store
   responses:
     MethodNotAllowed:
       description: The resource exists but does not support the requested method.
@@ -149,6 +168,24 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/APIErrorEnvelope'
+    SetupStatusUnavailable:
+      description: Persisted setup state is unavailable or invalid.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SetupStatusUnavailableError'
+    SetupStatusUnavailableHead:
+      description: Persisted setup state is unavailable or invalid; no response body is sent.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
   schemas:
     APIErrorEnvelope:
       type: object
@@ -162,7 +199,7 @@ components:
           properties:
             code:
               type: string
-              enum: [not_found, method_not_allowed]
+              enum: [not_found, method_not_allowed, setup_status_unavailable]
             message: { type: string }
             request_id: { type: string }
     Liveness:
@@ -187,7 +224,29 @@ components:
     SetupStatus:
       type: object
       additionalProperties: false
-      required: [complete, scaffold]
+      required: [complete]
       properties:
-        complete: { type: boolean, const: false }
-        scaffold: { type: boolean, const: true }
+        complete:
+          type: boolean
+          description: False while setup is incomplete and true after completion.
+      examples:
+        - complete: false
+        - complete: true
+    SetupStatusUnavailableError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          properties:
+            code: { type: string, const: setup_status_unavailable }
+            message: { type: string, const: Setup status is temporarily unavailable. }
+            request_id: { type: string }
+      examples:
+        - error:
+            code: setup_status_unavailable
+            message: Setup status is temporarily unavailable.
+            request_id: 0123456789abcdef0123456789abcdef

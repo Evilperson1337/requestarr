@@ -11,6 +11,7 @@ import (
 	"git.example.com/evilperson1337/Requestarr/internal/buildinfo"
 	"git.example.com/evilperson1337/Requestarr/internal/config"
 	"git.example.com/evilperson1337/Requestarr/internal/httpapi"
+	"git.example.com/evilperson1337/Requestarr/internal/setup"
 	"git.example.com/evilperson1337/Requestarr/internal/store/postgres"
 	postgresmigrations "git.example.com/evilperson1337/Requestarr/internal/store/postgres/migrations"
 )
@@ -27,10 +28,11 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	}
 	readiness := &readinessChecker{database: pool}
 	readiness.migrationsComplete.Store(true)
+	setupStatus := setup.NewService(postgres.NewSetupStatusRepository(pool))
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(logger, build, readiness),
+		Handler:           httpapi.New(logger, build, readiness, setupStatus),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

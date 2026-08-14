@@ -72,6 +72,17 @@ func TestRunStartsAfterMigrationAndStopsOnCancellation(t *testing.T) {
 		time.Sleep(25 * time.Millisecond)
 	}
 
+	t.Setenv("REQUESTARR_SETUP_TOKEN", "must-not-be-read")
+	response, err := client.Get("http://" + address + "/api/v1/setup/status")
+	if err != nil {
+		t.Fatalf("read setup status through application wiring: %v", err)
+	}
+	body, readErr := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if readErr != nil || response.StatusCode != http.StatusOK || string(body) != "{\"complete\":false}\n" {
+		t.Fatalf("setup status = %d %q, read error %v", response.StatusCode, body, readErr)
+	}
+
 	cancel()
 	select {
 	case err := <-done:

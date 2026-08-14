@@ -9,11 +9,19 @@ import (
 	"git.example.com/evilperson1337/Requestarr/internal/buildinfo"
 )
 
-const readinessTimeout = 2 * time.Second
+const (
+	readinessTimeout   = 2 * time.Second
+	setupStatusTimeout = 2 * time.Second
+)
 
 // ReadinessChecker is owned by the HTTP consumer and hides concrete database details.
 type ReadinessChecker interface {
 	Ready(context.Context) error
+}
+
+// SetupStatusReader exposes only the public setup completion signal.
+type SetupStatusReader interface {
+	Complete(context.Context) (bool, error)
 }
 
 type probeResponse struct {
@@ -21,7 +29,11 @@ type probeResponse struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-func New(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker) http.Handler {
+type setupStatusResponse struct {
+	Complete bool `json:"complete"`
+}
+
+func New(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, setupStatus SetupStatusReader) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -46,13 +58,24 @@ func New(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker) 
 		}
 		writeJSON(w, http.StatusOK, build)
 	})
-	mux.HandleFunc("/api/v1/setup/status", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/setup/status", noStore(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			writeMethodNotAllowed(w, r, http.MethodGet, http.MethodHead)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"complete": false, "scaffold": true})
-	})
+		if setupStatus == nil {
+			writeAPIError(w, r, http.StatusServiceUnavailable, "setup_status_unavailable", "Setup status is temporarily unavailable.")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), setupStatusTimeout)
+		defer cancel()
+		complete, err := setupStatus.Complete(ctx)
+		if err != nil {
+			writeAPIError(w, r, http.StatusServiceUnavailable, "setup_status_unavailable", "Setup status is temporarily unavailable.")
+			return
+		}
+		writeJSON(w, http.StatusOK, setupStatusResponse{Complete: complete})
+	})))
 	mux.HandleFunc("/api/v1", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, http.StatusNotFound, "not_found", "The requested API resource was not found.")
 	})

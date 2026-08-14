@@ -102,3 +102,35 @@ First run guides General -> Authentication -> Metadata Providers -> Libraries ->
 - Phase 1 adds only the canonical module-path correction, selected dependencies, typed database configuration, PostgreSQL pool/migration adapters, startup wiring, probes, and focused tests/documentation described in the roadmap. It adds no repositories or product workflow.
 - The persistence engineer must preserve `internal/app` as the composition root, keep probe transport in `internal/httpapi`, keep concrete PostgreSQL details under `internal/store/postgres`, and expose narrow consumer-owned interfaces rather than a generic store abstraction.
 - No blocker remains if `git.example.com/evilperson1337/Requestarr` is the intended durable module path. A different intended import path is the only decision that must be answered before implementation begins.
+
+## D014 — Persistent setup-status read contract (2026-08-14)
+
+**Status:** Accepted for the next narrow setup increment after the Phase 1 foundation.
+
+**Scope:** This decision resolves only the persistent, read-only setup-completion gate used by a client to choose setup versus normal login. It does not implement setup bootstrap sessions, setup mutation, OIDC, or the complete wizard.
+
+### Public disclosure and HTTP contract
+
+- `GET /api/v1/setup/status` remains callable without OIDC authentication or a setup bootstrap session because a client must choose whether to route to setup or login before either flow is available.
+- A successful response is exactly HTTP 200, `Content-Type: application/json`, and `{"complete":false}` or `{"complete":true}`. `complete` is the only response field. Current step, resumable draft, validation results, configured values, and secret-bearing state are never disclosed by this public endpoint.
+- `HEAD /api/v1/setup/status` has the same status and headers as `GET` and no response body. Other methods retain the existing HTTP 405 API error behavior and `Allow: GET, HEAD`. Successful and failed responses retain the existing request-correlation and no-store/security-header behavior.
+- This read-only increment neither consumes nor requires `REQUESTARR_SETUP_TOKEN`. Token validation, short-lived bootstrap-session issuance, authorization of setup reads beyond completion, locked mutation after completion, token invalidation, and reset/recovery behavior belong to the next bootstrap-session increment. This exception for completion disclosure does not make the setup wizard or any setup mutation anonymously accessible.
+
+### Persistence and invalid-state behavior
+
+- Read `complete` from the one row identified by `setup_state.singleton = TRUE`; do not derive completion from current step, draft content, configuration tables, OIDC availability, or external-service validation.
+- Exactly one singleton row with a valid non-null Boolean completion value is required. A missing row, duplicate/impossible singleton result, scan/type failure, or otherwise invalid persisted setup state fails explicitly and safely; it must not be interpreted as either complete or incomplete and must not route callers into an unprotected setup flow.
+- A repository/database failure and invalid persisted state both return HTTP 503 through the standard JSON API error envelope with stable code `setup_status_unavailable` and non-secret message `Setup status is temporarily unavailable.` The response must not expose SQL, driver text, schema details, current step, draft, configuration, credentials, or tokens. Internal diagnostics may distinguish failure categories but must remain secret-safe.
+- Do not cache or substitute a default when the authoritative read fails. The client must show an unavailable/retry state rather than guessing setup or login.
+
+### Schema and implementation boundary
+
+- The existing `setup_state` singleton in migration `000001` already supports this read. Migration `000001` remains immutable and this increment adds no migration.
+- Keep the setup-state read behind a narrow consumer-owned interface. The PostgreSQL implementation belongs under `internal/store/postgres`; setup semantics remain under `internal/setup`; `internal/app` wires the concrete dependency; and `internal/httpapi` owns only HTTP method, response, and error translation.
+- The implementation increment must replace the scaffold response and remove the public `scaffold` field, update the OpenAPI contract in the same change, and add focused repository, handler, application-wiring, and real-PostgreSQL tests. It must not add setup writes, token/session behavior, schema changes, or dependencies.
+
+### Consequences and implementation handoff
+
+- The browser receives only the minimum pre-authentication routing signal. Resumability remains a requirement, but resuming at a particular step requires a future authorized bootstrap-session API.
+- Required failure-path coverage includes incomplete and complete singleton reads; unauthenticated access; exact response shape with no extra fields; `HEAD`; unsupported methods; missing/invalid persisted state; unavailable/cancelled database operations; secret-safe errors; and proof that no setup token is read or required.
+- The next bootstrap-session increment must preserve this public completion-only read while requiring the temporary setup capability for every richer setup read, validation action, and mutation, and while rejecting mutations after completion except through an explicitly designed recovery path.

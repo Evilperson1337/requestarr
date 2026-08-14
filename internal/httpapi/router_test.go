@@ -20,6 +20,10 @@ type checkerFunc func(context.Context) error
 
 func (f checkerFunc) Ready(ctx context.Context) error { return f(ctx) }
 
+type setupStatusFunc func(context.Context) (bool, error)
+
+func (f setupStatusFunc) Complete(ctx context.Context) (bool, error) { return f(ctx) }
+
 func TestHealthzIsDependencyFree(t *testing.T) {
 	called := false
 	handler := testHandler(checkerFunc(func(context.Context) error {
@@ -226,7 +230,7 @@ func TestRequestID(t *testing.T) {
 }
 
 func TestRequestIDPropagatesOnEveryResponseClass(t *testing.T) {
-	for _, path := range []string{"/", "/missing", "/healthz", "/readyz", "/api/v1/version", "/api/v1/missing"} {
+	for _, path := range []string{"/", "/missing", "/healthz", "/readyz", "/api/v1/version", "/api/v1/setup/status", "/api/v1/missing"} {
 		t.Run(path, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, path, nil)
 			request.Header.Set(requestIDHeader, "propagated-request-id")
@@ -243,7 +247,7 @@ func TestRequestIDPropagatesOnEveryResponseClass(t *testing.T) {
 func TestAccessLogCapturesStatusWithoutSecrets(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	handler := New(logger, buildinfo.Info{}, nil)
+	handler := New(logger, buildinfo.Info{}, nil, successfulSetupStatus(false))
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/version?token=query-secret", strings.NewReader("body-secret"))
 	request.Header.Set("Authorization", "Bearer header-secret")
 	request.Header.Set("Cookie", "session=cookie-secret")
@@ -268,7 +272,7 @@ func TestAccessLogCapturesStatusWithoutSecrets(t *testing.T) {
 func TestAccessLogUsesRoutePatternInsteadOfCallerPath(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	handler := New(logger, buildinfo.Info{}, nil)
+	handler := New(logger, buildinfo.Info{}, nil, successfulSetupStatus(false))
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/missing/path-secret?token=query-secret", nil)
 
 	handler.ServeHTTP(httptest.NewRecorder(), request)
@@ -338,7 +342,7 @@ func TestStatusWriterSupportsResponseController(t *testing.T) {
 }
 
 func TestSecurityHeadersRemainOnAllPaths(t *testing.T) {
-	for _, path := range []string{"/", "/missing", "/healthz", "/api/v1/missing"} {
+	for _, path := range []string{"/", "/missing", "/healthz", "/api/v1/setup/status", "/api/v1/missing"} {
 		t.Run(path, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			testHandler(nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
@@ -355,20 +359,155 @@ func TestSecurityHeadersRemainOnAllPaths(t *testing.T) {
 	}
 }
 
-func TestScaffoldResponsesRemainStable(t *testing.T) {
+func TestSetupStatusReturnsExactCompletionOnlyResponse(t *testing.T) {
 	tests := []struct {
-		path string
-		body string
+		name     string
+		complete bool
+		body     string
 	}{
-		{path: "/api/v1/version", body: `{"version":"","commit":"","date":""}`},
-		{path: "/api/v1/setup/status", body: `{"complete":false,"scaffold":true}`},
+		{name: "incomplete", body: `{"complete":false}`},
+		{name: "complete", complete: true, body: `{"complete":true}`},
 	}
 	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			response := httptest.NewRecorder()
-			testHandler(nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			testHandlerWithSetup(nil, successfulSetupStatus(tt.complete)).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil))
 			assertJSONResponse(t, response, http.StatusOK, tt.body)
+			if got := response.Header().Get("Cache-Control"); got != "no-store" {
+				t.Fatalf("Cache-Control = %q, want no-store", got)
+			}
 		})
+	}
+}
+
+func TestVersionScaffoldResponseRemainsStable(t *testing.T) {
+	response := httptest.NewRecorder()
+	testHandler(nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/version", nil))
+	assertJSONResponse(t, response, http.StatusOK, `{"version":"","commit":"","date":""}`)
+}
+
+func TestSetupStatusUnavailableIsSafe(t *testing.T) {
+	secret := "postgres://user:password@database/requestarr"
+	tests := []struct {
+		name   string
+		reader SetupStatusReader
+	}{
+		{name: "missing reader"},
+		{name: "invalid persisted state", reader: setupStatusFunc(func(context.Context) (bool, error) { return false, errors.New("malformed step: " + secret) })},
+		{name: "database error", reader: setupStatusFunc(func(context.Context) (bool, error) { return false, errors.New(secret) })},
+		{name: "canceled", reader: setupStatusFunc(func(context.Context) (bool, error) { return false, context.Canceled })},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			testHandlerWithSetup(nil, tt.reader).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil))
+			assertAPIError(t, response, http.StatusServiceUnavailable, "setup_status_unavailable")
+			if strings.Contains(response.Body.String(), secret) || strings.Contains(response.Body.String(), "malformed") {
+				t.Fatalf("response exposed internal error: %s", response.Body.String())
+			}
+			var envelope apiErrorEnvelope
+			if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode error: %v", err)
+			}
+			if envelope.Error.Message != "Setup status is temporarily unavailable." {
+				t.Fatalf("message = %q", envelope.Error.Message)
+			}
+			if got := response.Header().Get("Cache-Control"); got != "no-store" {
+				t.Fatalf("Cache-Control = %q, want no-store", got)
+			}
+		})
+	}
+}
+
+func TestSetupStatusFailureRetainsTransportMiddleware(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	handler := New(logger, buildinfo.Info{}, nil, setupStatusFunc(func(context.Context) (bool, error) {
+		return false, errors.New("postgres://user:password@database/requestarr")
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status?token=query-secret", nil)
+	request.Header.Set(requestIDHeader, "setup-request-id")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	assertAPIError(t, response, http.StatusServiceUnavailable, "setup_status_unavailable")
+	if got := response.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+	for name, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "same-origin",
+	} {
+		if got := response.Header().Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	line := logs.String()
+	for _, want := range []string{`"request_id":"setup-request-id"`, `"route":"/api/v1/setup/status"`, `"status":503`} {
+		if !strings.Contains(line, want) {
+			t.Errorf("log %q does not contain %q", line, want)
+		}
+	}
+	for _, secret := range []string{"password", "query-secret", "token="} {
+		if strings.Contains(line, secret) {
+			t.Errorf("log contains secret-bearing value %q: %s", secret, line)
+		}
+	}
+}
+
+func TestSetupStatusUnavailableHEADHasNoWireBody(t *testing.T) {
+	server := httptest.NewServer(testHandlerWithSetup(nil, setupStatusFunc(func(context.Context) (bool, error) {
+		return false, errors.New("unavailable")
+	})))
+	t.Cleanup(server.Close)
+	request, err := http.NewRequest(http.MethodHead, server.URL+"/api/v1/setup/status", nil)
+	if err != nil {
+		t.Fatalf("construct HEAD request: %v", err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("perform HEAD request: %v", err)
+	}
+	body, readErr := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if readErr != nil || response.StatusCode != http.StatusServiceUnavailable || len(body) != 0 {
+		t.Fatalf("HEAD unavailable = status %d body %q read error %v", response.StatusCode, body, readErr)
+	}
+}
+
+func TestSetupStatusReadHasBoundedDeadline(t *testing.T) {
+	reader := setupStatusFunc(func(ctx context.Context) (bool, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("setup status context has no deadline")
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 || remaining > setupStatusTimeout {
+			t.Fatalf("setup status deadline remaining = %v, want within (0, %v]", remaining, setupStatusTimeout)
+		}
+		return false, context.DeadlineExceeded
+	})
+	response := httptest.NewRecorder()
+	testHandlerWithSetup(nil, reader).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil))
+	assertAPIError(t, response, http.StatusServiceUnavailable, "setup_status_unavailable")
+}
+
+func TestSetupStatusRejectsUnsupportedMethodWithoutReading(t *testing.T) {
+	called := false
+	reader := setupStatusFunc(func(context.Context) (bool, error) {
+		called = true
+		return false, nil
+	})
+	response := httptest.NewRecorder()
+	testHandlerWithSetup(nil, reader).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/setup/status", nil))
+	assertAPIError(t, response, http.StatusMethodNotAllowed, "method_not_allowed")
+	if called {
+		t.Fatal("unsupported method read setup state")
+	}
+	if got := response.Header().Values("Allow"); len(got) != 2 || got[0] != http.MethodGet || got[1] != http.MethodHead {
+		t.Fatalf("Allow = %v, want [GET HEAD]", got)
 	}
 }
 
@@ -409,8 +548,16 @@ func TestNonAPIAndProbeBehaviorRemainStable(t *testing.T) {
 }
 
 func testHandler(checker ReadinessChecker) http.Handler {
+	return testHandlerWithSetup(checker, successfulSetupStatus(false))
+}
+
+func testHandlerWithSetup(checker ReadinessChecker, setupStatus SetupStatusReader) http.Handler {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return New(logger, buildinfo.Info{}, checker)
+	return New(logger, buildinfo.Info{}, checker, setupStatus)
+}
+
+func successfulSetupStatus(complete bool) SetupStatusReader {
+	return setupStatusFunc(func(context.Context) (bool, error) { return complete, nil })
 }
 
 func assertJSONResponse(t *testing.T, response *httptest.ResponseRecorder, wantStatus int, wantBody string) {
