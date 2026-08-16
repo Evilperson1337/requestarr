@@ -39,8 +39,8 @@ func TestEmbeddedMigrationsCleanAndIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT version, dirty FROM schema_migrations`).Scan(&version, &dirty); err != nil {
 		t.Fatalf("read migration history: %v", err)
 	}
-	if version != 4 || dirty {
-		t.Fatalf("migration state = version %d dirty %t, want version 4 clean", version, dirty)
+	if version != 5 || dirty {
+		t.Fatalf("migration state = version %d dirty %t, want version 5 clean", version, dirty)
 	}
 
 	for _, table := range []string{"users", "catalog_items", "requests", "request_subscriptions", "request_events", "library_sources", "inventory_items", "notification_deliveries", "setup_state", "setup_sessions", "setup_exchange_rate_limits", "setup_security_events", "setup_workflow_events", "encryption_key_registry", "encrypted_secrets"} {
@@ -103,6 +103,50 @@ func TestEncryptedSecretsMigrationFromExactV3AndRollbackReapply(t *testing.T) {
 		t.Fatalf("reapply v4 after rollback: %v", err)
 	}
 	assertEncryptedSecretsSchema(t, ctx, pool, schema)
+}
+
+func TestAuthenticationAuditMigrationExactV4RollbackSafety(t *testing.T) {
+	databaseURL, _, pool := isolatedDatabase(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, name := range []string{"000001_initial.up.sql", "000002_setup_bootstrap_sessions.up.sql", "000003_setup_workflow_events.up.sql", "000004_encrypted_secrets.up.sql"} {
+		migration, err := fs.ReadFile(embedded.Files, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(migration)); err != nil {
+			t.Fatalf("apply %s: %v", name, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `CREATE TABLE schema_migrations (version bigint NOT NULL PRIMARY KEY, dirty boolean NOT NULL); INSERT INTO schema_migrations VALUES (4, false)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Up(ctx, databaseURL); err != nil {
+		t.Fatalf("exact v4 to v5: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO setup_workflow_events(event_type,created_at) VALUES ('authentication_saved',clock_timestamp())`); err != nil {
+		t.Fatalf("authentication event not allowlisted: %v", err)
+	}
+	down, err := fs.ReadFile(embedded.Files, "000005_setup_authentication_saved.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(down)); err == nil {
+		t.Fatal("v5 rollback deleted authentication audit history")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM setup_workflow_events WHERE event_type='authentication_saved'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(down)); err != nil {
+		t.Fatalf("clean v5 rollback: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET version=4,dirty=false`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Up(ctx, databaseURL); err != nil {
+		t.Fatalf("reapply v5: %v", err)
+	}
+	assertConstraintFailure(t, ctx, pool, `INSERT INTO setup_workflow_events(event_type,created_at) VALUES ('not_allowed',clock_timestamp())`)
 }
 
 func TestSetupWorkflowAuditMigrationFromExactV2AndRollback(t *testing.T) {
@@ -336,7 +380,7 @@ func TestEmbeddedMigrationsRejectDirtyAndAheadHistory(t *testing.T) {
 		wantError string
 	}{
 		{name: "dirty", version: 1, dirty: true, wantError: "migration history is dirty"},
-		{name: "ahead", version: 5, wantError: "migration history version is newer than this binary"},
+		{name: "ahead", version: 6, wantError: "migration history version is newer than this binary"},
 	}
 
 	for _, tt := range tests {

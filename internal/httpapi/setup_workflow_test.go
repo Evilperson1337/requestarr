@@ -27,6 +27,10 @@ func (p workflowErrorPersistence) SaveGeneral(context.Context, setup.Digest, set
 	return setup.WorkflowResult{}, p.err
 }
 
+func (p workflowErrorPersistence) SaveAuthentication(context.Context, setup.Digest, setup.Authentication, setup.SecretOperation) (setup.WorkflowResult, error) {
+	return setup.WorkflowResult{}, p.err
+}
+
 type setupWorkflowFake struct {
 	mu          sync.Mutex
 	stateResult setup.WorkflowResult
@@ -35,6 +39,9 @@ type setupWorkflowFake struct {
 	general     setup.General
 	stateCalls  int
 	putCalls    int
+	authCalls   int
+	auth        setup.Authentication
+	secretKind  setup.SecretOperationKind
 }
 
 func (f *setupWorkflowFake) State(_ context.Context, session string) setup.WorkflowResult {
@@ -53,10 +60,66 @@ func (f *setupWorkflowFake) PutGeneral(_ context.Context, session string, genera
 	return f.putResult
 }
 
+func (f *setupWorkflowFake) PutAuthentication(_ context.Context, session string, authentication setup.Authentication, operation setup.SecretOperation) setup.WorkflowResult {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.session = session
+	f.authCalls++
+	f.auth = authentication
+	f.secretKind = operation.Kind()
+	return f.putResult
+}
+
 func (f *setupWorkflowFake) calls() (int, int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.stateCalls, f.putCalls
+}
+
+func TestSetupAuthenticationContract(t *testing.T) {
+	base := `{"issuer":"https://id.example.com/realms/main","client_id":"requestarr","client_type":"confidential","scopes":["openid"],"groups_claim":"groups","default_role":"viewer","group_role_mappings":[],"client_secret_operation":"replace","client_secret":"distinctive-secret"}`
+	request := func(body string) *http.Request {
+		r := httptest.NewRequest(http.MethodPut, "/api/v1/setup/authentication", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", "https://example.com")
+		r.Header.Set("X-Requestarr-CSRF", "1")
+		r.AddCookie(&http.Cookie{Name: "__Host-requestarr_setup", Value: httpSessionValue()})
+		return r
+	}
+	fake := &setupWorkflowFake{putResult: setup.WorkflowResult{Outcome: setup.WorkflowAvailable, State: setup.WorkflowState{Current: setup.StepProviders, ClientSecretConfigured: true}}}
+	response := httptest.NewRecorder()
+	handlerWithSetupWorkflow(fake).ServeHTTP(response, request(base))
+	if response.Code != http.StatusOK || fake.authCalls != 1 || fake.auth.ClientType != setup.ClientTypeConfidential || fake.secretKind != setup.SecretReplace {
+		t.Fatalf("valid Authentication result status=%d calls=%d auth=%#v operation=%d", response.Code, fake.authCalls, fake.auth, fake.secretKind)
+	}
+	if strings.Contains(response.Body.String(), "distinctive-secret") || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("Authentication response leaked secret or omitted no-store")
+	}
+
+	invalid := []string{
+		strings.Replace(base, `"client_type":"confidential"`, `"client_type":"public"`, 1),
+		strings.Replace(strings.Replace(base, `"client_type":"confidential"`, `"client_type":"public"`, 1), `"client_secret_operation":"replace","client_secret":"distinctive-secret"`, `"client_secret_operation":"preserve"`, 1),
+		strings.Replace(base, `"client_secret_operation":"replace","client_secret":"distinctive-secret"`, `"client_secret_operation":"clear"`, 1),
+		strings.Replace(base, `"issuer":"https://id.example.com/realms/main"`, `"issuer":"https://id.example.com","issuer":"https://evil.example.com"`, 1),
+		strings.Replace(base, `"group_role_mappings":[]`, `"group_role_mappings":[{"group":"users","group":"admins","role":"viewer"}]`, 1),
+	}
+	for _, body := range invalid {
+		got := httptest.NewRecorder()
+		handlerWithSetupWorkflow(&setupWorkflowFake{}).ServeHTTP(got, request(body))
+		if got.Code != http.StatusBadRequest && got.Code != http.StatusUnprocessableEntity {
+			t.Errorf("invalid combination status=%d body=%s", got.Code, got.Body.String())
+		}
+		if strings.Contains(got.Body.String(), "distinctive-secret") {
+			t.Fatal("error response leaked secret")
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPatch, http.MethodDelete, http.MethodOptions} {
+		got := httptest.NewRecorder()
+		handlerWithSetupWorkflow(fake).ServeHTTP(got, httptest.NewRequest(method, "/api/v1/setup/authentication", nil))
+		if got.Code != http.StatusMethodNotAllowed || got.Header().Get("Allow") != http.MethodPut {
+			t.Errorf("%s status=%d Allow=%q", method, got.Code, got.Header().Get("Allow"))
+		}
+	}
 }
 
 func TestSetupStateRequiresSessionButNotOriginOrCSRF(t *testing.T) {

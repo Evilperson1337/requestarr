@@ -453,7 +453,7 @@ func TestSetupCleanupBoundsSessionsAndProtectsRecentRevocations(t *testing.T) {
 
 func TestSetupWorkflowGeneralIsResumableIdempotentAndMonotonic(t *testing.T) {
 	bootstrap, pool := isolatedSetupRepository(t)
-	repository := NewSetupWorkflowRepository(bootstrap.pool)
+	repository := NewSetupWorkflowRepository(bootstrap.pool, nil, nil)
 	ctx := context.Background()
 	sessionDigest := digest(211)
 	_, err := pool.Exec(ctx, `INSERT INTO setup_sessions (id, token_digest, created_at, expires_at)
@@ -491,7 +491,7 @@ func TestSetupWorkflowGeneralIsResumableIdempotentAndMonotonic(t *testing.T) {
 		t.Fatalf("resumable read failed: %#v, %v", read, err)
 	}
 
-	restarted := NewSetupWorkflowRepository(bootstrap.pool)
+	restarted := NewSetupWorkflowRepository(bootstrap.pool, nil, nil)
 	read, err = restarted.ReadWorkflow(ctx, sessionDigest)
 	if err != nil || read.State.General == nil || *read.State.General != general {
 		t.Fatalf("restart resumability failed: %#v, %v", read, err)
@@ -500,7 +500,7 @@ func TestSetupWorkflowGeneralIsResumableIdempotentAndMonotonic(t *testing.T) {
 
 func TestSetupWorkflowSaveWaitsThenRejectsExpiredSessionWithoutWrite(t *testing.T) {
 	bootstrap, pool := isolatedSetupRepository(t)
-	repository := NewSetupWorkflowRepository(bootstrap.pool)
+	repository := NewSetupWorkflowRepository(bootstrap.pool, nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	digest := digest(214)
@@ -544,7 +544,7 @@ func TestSetupWorkflowSaveWaitsThenRejectsExpiredSessionWithoutWrite(t *testing.
 
 func TestSetupWorkflowRevokedExpiredConcurrentAndCanceledSaves(t *testing.T) {
 	bootstrap, pool := isolatedSetupRepository(t)
-	repository := NewSetupWorkflowRepository(bootstrap.pool)
+	repository := NewSetupWorkflowRepository(bootstrap.pool, nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for seed, state := range map[byte]string{215: "revoked", 216: "expired"} {
@@ -612,7 +612,7 @@ func TestSetupWorkflowRevokedExpiredConcurrentAndCanceledSaves(t *testing.T) {
 
 func TestSetupWorkflowSaveSerializesWithCompletion(t *testing.T) {
 	bootstrap, pool := isolatedSetupRepository(t)
-	workflow := NewSetupWorkflowRepository(bootstrap.pool)
+	workflow := NewSetupWorkflowRepository(bootstrap.pool, nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := digest(218)
@@ -649,7 +649,7 @@ func TestSetupWorkflowSaveSerializesWithCompletion(t *testing.T) {
 
 func TestSetupWorkflowCompletedMutationPrecedesCompletionRevocation(t *testing.T) {
 	bootstrap, pool := isolatedSetupRepository(t)
-	workflow := NewSetupWorkflowRepository(bootstrap.pool)
+	workflow := NewSetupWorkflowRepository(bootstrap.pool, nil, nil)
 	ctx := context.Background()
 	d := digest(219)
 	if _, err := pool.Exec(ctx, `INSERT INTO setup_sessions (id,token_digest,created_at,expires_at)
@@ -688,7 +688,7 @@ func TestSetupWorkflowCompletedMutationPrecedesCompletionRevocation(t *testing.T
 
 func TestSetupWorkflowAuthorizationCompletionAndStrictDraft(t *testing.T) {
 	bootstrap, pool := isolatedSetupRepository(t)
-	repository := NewSetupWorkflowRepository(bootstrap.pool)
+	repository := NewSetupWorkflowRepository(bootstrap.pool, nil, nil)
 	ctx := context.Background()
 	valid := digest(212)
 	_, err := pool.Exec(ctx, `INSERT INTO setup_sessions (id, token_digest, created_at, expires_at)

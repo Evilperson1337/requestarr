@@ -32,8 +32,10 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		return errors.New("startup encrypted secret key validation failed")
 	}
 	var activeKeyID *secrets.KeyID
+	var cipher *secrets.Cipher
 	if encryptionStatus == config.EncryptionKeyReady {
-		keyID := secrets.New(encryptionKey).KeyID()
+		cipher = secrets.New(encryptionKey)
+		keyID := cipher.KeyID()
 		activeKeyID = &keyID
 	}
 	secretRepository := postgres.NewEncryptedSecretRepository(pool, activeKeyID)
@@ -48,7 +50,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		WithCleanupFailureHandler(func() {
 			logger.Warn("setup cleanup failed", "category", "persistence_unavailable")
 		})
-	setupWorkflow := setup.NewWorkflowService(postgres.NewSetupWorkflowRepository(pool), setupToken, setupConfigured)
+	setupWorkflow := setup.NewWorkflowService(postgres.NewSetupWorkflowRepository(pool, secretRepository, cipher), setupToken, setupConfigured)
 	publicOrigin, err := setup.NormalizeOrigin(cfg.PublicURL)
 	if err != nil {
 		return errors.New("startup public URL policy invalid")

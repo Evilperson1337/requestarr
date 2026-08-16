@@ -3,23 +3,39 @@ package setup
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
+
+	"git.example.com/evilperson1337/Requestarr/internal/strictjson"
 )
 
 const (
-	GeneralInstanceNameMax      = 100
-	GeneralInstanceNameBytesMax = 400
-	GeneralPublicURLMax         = 2048
-	GeneralPublicURLBytesMax    = 8192
-	GeneralTimezoneMax          = 128
-	GeneralTimezoneBytesMax     = 512
+	GeneralInstanceNameMax         = 100
+	GeneralInstanceNameBytesMax    = 400
+	GeneralPublicURLMax            = 2048
+	GeneralPublicURLBytesMax       = 8192
+	GeneralTimezoneMax             = 128
+	GeneralTimezoneBytesMax        = 512
+	AuthenticationIssuerMax        = 2048
+	AuthenticationIssuerBytesMax   = 8192
+	AuthenticationClientIDMax      = 256
+	AuthenticationClientIDBytesMax = 1024
+	AuthenticationScopeMax         = 64
+	AuthenticationScopeCountMax    = 32
+	AuthenticationGroupsClaimMax   = 128
+	AuthenticationGroupMax         = 256
+	AuthenticationMappingCountMax  = 64
+	AuthenticationClientSecretMax  = 8192
 )
 
 type General struct {
@@ -64,8 +80,10 @@ func validGeneralString(value string, codePoints, bytes int) bool {
 }
 
 type WorkflowState struct {
-	Current Step
-	General *General
+	Current                Step
+	General                *General
+	Authentication         *Authentication
+	ClientSecretConfigured bool
 }
 
 type WorkflowOutcome uint8
@@ -75,6 +93,7 @@ const (
 	WorkflowSessionRequired
 	WorkflowCompleted
 	WorkflowInvalid
+	WorkflowLocked
 	WorkflowUnavailable
 )
 
@@ -83,13 +102,209 @@ type WorkflowResult struct {
 	State   WorkflowState
 }
 
-var ErrGeneralInvalid = errors.New("setup general settings invalid")
+var (
+	ErrGeneralInvalid        = errors.New("setup general settings invalid")
+	ErrAuthenticationInvalid = errors.New("setup authentication settings invalid")
+)
+
+// Authentication is the non-secret, locally validated OIDC setup draft.
+type Authentication struct {
+	Issuer      string             `json:"issuer"`
+	ClientID    string             `json:"client_id"`
+	ClientType  ClientType         `json:"client_type"`
+	Scopes      []string           `json:"scopes"`
+	GroupsClaim string             `json:"groups_claim"`
+	DefaultRole string             `json:"default_role"`
+	GroupRoles  []GroupRoleMapping `json:"group_role_mappings"`
+}
+
+type ClientType string
+
+const (
+	ClientTypePublic       ClientType = "public"
+	ClientTypeConfidential ClientType = "confidential"
+)
+
+func (t ClientType) Valid() bool { return t == ClientTypePublic || t == ClientTypeConfidential }
+
+type GroupRoleMapping struct {
+	Group string `json:"group"`
+	Role  string `json:"role"`
+}
+
+type SecretOperationKind uint8
+
+const (
+	SecretPreserve SecretOperationKind = iota + 1
+	SecretReplace
+	SecretClear
+)
+
+// SecretOperation deliberately keeps plaintext private and is never embedded
+// in workflow state or persistence results.
+type SecretOperation struct {
+	kind  SecretOperationKind
+	value []byte
+}
+
+// String and GoString make accidental fmt and structured-log rendering safe.
+// They intentionally reveal neither operation kind nor the byte representation.
+func (SecretOperation) String() string   { return "[REDACTED]" }
+func (SecretOperation) GoString() string { return "[REDACTED]" }
+func (o SecretOperation) Format(state fmt.State, _ rune) {
+	_, _ = io.WriteString(state, "[REDACTED]")
+}
+
+func PreserveSecret() SecretOperation { return SecretOperation{kind: SecretPreserve} }
+func ClearSecret() SecretOperation    { return SecretOperation{kind: SecretClear} }
+
+func ReplaceSecret(value string) (SecretOperation, error) {
+	if value == "" || len(value) > AuthenticationClientSecretMax || !utf8.ValidString(value) || hasControl(value) {
+		return SecretOperation{}, ErrAuthenticationInvalid
+	}
+	return SecretOperation{kind: SecretReplace, value: []byte(value)}, nil
+}
+
+func (o SecretOperation) Kind() SecretOperationKind { return o.kind }
+
+// PlaintextEqual performs the only supported comparison without exporting the
+// submitted secret value.
+func (o SecretOperation) PlaintextEqual(value []byte) bool {
+	return o.kind == SecretReplace && subtle.ConstantTimeCompare(o.value, value) == 1
+}
+
+// EncryptValue calls the provided closure without exposing plaintext through a
+// return value. Callers use it only to create an envelope.
+func (o SecretOperation) EncryptValue(fn func([]byte) error) error {
+	if o.kind != SecretReplace || fn == nil {
+		return ErrAuthenticationInvalid
+	}
+	return fn(o.value)
+}
+
+func NormalizeAuthentication(value Authentication) (Authentication, error) {
+	value.Issuer = strings.TrimSpace(value.Issuer)
+	value.ClientID = strings.TrimSpace(value.ClientID)
+	value.GroupsClaim = strings.TrimSpace(value.GroupsClaim)
+	value.DefaultRole = strings.TrimSpace(value.DefaultRole)
+	if !validAuthenticationString(value.Issuer, AuthenticationIssuerMax, AuthenticationIssuerBytesMax) ||
+		!validAuthenticationString(value.ClientID, AuthenticationClientIDMax, AuthenticationClientIDBytesMax) ||
+		!validAuthenticationString(value.GroupsClaim, AuthenticationGroupsClaimMax, AuthenticationGroupsClaimMax*4) ||
+		!value.ClientType.Valid() || !validRole(value.DefaultRole) || len(value.Scopes) == 0 || len(value.Scopes) > AuthenticationScopeCountMax ||
+		len(value.GroupRoles) > AuthenticationMappingCountMax {
+		return Authentication{}, ErrAuthenticationInvalid
+	}
+	issuer, err := url.Parse(value.Issuer)
+	if err != nil || !issuer.IsAbs() || issuer.Opaque != "" || issuer.User != nil || issuer.Host == "" ||
+		(issuer.Scheme != "http" && issuer.Scheme != "https") || issuer.RawQuery != "" || issuer.Fragment != "" {
+		return Authentication{}, ErrAuthenticationInvalid
+	}
+	if ambiguousIssuerPath(issuer) {
+		return Authentication{}, ErrAuthenticationInvalid
+	}
+	issuer.Scheme = strings.ToLower(issuer.Scheme)
+	issuer.Host = strings.ToLower(issuer.Host)
+	if issuer.Path == "/" {
+		issuer.Path = ""
+		issuer.RawPath = ""
+	} else {
+		issuer.Path = strings.TrimSuffix(issuer.Path, "/")
+		if issuer.RawPath != "" {
+			issuer.RawPath = strings.TrimSuffix(issuer.RawPath, "/")
+		}
+	}
+	value.Issuer = issuer.String()
+	seenScopes := make(map[string]struct{}, len(value.Scopes))
+	for i := range value.Scopes {
+		value.Scopes[i] = strings.TrimSpace(value.Scopes[i])
+		if !validScope(value.Scopes[i]) {
+			return Authentication{}, ErrAuthenticationInvalid
+		}
+		if _, exists := seenScopes[value.Scopes[i]]; exists {
+			return Authentication{}, ErrAuthenticationInvalid
+		}
+		seenScopes[value.Scopes[i]] = struct{}{}
+	}
+	if _, ok := seenScopes["openid"]; !ok {
+		return Authentication{}, ErrAuthenticationInvalid
+	}
+	seenGroups := make(map[string]struct{}, len(value.GroupRoles))
+	for i := range value.GroupRoles {
+		value.GroupRoles[i].Group = strings.TrimSpace(value.GroupRoles[i].Group)
+		value.GroupRoles[i].Role = strings.TrimSpace(value.GroupRoles[i].Role)
+		if !validAuthenticationString(value.GroupRoles[i].Group, AuthenticationGroupMax, AuthenticationGroupMax*4) ||
+			!validRole(value.GroupRoles[i].Role) {
+			return Authentication{}, ErrAuthenticationInvalid
+		}
+		if _, exists := seenGroups[value.GroupRoles[i].Group]; exists {
+			return Authentication{}, ErrAuthenticationInvalid
+		}
+		seenGroups[value.GroupRoles[i].Group] = struct{}{}
+	}
+	return value, nil
+}
+
+func ambiguousIssuerPath(issuer *url.URL) bool {
+	escaped := issuer.EscapedPath()
+	for _, segment := range strings.Split(escaped, "/") {
+		lower := strings.ToLower(segment)
+		if lower == "." || lower == ".." || lower == "%2e" || lower == "%2e%2e" ||
+			strings.Contains(lower, "%2f") || strings.Contains(lower, "%5c") {
+			return true
+		}
+	}
+	return false
+}
+
+func validAuthenticationString(value string, runes, bytes int) bool {
+	return value != "" && utf8.ValidString(value) && utf8.RuneCountInString(value) <= runes && len(value) <= bytes && !hasControl(value)
+}
+
+func hasControl(value string) bool {
+	return strings.IndexFunc(value, unicode.IsControl) >= 0
+}
+
+func validScope(value string) bool {
+	if value == "" || len(value) > AuthenticationScopeMax {
+		return false
+	}
+	for _, r := range value {
+		if r <= 0x20 || r >= 0x7f || r == '"' || r == '\\' {
+			return false
+		}
+	}
+	return true
+}
+
+func validRole(value string) bool {
+	return value == "viewer" || value == "requester" || value == "admin"
+}
 
 // WorkflowPersistence accepts only keyed session digests. Raw cookie material
 // cannot cross this boundary.
 type WorkflowPersistence interface {
 	ReadWorkflow(context.Context, Digest) (WorkflowResult, error)
 	SaveGeneral(context.Context, Digest, General) (WorkflowResult, error)
+	SaveAuthentication(context.Context, Digest, Authentication, SecretOperation) (WorkflowResult, error)
+}
+
+func (s *WorkflowService) PutAuthentication(ctx context.Context, rawSession string, value Authentication, secret SecretOperation) WorkflowResult {
+	normalized, err := NormalizeAuthentication(value)
+	if err != nil || (secret.Kind() != SecretPreserve && secret.Kind() != SecretReplace && secret.Kind() != SecretClear) {
+		return WorkflowResult{Outcome: WorkflowInvalid}
+	}
+	digest, ok := s.digestSession(rawSession)
+	if !ok {
+		return WorkflowResult{Outcome: WorkflowSessionRequired}
+	}
+	if ctx.Err() != nil || s.persistence == nil {
+		return WorkflowResult{Outcome: WorkflowUnavailable}
+	}
+	result, err := s.persistence.SaveAuthentication(ctx, digest, normalized, secret)
+	if err != nil {
+		return WorkflowResult{Outcome: WorkflowUnavailable}
+	}
+	return result
 }
 
 type WorkflowService struct {
@@ -157,31 +372,54 @@ func (s *WorkflowService) digestSession(raw string) (Digest, bool) {
 	return sessionDigest(s.key, session), true
 }
 
-type workflowDraft struct {
-	Version int      `json:"version"`
-	General *General `json:"general,omitempty"`
+type WorkflowDraft struct {
+	Version        int             `json:"version"`
+	General        *General        `json:"general,omitempty"`
+	Authentication *Authentication `json:"authentication,omitempty"`
 }
 
-func EncodeWorkflowDraft(general General) ([]byte, error) {
-	return json.Marshal(workflowDraft{Version: 1, General: &general})
+func EncodeWorkflowDraft(draft WorkflowDraft) ([]byte, error) {
+	draft.Version = 2
+	if draft.General == nil && draft.Authentication == nil {
+		return nil, ErrStateInvalid
+	}
+	return json.Marshal(draft)
 }
 
-func DecodeWorkflowDraft(data []byte) (*General, error) {
+func DecodeWorkflowDraft(data []byte) (WorkflowDraft, error) {
 	if bytes.Equal(bytes.TrimSpace(data), []byte("{}")) {
-		return nil, nil
+		return WorkflowDraft{Version: 2}, nil
+	}
+	if err := strictjson.RejectDuplicateKeys(data); err != nil {
+		return WorkflowDraft{}, ErrStateInvalid
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	var draft workflowDraft
-	if err := decoder.Decode(&draft); err != nil || draft.Version != 1 || draft.General == nil {
-		return nil, ErrStateInvalid
+	var draft WorkflowDraft
+	if err := decoder.Decode(&draft); err != nil || (draft.Version != 1 && draft.Version != 2) ||
+		(draft.Version == 1 && (draft.General == nil || draft.Authentication != nil)) ||
+		(draft.Version == 2 && draft.General == nil && draft.Authentication == nil) {
+		return WorkflowDraft{}, ErrStateInvalid
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return nil, ErrStateInvalid
+		return WorkflowDraft{}, ErrStateInvalid
 	}
-	normalized, err := NormalizeGeneral(*draft.General)
-	if err != nil || normalized != *draft.General {
-		return nil, ErrStateInvalid
+	if draft.General != nil {
+		normalized, err := NormalizeGeneral(*draft.General)
+		if err != nil || normalized != *draft.General {
+			return WorkflowDraft{}, ErrStateInvalid
+		}
 	}
-	return &normalized, nil
+	if draft.Authentication != nil {
+		normalized, err := NormalizeAuthentication(*draft.Authentication)
+		if err != nil || !AuthenticationEqual(normalized, *draft.Authentication) {
+			return WorkflowDraft{}, ErrStateInvalid
+		}
+	}
+	return draft, nil
+}
+
+func AuthenticationEqual(a, b Authentication) bool {
+	return a.Issuer == b.Issuer && a.ClientID == b.ClientID && a.ClientType == b.ClientType && a.GroupsClaim == b.GroupsClaim &&
+		a.DefaultRole == b.DefaultRole && slices.Equal(a.Scopes, b.Scopes) && slices.Equal(a.GroupRoles, b.GroupRoles)
 }

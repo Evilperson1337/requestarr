@@ -13,13 +13,28 @@ import (
 )
 
 const (
-	setupWorkflowTimeout = 2 * time.Second
-	setupGeneralBodyMax  = int64(4096)
+	setupWorkflowTimeout       = 2 * time.Second
+	setupGeneralBodyMax        = int64(4096)
+	setupAuthenticationBodyMax = int64(16 * 1024)
 )
 
 type setupStateResponse struct {
-	CurrentStep setup.Step     `json:"current_step"`
-	General     *setup.General `json:"general,omitempty"`
+	CurrentStep            setup.Step            `json:"current_step"`
+	General                *setup.General        `json:"general,omitempty"`
+	Authentication         *setup.Authentication `json:"authentication,omitempty"`
+	ClientSecretConfigured bool                  `json:"client_secret_configured,omitempty"`
+}
+
+type setupAuthenticationRequest struct {
+	Issuer                string                   `json:"issuer"`
+	ClientID              string                   `json:"client_id"`
+	ClientType            setup.ClientType         `json:"client_type"`
+	Scopes                []string                 `json:"scopes"`
+	GroupsClaim           string                   `json:"groups_claim"`
+	DefaultRole           string                   `json:"default_role"`
+	GroupRoleMappings     []setup.GroupRoleMapping `json:"group_role_mappings"`
+	ClientSecretOperation string                   `json:"client_secret_operation"`
+	ClientSecret          string                   `json:"client_secret,omitempty"`
 }
 
 type setupGeneralRequest struct {
@@ -123,6 +138,78 @@ func setupGeneralHandler(options SetupSessionOptions) http.Handler {
 	})
 }
 
+func setupAuthenticationHandler(options SetupSessionOptions) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			writeMethodNotAllowed(w, r, http.MethodPut)
+			return
+		}
+		if !exactSetupOrigin(r, options.PublicOrigin) {
+			writeAPIError(w, r, http.StatusForbidden, "setup_origin_forbidden", "The request origin is not allowed.")
+			return
+		}
+		csrf := r.Header.Values("X-Requestarr-CSRF")
+		if len(csrf) != 1 || csrf[0] != "1" {
+			writeAPIError(w, r, http.StatusForbidden, "setup_csrf_forbidden", "The setup CSRF check failed.")
+			return
+		}
+		contentTypes := r.Header.Values("Content-Type")
+		if len(contentTypes) != 1 || contentTypes[0] != "application/json" {
+			writeAPIError(w, r, http.StatusBadRequest, "invalid_request", "The request body is invalid.")
+			return
+		}
+		var request setupAuthenticationRequest
+		if err := decodeJSON(w, r, &request, setupAuthenticationBodyMax, true); err != nil {
+			writeAPIError(w, r, http.StatusBadRequest, "invalid_request", "The request body is invalid.")
+			return
+		}
+		authentication, err := setup.NormalizeAuthentication(setup.Authentication{Issuer: request.Issuer, ClientID: request.ClientID, ClientType: request.ClientType,
+			Scopes: request.Scopes, GroupsClaim: request.GroupsClaim, DefaultRole: request.DefaultRole, GroupRoles: request.GroupRoleMappings})
+		if err != nil {
+			writeAPIError(w, r, http.StatusUnprocessableEntity, "setup_authentication_invalid", "The Authentication setup values are invalid.")
+			return
+		}
+		var operation setup.SecretOperation
+		switch request.ClientSecretOperation {
+		case "preserve":
+			if request.ClientSecret != "" {
+				writeAPIError(w, r, http.StatusBadRequest, "invalid_request", "The request body is invalid.")
+				return
+			}
+			operation = setup.PreserveSecret()
+		case "clear":
+			if request.ClientSecret != "" {
+				writeAPIError(w, r, http.StatusBadRequest, "invalid_request", "The request body is invalid.")
+				return
+			}
+			operation = setup.ClearSecret()
+		case "replace":
+			operation, err = setup.ReplaceSecret(request.ClientSecret)
+			if err != nil {
+				writeAPIError(w, r, http.StatusUnprocessableEntity, "setup_authentication_invalid", "The Authentication setup values are invalid.")
+				return
+			}
+		default:
+			writeAPIError(w, r, http.StatusBadRequest, "invalid_request", "The request body is invalid.")
+			return
+		}
+		if (authentication.ClientType == setup.ClientTypePublic && operation.Kind() == setup.SecretPreserve) ||
+			(authentication.ClientType == setup.ClientTypePublic && operation.Kind() == setup.SecretReplace) ||
+			(authentication.ClientType == setup.ClientTypeConfidential && operation.Kind() == setup.SecretClear) {
+			writeAPIError(w, r, http.StatusUnprocessableEntity, "setup_authentication_invalid", "The Authentication setup values are invalid.")
+			return
+		}
+		session, ok := setupSessionCookie(r, options.SecureCookie)
+		if !ok || options.Workflow == nil {
+			writeAPIError(w, r, http.StatusUnauthorized, "setup_session_required", "A valid setup session is required.")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), setupWorkflowTimeout)
+		defer cancel()
+		writeWorkflowResult(w, r, options.Workflow.PutAuthentication(ctx, session, authentication, operation))
+	})
+}
+
 func setupSessionCookie(r *http.Request, secure bool) (string, bool) {
 	selected := "__Host-requestarr_setup"
 	other := "requestarr_setup_dev"
@@ -158,13 +245,16 @@ func exactSetupOrigin(r *http.Request, expected string) bool {
 func writeWorkflowResult(w http.ResponseWriter, r *http.Request, result setup.WorkflowResult) {
 	switch result.Outcome {
 	case setup.WorkflowAvailable:
-		writeJSON(w, http.StatusOK, setupStateResponse{CurrentStep: result.State.Current, General: result.State.General})
+		writeJSON(w, http.StatusOK, setupStateResponse{CurrentStep: result.State.Current, General: result.State.General,
+			Authentication: result.State.Authentication, ClientSecretConfigured: result.State.ClientSecretConfigured})
 	case setup.WorkflowSessionRequired:
 		writeAPIError(w, r, http.StatusUnauthorized, "setup_session_required", "A valid setup session is required.")
 	case setup.WorkflowCompleted:
 		writeAPIError(w, r, http.StatusConflict, "setup_completed", "Setup has already been completed.")
 	case setup.WorkflowInvalid:
-		writeAPIError(w, r, http.StatusUnprocessableEntity, "setup_general_invalid", "The General setup values are invalid.")
+		writeAPIError(w, r, http.StatusUnprocessableEntity, "setup_values_invalid", "The setup values are invalid.")
+	case setup.WorkflowLocked:
+		writeAPIError(w, r, http.StatusLocked, "setup_locked", "Setup is locked by server configuration.")
 	default:
 		writeAPIError(w, r, http.StatusServiceUnavailable, "setup_unavailable", "Setup is temporarily unavailable.")
 	}

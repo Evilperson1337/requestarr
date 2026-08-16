@@ -50,9 +50,24 @@ func (r *EncryptedSecretRepository) Read(ctx context.Context, semantic secrets.C
 	if r == nil || r.pool == nil || r.pool.pool == nil {
 		return secrets.Envelope{}, ErrEncryptedSecretUnavailable
 	}
+	return r.read(ctx, r.pool.pool, semantic)
+}
+
+// ReadTx reads an opaque envelope through a caller-owned transaction.
+func (r *EncryptedSecretRepository) ReadTx(ctx context.Context, tx pgx.Tx, semantic secrets.Context) (secrets.Envelope, error) {
+	if tx == nil {
+		return secrets.Envelope{}, ErrEncryptedSecretUnavailable
+	}
+	return r.read(ctx, tx, semantic)
+}
+
+func (r *EncryptedSecretRepository) read(ctx context.Context, executor EncryptedSecretExecutor, semantic secrets.Context) (secrets.Envelope, error) {
+	if err := ctx.Err(); err != nil {
+		return secrets.Envelope{}, ErrEncryptedSecretCanceled
+	}
 	var version int16
 	var keyID, nonce, ciphertext []byte
-	err := r.pool.pool.QueryRow(ctx, `SELECT envelope_version,key_id,nonce,ciphertext FROM encrypted_secrets
+	err := executor.QueryRow(ctx, `SELECT envelope_version,key_id,nonce,ciphertext FROM encrypted_secrets
 		WHERE namespace=$1 AND owner_id=$2 AND secret_name=$3`, semantic.Namespace, semantic.OwnerID, semantic.Name).
 		Scan(&version, &keyID, &nonce, &ciphertext)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -70,6 +85,23 @@ func (r *EncryptedSecretRepository) Read(ctx context.Context, semantic secrets.C
 	copy(envelope.Nonce[:], nonce)
 	envelope.Ciphertext = append([]byte(nil), ciphertext...)
 	return envelope, nil
+}
+
+// DeleteTx removes an envelope in a caller-owned transaction. Absence is an
+// idempotent success.
+func (r *EncryptedSecretRepository) DeleteTx(ctx context.Context, tx pgx.Tx, semantic secrets.Context) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, ErrEncryptedSecretCanceled
+	}
+	if tx == nil {
+		return false, ErrEncryptedSecretUnavailable
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM encrypted_secrets WHERE namespace=$1 AND owner_id=$2 AND secret_name=$3`,
+		semantic.Namespace, semantic.OwnerID[:], semantic.Name)
+	if err != nil {
+		return false, classifyEncryptedSecretError(ctx, err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 func (r *EncryptedSecretRepository) Upsert(ctx context.Context, semantic secrets.Context, envelope secrets.Envelope) error {

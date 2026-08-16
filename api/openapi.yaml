@@ -203,7 +203,7 @@ paths:
       description: Requires the environment-selected setup session cookie. Origin and CSRF headers are not required for this read.
       responses:
         '200':
-          description: Current step and optional typed General draft
+          description: Current step, optional typed non-secret drafts, and secret presence only
           headers:
             X-Request-ID: { $ref: '#/components/headers/RequestID' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
@@ -281,6 +281,49 @@ paths:
     patch: { operationId: rejectPatchSetupGeneral, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
     delete: { operationId: rejectDeleteSetupGeneral, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
     options: { operationId: rejectOptionsSetupGeneral, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
+  /setup/authentication:
+    parameters:
+      - $ref: '#/components/parameters/RequestID'
+      - $ref: '#/components/parameters/SetupOrigin'
+      - in: header
+        name: X-Requestarr-CSRF
+        required: true
+        schema: { type: string, const: '1' }
+    put:
+      operationId: putSetupAuthentication
+      summary: Save the encrypted Authentication setup draft
+      description: Locally validates and normalizes OIDC values without discovery or another network call. The client secret uses explicit preserve, replace, or clear semantics and is never returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetupAuthenticationRequest' }
+      responses:
+        '200':
+          description: Saved normalized non-secret draft and secret-presence state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupWorkflowState' }
+        '400': { $ref: '#/components/responses/SetupInvalidRequest' }
+        '401': { $ref: '#/components/responses/SetupSessionRequired' }
+        '403':
+          description: Origin validation or the setup CSRF check failed.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SetupOriginForbiddenError'
+                  - $ref: '#/components/schemas/SetupCSRFForbiddenError'
+        '409': { $ref: '#/components/responses/SetupCompleted' }
+        '422': { $ref: '#/components/responses/SetupAuthenticationInvalid' }
+        '423': { $ref: '#/components/responses/SetupLocked' }
+        '503': { $ref: '#/components/responses/SetupUnavailable' }
+    get: { operationId: rejectGetSetupAuthentication, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
+    head: { operationId: rejectHeadSetupAuthentication, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowedHead' } } }
+    post: { operationId: rejectPostSetupAuthentication, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
+    patch: { operationId: rejectPatchSetupAuthentication, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
+    delete: { operationId: rejectDeleteSetupAuthentication, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
+    options: { operationId: rejectOptionsSetupAuthentication, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
 components:
   parameters:
     RequestID:
@@ -461,6 +504,14 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/SetupGeneralInvalidError' }
+    SetupAuthenticationInvalid:
+      description: Authentication values or client-type/secret operation semantics failed validation.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SetupAuthenticationInvalidError' }
     SetupStateMethodNotAllowed:
       description: Only GET and HEAD are supported by this resource.
       headers:
@@ -606,6 +657,59 @@ components:
           minLength: 1
           maxLength: 128
           description: Trimmed valid IANA timezone name other than Local; at most 128 Unicode code points and 512 UTF-8 bytes.
+    SetupAuthentication:
+      type: object
+      additionalProperties: false
+      required: [issuer, client_id, client_type, scopes, groups_claim, default_role, group_role_mappings]
+      properties:
+        issuer: { type: string, format: uri, maxLength: 2048 }
+        client_id: { type: string, maxLength: 256 }
+        client_type: { type: string, enum: [public, confidential] }
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 32
+          uniqueItems: true
+          items: { type: string, maxLength: 64 }
+        groups_claim: { type: string, maxLength: 128 }
+        default_role: { type: string, enum: [viewer, requester, admin] }
+        group_role_mappings:
+          type: array
+          maxItems: 64
+          items:
+            type: object
+            additionalProperties: false
+            required: [group, role]
+            properties:
+              group: { type: string, maxLength: 256 }
+              role: { type: string, enum: [viewer, requester, admin] }
+    SetupAuthenticationRequest:
+      type: object
+      additionalProperties: false
+      required: [issuer, client_id, client_type, scopes, groups_claim, default_role, group_role_mappings, client_secret_operation]
+      properties:
+        issuer: { type: string, format: uri, maxLength: 2048 }
+        client_id: { type: string, maxLength: 256 }
+        client_type: { type: string, enum: [public, confidential] }
+        scopes: { type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: { type: string, maxLength: 64 } }
+        groups_claim: { type: string, maxLength: 128 }
+        default_role: { type: string, enum: [viewer, requester, admin] }
+        group_role_mappings:
+          type: array
+          maxItems: 64
+          items:
+            type: object
+            additionalProperties: false
+            required: [group, role]
+            properties:
+              group: { type: string, maxLength: 256 }
+              role: { type: string, enum: [viewer, requester, admin] }
+        client_secret_operation: { type: string, enum: [preserve, replace, clear] }
+        client_secret: { type: string, minLength: 1, maxLength: 8192, writeOnly: true }
+      examples:
+        - { issuer: "https://id.example.com/realms/main", client_id: requestarr, client_type: confidential, scopes: [openid, profile], groups_claim: groups, default_role: viewer, group_role_mappings: [], client_secret_operation: replace, client_secret: deployment-secret }
+        - { issuer: "https://id.example.com/realms/main", client_id: requestarr, client_type: confidential, scopes: [openid], groups_claim: groups, default_role: viewer, group_role_mappings: [], client_secret_operation: preserve }
+        - { issuer: "https://id.example.com/realms/main", client_id: requestarr, client_type: public, scopes: [openid], groups_claim: groups, default_role: viewer, group_role_mappings: [], client_secret_operation: clear }
     SetupWorkflowState:
       type: object
       additionalProperties: false
@@ -615,6 +719,8 @@ components:
           type: string
           enum: [welcome, general, authentication, providers, libraries, notifications, policy, review, finish]
         general: { $ref: '#/components/schemas/SetupGeneral' }
+        authentication: { $ref: '#/components/schemas/SetupAuthentication' }
+        client_secret_configured: { type: boolean, description: Presence only; the stored secret is never returned. }
     SetupInvalidRequestError:
       $ref: '#/components/schemas/SetupErrorInvalidRequest'
     SetupOriginForbiddenError:
@@ -623,6 +729,8 @@ components:
       $ref: '#/components/schemas/SetupErrorCSRFForbidden'
     SetupGeneralInvalidError:
       $ref: '#/components/schemas/SetupErrorGeneralInvalid'
+    SetupAuthenticationInvalidError:
+      $ref: '#/components/schemas/SetupErrorAuthenticationInvalid'
     SetupTokenInvalidError:
       $ref: '#/components/schemas/SetupErrorTokenInvalid'
     SetupLockedError:
@@ -645,6 +753,9 @@ components:
     SetupErrorGeneralInvalid:
       $ref: '#/components/schemas/APIErrorEnvelope'
       examples: [{ error: { code: setup_general_invalid, message: The General setup values are invalid., request_id: 0123456789abcdef0123456789abcdef } }]
+    SetupErrorAuthenticationInvalid:
+      $ref: '#/components/schemas/APIErrorEnvelope'
+      examples: [{ error: { code: setup_authentication_invalid, message: The Authentication setup values are invalid., request_id: 0123456789abcdef0123456789abcdef } }]
     SetupErrorTokenInvalid:
       $ref: '#/components/schemas/APIErrorEnvelope'
       examples: [{ error: { code: setup_token_invalid, message: The setup token is invalid., request_id: 0123456789abcdef0123456789abcdef } }]

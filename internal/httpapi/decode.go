@@ -1,12 +1,15 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"mime"
 	"net/http"
 	"strings"
+
+	"git.example.com/evilperson1337/Requestarr/internal/strictjson"
 )
 
 var (
@@ -31,7 +34,20 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64,
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
-	decoder := json.NewDecoder(r.Body)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		return classifyJSONError(err)
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return errJSONEmpty
+	}
+	if err := strictjson.RejectDuplicateKeys(data); err != nil {
+		if strings.Contains(err.Error(), "multiple documents") {
+			return errJSONMultiple
+		}
+		return errJSONMalformed
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {
 		return classifyJSONError(err)
