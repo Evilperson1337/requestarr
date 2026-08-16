@@ -14,3 +14,5 @@
 - Audit request state changes, subscription changes, admin configuration changes, and setup completion.
 - Database migrations and backups documented before stable release.
 - Rate-limit URL resolution, authentication callbacks, setup validation, and notification test actions.
+- Resumable setup reads require the short-lived setup session cookie. Setup mutations additionally require exact configured Origin and exactly `X-Requestarr-CSRF: 1`; no CORS/preflight support exists.
+- Setup workflow persistence accepts only keyed session digests and strictly versioned server-produced drafts. It never stores raw cookies, bootstrap tokens, arbitrary request JSON, or secrets.

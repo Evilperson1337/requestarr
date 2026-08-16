@@ -36,8 +36,14 @@ type SetupSessionExchanger interface {
 	Exchange(context.Context, string, netip.Addr) setup.BootstrapResult
 }
 
+type SetupWorkflow interface {
+	State(context.Context, string) setup.WorkflowResult
+	PutGeneral(context.Context, string, setup.General) setup.WorkflowResult
+}
+
 type SetupSessionOptions struct {
 	Exchanger    SetupSessionExchanger
+	Workflow     SetupWorkflow
 	PublicOrigin string
 	SecureCookie bool
 }
@@ -99,6 +105,8 @@ func New(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, 
 		sessionOptions = setupSession[0]
 	}
 	mux.Handle("/api/v1/setup/session", noStore(setupSessionHandler(sessionOptions)))
+	mux.Handle("/api/v1/setup/state", noStore(setupStateHandler(sessionOptions)))
+	mux.Handle("/api/v1/setup/general", noStore(setupGeneralHandler(sessionOptions)))
 	mux.HandleFunc("/api/v1", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, http.StatusNotFound, "not_found", "The requested API resource was not found.")
 	})

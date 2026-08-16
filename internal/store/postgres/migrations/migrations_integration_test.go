@@ -39,11 +39,11 @@ func TestEmbeddedMigrationsCleanAndIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT version, dirty FROM schema_migrations`).Scan(&version, &dirty); err != nil {
 		t.Fatalf("read migration history: %v", err)
 	}
-	if version != 2 || dirty {
-		t.Fatalf("migration state = version %d dirty %t, want version 2 clean", version, dirty)
+	if version != 3 || dirty {
+		t.Fatalf("migration state = version %d dirty %t, want version 3 clean", version, dirty)
 	}
 
-	for _, table := range []string{"users", "catalog_items", "requests", "request_subscriptions", "request_events", "library_sources", "inventory_items", "notification_deliveries", "setup_state", "setup_sessions", "setup_exchange_rate_limits", "setup_security_events"} {
+	for _, table := range []string{"users", "catalog_items", "requests", "request_subscriptions", "request_events", "library_sources", "inventory_items", "notification_deliveries", "setup_state", "setup_sessions", "setup_exchange_rate_limits", "setup_security_events", "setup_workflow_events"} {
 		var exists bool
 		if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists); err != nil || !exists {
 			t.Fatalf("expected table %s.%s to exist: exists=%t err=%v", schema, table, exists, err)
@@ -58,6 +58,42 @@ func TestEmbeddedMigrationsCleanAndIdempotent(t *testing.T) {
 	}
 	if setupRows != 1 || !singleton || complete || currentStep != "welcome" {
 		t.Fatalf("setup state = rows %d singleton %t complete %t step %q, want one incomplete welcome singleton", setupRows, singleton, complete, currentStep)
+	}
+}
+
+func TestSetupWorkflowAuditMigrationFromExactV2AndRollback(t *testing.T) {
+	databaseURL, schema, pool := isolatedDatabase(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, name := range []string{"000001_initial.up.sql", "000002_setup_bootstrap_sessions.up.sql"} {
+		migration, err := fs.ReadFile(embedded.Files, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(migration)); err != nil {
+			t.Fatalf("apply %s: %v", name, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `CREATE TABLE schema_migrations (version bigint NOT NULL PRIMARY KEY, dirty boolean NOT NULL); INSERT INTO schema_migrations VALUES (2, false)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Up(ctx, databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".setup_workflow_events").Scan(&exists); err != nil || !exists {
+		t.Fatalf("workflow audit table exists=%t err=%v", exists, err)
+	}
+	assertConstraintFailure(t, ctx, pool, `INSERT INTO setup_workflow_events (event_type,created_at) VALUES ('secret_saved',clock_timestamp())`)
+	down, err := fs.ReadFile(embedded.Files, "000003_setup_workflow_events.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(down)); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".setup_workflow_events").Scan(&exists); err != nil || exists {
+		t.Fatalf("rolled back workflow audit table exists=%t err=%v", exists, err)
 	}
 }
 
@@ -204,7 +240,7 @@ func TestEmbeddedMigrationsRejectDirtyAndAheadHistory(t *testing.T) {
 		wantError string
 	}{
 		{name: "dirty", version: 1, dirty: true, wantError: "migration history is dirty"},
-		{name: "ahead", version: 3, wantError: "migration history version is newer than this binary"},
+		{name: "ahead", version: 4, wantError: "migration history version is newer than this binary"},
 	}
 
 	for _, tt := range tests {

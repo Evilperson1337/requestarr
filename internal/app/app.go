@@ -34,6 +34,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		WithCleanupFailureHandler(func() {
 			logger.Warn("setup cleanup failed", "category", "persistence_unavailable")
 		})
+	setupWorkflow := setup.NewWorkflowService(postgres.NewSetupWorkflowRepository(pool), setupToken, setupConfigured)
 	publicOrigin, err := setup.NormalizeOrigin(cfg.PublicURL)
 	if err != nil {
 		return errors.New("startup public URL policy invalid")
@@ -43,6 +44,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.New(logger, build, readiness, setupStatus, httpapi.SetupSessionOptions{
 			Exchanger:    setupBootstrap,
+			Workflow:     setupWorkflow,
 			PublicOrigin: publicOrigin,
 			SecureCookie: cfg.SetupCookieSecure(),
 		}),

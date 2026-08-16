@@ -124,11 +124,11 @@ This is the single best next task. Every V1 workflow depends on durable local st
 
 The read-only persistent completion gate accepted in [D014](DECISIONS.md#d014--persistent-setup-status-read-contract-2026-08-14) is implemented: unauthenticated `GET`/`HEAD /api/v1/setup/status` exposes exactly the Boolean `complete` field, requires no setup token, returns a stable non-secret unavailable error instead of guessing on repository or persisted-state failure, and uses the existing immutable `000001` singleton without a migration.
 
-The temporary bootstrap-session boundary governed by [D015](DECISIONS.md#d015--temporary-bootstrap-session-security-contract-2026-08-14) is also implemented in the current combined Phase 2B working tree: durable migration/persistence followed by configuration, policy, and the HTTP exchange. Richer setup reads and mutations, transactional configuration completion, OIDC, and the remaining wizard UI continue as independently reviewable increments after this security boundary.
+The temporary bootstrap-session boundary governed by [D015](DECISIONS.md#d015--temporary-bootstrap-session-security-contract-2026-08-14) is implemented: durable migration/persistence followed by configuration, policy, and the HTTP exchange. The first session-authenticated resumable workflow increment now adds protected state reads and an idempotent General-step save. Transactional configuration completion, OIDC, later setup steps, and the remaining wizard UI continue as independently reviewable increments.
 
 #### Phase 2B.1 — Setup session migration and persistence
 
-**Status:** Implemented in the current uncommitted combined Phase 2B working tree; validation remains required before review.
+**Status:** Implemented and retained as the persistence foundation for subsequent setup workflow increments.
 
 **Implementation handoff**
 
@@ -146,7 +146,7 @@ The temporary bootstrap-session boundary governed by [D015](DECISIONS.md#d015--t
 
 #### Phase 2B.2 — Token policy and session exchange endpoint
 
-**Status:** Implemented in the current uncommitted combined Phase 2B working tree; validation remains required before review.
+**Status:** Implemented and retained as the temporary setup capability boundary.
 
 **Implementation handoff**
 

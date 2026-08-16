@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -447,6 +448,278 @@ func TestSetupCleanupBoundsSessionsAndProtectsRecentRevocations(t *testing.T) {
 	}
 	if recentRows != 1 || staleRows != 1 {
 		t.Fatalf("cleanup survivors recent=%d stale=%d, want 1 each", recentRows, staleRows)
+	}
+}
+
+func TestSetupWorkflowGeneralIsResumableIdempotentAndMonotonic(t *testing.T) {
+	bootstrap, pool := isolatedSetupRepository(t)
+	repository := NewSetupWorkflowRepository(bootstrap.pool)
+	ctx := context.Background()
+	sessionDigest := digest(211)
+	_, err := pool.Exec(ctx, `INSERT INTO setup_sessions (id, token_digest, created_at, expires_at)
+		VALUES ($1, $2, transaction_timestamp(), transaction_timestamp() + interval '15 minutes')`, persistenceID(211), sessionDigest[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	general := setup.General{InstanceName: "Requestarr", PublicURL: "https://example.com", Timezone: "UTC"}
+	for range 2 {
+		result, err := repository.SaveGeneral(ctx, sessionDigest, general)
+		if err != nil || result.Outcome != setup.WorkflowAvailable || result.State.Current != setup.StepAuthentication || result.State.General == nil || *result.State.General != general {
+			t.Fatalf("unexpected save result: %#v, %v", result, err)
+		}
+	}
+	var auditCount int
+	var eventType string
+	if err := pool.QueryRow(ctx, `SELECT count(*), min(event_type) FROM setup_workflow_events`).Scan(&auditCount, &eventType); err != nil || auditCount != 1 || eventType != "general_saved" {
+		t.Fatalf("idempotent audit count=%d type=%q err=%v", auditCount, eventType, err)
+	}
+	var payloadColumns int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_schema=current_schema() AND table_name='setup_workflow_events'
+		AND column_name NOT IN ('id','event_type','created_at')`).Scan(&payloadColumns); err != nil || payloadColumns != 0 {
+		t.Fatalf("workflow audit payload columns=%d err=%v", payloadColumns, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE setup_state SET current_step = 'libraries' WHERE singleton = TRUE`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := repository.SaveGeneral(ctx, sessionDigest, general)
+	if err != nil || result.State.Current != setup.StepLibraries {
+		t.Fatalf("General save moved workflow backward: %#v, %v", result, err)
+	}
+	read, err := repository.ReadWorkflow(ctx, sessionDigest)
+	if err != nil || read.Outcome != setup.WorkflowAvailable || read.State.Current != setup.StepLibraries || read.State.General == nil || *read.State.General != general {
+		t.Fatalf("resumable read failed: %#v, %v", read, err)
+	}
+
+	restarted := NewSetupWorkflowRepository(bootstrap.pool)
+	read, err = restarted.ReadWorkflow(ctx, sessionDigest)
+	if err != nil || read.State.General == nil || *read.State.General != general {
+		t.Fatalf("restart resumability failed: %#v, %v", read, err)
+	}
+}
+
+func TestSetupWorkflowSaveWaitsThenRejectsExpiredSessionWithoutWrite(t *testing.T) {
+	bootstrap, pool := isolatedSetupRepository(t)
+	repository := NewSetupWorkflowRepository(bootstrap.pool)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	digest := digest(214)
+	if _, err := pool.Exec(ctx, `INSERT INTO setup_sessions (id, token_digest, created_at, expires_at)
+		VALUES ($1, $2, clock_timestamp(), clock_timestamp() + interval '300 milliseconds')`, persistenceID(214), digest[:]); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Rollback(context.Background()) }()
+	if _, err := lock.Exec(ctx, `SELECT 1 FROM setup_state WHERE singleton=TRUE FOR UPDATE`); err != nil {
+		t.Fatal(err)
+	}
+	resultCh := make(chan setup.WorkflowResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, err := repository.SaveGeneral(ctx, digest, setup.General{InstanceName: "must-not-save", PublicURL: "https://example.com", Timezone: "UTC"})
+		resultCh <- result
+		errCh <- err
+	}()
+	select {
+	case <-resultCh:
+		t.Fatal("save did not wait for setup-state lock")
+	case <-time.After(500 * time.Millisecond):
+	}
+	if err := lock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	result := <-resultCh
+	if err := <-errCh; err != nil || result.Outcome != setup.WorkflowSessionRequired {
+		t.Fatalf("blocked expired save = %#v, %v", result, err)
+	}
+	var draft string
+	var events int
+	if err := pool.QueryRow(ctx, `SELECT draft::text, (SELECT count(*) FROM setup_workflow_events) FROM setup_state WHERE singleton=TRUE`).Scan(&draft, &events); err != nil || draft != "{}" || events != 0 {
+		t.Fatalf("expired save effects draft=%s events=%d err=%v", draft, events, err)
+	}
+}
+
+func TestSetupWorkflowRevokedExpiredConcurrentAndCanceledSaves(t *testing.T) {
+	bootstrap, pool := isolatedSetupRepository(t)
+	repository := NewSetupWorkflowRepository(bootstrap.pool)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for seed, state := range map[byte]string{215: "revoked", 216: "expired"} {
+		d := digest(seed)
+		query := `INSERT INTO setup_sessions (id, token_digest, created_at, expires_at, revoked_at)
+			VALUES ($1,$2,clock_timestamp()-interval '2 minutes',clock_timestamp()+interval '2 minutes',clock_timestamp())`
+		if state == "expired" {
+			query = `INSERT INTO setup_sessions (id, token_digest, created_at, expires_at)
+				VALUES ($1,$2,clock_timestamp()-interval '2 minutes',clock_timestamp()-interval '1 minute')`
+		}
+		if _, err := pool.Exec(ctx, query, persistenceID(seed), d[:]); err != nil {
+			t.Fatal(err)
+		}
+		if result, err := repository.SaveGeneral(ctx, d, setup.General{InstanceName: state, PublicURL: "https://example.com", Timezone: "UTC"}); err != nil || result.Outcome != setup.WorkflowSessionRequired {
+			t.Fatalf("%s save = %#v, %v", state, result, err)
+		}
+	}
+	active := digest(217)
+	if _, err := pool.Exec(ctx, `INSERT INTO setup_sessions (id,token_digest,created_at,expires_at) VALUES ($1,$2,clock_timestamp(),clock_timestamp()+interval '2 minutes')`, persistenceID(217), active[:]); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	errs := make(chan error, 4)
+	for range 4 {
+		go func() {
+			<-start
+			result, err := repository.SaveGeneral(ctx, active, setup.General{InstanceName: "same", PublicURL: "https://example.com", Timezone: "UTC"})
+			if err == nil && result.Outcome != setup.WorkflowAvailable {
+				err = errors.New("unexpected save outcome")
+			}
+			errs <- err
+		}()
+	}
+	close(start)
+	for range 4 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var events int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM setup_workflow_events`).Scan(&events); err != nil || events != 1 {
+		t.Fatalf("concurrent identical save events=%d err=%v", events, err)
+	}
+
+	lock, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.Exec(ctx, `SELECT 1 FROM setup_state WHERE singleton=TRUE FOR UPDATE`); err != nil {
+		t.Fatal(err)
+	}
+	waitCtx, stop := context.WithCancel(ctx)
+	waitErr := make(chan error, 1)
+	go func() {
+		_, err := repository.SaveGeneral(waitCtx, active, setup.General{InstanceName: "canceled", PublicURL: "https://example.com", Timezone: "UTC"})
+		waitErr <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	stop()
+	if err := <-waitErr; !errors.Is(err, setup.ErrPersistenceCanceled) {
+		t.Fatalf("canceled lock wait error=%v", err)
+	}
+	_ = lock.Rollback(ctx)
+}
+
+func TestSetupWorkflowSaveSerializesWithCompletion(t *testing.T) {
+	bootstrap, pool := isolatedSetupRepository(t)
+	workflow := NewSetupWorkflowRepository(bootstrap.pool)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := digest(218)
+	if _, err := pool.Exec(ctx, `INSERT INTO setup_sessions (id,token_digest,created_at,expires_at) VALUES ($1,$2,clock_timestamp(),clock_timestamp()+interval '2 minutes')`, persistenceID(218), d[:]); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.Exec(ctx, `SELECT 1 FROM setup_state WHERE singleton=TRUE FOR UPDATE`); err != nil {
+		t.Fatal(err)
+	}
+	resultCh := make(chan setup.WorkflowResult, 1)
+	go func() {
+		result, _ := workflow.SaveGeneral(ctx, d, setup.General{InstanceName: "late", PublicURL: "https://example.com", Timezone: "UTC"})
+		resultCh <- result
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if _, err := lock.Exec(ctx, `UPDATE setup_state SET complete=TRUE WHERE singleton=TRUE`); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if result := <-resultCh; result.Outcome != setup.WorkflowCompleted {
+		t.Fatalf("save after serialized completion = %#v", result)
+	}
+	var events int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM setup_workflow_events`).Scan(&events); err != nil || events != 0 {
+		t.Fatalf("completion-losing save events=%d err=%v", events, err)
+	}
+}
+
+func TestSetupWorkflowCompletedMutationPrecedesCompletionRevocation(t *testing.T) {
+	bootstrap, pool := isolatedSetupRepository(t)
+	workflow := NewSetupWorkflowRepository(bootstrap.pool)
+	ctx := context.Background()
+	d := digest(219)
+	if _, err := pool.Exec(ctx, `INSERT INTO setup_sessions (id,token_digest,created_at,expires_at)
+		VALUES ($1,$2,clock_timestamp(),clock_timestamp()+interval '2 minutes')`, persistenceID(219), d[:]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bootstrap.Complete(ctx, setup.CompletionRequest{
+		RevocationEventID: persistenceID(220), CompletionEventID: persistenceID(221),
+	}); err != nil {
+		t.Fatalf("Complete() = %v", err)
+	}
+
+	result, err := workflow.SaveGeneral(ctx, d, setup.General{
+		InstanceName: "must-not-save", PublicURL: "https://example.com", Timezone: "UTC",
+	})
+	if err != nil || result.Outcome != setup.WorkflowCompleted {
+		t.Fatalf("save with completion-revoked session = %#v, %v", result, err)
+	}
+	read, err := workflow.ReadWorkflow(ctx, d)
+	if err != nil || read.Outcome != setup.WorkflowSessionRequired {
+		t.Fatalf("read with completion-revoked session = %#v, %v", read, err)
+	}
+	var draft string
+	var workflowEvents int
+	var activeSessions int
+	if err := pool.QueryRow(ctx, `SELECT draft::text,
+		(SELECT count(*) FROM setup_workflow_events),
+		(SELECT count(*) FROM setup_sessions WHERE revoked_at IS NULL)
+		FROM setup_state WHERE singleton=TRUE`).Scan(&draft, &workflowEvents, &activeSessions); err != nil {
+		t.Fatal(err)
+	}
+	if draft != "{}" || workflowEvents != 0 || activeSessions != 0 {
+		t.Fatalf("completed save effects draft=%s workflow_events=%d active_sessions=%d", draft, workflowEvents, activeSessions)
+	}
+}
+
+func TestSetupWorkflowAuthorizationCompletionAndStrictDraft(t *testing.T) {
+	bootstrap, pool := isolatedSetupRepository(t)
+	repository := NewSetupWorkflowRepository(bootstrap.pool)
+	ctx := context.Background()
+	valid := digest(212)
+	_, err := pool.Exec(ctx, `INSERT INTO setup_sessions (id, token_digest, created_at, expires_at)
+		VALUES ($1, $2, transaction_timestamp(), transaction_timestamp() + interval '15 minutes')`, persistenceID(212), valid[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := repository.ReadWorkflow(ctx, digest(213)); err != nil || result.Outcome != setup.WorkflowSessionRequired {
+		t.Fatalf("unknown session outcome = %#v, %v", result, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE setup_state SET draft = '{"version":1,"secret":"must-not-survive"}'::jsonb WHERE singleton = TRUE`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReadWorkflow(ctx, valid); !errors.Is(err, setup.ErrStateInvalid) {
+		t.Fatalf("strict draft error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE setup_state SET complete = TRUE WHERE singleton = TRUE`); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := repository.ReadWorkflow(ctx, digest(213)); err != nil || result.Outcome != setup.WorkflowSessionRequired {
+		t.Fatalf("completed state disclosed without valid session: %#v, %v", result, err)
+	}
+	if result, err := repository.SaveGeneral(ctx, valid, setup.General{InstanceName: "x", PublicURL: "https://example.com", Timezone: "UTC"}); err != nil || result.Outcome != setup.WorkflowCompleted {
+		t.Fatalf("completed mutation outcome = %#v, %v", result, err)
+	}
+	var draft string
+	if err := pool.QueryRow(ctx, `SELECT draft::text FROM setup_state WHERE singleton = TRUE`).Scan(&draft); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(draft, "instance_name") {
+		t.Fatalf("completed mutation changed draft: %s", draft)
 	}
 }
 

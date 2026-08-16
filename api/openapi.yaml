@@ -194,6 +194,93 @@ paths:
       operationId: rejectOptionsSetupSession
       responses:
         '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' }
+  /setup/state:
+    parameters:
+      - $ref: '#/components/parameters/RequestID'
+    get:
+      operationId: getSetupWorkflowState
+      summary: Read resumable non-secret setup workflow state
+      description: Requires the environment-selected setup session cookie. Origin and CSRF headers are not required for this read.
+      responses:
+        '200':
+          description: Current step and optional typed General draft
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestID' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupWorkflowState' }
+        '401': { $ref: '#/components/responses/SetupSessionRequired' }
+        '409': { $ref: '#/components/responses/SetupCompleted' }
+        '503': { $ref: '#/components/responses/SetupUnavailable' }
+    head:
+      operationId: headSetupWorkflowState
+      description: Identical status and headers to GET, with no response body as required by HTTP HEAD semantics.
+      responses:
+        '200': { $ref: '#/components/responses/SetupWorkflowStateHead' }
+        '401': { $ref: '#/components/responses/SetupSessionRequiredHead' }
+        '409': { $ref: '#/components/responses/SetupCompletedHead' }
+        '503': { $ref: '#/components/responses/SetupUnavailableHead' }
+    post: { operationId: rejectPostSetupWorkflowState, responses: { '405': { $ref: '#/components/responses/SetupStateMethodNotAllowed' } } }
+    put: { operationId: rejectPutSetupWorkflowState, responses: { '405': { $ref: '#/components/responses/SetupStateMethodNotAllowed' } } }
+    patch: { operationId: rejectPatchSetupWorkflowState, responses: { '405': { $ref: '#/components/responses/SetupStateMethodNotAllowed' } } }
+    delete: { operationId: rejectDeleteSetupWorkflowState, responses: { '405': { $ref: '#/components/responses/SetupStateMethodNotAllowed' } } }
+    options: { operationId: rejectOptionsSetupWorkflowState, responses: { '405': { $ref: '#/components/responses/SetupStateMethodNotAllowed' } } }
+  /setup/general:
+    parameters:
+      - $ref: '#/components/parameters/RequestID'
+      - $ref: '#/components/parameters/SetupOrigin'
+      - in: header
+        name: X-Requestarr-CSRF
+        required: true
+        schema: { type: string, const: '1' }
+    put:
+      operationId: putSetupGeneral
+      summary: Idempotently save the General setup step
+      description: >-
+        Processing precedence is method, Origin, CSRF, exact content type and
+        strict bounded JSON, typed validation, then setup-session authorization
+        and persistence under the setup-state lock. Requires exactly one
+        environment-selected canonical session cookie, exactly one normalized
+        configured Origin, and exactly X-Requestarr-CSRF: 1. No CORS or
+        preflight support is provided. An identical normalized no-op save does
+        not emit another audit event.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetupGeneral' }
+      responses:
+        '200':
+          description: Saved normalized draft and monotonically advanced workflow state
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestID' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupWorkflowState' }
+        '400': { $ref: '#/components/responses/SetupInvalidRequest' }
+        '401': { $ref: '#/components/responses/SetupSessionRequired' }
+        '403':
+          description: Origin validation or the setup CSRF check failed.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestID' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SetupOriginForbiddenError'
+                  - $ref: '#/components/schemas/SetupCSRFForbiddenError'
+        '409': { $ref: '#/components/responses/SetupCompleted' }
+        '422': { $ref: '#/components/responses/SetupGeneralInvalid' }
+        '503': { $ref: '#/components/responses/SetupUnavailable' }
+    get: { operationId: rejectGetSetupGeneral, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
+    head: { operationId: rejectHeadSetupGeneral, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowedHead' } } }
+    post: { operationId: rejectPostSetupGeneral, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
+    patch: { operationId: rejectPatchSetupGeneral, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
+    delete: { operationId: rejectDeleteSetupGeneral, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
+    options: { operationId: rejectOptionsSetupGeneral, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
 components:
   parameters:
     RequestID:
@@ -225,8 +312,15 @@ components:
       description: Methods supported by this resource.
       required: true
       schema:
-        type: string
-        const: GET, HEAD
+        type: array
+        items:
+          type: string
+          enum: [GET, HEAD]
+        minItems: 2
+        maxItems: 2
+        uniqueItems: true
+      style: simple
+      explode: true
     NoStore:
       description: Prevents storage of the public setup-routing signal or its errors.
       required: true
@@ -237,6 +331,10 @@ components:
       description: The sole method supported by setup-session exchange.
       required: true
       schema: { type: string, const: POST }
+    AllowPut:
+      description: The sole method supported by General setup mutation.
+      required: true
+      schema: { type: string, const: PUT }
     RetryAfter:
       description: Whole seconds until the next fixed rate-limit window, clamped to 1-900.
       required: true
@@ -338,6 +436,75 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/SetupUnavailableError' }
+    SetupSessionRequired:
+      description: >-
+        The selected setup session cookie is missing, duplicated, malformed,
+        unknown, expired, revoked, invalidated by key rotation, or supplied
+        simultaneously with the other environment's cookie name. Production
+        selects __Host-requestarr_setup (Secure, HttpOnly, SameSite=Strict,
+        Path=/, no Domain); explicit loopback HTTP development selects
+        requestarr_setup_dev without Secure. Values are canonical unpadded
+        base64url encodings of exactly 32 bytes and sessions have an absolute
+        15-minute lifetime evaluated against PostgreSQL time after a mutation
+        acquires the setup-state lock.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/APIErrorEnvelope' }
+    SetupGeneralInvalid:
+      description: General values failed typed validation.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SetupGeneralInvalidError' }
+    SetupStateMethodNotAllowed:
+      description: Only GET and HEAD are supported by this resource.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+        Allow: { $ref: '#/components/headers/AllowGet' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/APIErrorEnvelope' }
+    SetupGeneralMethodNotAllowed:
+      description: Only PUT is supported by this resource; OPTIONS is rejected and no CORS preflight is available.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+        Allow: { $ref: '#/components/headers/AllowPut' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/APIErrorEnvelope' }
+    SetupGeneralMethodNotAllowedHead:
+      description: Only PUT is supported; HTTP HEAD suppresses the error body.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+        Allow: { $ref: '#/components/headers/AllowPut' }
+    SetupWorkflowStateHead:
+      description: Workflow state headers; HTTP HEAD suppresses the GET representation body.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+    SetupSessionRequiredHead:
+      description: A valid setup session is required; HTTP HEAD suppresses the error body.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+    SetupCompletedHead:
+      description: Setup is complete; HTTP HEAD suppresses the error body.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+    SetupUnavailableHead:
+      description: Setup persistence is unavailable; HTTP HEAD suppresses the error body.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
   schemas:
     APIErrorEnvelope:
       type: object
@@ -351,7 +518,7 @@ components:
           properties:
             code:
               type: string
-              enum: [not_found, method_not_allowed, setup_status_unavailable, invalid_request, setup_origin_forbidden, setup_csrf_forbidden, setup_token_invalid, setup_locked, setup_completed, setup_rate_limited, setup_unavailable]
+              enum: [not_found, method_not_allowed, setup_status_unavailable, invalid_request, setup_session_required, setup_general_invalid, setup_origin_forbidden, setup_csrf_forbidden, setup_token_invalid, setup_locked, setup_completed, setup_rate_limited, setup_unavailable]
             message: { type: string }
             request_id: { type: string }
     Liveness:
@@ -413,10 +580,49 @@ components:
           maxLength: 43
           pattern: '^[A-Za-z0-9_-]{43}$'
           description: Canonical unpadded base64url encoding of exactly 32 bytes.
+    SetupGeneral:
+      type: object
+      additionalProperties: false
+      required: [instance_name, public_url, timezone]
+      properties:
+        instance_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Trimmed, valid UTF-8; 1-100 Unicode code points and at most 400 UTF-8 bytes.
+        public_url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 2048
+          pattern: '^https?://[^/?#]+/?$'
+          description: >-
+            Trimmed absolute HTTP(S) origin with a non-empty host, no userinfo,
+            path (except an optional slash), query, fragment, or opaque form;
+            scheme and host are lowercased and a trailing slash is removed.
+            Limited to 2048 Unicode code points and 8192 UTF-8 bytes.
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Trimmed valid IANA timezone name other than Local; at most 128 Unicode code points and 512 UTF-8 bytes.
+    SetupWorkflowState:
+      type: object
+      additionalProperties: false
+      required: [current_step]
+      properties:
+        current_step:
+          type: string
+          enum: [welcome, general, authentication, providers, libraries, notifications, policy, review, finish]
+        general: { $ref: '#/components/schemas/SetupGeneral' }
     SetupInvalidRequestError:
       $ref: '#/components/schemas/SetupErrorInvalidRequest'
     SetupOriginForbiddenError:
       $ref: '#/components/schemas/SetupErrorOriginForbidden'
+    SetupCSRFForbiddenError:
+      $ref: '#/components/schemas/SetupErrorCSRFForbidden'
+    SetupGeneralInvalidError:
+      $ref: '#/components/schemas/SetupErrorGeneralInvalid'
     SetupTokenInvalidError:
       $ref: '#/components/schemas/SetupErrorTokenInvalid'
     SetupLockedError:
@@ -433,6 +639,12 @@ components:
     SetupErrorOriginForbidden:
       $ref: '#/components/schemas/APIErrorEnvelope'
       examples: [{ error: { code: setup_origin_forbidden, message: The request origin is not allowed., request_id: 0123456789abcdef0123456789abcdef } }]
+    SetupErrorCSRFForbidden:
+      $ref: '#/components/schemas/APIErrorEnvelope'
+      examples: [{ error: { code: setup_csrf_forbidden, message: The setup CSRF check failed., request_id: 0123456789abcdef0123456789abcdef } }]
+    SetupErrorGeneralInvalid:
+      $ref: '#/components/schemas/APIErrorEnvelope'
+      examples: [{ error: { code: setup_general_invalid, message: The General setup values are invalid., request_id: 0123456789abcdef0123456789abcdef } }]
     SetupErrorTokenInvalid:
       $ref: '#/components/schemas/APIErrorEnvelope'
       examples: [{ error: { code: setup_token_invalid, message: The setup token is invalid., request_id: 0123456789abcdef0123456789abcdef } }]
