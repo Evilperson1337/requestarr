@@ -96,6 +96,8 @@ The exchange endpoint accepts only an exact-origin JSON request; do not put the 
 
 Production startup migration is forward-only. Existing down migrations are retained for explicit development recovery, but the application never invokes them. Back up PostgreSQL before upgrades and roll back application binaries only when they remain schema-compatible; otherwise restore a tested backup.
 
+Secret-at-rest encryption uses `REQUESTARR_ENCRYPTION_KEY`, which must be exactly 32 new random bytes encoded as canonical unpadded base64url. Generate it with `openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'`. Never reuse `REQUESTARR_SETUP_TOKEN`. Store the encryption key outside PostgreSQL and back it up together with each database backup. A database containing encrypted rows fails startup before listen if the key is missing, malformed, or incompatible. V1 supports one active key and no online rotation; replacing or losing the key makes existing ciphertext unavailable. An incomplete installation with no encrypted rows may start locked for secret operations.
+
 Migration advisory-lock acquisition is bounded by both golang-migrate's 15-second client guard and PostgreSQL's 15-second session `lock_timeout`. The runner API cannot attach a caller context directly to `Up`; cancellation is therefore graceful between migration files, while each migration operation is independently bounded by a 60-second statement timeout. During execution of any individual migration file, cancellation is enforced by that statement bound rather than immediately by the process context.
 
 The frontend scaffold lives under `web/`:

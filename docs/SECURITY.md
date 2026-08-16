@@ -16,3 +16,6 @@
 - Rate-limit URL resolution, authentication callbacks, setup validation, and notification test actions.
 - Resumable setup reads require the short-lived setup session cookie. Setup mutations additionally require exact configured Origin and exactly `X-Requestarr-CSRF: 1`; no CORS/preflight support exists.
 - Setup workflow persistence accepts only keyed session digests and strictly versioned server-produced drafts. It never stores raw cookies, bootstrap tokens, arbitrary request JSON, or secrets.
+- Stored integration credentials use AES-256-GCM envelopes with fresh 12-byte nonces and associated data binding version, namespace, owner UUID, and secret name. Key IDs are domain-separated identifiers, not secrets or password verifiers.
+- `REQUESTARR_ENCRYPTION_KEY` is independent 32-byte random deployment material in canonical unpadded base64url. Database/key backups are coupled. Existing encrypted rows make missing, invalid, or incompatible keys a fail-before-listen condition; V1 has one active key and no online rotation.
+- Database-only compromise is in scope for at-rest protection. A compromised running process/host, memory inspection, or theft of both database and deployment key is not. Logs, errors, dumps, APIs, and audit data must not reveal plaintext/key material; future read APIs expose presence only.

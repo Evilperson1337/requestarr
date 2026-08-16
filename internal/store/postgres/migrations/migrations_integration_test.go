@@ -39,11 +39,11 @@ func TestEmbeddedMigrationsCleanAndIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT version, dirty FROM schema_migrations`).Scan(&version, &dirty); err != nil {
 		t.Fatalf("read migration history: %v", err)
 	}
-	if version != 3 || dirty {
-		t.Fatalf("migration state = version %d dirty %t, want version 3 clean", version, dirty)
+	if version != 4 || dirty {
+		t.Fatalf("migration state = version %d dirty %t, want version 4 clean", version, dirty)
 	}
 
-	for _, table := range []string{"users", "catalog_items", "requests", "request_subscriptions", "request_events", "library_sources", "inventory_items", "notification_deliveries", "setup_state", "setup_sessions", "setup_exchange_rate_limits", "setup_security_events", "setup_workflow_events"} {
+	for _, table := range []string{"users", "catalog_items", "requests", "request_subscriptions", "request_events", "library_sources", "inventory_items", "notification_deliveries", "setup_state", "setup_sessions", "setup_exchange_rate_limits", "setup_security_events", "setup_workflow_events", "encryption_key_registry", "encrypted_secrets"} {
 		var exists bool
 		if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists); err != nil || !exists {
 			t.Fatalf("expected table %s.%s to exist: exists=%t err=%v", schema, table, exists, err)
@@ -59,6 +59,50 @@ func TestEmbeddedMigrationsCleanAndIdempotent(t *testing.T) {
 	if setupRows != 1 || !singleton || complete || currentStep != "welcome" {
 		t.Fatalf("setup state = rows %d singleton %t complete %t step %q, want one incomplete welcome singleton", setupRows, singleton, complete, currentStep)
 	}
+}
+
+func TestEncryptedSecretsMigrationFromExactV3AndRollbackReapply(t *testing.T) {
+	databaseURL, schema, pool := isolatedDatabase(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	for _, name := range []string{"000001_initial.up.sql", "000002_setup_bootstrap_sessions.up.sql", "000003_setup_workflow_events.up.sql"} {
+		migration, err := fs.ReadFile(embedded.Files, name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if _, err := pool.Exec(ctx, string(migration)); err != nil {
+			t.Fatalf("apply %s: %v", name, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `CREATE TABLE schema_migrations (version bigint NOT NULL PRIMARY KEY, dirty boolean NOT NULL); INSERT INTO schema_migrations VALUES (3, false)`); err != nil {
+		t.Fatalf("seed exact v3 history: %v", err)
+	}
+	if err := Up(ctx, databaseURL); err != nil {
+		t.Fatalf("migrate exact v3 to v4: %v", err)
+	}
+	assertEncryptedSecretsSchema(t, ctx, pool, schema)
+
+	down, err := fs.ReadFile(embedded.Files, "000004_encrypted_secrets.down.sql")
+	if err != nil {
+		t.Fatalf("read v4 down migration: %v", err)
+	}
+	if _, err := pool.Exec(ctx, string(down)); err != nil {
+		t.Fatalf("dependency-safe v4 rollback: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE schema_migrations SET version=3, dirty=false`); err != nil {
+		t.Fatalf("reset local/test migration history: %v", err)
+	}
+	for _, table := range []string{"encrypted_secrets", "encryption_key_registry"} {
+		var exists bool
+		if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists); err != nil || exists {
+			t.Fatalf("rolled-back table %s exists=%t err=%v", table, exists, err)
+		}
+	}
+	if err := Up(ctx, databaseURL); err != nil {
+		t.Fatalf("reapply v4 after rollback: %v", err)
+	}
+	assertEncryptedSecretsSchema(t, ctx, pool, schema)
 }
 
 func TestSetupWorkflowAuditMigrationFromExactV2AndRollback(t *testing.T) {
@@ -195,6 +239,58 @@ func TestSetupBootstrapMigrationConstraints(t *testing.T) {
 	}
 }
 
+func TestEncryptedSecretsMigrationConstraints(t *testing.T) {
+	databaseURL, _, pool := isolatedDatabase(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := Up(ctx, databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	id := "00000000-0000-4000-8000-000000000001"
+	now := time.Now().UTC()
+	keyID := make([]byte, 16)
+	keyID[0] = 1
+	if _, err := pool.Exec(ctx, `INSERT INTO encryption_key_registry(singleton,active_key_id) VALUES (TRUE,$1)`, keyID); err != nil {
+		t.Fatalf("register active key: %v", err)
+	}
+	insert := `INSERT INTO encrypted_secrets (namespace,owner_id,secret_name,envelope_version,key_id,nonce,ciphertext,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`
+	if _, err := pool.Exec(ctx, insert, "oidc", id, "client_secret", 1, keyID, make([]byte, 12), make([]byte, 16), now, now); err != nil {
+		t.Fatalf("valid encrypted row: %v", err)
+	}
+	assertConstraintFailure(t, ctx, pool, insert, "oidc", id, "unregistered", 1, make([]byte, 16), make([]byte, 12), make([]byte, 16), now, now)
+	assertConstraintFailure(t, ctx, pool, insert, "oidc", id, "other", 2, keyID, make([]byte, 12), make([]byte, 16), now, now)
+	assertConstraintFailure(t, ctx, pool, insert, "oidc", id, "other", 1, make([]byte, 15), make([]byte, 12), make([]byte, 16), now, now)
+	assertConstraintFailure(t, ctx, pool, insert, "oidc", id, "other", 1, keyID, make([]byte, 11), make([]byte, 16), now, now)
+	assertConstraintFailure(t, ctx, pool, insert, "oidc", id, "other", 1, keyID, make([]byte, 12), make([]byte, 15), now, now)
+	assertConstraintFailure(t, ctx, pool, insert, "", id, "other", 1, keyID, make([]byte, 12), make([]byte, 16), now, now)
+	assertConstraintFailure(t, ctx, pool, insert, "oidc", id, "", 1, keyID, make([]byte, 12), make([]byte, 16), now, now)
+	assertConstraintFailure(t, ctx, pool, insert, "oidc", id, "client_secret", 1, keyID, make([]byte, 12), make([]byte, 16), now, now)
+
+	assertConstraintFailure(t, ctx, pool, `INSERT INTO encryption_key_registry(singleton,active_key_id) VALUES (FALSE,$1)`, bytesOf(2, 16))
+	assertConstraintFailure(t, ctx, pool, `INSERT INTO encryption_key_registry(singleton,active_key_id) VALUES (TRUE,$1)`, bytesOf(2, 16))
+	assertConstraintFailure(t, ctx, pool, `UPDATE encryption_key_registry SET active_key_id=$1`, make([]byte, 15))
+}
+
+func assertEncryptedSecretsSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	for _, table := range []string{"encryption_key_registry", "encrypted_secrets"} {
+		var exists bool
+		if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists); err != nil || !exists {
+			t.Fatalf("expected table %s: exists=%t err=%v", table, exists, err)
+		}
+	}
+	assertConstraintFailure(t, ctx, pool, `INSERT INTO encryption_key_registry(singleton,active_key_id) VALUES (FALSE,$1)`, make([]byte, 16))
+	assertConstraintFailure(t, ctx, pool, `INSERT INTO encryption_key_registry(singleton,active_key_id) VALUES (TRUE,$1)`, make([]byte, 15))
+}
+
+func bytesOf(value byte, size int) []byte {
+	result := make([]byte, size)
+	for i := range result {
+		result[i] = value
+	}
+	return result
+}
+
 func assertSetupBootstrapSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	for _, table := range []string{"setup_sessions", "setup_exchange_rate_limits", "setup_security_events"} {
@@ -240,7 +336,7 @@ func TestEmbeddedMigrationsRejectDirtyAndAheadHistory(t *testing.T) {
 		wantError string
 	}{
 		{name: "dirty", version: 1, dirty: true, wantError: "migration history is dirty"},
-		{name: "ahead", version: 4, wantError: "migration history version is newer than this binary"},
+		{name: "ahead", version: 5, wantError: "migration history version is newer than this binary"},
 	}
 
 	for _, tt := range tests {

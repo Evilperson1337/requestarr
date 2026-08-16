@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 
 	"git.example.com/evilperson1337/Requestarr/internal/buildinfo"
 	"git.example.com/evilperson1337/Requestarr/internal/config"
+	"git.example.com/evilperson1337/Requestarr/internal/secrets"
 	"git.example.com/evilperson1337/Requestarr/internal/setup"
 	"git.example.com/evilperson1337/Requestarr/internal/store/postgres"
 	postgresmigrations "git.example.com/evilperson1337/Requestarr/internal/store/postgres/migrations"
@@ -337,6 +339,178 @@ func TestRunRejectsDirtyMigrationBeforeListening(t *testing.T) {
 		t.Fatalf("HTTP listener was opened before migration rejection: %v", err)
 	}
 	_ = probe.Close()
+}
+
+func TestRunRejectsMissingAndWrongEncryptionKeyBeforeListening(t *testing.T) {
+	baseURL := os.Getenv("REQUESTARR_TEST_DATABASE_URL")
+	if baseURL == "" {
+		t.Skip("REQUESTARR_TEST_DATABASE_URL is required for integration tests")
+	}
+	databaseURL, cleanup := appTestSchema(t, baseURL)
+	defer cleanup()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := postgresmigrations.Up(ctx, databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := [32]byte{4}
+	keyID := secrets.New(key).KeyID()
+	if _, err := pool.Exec(ctx, `INSERT INTO encryption_key_registry(singleton,active_key_id) VALUES (TRUE,$1)`, keyID[:]); err != nil {
+		pool.Close()
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO encrypted_secrets
+		(namespace,owner_id,secret_name,envelope_version,key_id,nonce,ciphertext,created_at,updated_at)
+		VALUES ('oidc','00000000-0000-4000-8000-000000000001','client_secret',1,$1,$2,$3,transaction_timestamp(),transaction_timestamp())`, keyID[:], make([]byte, 12), make([]byte, 16)); err != nil {
+		pool.Close()
+		t.Fatal(err)
+	}
+	pool.Close()
+	for _, value := range []string{"", base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{5}, 32)), "malformed-secret-marker"} {
+		t.Setenv("REQUESTARR_DATABASE_URL", databaseURL)
+		t.Setenv("REQUESTARR_HTTP_ADDR", "127.0.0.1:1")
+		t.Setenv("REQUESTARR_ENCRYPTION_KEY", value)
+		cfg := config.FromEnv()
+		var logs bytes.Buffer
+		err := Run(ctx, cfg, slog.New(slog.NewTextHandler(&logs, nil)), buildinfo.Info{})
+		if err == nil || err.Error() != "startup encrypted secret key validation failed" {
+			t.Fatalf("Run key %q error=%v", value, err)
+		}
+		if value != "" && (strings.Contains(err.Error(), value) || strings.Contains(logs.String(), value)) {
+			t.Fatal("key material appeared in error or logs")
+		}
+	}
+}
+
+func TestRunEncryptionKeyStartupMatrix(t *testing.T) {
+	baseURL := os.Getenv("REQUESTARR_TEST_DATABASE_URL")
+	if baseURL == "" {
+		t.Skip("REQUESTARR_TEST_DATABASE_URL is required for integration tests")
+	}
+	validKey := [32]byte{0x41}
+	wrongKey := [32]byte{0x42}
+	validValue := base64.RawURLEncoding.EncodeToString(validKey[:])
+	wrongValue := base64.RawURLEncoding.EncodeToString(wrongKey[:])
+	malformedValue := "malformed-encryption-key-marker"
+
+	tests := []struct {
+		name       string
+		registry   bool
+		keyValue   string
+		wantListen bool
+	}{
+		{name: "empty database missing key", keyValue: "", wantListen: true},
+		{name: "empty database malformed key", keyValue: malformedValue},
+		{name: "empty database valid key", keyValue: validValue, wantListen: true},
+		{name: "registry only missing key", registry: true, keyValue: ""},
+		{name: "registry only malformed key", registry: true, keyValue: malformedValue},
+		{name: "registry only matching key", registry: true, keyValue: validValue, wantListen: true},
+		{name: "registry only wrong key", registry: true, keyValue: wrongValue},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			databaseURL, cleanup := appTestSchema(t, baseURL)
+			defer cleanup()
+			prepareCtx, prepareCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer prepareCancel()
+			if err := postgresmigrations.Up(prepareCtx, databaseURL); err != nil {
+				t.Fatal(err)
+			}
+			if tt.registry {
+				pool, err := pgxpool.New(prepareCtx, databaseURL)
+				if err != nil {
+					t.Fatal(err)
+				}
+				keyID := secrets.New(validKey).KeyID()
+				_, err = pool.Exec(prepareCtx, `INSERT INTO encryption_key_registry(singleton,active_key_id) VALUES(TRUE,$1)`, keyID[:])
+				pool.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			address := reserveAppTestAddress(t)
+			t.Setenv("REQUESTARR_DATABASE_URL", databaseURL)
+			t.Setenv("REQUESTARR_HTTP_ADDR", address)
+			t.Setenv("REQUESTARR_ENCRYPTION_KEY", tt.keyValue)
+			cfg := config.FromEnv()
+			var logs bytes.Buffer
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() {
+				done <- Run(ctx, cfg, slog.New(slog.NewTextHandler(&logs, nil)), buildinfo.Info{})
+			}()
+
+			if tt.wantListen {
+				client := &http.Client{Timeout: 250 * time.Millisecond}
+				deadline := time.NewTimer(5 * time.Second)
+				defer deadline.Stop()
+				for {
+					response, err := client.Get("http://" + address + "/readyz")
+					if err == nil {
+						_ = response.Body.Close()
+						if response.StatusCode == http.StatusOK {
+							break
+						}
+					}
+					select {
+					case runErr := <-done:
+						t.Fatalf("Run() exited before listening: %v", runErr)
+					case <-deadline.C:
+						t.Fatal("application did not listen after valid encryption-key state")
+					default:
+					}
+				}
+				cancel()
+				select {
+				case err := <-done:
+					if err != nil {
+						t.Fatalf("Run() shutdown error = %v", err)
+					}
+				case <-time.After(12 * time.Second):
+					t.Fatal("Run() did not complete bounded shutdown")
+				}
+				return
+			}
+
+			select {
+			case err := <-done:
+				cancel()
+				if err == nil || err.Error() != "startup encrypted secret key validation failed" {
+					t.Fatalf("Run() error = %v, want stable encryption-key validation failure", err)
+				}
+				if tt.keyValue != "" && (strings.Contains(err.Error(), tt.keyValue) || strings.Contains(logs.String(), tt.keyValue)) {
+					t.Fatal("encryption key material appeared in error or logs")
+				}
+			case <-time.After(5 * time.Second):
+				cancel()
+				t.Fatal("Run() did not reject incompatible encryption-key state")
+			}
+			probe, err := net.Listen("tcp", address)
+			if err != nil {
+				t.Fatalf("HTTP listener opened before encryption-key rejection: %v", err)
+			}
+			_ = probe.Close()
+		})
+	}
+}
+
+func reserveAppTestAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve test address: %v", err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("release test address: %v", err)
+	}
+	return address
 }
 
 func appTestSchema(t *testing.T, baseURL string) (string, func()) {

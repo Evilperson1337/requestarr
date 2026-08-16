@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -15,14 +16,26 @@ import (
 )
 
 type Config struct {
-	Environment string
-	HTTPAddr    string
-	PublicURL   string
-	LogLevelRaw string
-	databaseURL string
-	setupToken  [32]byte
-	setupReady  bool
+	Environment         string
+	HTTPAddr            string
+	PublicURL           string
+	LogLevelRaw         string
+	databaseURL         string
+	setupToken          [32]byte
+	setupReady          bool
+	encryptionKey       [32]byte
+	encryptionKeyStatus EncryptionKeyStatus
+	secretReuseInvalid  bool
 }
+
+// EncryptionKeyStatus describes key availability without exposing key material.
+type EncryptionKeyStatus uint8
+
+const (
+	EncryptionKeyMissing EncryptionKeyStatus = iota
+	EncryptionKeyInvalid
+	EncryptionKeyReady
+)
 
 func FromEnv() Config {
 	cfg := Config{
@@ -33,6 +46,11 @@ func FromEnv() Config {
 		databaseURL: os.Getenv("REQUESTARR_DATABASE_URL"),
 	}
 	cfg.setupToken, cfg.setupReady = parseSetupToken(os.Getenv("REQUESTARR_SETUP_TOKEN"))
+	cfg.encryptionKey, cfg.encryptionKeyStatus = parseEncryptionKey(os.Getenv("REQUESTARR_ENCRYPTION_KEY"))
+	if cfg.setupReady && cfg.encryptionKeyStatus == EncryptionKeyReady && subtle.ConstantTimeCompare(cfg.setupToken[:], cfg.encryptionKey[:]) == 1 {
+		cfg.encryptionKeyStatus = EncryptionKeyInvalid
+		cfg.secretReuseInvalid = true
+	}
 	return cfg
 }
 
@@ -58,6 +76,9 @@ func (c Config) Validate() error {
 	if err := validatePublicURL(c.Environment, c.PublicURL); err != nil {
 		problems = append(problems, err.Error())
 	}
+	if c.secretReuseInvalid {
+		problems = append(problems, "deployment secret configuration is invalid")
+	}
 
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
@@ -78,6 +99,12 @@ func (c Config) SetupToken() ([32]byte, bool) {
 	return c.setupToken, c.setupReady
 }
 
+// EncryptionKey returns a fixed-size snapshot and its non-secret state. The
+// returned key is a copy and must never be logged or formatted.
+func (c Config) EncryptionKey() ([32]byte, EncryptionKeyStatus) {
+	return c.encryptionKey, c.encryptionKeyStatus
+}
+
 // SetupCookieSecure reports the validated environment-selected cookie policy.
 func (c Config) SetupCookieSecure() bool {
 	parsed, err := url.Parse(c.PublicURL)
@@ -86,7 +113,7 @@ func (c Config) SetupCookieSecure() bool {
 
 // String deliberately excludes secret-bearing configuration.
 func (c Config) String() string {
-	return fmt.Sprintf("Config{Environment:%q HTTPAddr:%q PublicURL:%q LogLevelRaw:%q DatabaseURL:<redacted> SetupToken:<redacted>}", c.Environment, c.HTTPAddr, c.PublicURL, c.LogLevelRaw)
+	return fmt.Sprintf("Config{Environment:%q HTTPAddr:%q PublicURL:%q LogLevelRaw:%q DatabaseURL:<redacted> SetupToken:<redacted> EncryptionKey:<redacted>}", c.Environment, c.HTTPAddr, c.PublicURL, c.LogLevelRaw)
 }
 
 // GoString prevents %#v diagnostics from exposing the database URL.
@@ -150,6 +177,22 @@ func parseSetupToken(value string) ([32]byte, bool) {
 	}
 	copy(token[:], decoded)
 	return token, true
+}
+
+func parseEncryptionKey(value string) ([32]byte, EncryptionKeyStatus) {
+	var key [32]byte
+	if value == "" {
+		return key, EncryptionKeyMissing
+	}
+	if len(value) != base64.RawURLEncoding.EncodedLen(len(key)) {
+		return key, EncryptionKeyInvalid
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil || len(decoded) != len(key) || base64.RawURLEncoding.EncodeToString(decoded) != value {
+		return key, EncryptionKeyInvalid
+	}
+	copy(key[:], decoded)
+	return key, EncryptionKeyReady
 }
 
 func validatePublicURL(environment, value string) error {

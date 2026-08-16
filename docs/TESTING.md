@@ -28,6 +28,8 @@ REQUESTARR_TEST_DATABASE_URL='postgres://requestarr:requestarr@localhost:5432/re
 
 From inside the devcontainer, use the service hostname `postgres` instead of `localhost`.
 
+Encrypted-secret coverage includes canonical key parsing and redaction (including setup-token/key equality rejection), AES-GCM tamper and associated-data rejection, nonce uniqueness, bounded fields, wrong/missing-key startup, concurrent first-key registration, matching-key restart, cancellation, repeated/concurrent atomic upsert, update timestamps, caller-owned transaction rollback, arbitrary wrong-key envelope rejection, and malformed-row database constraints. Configuration and application tests assert stable generic errors/logs do not contain encoded key material; repository tests verify plaintext is recoverable only through decryption. Tagged tests compile without a configured database; real PostgreSQL execution remains conditional on `REQUESTARR_TEST_DATABASE_URL`.
+
 ## End-to-end
 Cover setup wizard, OIDC sign-in, create request, duplicate resolution, Notify Me, admin approval/denial, simulated inventory arrival, Available transition, notification delivery, source outage retaining last-known state.
 

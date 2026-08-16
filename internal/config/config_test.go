@@ -221,6 +221,75 @@ func TestSetupTokenIsSnapshotFromEnvironment(t *testing.T) {
 	}
 }
 
+func TestEncryptionKeyCanonicalParsingSnapshotAndRedaction(t *testing.T) {
+	first := [32]byte{9}
+	second := [32]byte{8}
+	valid := base64.RawURLEncoding.EncodeToString(first[:])
+	tests := []struct {
+		name   string
+		value  string
+		status EncryptionKeyStatus
+	}{
+		{name: "missing", status: EncryptionKeyMissing},
+		{name: "canonical", value: valid, status: EncryptionKeyReady},
+		{name: "padded", value: valid + "=", status: EncryptionKeyInvalid},
+		{name: "hex", value: strings.Repeat("a", 64), status: EncryptionKeyInvalid},
+		{name: "whitespace", value: " " + valid, status: EncryptionKeyInvalid},
+		{name: "short", value: valid[:42], status: EncryptionKeyInvalid},
+		{name: "noncanonical", value: valid[:42] + "B", status: EncryptionKeyInvalid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("REQUESTARR_ENCRYPTION_KEY", tt.value)
+			t.Setenv("REQUESTARR_DATABASE_URL", "postgres://requestarr:secret@localhost/requestarr")
+			cfg := FromEnv()
+			got, status := cfg.EncryptionKey()
+			if status != tt.status {
+				t.Fatalf("EncryptionKey status = %v, want %v", status, tt.status)
+			}
+			if status == EncryptionKeyReady && got != first {
+				t.Fatal("EncryptionKey returned unexpected bytes")
+			}
+			t.Setenv("REQUESTARR_ENCRYPTION_KEY", base64.RawURLEncoding.EncodeToString(second[:]))
+			again, againStatus := cfg.EncryptionKey()
+			if again != got || againStatus != status {
+				t.Fatal("encryption key snapshot changed after environment mutation")
+			}
+			for _, rendered := range []string{fmt.Sprint(cfg), fmt.Sprintf("%#v", cfg)} {
+				if tt.value != "" && strings.Contains(rendered, tt.value) {
+					t.Fatalf("rendering exposed encryption key: %s", rendered)
+				}
+				if !strings.Contains(rendered, "EncryptionKey:<redacted>") {
+					t.Fatalf("rendering lacks encryption key redaction: %s", rendered)
+				}
+			}
+		})
+	}
+}
+
+func TestEncryptionKeyMustDifferFromSetupTokenAndRemainsRedacted(t *testing.T) {
+	material := [32]byte{0x5a}
+	encoded := base64.RawURLEncoding.EncodeToString(material[:])
+	t.Setenv("REQUESTARR_SETUP_TOKEN", encoded)
+	t.Setenv("REQUESTARR_ENCRYPTION_KEY", encoded)
+	t.Setenv("REQUESTARR_DATABASE_URL", "postgres://requestarr:secret@localhost/requestarr")
+	cfg := FromEnv()
+	if _, status := cfg.EncryptionKey(); status != EncryptionKeyInvalid {
+		t.Fatalf("EncryptionKey status = %v, want invalid", status)
+	}
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "deployment secret configuration is invalid") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	var logs strings.Builder
+	slog.New(slog.NewTextHandler(&logs, nil)).Error("configuration rejected", "config", cfg, "error", err)
+	for _, rendered := range []string{err.Error(), fmt.Sprint(cfg), fmt.Sprintf("%#v", cfg), logs.String()} {
+		if strings.Contains(rendered, encoded) {
+			t.Fatalf("secret material exposed: %s", rendered)
+		}
+	}
+}
+
 func TestPublicURLCookiePolicyValidation(t *testing.T) {
 	validDatabaseURL := "postgres://requestarr:secret@localhost/requestarr"
 	tests := []struct {

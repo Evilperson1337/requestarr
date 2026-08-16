@@ -11,6 +11,7 @@ import (
 	"git.example.com/evilperson1337/Requestarr/internal/buildinfo"
 	"git.example.com/evilperson1337/Requestarr/internal/config"
 	"git.example.com/evilperson1337/Requestarr/internal/httpapi"
+	"git.example.com/evilperson1337/Requestarr/internal/secrets"
 	"git.example.com/evilperson1337/Requestarr/internal/setup"
 	"git.example.com/evilperson1337/Requestarr/internal/store/postgres"
 	postgresmigrations "git.example.com/evilperson1337/Requestarr/internal/store/postgres/migrations"
@@ -25,6 +26,19 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 
 	if err := postgresmigrations.Up(ctx, cfg.DatabaseURL()); err != nil {
 		return errors.New("startup database migration failed")
+	}
+	encryptionKey, encryptionStatus := cfg.EncryptionKey()
+	if encryptionStatus == config.EncryptionKeyInvalid {
+		return errors.New("startup encrypted secret key validation failed")
+	}
+	var activeKeyID *secrets.KeyID
+	if encryptionStatus == config.EncryptionKeyReady {
+		keyID := secrets.New(encryptionKey).KeyID()
+		activeKeyID = &keyID
+	}
+	secretRepository := postgres.NewEncryptedSecretRepository(pool, activeKeyID)
+	if err := secretRepository.EstablishActiveKey(ctx); err != nil {
+		return errors.New("startup encrypted secret key validation failed")
 	}
 	readiness := &readinessChecker{database: pool}
 	readiness.migrationsComplete.Store(true)

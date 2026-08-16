@@ -31,6 +31,7 @@ The repository is a coherent, buildable scaffold, not yet a production service.
 ### Missing or incomplete
 
 - The public completion gate and temporary setup-session exchange are implemented. Richer session-authenticated setup reads and mutations, transactional configuration completion, OIDC, and the setup UI remain pending.
+- The encryption-key lifecycle, AES-256-GCM envelope primitive, constrained encrypted-secret schema/repository, and fail-before-listen encrypted-row key preflight are implemented. Secret-writing setup/API flows and online key rotation remain pending.
 - Provider, library, notification, and job packages are boundaries or placeholders rather than production adapters.
 - The Go server does not serve the built React application. The root route still serves scaffold HTML.
 - Production frontend artifact selection, backup/upgrade documentation, and production container validation remain outstanding.
