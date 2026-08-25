@@ -11,8 +11,8 @@ Do not expose an unauthenticated first-run wizard to the network.
 1. **Welcome** — explain scope and what will be configured.
 2. **General** — instance name, public URL, timezone.
 3. **Authentication** — OIDC issuer/client/scopes/groups claim/group-role mapping, discovery validation, test login.
-4. **Metadata Providers** — enable media types, configure/test TMDB, IGDB, MusicBrainz contact identity.
-5. **Libraries** — add zero or more Plex/Jellyfin/Navidrome/RomM sources and select authoritative media types. Warn but allow no libraries.
+4. **Metadata Providers** — enable media types, configure/test TMDB, IGDB, MusicBrainz contact identity. Planned audiobook support would add Audnexus metadata/enrichment here; it does not currently add a field or validation action.
+5. **Libraries** — add zero or more Plex/Jellyfin/Navidrome/RomM sources and select authoritative media types. Planned audiobook support would add Audiobookshelf as the only audiobook authority; it does not currently add a field or validation action. Warn but allow no libraries.
 6. **Notifications** — in-app always; optional Apprise API configuration/test notification.
 7. **Request Policy** — approval requirement per media type, notes, subscription behavior defaults.
 8. **Review** — concise summary with validation state.
@@ -28,6 +28,21 @@ Each effective General state mutation atomically appends a narrow `general_saved
 
 Secrets must be stored encrypted/secret-backed rather than returned to the browser after save. Raw bootstrap/session material never enters workflow persistence; PostgreSQL receives only a keyed session digest.
 
-The Authentication draft locally normalizes issuer, client ID, required client type (`public` or `confidential`), scopes (which must include `openid`), groups claim, default role, and ordered exact group-role mappings. Client secret writes are encrypted immediately under the fixed setup Authentication context, and reads expose presence only. Public clients must explicitly clear any envelope; confidential clients replace a secret or preserve one only when already configured and cannot clear it. This draft step performs no discovery, validation call, test login, activation, completion, or other network request.
+The Authentication draft locally normalizes issuer, client ID, required client type (`public` or `confidential`), scopes (which must include `openid`), groups claim, default role, and ordered exact group-role mappings. Client secret writes are encrypted immediately under the fixed setup Authentication context, and reads expose presence only. Public clients must explicitly clear any envelope; confidential clients replace a secret or preserve one only when already configured and cannot clear it. Every effective save increments `authentication_revision` and invalidates prior discovery evidence; a true no-op preserves both.
+
+`POST /api/v1/setup/authentication/validate` accepts only the current positive `authentication_revision`. It reserves durable per-session/global five-minute rate limits in a short transaction, performs one hardened secret-free discovery request without a transaction, and commits evidence only after rechecking completion, session, revision, and the Authentication snapshot in another short transaction. Late results are stale. Protected state reads expose only current-revision/current-policy evidence from PostgreSQL and never perform discovery or decrypt the client secret.
+
+Discovery derives the standard well-known URL from the saved issuer, disables redirects and proxies, validates the issuer's complete DNS answer set, and pins dialing to checked addresses while preserving TLS SNI. Production requires HTTPS; development permits loopback HTTP. Private/internal issuer destinations require exact canonical CIDRs in `REQUESTARR_OIDC_DESTINATION_CIDRS`; there is no allow-private switch. Metadata must exactly match the issuer and advertise structurally safe authorization/token/JWKS endpoints, authorization code flow, public or pairwise subjects, RS256, S256, and an explicit client-type-appropriate `none` or `client_secret_basic` token authentication capability. Discovery does not resolve or call advertised endpoints, including private HTTPS literals and mixed/private names; every later endpoint use must freshly resolve all answers, apply the same special-use deny policy and CIDR allowlist, and pin dialing while retaining hostname verification and SNI. Validation evidence is capability/fingerprint evidence, not durable network trust. This validation does not test credentials, exchange tokens, or complete setup.
 
 `REQUESTARR_ENCRYPTION_KEY` is separate from the temporary setup token and is required before final activation can persist any secret. Draft steps may record non-secret fields and secret presence/validation state, but never plaintext secret values. Final activation encrypts accepted secrets into versioned envelopes transactionally. An installation with no encrypted rows can remain locked for secret operations; once rows exist, a missing, malformed, or wrong key prevents startup. V1 supports one key and no online rotation, so the key and PostgreSQL backup must be retained and restored together.
+
+Audiobook setup remains planned policy only. A future implementation must preserve the current OIDC discovery, encrypted-secret, origin/CSRF, and validation contracts rather than adding an unauthenticated or weaker provider/library configuration path.
+# Runtime-auth activation
+
+The setup-only `POST /api/v1/setup/activate-auth` endpoint promotes the current
+validated Authentication draft into the immutable runtime-auth snapshot. This
+separate operation **does not** set `setup_state.complete`; providers,
+libraries, notifications, policy, and final review remain required to complete
+the wizard. This slice also does not expose normal OIDC login or callback
+routes. Confidential client secrets are re-encrypted under a runtime-only
+secret context, then the setup-context envelope is deleted atomically.

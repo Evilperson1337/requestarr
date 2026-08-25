@@ -1,7 +1,5 @@
 package oidc
 
-import "context"
-
 type Config struct {
 	Issuer       string
 	ClientID     string
@@ -22,6 +20,5 @@ type Identity struct {
 // OIDC discovery and Authorization Code + PKCE where applicable. Keycloak is the
 // primary V1 compatibility target.
 type Provider interface {
-	Validate(context.Context, Config) error
 	AuthorizationURL(state, nonce, pkceChallenge string) (string, error)
 }

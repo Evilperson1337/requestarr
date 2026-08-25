@@ -11,6 +11,9 @@ Game identity, cover metadata, and supported platforms. Authentication uses Twit
 ### MusicBrainz
 Album requests target release groups; song requests target recordings. Configure an application identity/contact and respect MusicBrainz rate/use requirements. Representative release artwork is presentation metadata only and must not alter recording identity.
 
+### Planned Audiobook metadata: Audible + Audnexus
+No audiobook adapter is currently implemented. The approved future resolver accepts Audible links and uses ASIN plus normalized storefront region for identity. Audnexus is metadata/enrichment only and must remain behind a replaceable provider seam; it is never an availability source. Preserve provider-native artwork and edition/narrator details when exposed.
+
 ## Availability sources
 
 ### Plex / Jellyfin
@@ -21,6 +24,9 @@ Authoritative for enabled music. Normalize song/album identity to MusicBrainz ID
 
 ### RomM
 Authoritative for games. Preserve platform identity and game metadata-provider IDs when exposed. A request with explicit acceptable platform keys is available when any matching platform instance exists.
+
+### Audiobookshelf snapshot foundation
+Phase 5A implements only a local, fixture-backed normalization and complete-snapshot persistence foundation for future Audiobookshelf inventory. It has no live HTTP client, endpoint assumptions, setup/configuration, scheduler, reconciliation invocation, or credentials. A later increment must add those integrations before Audiobookshelf can establish availability. It remains the planned sole authoritative audiobook source; automatic fulfillment will be limited to exact/high-confidence, provenance-recorded matches, while possible edition/narrator matches require review. Chaptarr is research-only and must not be added as a runtime, availability, or acquisition integration.
 
 ## Apprise API
 

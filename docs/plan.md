@@ -125,7 +125,7 @@ This is the single best next task. Every V1 workflow depends on durable local st
 
 The read-only persistent completion gate accepted in [D014](DECISIONS.md#d014--persistent-setup-status-read-contract-2026-08-14) is implemented: unauthenticated `GET`/`HEAD /api/v1/setup/status` exposes exactly the Boolean `complete` field, requires no setup token, returns a stable non-secret unavailable error instead of guessing on repository or persisted-state failure, and uses the existing immutable `000001` singleton without a migration.
 
-The temporary bootstrap-session boundary governed by [D015](DECISIONS.md#d015--temporary-bootstrap-session-security-contract-2026-08-14) is implemented: durable migration/persistence followed by configuration, policy, and the HTTP exchange. The first session-authenticated resumable workflow increment now adds protected state reads and an idempotent General-step save. Transactional configuration completion, OIDC, later setup steps, and the remaining wizard UI continue as independently reviewable increments.
+The temporary bootstrap-session boundary governed by [D015](DECISIONS.md#d015--temporary-bootstrap-session-security-contract-2026-08-14) is implemented: durable migration/persistence followed by configuration, policy, and the HTTP exchange. Protected state, General and encrypted Authentication saves, and revision-bound hardened OIDC discovery validation are implemented. Test login, callback/token exchange, runtime sessions, transactional completion, later setup steps, and the remaining wizard UI continue as independently reviewable increments.
 
 #### Phase 2B.1 — Setup session migration and persistence
 
@@ -347,6 +347,16 @@ The final integration-test command and build tag may be adjusted to match the im
 - **Frontend artifact drift:** pin dependencies, produce assets before Go packaging, fail on missing artifacts, and test the release artifact outside the source tree.
 - **Scope creep toward acquisition:** reject dependencies, UI actions, or events that enqueue downloads or manage *arr/indexer clients; availability remains observational and library-authoritative.
 - **OIDC shortcuts during setup:** keep bootstrap capability temporary and narrow; test unauthorized, viewer, requester, and admin paths before exposing mutating APIs.
+- **Audiobook false positives:** preserve Audible ASIN/region and edition/narrator evidence, auto-fulfill only exact/high-confidence matches with bounded provenance, and route possible matches to review. Do not substitute Audnexus metadata or Chaptarr for Audiobookshelf availability.
+
+## Planned audiobook vertical (policy accepted; not implemented)
+
+The accepted Audiobook V1 policy is [D019](DECISIONS.md#d019--audiobook-v1-policy-and-future-ebook-compatibility-2026-08-21). It is a future, separately reviewed implementation sequence—not evidence that this repository currently supports audiobook requests. Before scheduling implementation, retain the current OIDC D018 and encrypted setup/security contracts.
+
+1. Add a narrowly scoped Audible URL resolver that establishes ASIN plus normalized storefront-region identity and stores provider-native artwork/edition evidence through provider-neutral interfaces. Audnexus is the initial metadata/enrichment adapter, with fallback seams but no availability authority.
+2. Add Audiobookshelf as the sole audiobook inventory authority. Its sync follows the same local-state, bounded-client, and failed-sync-retains-last-known-inventory rules as every library source.
+3. Add targeted reconciliation with persisted method, confidence, and bounded evidence. Exact and high-confidence matches may automatically fulfill; possible matches require review. Do not add Chaptarr as a runtime dependency or copy acquisition behavior.
+4. Add setup, API, UI, schema, and fixtures only in their corresponding reviewed implementation increments. Ebooks and a canonical work-to-manifestation relation remain V2, but V1 audiobook persistence must avoid preventing that relation.
 
 ## First increment issue and pull request
 

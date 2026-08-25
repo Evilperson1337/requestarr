@@ -1,6 +1,6 @@
 # Requestarr
 
-> **Working title.** Requestarr is a self-hosted shared request and notification portal for movies, TV, music, and games.
+> **Working title.** Requestarr is a self-hosted shared request and notification portal for movies, TV, music, games, and planned audiobooks.
 
 Requestarr deliberately stops at **request management, availability reconciliation, and notification**. It does **not** download, acquire, import, rename, or manage media. Users submit a supported metadata URL, Requestarr resolves the item, records one shared request, administrators approve or deny it, connected libraries are periodically reconciled, and subscribed users are notified when the item becomes available.
 
@@ -20,11 +20,15 @@ Requestarr deliberately stops at **request management, availability reconciliati
 - First-run setup wizard for OIDC, metadata providers, libraries, notifications, and request policy.
 - Local normalized PostgreSQL state, background synchronization, stale-while-revalidate behavior, and targeted request reconciliation.
 
+### Planned audiobook V1 policy (not implemented)
+
+Audiobooks are an accepted V1 product direction, but no audiobook resolver, configuration, inventory source, schema, API, or UI is implemented in this repository yet. The planned entry point is an Audible URL, identified by its ASIN plus normalized storefront region. Audnexus will provide metadata/enrichment only; Audiobookshelf will be the sole availability authority. Edition and narrator evidence are significant: only exact or high-confidence matches may automatically fulfill a request, while possible matches require review. Ebooks remain V2 work. Chaptarr is research-only and is neither a runtime dependency nor an acquisition integration. See [the Audiobook V1 decision](docs/DECISIONS.md#d019--audiobook-v1-policy-and-future-ebook-compatibility-2026-08-21).
+
 ## Architecture
 
 ```text
-              TMDB        MusicBrainz        IGDB
-                \             |              /
+         TMDB  MusicBrainz  IGDB  Audible (planned)
+                 \     |       |       /
                  +------ Metadata resolvers -+
                               |
                               v
@@ -40,7 +44,7 @@ Requestarr deliberately stops at **request management, availability reconciliati
              notifications             |
               /          \        sync workers
           in-app       Apprise      /   |   |   \
-                                  Plex JF Navi RomM
+                         Plex JF Navi RomM ABS (planned)
 ```
 
 Metadata providers answer **“What is this?”**. Library integrations answer **“Do we have it?”**. Requestarr answers **“Has it been requested, who is subscribed, and is it now satisfied?”**.
@@ -119,7 +123,7 @@ Releases are defined by `.goreleaser.yaml`. GoReleaser v2 is expected; run `gore
 
 ## Reference code
 
-`references/source/manifest.yaml` records the upstream projects that informed Requestarr. Use:
+`references/source/manifest.yaml` records the upstream projects that informed Requestarr. It does not include research-only material; [audiobook research notes](references/research/AUDIOBOOKS_AND_CHAPTARR.md) retain their own provenance and no-copy framing. Use:
 
 ```bash
 ./scripts/fetch-references.sh

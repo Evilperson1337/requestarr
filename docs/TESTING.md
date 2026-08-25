@@ -10,12 +10,13 @@ All Go checks use Go 1.26 or newer. Go 1.26 is the unified minimum and current t
 - reconciliation by exact external ID;
 - fallback match confidence;
 - role/capability authorization.
+- planned audiobook behavior: Audible ASIN plus normalized-region parsing; provider fallback seams; edition/narrator-aware exact, high, and possible confidence outcomes; provenance bounds; possible-match review-only behavior; and no automatic availability after a failed Audiobookshelf sync.
 
 ## Contract/fixture
 Store sanitized provider/library fixtures under `testdata/` and test mapping independently of live services.
 
 ## Integration
-Use PostgreSQL plus dev-compose Keycloak. Add mock HTTP servers for TMDB/IGDB/MusicBrainz/Plex/Jellyfin/Navidrome/RomM/Apprise. Live integration tests must be opt-in and never required for ordinary CI.
+Use PostgreSQL plus dev-compose Keycloak. Add mock HTTP servers for TMDB/IGDB/MusicBrainz/Plex/Jellyfin/Navidrome/RomM/Apprise and, when the planned audiobook adapters exist, Audnexus/Audiobookshelf. Live integration tests must be opt-in and never required for ordinary CI.
 
 PostgreSQL persistence tests use the `integration` build tag and require an explicit `REQUESTARR_TEST_DATABASE_URL`. They never read `REQUESTARR_DATABASE_URL`. Each test creates a cryptographically random `requestarr_test_` schema, pins `search_path` to that schema, and drops only that verified generated schema during cleanup.
 

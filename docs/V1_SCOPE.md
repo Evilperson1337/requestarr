@@ -10,6 +10,7 @@
   - TMDB movie + TV URLs;
   - MusicBrainz release-group/recording URLs;
   - IGDB game URLs.
+  - Planned only: Audible audiobook URLs, identified by ASIN plus normalized storefront region; no resolver exists yet.
 - Universal resolved-item modal.
 - One request row per canonical catalog item.
 - Shared Requests page with search/filter/sort and My Requests quick filter.
@@ -19,12 +20,13 @@
 - Request states: requested, approved, denied, available, cancelled.
 - Manual admin state actions with audit events.
 - Metadata cache/local catalog records.
-- Library sources: Plex, Jellyfin, Navidrome/OpenSubsonic, RomM.
+- Library sources: Plex, Jellyfin, Navidrome/OpenSubsonic, RomM; planned only: Audiobookshelf for audiobooks.
 - Background source sync into normalized inventory.
 - Automatic request reconciliation and availability notification.
 - In-app notifications and Apprise API integration.
 - Settings and operational status for providers/libraries/jobs/logs.
 - Preserve artwork shape by media type.
+- Planned audiobook policy: Audnexus metadata/enrichment, Audiobookshelf-only availability, edition/narrator-aware reconciliation, and exact/high-confidence automatic fulfillment only.
 
 ## Explicitly out of V1
 
@@ -36,3 +38,5 @@
 - Complex quotas/multi-level approvals.
 - Game DLC/update/edition acquisition workflows.
 - Mobile push implementation outside Apprise.
+- Ebook requests and a canonical work-to-manifestation model (V2).
+- Chaptarr runtime integration or any audiobook acquisition, download, import, or library-management behavior.

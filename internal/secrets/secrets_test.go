@@ -25,12 +25,30 @@ func TestEncryptDecryptAndNonceUniqueness(t *testing.T) {
 	if first.Nonce == second.Nonce || bytes.Equal(first.Ciphertext, second.Ciphertext) {
 		t.Fatal("fresh randomness did not produce a unique envelope")
 	}
+	if first.Identity != second.Identity {
+		t.Fatal("same plaintext must have a stable credential identity")
+	}
 	got, err := c.Decrypt(testContext(), first)
 	if err != nil || string(got) != "distinctive plaintext" {
 		t.Fatalf("Decrypt() = %q, %v", got, err)
 	}
 	if bytes.Contains(first.Ciphertext, []byte("distinctive plaintext")) {
 		t.Fatal("ciphertext contains plaintext")
+	}
+}
+
+func TestCredentialIdentityChangesWithPlaintext(t *testing.T) {
+	c := NewWithRandom([32]byte{8}, bytes.NewReader(append(bytes.Repeat([]byte{3}, NonceSize), bytes.Repeat([]byte{4}, NonceSize)...)))
+	first, err := c.Encrypt(testContext(), []byte("credential"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := c.Encrypt(testContext(), []byte("changed credential"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Identity == changed.Identity {
+		t.Fatal("changed plaintext unexpectedly retained credential identity")
 	}
 }
 

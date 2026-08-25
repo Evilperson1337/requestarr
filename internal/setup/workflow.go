@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -84,6 +83,14 @@ type WorkflowState struct {
 	General                *General
 	Authentication         *Authentication
 	ClientSecretConfigured bool
+	AuthenticationRevision int64
+	AuthenticationEvidence *AuthenticationValidationEvidence
+}
+
+type AuthenticationValidationEvidence struct {
+	AuthenticationRevision int64     `json:"authentication_revision"`
+	PolicyVersion          int       `json:"policy_version"`
+	ValidatedAt            time.Time `json:"validated_at"`
 }
 
 type WorkflowOutcome uint8
@@ -288,6 +295,62 @@ type WorkflowPersistence interface {
 	SaveAuthentication(context.Context, Digest, Authentication, SecretOperation) (WorkflowResult, error)
 }
 
+// ActivationOutcome describes a local persistence-only runtime-auth activation.
+type ActivationOutcome uint8
+
+const (
+	ActivationSucceeded ActivationOutcome = iota + 1
+	ActivationSessionRequired
+	ActivationRequired
+	ActivationStale
+	ActivationAlreadyActive
+	ActivationLocked
+	ActivationUnavailable
+)
+
+type ActivationResult struct {
+	Outcome  ActivationOutcome
+	Revision int64
+}
+
+// ActivationPersistence is intentionally separate from workflow draft edits.
+// Implementations must make activation atomic and must not perform I/O.
+type ActivationPersistence interface {
+	ActivateAuthentication(context.Context, Digest) (ActivationResult, error)
+}
+
+type ActivationService struct {
+	persistence ActivationPersistence
+	key         Digest
+	configured  bool
+}
+
+func NewActivationService(persistence ActivationPersistence, token [32]byte, configured bool) *ActivationService {
+	service := &ActivationService{persistence: persistence, configured: configured}
+	if configured {
+		service.key = keyedDigest(token[:], []byte("requestarr/setup/v1/key"))
+	}
+	return service
+}
+
+func (s *ActivationService) Activate(ctx context.Context, rawSession string) ActivationResult {
+	if s == nil || !s.configured || len(rawSession) != BootstrapTokenSize {
+		return ActivationResult{Outcome: ActivationSessionRequired}
+	}
+	if ctx.Err() != nil || s.persistence == nil {
+		return ActivationResult{Outcome: ActivationUnavailable}
+	}
+	digest, ok := digestRawSession(s.key, rawSession)
+	if !ok {
+		return ActivationResult{Outcome: ActivationSessionRequired}
+	}
+	result, err := s.persistence.ActivateAuthentication(ctx, digest)
+	if err != nil {
+		return ActivationResult{Outcome: ActivationUnavailable}
+	}
+	return result
+}
+
 func (s *WorkflowService) PutAuthentication(ctx context.Context, rawSession string, value Authentication, secret SecretOperation) WorkflowResult {
 	normalized, err := NormalizeAuthentication(value)
 	if err != nil || (secret.Kind() != SecretPreserve && secret.Kind() != SecretReplace && secret.Kind() != SecretClear) {
@@ -363,13 +426,7 @@ func (s *WorkflowService) digestSession(raw string) (Digest, bool) {
 	if s == nil || !s.configured || len(raw) != BootstrapTokenSize {
 		return Digest{}, false
 	}
-	decoded, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || len(decoded) != bootstrapTokenBytes || base64.RawURLEncoding.EncodeToString(decoded) != raw {
-		return Digest{}, false
-	}
-	var session [bootstrapTokenBytes]byte
-	copy(session[:], decoded)
-	return sessionDigest(s.key, session), true
+	return digestRawSession(s.key, raw)
 }
 
 type WorkflowDraft struct {

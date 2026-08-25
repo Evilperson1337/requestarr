@@ -1,0 +1,1053 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 89abb63..abc326c 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -8,18 +8,21 @@ Requestarr is **request + availability + notification software**. It must not ac
+ 
+ ## Accepted V1 decisions
+ 
+-1. Link-first request entry using TMDB, MusicBrainz, and IGDB URLs.
++1. Link-first request entry using TMDB, MusicBrainz, IGDB, and Audible product URLs. Audible audiobook URLs are normalized through Audnexus; Audnexus is metadata, never availability.
+ 2. One shared request per canonical item. No vote count and no duplicate per-user request rows.
+ 3. The creator is automatically subscribed; other authenticated users may choose **Notify Me**.
+ 4. Requests are visible to all authenticated users. `My Requests` is a filter only.
+ 5. OIDC is required. Keycloak is the primary tested provider. Do not add permanent local-password authentication as a shortcut.
+ 6. Apprise API is the external notification integration. In-app notifications remain native.
+ 7. Libraries are authoritative for availability, not metadata providers and not acquisition tools.
+-8. Preserve artwork aspect ratio: posters for movie/TV/game; square for album/song.
++8. Preserve provider-native artwork aspect ratio. Movie/TV/game generally use posters, album/song use square art, and audiobook artwork may be portrait or square depending on source; never crop solely for uniformity.
+ 9. Game platform options come dynamically from IGDB and are multi-select OR semantics. `Any` is first and mutually exclusive with explicit selections.
+ 10. External services must not block routine UI rendering. Prefer local state, background jobs, caching, and stale-but-known data.
+ 11. Temporary library failures must never mass-mark previously available content missing.
+ 12. Setup wizard is required for V1 and includes OIDC, providers, libraries, notifications, request policy, validation, and review.
++13. Audiobooks are V1: Audnexus/Audible for canonical metadata, Audiobookshelf as the authoritative library source. ASIN + Audible region are the preferred identity when available; narrator is meaningful presentation/matching metadata.
++14. Ebooks are explicitly V2 until a sufficiently reliable canonical metadata strategy is selected. Do not add BookOrbit/Kavita/Calibre ebook availability into V1 by implication.
++15. Long-term discovery UX should learn from Seerr and Libreseerr, but V1 remains link-first. Keep the universal item/request modal reusable so future search/discovery can feed the same interaction surface.
+ 
+ ## Engineering rules
+ 
+@@ -50,3 +53,6 @@ For schema changes, add migration tests. For provider/library changes, add fixtu
+ ## Decision changes
+ 
+ If implementation reveals that an accepted decision is materially harmful, document the conflict in `docs/DECISIONS.md` and propose a replacement. Do not silently change behavior.
++
++## Audiobook matching guardrail
++Audiobook availability is edition-aware. Prefer ASIN+region or other stable external IDs, then unambiguous title+author+narrator evidence. Persist match method/confidence; only exact/high confidence may auto-fulfill. Title+author-only or narrator/production conflicts are review-only. Chaptarr is a research reference only; do not add Chaptarr acquisition/runtime coupling.
+diff --git a/README.md b/README.md
+index a92c765..49d1e7f 100644
+--- a/README.md
++++ b/README.md
+@@ -1,12 +1,12 @@
+ # Requestarr
+ 
+-> **Working title.** Requestarr is a self-hosted shared request and notification portal for movies, TV, music, and games.
++> **Working title.** Requestarr is a self-hosted shared request and notification portal for movies, TV, music, games, and audiobooks.
+ 
+ Requestarr deliberately stops at **request management, availability reconciliation, and notification**. It does **not** download, acquire, import, rename, or manage media. Users submit a supported metadata URL, Requestarr resolves the item, records one shared request, administrators approve or deny it, connected libraries are periodically reconciled, and subscribed users are notified when the item becomes available.
+ 
+ ## V1 at a glance
+ 
+-- Link-first requests: **TMDB** (movies/TV), **MusicBrainz** (albums/songs), **IGDB** (games).
++- Link-first requests: **TMDB** (movies/TV), **MusicBrainz** (albums/songs), **IGDB** (games), and **Audible URLs resolved through Audnexus** (audiobooks).
+ - One shared request per canonical item; the original requester is automatically subscribed.
+ - Other users can choose **Notify Me** on an existing request without creating duplicates or votes.
+ - Games dynamically expose the platforms reported by IGDB. Users may choose **Any** or multiple acceptable platforms; any selected platform satisfies the request.
+@@ -17,15 +17,16 @@ Requestarr deliberately stops at **request management, availability reconciliati
+   - Movies/TV: Plex and/or Jellyfin
+   - Music: Plex, Jellyfin, and/or Navidrome/OpenSubsonic
+   - Games: RomM
++  - Audiobooks: Audiobookshelf
+ - First-run setup wizard for OIDC, metadata providers, libraries, notifications, and request policy.
+ - Local normalized PostgreSQL state, background synchronization, stale-while-revalidate behavior, and targeted request reconciliation.
+ 
+ ## Architecture
+ 
+ ```text
+-              TMDB        MusicBrainz        IGDB
+-                \             |              /
+-                 +------ Metadata resolvers -+
++          TMDB      MusicBrainz      IGDB      Audnexus
++             \          |             |          /
++              +---------- Metadata resolvers -----+
+                               |
+                               v
+                         Canonical item
+@@ -40,10 +41,10 @@ Requestarr deliberately stops at **request management, availability reconciliati
+              notifications             |
+               /          \        sync workers
+           in-app       Apprise      /   |   |   \
+-                                  Plex JF Navi RomM
++                              Plex JF Navi RomM ABS
+ ```
+ 
+-Metadata providers answer **“What is this?”**. Library integrations answer **“Do we have it?”**. Requestarr answers **“Has it been requested, who is subscribed, and is it now satisfied?”**.
++Metadata providers answer **“What is this?”**. Library integrations answer **“Do we have it?”**. Requestarr answers **“Has it been requested, who is subscribed, and is it now satisfied?”** Audiobooks use Audnexus/Audible identity for metadata and Audiobookshelf as the V1 availability authority.
+ 
+ ## Repository layout
+ 
+@@ -144,3 +145,6 @@ External source trees are deliberately excluded from this repository. The fetch
+ ## License
+ 
+ No Requestarr project license has been selected yet. `LICENSE.md` intentionally records that decision as pending. Do not assume the licenses of reference projects apply to Requestarr.
++
++### Audiobook matching note
++Audiobook V1 uses Audnexus for metadata and Audiobookshelf for availability. Reconciliation is edition-aware and records match provenance/confidence; Chaptarr is retained as a research reference for narrator/publisher/multi-edition matching lessons, not as a runtime dependency.
+diff --git a/config/requestarr.example.yaml b/config/requestarr.example.yaml
+index c367981..33a9798 100644
+--- a/config/requestarr.example.yaml
++++ b/config/requestarr.example.yaml
+@@ -22,6 +22,20 @@ requests:
+     album: true
+     song: true
+     game: true
++    audiobook: true
++
++metadata:
++  audnexus:
++    enabled: true
++    default_region: "us"
++
++libraries:
++  # Audiobookshelf is authoritative for audiobook availability in V1.
++  # Secrets/tokens belong in encrypted setup-backed storage in production.
++  audiobookshelf:
++    enabled: false
++    base_url: "https://audiobooks.example.com"
++    token: "${REQUESTARR_AUDIOBOOKSHELF_TOKEN}"
+ 
+ notifications:
+   in_app: true
+diff --git a/db/migrations/000007_audiobook_v1.down.sql b/db/migrations/000007_audiobook_v1.down.sql
+new file mode 100644
+index 0000000..7b017de
+--- /dev/null
++++ b/db/migrations/000007_audiobook_v1.down.sql
+@@ -0,0 +1,15 @@
++BEGIN;
++
++-- Development-only rollback. This fails safely if audiobook rows/sources still
++-- exist; remove those rows explicitly before rolling back locally.
++ALTER TABLE catalog_items
++    DROP CONSTRAINT catalog_items_media_type_check,
++    ADD CONSTRAINT catalog_items_media_type_check
++        CHECK (media_type IN ('movie','tv','album','song','game'));
++
++ALTER TABLE library_sources
++    DROP CONSTRAINT library_sources_kind_check,
++    ADD CONSTRAINT library_sources_kind_check
++        CHECK (kind IN ('plex','jellyfin','navidrome','romm'));
++
++COMMIT;
+diff --git a/db/migrations/000007_audiobook_v1.up.sql b/db/migrations/000007_audiobook_v1.up.sql
+new file mode 100644
+index 0000000..cc79ca1
+--- /dev/null
++++ b/db/migrations/000007_audiobook_v1.up.sql
+@@ -0,0 +1,19 @@
++BEGIN;
++
++-- Applied migrations are immutable. Extend the existing V1 constraints rather
++-- than editing 000001_initial.
++ALTER TABLE catalog_items
++    DROP CONSTRAINT catalog_items_media_type_check,
++    ADD CONSTRAINT catalog_items_media_type_check
++        CHECK (media_type IN ('movie','tv','album','song','game','audiobook'));
++
++ALTER TABLE library_sources
++    DROP CONSTRAINT library_sources_kind_check,
++    ADD CONSTRAINT library_sources_kind_check
++        CHECK (kind IN ('plex','jellyfin','navidrome','romm','audiobookshelf'));
++
++-- Exact external IDs (notably ASIN) continue to live in inventory_items.external_ids
++-- so the existing GIN index can support targeted reconciliation without a new
++-- audiobook-specific table. Provider/edition details remain in raw_metadata.
++
++COMMIT;
+diff --git a/db/migrations/000008_reconciliation_match_evidence.down.sql b/db/migrations/000008_reconciliation_match_evidence.down.sql
+new file mode 100644
+index 0000000..6ad09d9
+--- /dev/null
++++ b/db/migrations/000008_reconciliation_match_evidence.down.sql
+@@ -0,0 +1,3 @@
++BEGIN;
++DROP TABLE IF EXISTS request_availability_matches;
++COMMIT;
+diff --git a/db/migrations/000008_reconciliation_match_evidence.up.sql b/db/migrations/000008_reconciliation_match_evidence.up.sql
+new file mode 100644
+index 0000000..ad4b2a9
+--- /dev/null
++++ b/db/migrations/000008_reconciliation_match_evidence.up.sql
+@@ -0,0 +1,35 @@
++BEGIN;
++
++-- Preserve reconciliation provenance independently from the request status so
++-- availability can be explained, audited, and safely re-evaluated as inventory
++-- changes. This model is deliberately cross-media.
++CREATE TABLE request_availability_matches (
++    id UUID PRIMARY KEY,
++    request_id UUID NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
++    source_id UUID NOT NULL REFERENCES library_sources(id) ON DELETE CASCADE,
++    inventory_item_id UUID REFERENCES inventory_items(id) ON DELETE SET NULL,
++    match_method TEXT NOT NULL CHECK (match_method IN (
++        'external_id',
++        'asin_region',
++        'title_author_narrator',
++        'title_author',
++        'title_year',
++        'manual'
++    )),
++    confidence TEXT NOT NULL CHECK (confidence IN ('exact','high','possible')),
++    evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
++    active BOOLEAN NOT NULL DEFAULT TRUE,
++    matched_at TIMESTAMPTZ NOT NULL,
++    updated_at TIMESTAMPTZ NOT NULL
++);
++
++CREATE INDEX request_availability_matches_request_active_idx
++    ON request_availability_matches(request_id, active);
++CREATE INDEX request_availability_matches_inventory_idx
++    ON request_availability_matches(inventory_item_id)
++    WHERE inventory_item_id IS NOT NULL;
++CREATE INDEX request_availability_matches_review_idx
++    ON request_availability_matches(confidence, active)
++    WHERE confidence = 'possible' AND active = TRUE;
++
++COMMIT;
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 4d6ecec..9b02891 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -46,6 +46,7 @@ Prefer stable external IDs over title matching.
+ - Music album: MusicBrainz release-group.
+ - Music song: MusicBrainz recording.
+ - Games: IGDB canonical game + platform matching.
++- Audiobooks: Audnexus-normalized Audible edition identity, preferring ASIN + Audible region; Audiobookshelf is the authoritative availability source.
+ - Fallback title/year matching must record confidence/reason and be reviewable.
+ 
+ ## Game fulfillment
+@@ -55,3 +56,32 @@ For an IGDB game request:
+ - Explicit platform keys are a set of acceptable alternatives.
+ - Presence of one matching selected platform satisfies the request.
+ - `Any` and explicit selections are mutually exclusive.
++
++## Audiobook identity and reconciliation
++
++Audiobooks are V1 but remain provider-neutral inside the domain. Audible product URLs are input identifiers; the Audnexus adapter enriches and normalizes them. Persist normalized catalog metadata so ordinary request/history pages never depend on a live Audnexus request.
++
++Matching priority is intentionally conservative:
++
++1. exact ASIN with compatible Audible region when present;
++2. alternate stable identifiers exposed by both catalog and Audiobookshelf;
++3. ISBN when trustworthy for the audiobook edition;
++4. high-confidence normalized title + author + narrator fallback, marked with match evidence/confidence and never silently treated as exact if ambiguous.
++
++Narrator is not merely decoration: different narrations may represent meaningfully different audiobook editions. The inventory adapter should retain narrator/series/raw provider identifiers in normalized metadata even when exact ASIN matching is possible.
++
++## Future discovery boundary
++
++Seerr and Libreseerr are presentation references for the post-V1 discovery layer. Discovery providers may query external catalogs concurrently and progressively, but results must normalize into the same `CatalogItem`/resolved-item presentation used by link resolution. Request, availability, and subscription state are always joined from local PostgreSQL state; a slow discovery provider must not make the shared Requests page or known-item pages slow.
++
++## Reconciliation evidence and confidence
++
++Inventory matching is explainable state, not a hidden boolean. A reconciliation result records `match_method`, `confidence`, bounded safe evidence, the source, and the inventory item when known. `exact` and `high` matches are eligible to automatically satisfy requests; `possible` matches must remain unresolved and be surfaced for administrative review.
++
++Audiobook matching should normally rank evidence as: exact ASIN + Audible region; other shared stable external identifiers; normalized title + author + narrator; then title + author as review-only evidence. A narrator mismatch, dramatized/full-cast edition, or other materially distinct manifestation must not be silently collapsed merely because title and author match.
++
++The same evidence model applies to other media (for example TMDB IDs, MusicBrainz recording IDs, and IGDB game+platform matches) so the reconciliation system stays media-neutral.
++
++## Future work and manifestations
++
++V1 does not implement ebooks or a general publishing-work graph. Audiobook catalog records must nevertheless preserve edition-significant identifiers/metadata and avoid assumptions that prevent a later `work -> manifestation` relation. Ebook V2 may relate multiple ebook and audiobook manifestations to one broader canonical work without changing the V1 requester-facing workflow.
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index c89e6e8..8d58b06 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -257,3 +257,27 @@ First run guides General -> Authentication -> Metadata Providers -> Libraries ->
+ - Validation reserves durable aligned five-minute counters in a short authorized transaction before network work: at most 5 attempts per setup session and 50 globally. A session-overlimit attempt records the rate-limited audit event but does not reserve or increment global capacity. Rate state contains only keyed session scope or a fixed global scope and survives restart/multiple instances. `Retry-After` is bounded to the next window. Safe allowlisted workflow events record validation reservation/success/failure categories without URLs, addresses, metadata, credentials, session material/digests, request bodies, or provider error text.
+ - Orchestration uses three phases: a short transaction locks setup state, checks completion and session, verifies the requested positive revision, reserves both limits, and returns a narrow secret-free snapshot; discovery runs without a transaction; then a short transaction rechecks completion, session, revision, and canonical Authentication snapshot before committing evidence. A late result is stale and cannot persist. Equivalent concurrent successful evidence is idempotent; differing evidence for one revision/policy fails closed as unavailable rather than overwriting.
+ - Client-secret presence and token-endpoint authentication capability are separate. Discovery proves advertised compatibility only; it does not prove credentials, perform token exchange, persist PKCE/state/nonce, create a user/session, complete setup, or activate runtime OIDC. Materially incompatible provider behavior must be recorded as a decision conflict rather than silently weakening this policy.
++
++## D019 — Audiobooks are V1; ebooks are V2 (2026-08-17)
++Audiobooks join the required V1 media types. Audible product URLs are the initial link-first entry path; Audnexus is the preferred metadata/enrichment adapter, and Audiobookshelf is the authoritative V1 availability source. Ebooks are explicitly deferred to V2 until canonical work/edition metadata and inventory matching are designed; BookOrbit/Kavita/Calibre-family sources are research candidates only.
++
++## D020 — Audiobook identity is edition-aware and provider-neutral (2026-08-17)
++Prefer ASIN + Audible storefront region when present and retain authors, narrators, series/position, runtime, language, publisher, and alternate IDs as normalized metadata. Narrator can distinguish materially different audiobook editions. Existing records render and reconcile from local state even if Audnexus is unavailable. Provider adapters remain replaceable.
++
++## D021 — Audiobookshelf is the sole V1 audiobook availability authority (2026-08-17)
++Do not infer audiobook availability from Plex in V1. Synchronize Audiobookshelf into normalized inventory, prefer exact stable external-ID matches, and preserve last-known inventory on failed/incomplete synchronization exactly like other authoritative sources.
++
++## D022 — Seerr + Libreseerr define the long-term discovery UX direction (2026-08-17)
++V1 remains link-first, but the universal resolved-item/request modal and catalog presentation must be reusable by future native search, discovery rails, similar-item links, and entity pages. Seerr is the primary cross-media UX reference; Libreseerr is the primary reference demonstrating Seerr-like patterns for book/audiobook presentation. Discovery must emphasize simple local state and must not import acquisition-specific controls/statuses.
++
++## D023 — Chaptarr is a domain/matching reference, not a runtime dependency (2026-08-19)
++Use Chaptarr to inform audiobook edition identity, narrator/publisher significance, modular metadata, and reconciliation/matching behavior. Do not integrate Chaptarr into V1 availability and do not import its acquisition/indexer/quality-profile/root-folder concerns. Audiobookshelf remains the sole V1 audiobook availability authority.
++
++## D024 — Reconciliation records match provenance and confidence (2026-08-19)
++Every availability association must retain a bounded match method, confidence (`exact`, `high`, or `possible`), and safe evidence. `exact` and `high` may drive automatic `Available` transitions. `possible` matches are review-only and must never silently fulfill a request. The concept is cross-media, not audiobook-specific.
++
++## D025 — Audiobook manifestations preserve edition-significant metadata (2026-08-19)
++In addition to ASIN + storefront region, preserve narrator(s), publisher, language, runtime, release date, abridged state, edition/presentation type when known, and alternate stable identifiers. A different narrator or dramatized/full-cast production may be a materially different audiobook manifestation even when title and author match.
++
++## D026 — Work-to-manifestation compatibility is reserved for V2 without expanding V1 scope (2026-08-19)
++V1 continues to store/request audiobooks directly. Domain and persistence choices must not assume that an audiobook catalog item is the only possible representation of a written work. Ebook V2 may introduce a canonical work relation linking ebook and audiobook manifestations. Do not create a premature ebook/work hierarchy or require multi-provider consensus in V1.
+diff --git a/docs/DOMAIN_MODEL.md b/docs/DOMAIN_MODEL.md
+index 44bd2bc..3220ad5 100644
+--- a/docs/DOMAIN_MODEL.md
++++ b/docs/DOMAIN_MODEL.md
+@@ -31,3 +31,11 @@ Normalized representation of an item found in an authoritative source. Each sour
+ - `square`: album, song.
+ 
+ Do not force all artwork into a single aspect ratio.
++
++## Availability match evidence
++
++`request_availability_matches` records why Requestarr believes an inventory item satisfies a request. It captures source/inventory identity, a cross-media match method, confidence (`exact`, `high`, `possible`), bounded evidence, and active timestamps. Only exact/high matches may automatically transition a request to `available`; possible matches require review.
++
++## Audiobook manifestation identity
++
++Audiobook V1 is edition-aware. Store ASIN + Audible region when available plus narrator(s), publisher, release date, language, runtime, abridged state, edition/presentation type, series context, and alternate stable IDs. These attributes are sufficient to distinguish materially different narrations/productions while leaving room for ebook V2 to introduce a broader canonical work relation.
+diff --git a/docs/INTEGRATIONS.md b/docs/INTEGRATIONS.md
+index b12ee51..f87f586 100644
+--- a/docs/INTEGRATIONS.md
++++ b/docs/INTEGRATIONS.md
+@@ -31,3 +31,24 @@ Reference: `references/source/manifest.yaml` includes upstream Apprise and Appri
+ ## OIDC / Keycloak
+ 
+ Use OIDC discovery rather than Keycloak-specific endpoints. Keycloak is the required compatibility/test target, not a hard-coded protocol variant. Requested scopes and the groups claim are separately configurable; do not assume a claim name automatically implies an OAuth client scope. Group-to-role mappings are application settings.
++
++## Audiobooks
++
++### Audnexus / Audible
++
++V1 accepts Audible product URLs and resolves the ASIN + storefront region, then uses Audnexus as the preferred audiobook metadata/enrichment adapter. Store normalized metadata locally. Audnexus identifies the audiobook; it never establishes availability.
++
++Normalized audiobook metadata should preserve, when available: title, subtitle, authors, narrators, series + position, ASIN, Audible region, runtime, release date, publisher, language, description, cover URL, and alternate identifiers. ASIN + region are the preferred edition identity. Avoid title-only canonicalization.
++
++The provider adapter must be replaceable: an Audnexus outage may prevent new resolution but must not break rendering of cached catalog items, request state, or reconciliation against existing inventory.
++
++### Audiobookshelf
++
++Audiobookshelf is the V1 authoritative source of truth for audiobooks. Its adapter synchronizes normalized audiobook inventory and source deep links. Prefer exact ASIN/external-ID reconciliation, retain narrator/series metadata for fallback matching, and preserve last-known inventory on incomplete or failed syncs. Do not use Plex as an audiobook authority in V1.
++
++## Ebooks (V2)
++
++Ebooks are intentionally deferred. Potential inventory sources include BookOrbit, Kavita, and Calibre-family systems, but Requestarr must first settle canonical work/edition identity and metadata-provider strategy. Shelfmark/Libreseerr/Readarr/Bookshelf are research references; none should become a V1 runtime dependency.
++
++### Chaptarr (reference only)
++Chaptarr is not a runtime integration. It is included in the source-reference manifest for research into audiobook edition/narrator/publisher identity, modular metadata pipelines, and matching behavior. Audiobookshelf remains the sole V1 audiobook availability authority.
+diff --git a/docs/PROJECT_VISION.md b/docs/PROJECT_VISION.md
+index 78e76f6..3ac519f 100644
+--- a/docs/PROJECT_VISION.md
++++ b/docs/PROJECT_VISION.md
+@@ -1,6 +1,6 @@
+ # Project Vision
+ 
+-Requestarr is a shared, self-hosted request board for a household or trusted community's media libraries. It unifies movies, television, music, and games behind one simple mental model without becoming another acquisition system.
++Requestarr is a shared, self-hosted request board for a household or trusted community's media libraries. It unifies movies, television, music, games, and audiobooks behind one simple mental model without becoming another acquisition system.
+ 
+ ## Product promise
+ 
+@@ -28,3 +28,11 @@ Requestarr does not own:
+ - file import/rename/organization;
+ - game acquisition/install automation;
+ - *arr orchestration.
++
++## Product evolution
++
++V1 is deliberately link-first. A user provides a canonical provider link, Requestarr resolves and normalizes it, then uses the same universal item/request interaction used for existing requests and available items.
++
++The long-term UX target is a Seerr/Libreseerr-style discovery experience: catalog browsing and search overlaid with simple local state (`Available`, `Requested`, `Approved`, `Request`, `Notify Me`). Native discovery is a later phase and must feed the same provider-neutral catalog/item modal rather than introduce a second request workflow.
++
++Audiobooks are included in V1 because the domain has a strong metadata + inventory pairing: Audnexus/Audible identity answers what the audiobook is, while Audiobookshelf answers whether it exists. Ebooks are deferred to V2 because canonical work/edition metadata and availability mapping need a separate design decision.
+diff --git a/docs/REFERENCES.md b/docs/REFERENCES.md
+index bdac5f4..8d2a53f 100644
+--- a/docs/REFERENCES.md
++++ b/docs/REFERENCES.md
+@@ -1,23 +1,50 @@
+ # Project References
+ 
+-Requestarr learns from several existing projects without making them runtime dependencies.
++Requestarr learns from existing projects without making them runtime dependencies. Reference source is for architecture/domain/UX study only; licensing and attribution remain independent.
+ 
+-## Seerr
+-Primary reference for consumer-facing request UX, availability distinct from approval, partial availability, media-library synchronization, simple statuses, permissions, and request management.
++## Primary UX references
+ 
+-## Radarr / Sonarr / Lidarr
+-Engineering references for persistent local state, fast UI reads, background command/job execution, refresh/rescan separation, event-driven updates, incremental reconciliation, status/health visibility, and robust behavior around slow external services. Lidarr is additionally useful for artist/album/track identity challenges.
++### Seerr
++Primary overall consumer UX reference: discovery-first catalog presentation, availability separate from request/approval state, partial availability, simple card badges, media-library awareness, request management, and a UI that answers “can I request/watch this?” rather than exposing backend mechanics. Long term, Requestarr should feel catalog-first in the same way while supporting more media families.
+ 
+-## GG Requestz
+-Primary game-request reference: IGDB integration, direct provider search patterns, dynamic platform metadata, RomM integration, OIDC, caching/progressive loading, and event/webhook concepts.
++### Libreseerr
++Primary secondary UX reference for carrying Seerr-like interaction into book/audiobook domains. Useful lessons: search/detail/request separation, media-format presentation, shared requests/status surfaces, and proof that Seerr interaction language works outside movies/TV. Do **not** copy its acquisition-specific quality-profile/root-folder/download states into Requestarr.
+ 
+-## RomM
+-Game inventory/source-of-truth reference, especially game/platform representation and IGDB-enriched library identity.
++## Audiobook/domain references
+ 
+-## Apprise / Apprise API
++### Shelfmark
++Reference for book/audiobook request UX, metadata-provider abstraction, OIDC patterns, cover/metadata caching, and separating canonical metadata search from downstream source/release handling. Its acquisition functionality is outside Requestarr scope.
++
++### Listenarr
++Primary audiobook-domain reference for Audible-centric metadata, narrator/series/runtime fields, direct Audible search/identity, and audiobook-specific collection modeling. Requestarr borrows identity/domain lessons only, not acquisition/download behavior.
++
++### Audnexus
++Preferred V1 audiobook metadata/enrichment reference. Audible ASIN + storefront region are treated as high-value edition identifiers when available.
++
++### Audiobookshelf
++V1 audiobook inventory/source-of-truth reference. Requestarr asks Audiobookshelf “do we have it?” and does not use it as the canonical external catalog.
++
++### Readarr / Bookshelf
++Book-domain and refresh architecture lessons plus an explicit caution: central metadata dependencies can become a systemic failure point. Readarr is retired; Requestarr must keep provider adapters replaceable and cache normalized catalog data locally. Bookshelf is useful for post-Readarr metadata-provider evolution. Ebooks remain V2.
++
++## Other media/engineering references
++
++### Radarr / Sonarr / Lidarr
++Engineering references for persistent local state, fast UI reads, background command/job execution, refresh/rescan separation, event-driven updates, incremental reconciliation, operational status, and resilience around slow external services. Lidarr is additionally useful for artist/album/recording identity challenges.
++
++### GG Requestz
++Primary game-request reference: IGDB integration, direct-provider search patterns, dynamic platform metadata, RomM integration, caching/progressive loading, and event/webhook concepts.
++
++### RomM
++Game inventory/source-of-truth reference, especially game/platform representation and IGDB-enriched identity.
++
++### Apprise / Apprise API
+ External notification gateway reference.
+ 
+-## Keycloak
+-OIDC compatibility and test environment reference.
++### Keycloak
++Required V1 OIDC compatibility/test target.
++
++See `references/source/manifest.yaml` and `references/source/README.md`. Never copy reference source into Requestarr merely for convenience; consult licenses before adapting any implementation detail.
+ 
+-These repositories have independent licenses. See `references/source/manifest.yaml` and `references/source/README.md` before consulting or copying code.
++### Chaptarr
++Audiobook/book domain and matching reference. Use it to study multi-edition coexistence, narrator/publisher-aware audiobook identity, metadata aggregation/provider architecture, and file/catalog matching. It is **not** a Requestarr UX or runtime dependency; its acquisition, indexer, quality-profile, root-folder, conversion, and monitoring concerns remain out of scope. See `references/research/CHAPTARR_LESSONS.md`.
+diff --git a/docs/SETUP_WIZARD.md b/docs/SETUP_WIZARD.md
+index 0632640..659ae43 100644
+--- a/docs/SETUP_WIZARD.md
++++ b/docs/SETUP_WIZARD.md
+@@ -11,10 +11,10 @@ Do not expose an unauthenticated first-run wizard to the network.
+ 1. **Welcome** — explain scope and what will be configured.
+ 2. **General** — instance name, public URL, timezone.
+ 3. **Authentication** — OIDC issuer/client/scopes/groups claim/group-role mapping, discovery validation, test login.
+-4. **Metadata Providers** — enable media types, configure/test TMDB, IGDB, MusicBrainz contact identity.
+-5. **Libraries** — add zero or more Plex/Jellyfin/Navidrome/RomM sources and select authoritative media types. Warn but allow no libraries.
++4. **Metadata Providers** — enable media types, configure/test TMDB, IGDB, MusicBrainz contact identity, and audiobook/Audnexus settings needed for Audible URL resolution.
++5. **Libraries** — add zero or more Plex/Jellyfin/Navidrome/RomM/Audiobookshelf sources and select authoritative media types. Audiobookshelf is the V1 audiobook authority. Warn but allow no libraries.
+ 6. **Notifications** — in-app always; optional Apprise API configuration/test notification.
+-7. **Request Policy** — approval requirement per media type, notes, subscription behavior defaults.
++7. **Request Policy** — approval requirement per media type (including audiobook), notes, subscription behavior defaults.
+ 8. **Review** — concise summary with validation state.
+ 9. **Finish** — transactional commit, setup_complete=true, invalidate bootstrap session, prompt OIDC sign-in.
+ 
+diff --git a/docs/TESTING.md b/docs/TESTING.md
+index d126cb5..314e849 100644
+--- a/docs/TESTING.md
++++ b/docs/TESTING.md
+@@ -6,6 +6,8 @@ All Go checks use Go 1.26 or newer. Go 1.26 is the unified minimum and current t
+ - URL recognition and provider ID extraction.
+ - request state transitions;
+ - platform Any/multi-select validation;
++- Audible URL/ASIN/region parsing and audiobook normalization;
++- audiobook exact-ASIN and narrator-aware fallback reconciliation;
+ - subscription creation/uniqueness;
+ - reconciliation by exact external ID;
+ - fallback match confidence;
+@@ -15,7 +17,7 @@ All Go checks use Go 1.26 or newer. Go 1.26 is the unified minimum and current t
+ Store sanitized provider/library fixtures under `testdata/` and test mapping independently of live services.
+ 
+ ## Integration
+-Use PostgreSQL plus dev-compose Keycloak. Add mock HTTP servers for TMDB/IGDB/MusicBrainz/Plex/Jellyfin/Navidrome/RomM/Apprise. Live integration tests must be opt-in and never required for ordinary CI.
++Use PostgreSQL plus dev-compose Keycloak. Add mock HTTP servers for TMDB/IGDB/MusicBrainz/Audnexus/Plex/Jellyfin/Navidrome/RomM/Audiobookshelf/Apprise. Live integration tests must be opt-in and never required for ordinary CI.
+ 
+ PostgreSQL persistence tests use the `integration` build tag and require an explicit `REQUESTARR_TEST_DATABASE_URL`. They never read `REQUESTARR_DATABASE_URL`. Each test creates a cryptographically random `requestarr_test_` schema, pins `search_path` to that schema, and drops only that verified generated schema during cleanup.
+ 
+@@ -31,10 +33,14 @@ From inside the devcontainer, use the service hostname `postgres` instead of `lo
+ Encrypted-secret coverage includes canonical key parsing and redaction (including setup-token/key equality rejection), AES-GCM tamper and associated-data rejection, nonce uniqueness, bounded fields, wrong/missing-key startup, concurrent first-key registration, matching-key restart, cancellation, repeated/concurrent atomic upsert, update timestamps, caller-owned transaction rollback, arbitrary wrong-key envelope rejection, and malformed-row database constraints. Configuration and application tests assert stable generic errors/logs do not contain encoded key material; repository tests verify plaintext is recoverable only through decryption. Tagged tests compile without a configured database; real PostgreSQL execution remains conditional on `REQUESTARR_TEST_DATABASE_URL`.
+ 
+ ## End-to-end
+-Cover setup wizard, OIDC sign-in, create request, duplicate resolution, Notify Me, admin approval/denial, simulated inventory arrival, Available transition, notification delivery, source outage retaining last-known state.
++Cover setup wizard, OIDC sign-in, create request, duplicate resolution, Notify Me, admin approval/denial, simulated inventory arrival, audiobook availability through Audiobookshelf, Available transition, notification delivery, source outage retaining last-known state.
+ 
+ ## Performance targets (initial, validate later)
+ - shared Requests page backed by local DB should feel instantaneous at household-scale inventories;
+ - no external API call on ordinary Requests page rendering;
+ - resolution UI progressively shows cached data when possible;
+ - library sync memory use must be bounded/paginated.
++
++## Reconciliation confidence tests
++
++Add table-driven coverage for match method/confidence rules. Exact ASIN+region and other stable external-ID matches may auto-fulfill. High-confidence title+author+narrator matches may auto-fulfill only when unambiguous. Title+author-only, narrator-conflicting, dramatized-vs-standard, and otherwise ambiguous candidates must remain `possible` and must not transition the request to `available`. Persisted match evidence must remain bounded and secret-free.
+diff --git a/docs/UI_UX.md b/docs/UI_UX.md
+index e8075f0..24f5d4b 100644
+--- a/docs/UI_UX.md
++++ b/docs/UI_UX.md
+@@ -4,7 +4,7 @@ The images under `references/mockups/final/` capture approved direction, not exa
+ 
+ ## Home
+ 
+-V1 focuses on a large `Request Something` URL field, supported-provider hints, recent shared requests, recently available items, and an admin-only `Needs Review` summary. Do not fabricate recommendation/discovery shelves before native discovery exists.
++V1 focuses on a large `Request Something` URL field, supported-provider hints (TMDB, MusicBrainz, IGDB, Audible/Audnexus), recent shared requests, recently available items, and an admin-only `Needs Review` summary. Do not fabricate recommendation/discovery shelves before native discovery exists.
+ 
+ A recognized pasted URL may resolve automatically. Resolution errors remain inline; successful resolution opens the modal.
+ 
+@@ -18,6 +18,8 @@ States:
+ 3. **Available** -> source availability and `Open in Plex/Jellyfin/Navidrome/RomM` when possible.
+ 4. **Partially available** -> show child/unit state where applicable.
+ 
++Audiobook request presentation should show author, narrator, series/position when available, runtime, Audible region/ASIN provenance, and source-native artwork. If an identical request exists, show its shared status and `Notify Me` rather than permitting a duplicate. If Audiobookshelf already contains the item, show `Available` and an Audiobookshelf deep link when possible.
++
+ Game request controls dynamically render IGDB-supported platforms:
+ 
+ ```text
+@@ -49,7 +51,8 @@ Do not add a separate private My Requests route as a primary navigation destinat
+ 
+ Rows/cards allocate a consistent bounding area but preserve source ratio:
+ - poster: 2:3-ish;
+-- square: 1:1.
++- square: 1:1;
++- audiobook: preserve provider-native cover shape (commonly portrait or square).
+ 
+ Mixed-media lists should look intentionally heterogeneous rather than cropping square album art into posters.
+ 
+@@ -70,3 +73,9 @@ Library cards show health, last successful sync, next sync, enabled authoritativ
+ ## Setup wizard
+ 
+ Persistent left-side progress list with clear current/completed steps. External configuration steps expose validation/test actions before continuing. Final Review summarizes every consequential setting before setup is committed and bootstrap access is invalidated.
++
++## Post-V1 discovery direction
++
++Seerr is the primary cross-media discovery/status UX reference; Libreseerr demonstrates that the same card/detail/request language can extend to book/audiobook domains. Requestarr should eventually feel like browsing a catalog that understands local availability, not like filling out a ticket form.
++
++Discovery rails should be media-aware so artwork remains intentional (poster/cover rails for movies/TV/games/audiobooks where appropriate; square rails for music), while universal search may aggregate provider results progressively. Cards should emphasize only the user-facing state: `Available`, `Requested`, `Approved`, `Request`, and `Notify Me` for an existing request. Operational match/source details belong in item/admin surfaces.
+diff --git a/docs/V1_SCOPE.md b/docs/V1_SCOPE.md
+index c60496f..51e3db5 100644
+--- a/docs/V1_SCOPE.md
++++ b/docs/V1_SCOPE.md
+@@ -9,17 +9,19 @@
+ - URL resolver registry:
+   - TMDB movie + TV URLs;
+   - MusicBrainz release-group/recording URLs;
+-  - IGDB game URLs.
++  - IGDB game URLs;
++  - Audible audiobook product URLs resolved/enriched through Audnexus.
+ - Universal resolved-item modal.
+ - One request row per canonical catalog item.
+ - Shared Requests page with search/filter/sort and My Requests quick filter.
+ - Original requester automatically subscribed.
+ - Notify Me/unsubscribe for other users.
+ - Game platform selection dynamically built from IGDB: `Any` first, or multiple explicit platforms; OR semantics.
++- Audiobook requests with normalized author, narrator, series, runtime, ASIN, Audible region, and provider-native cover metadata when available.
+ - Request states: requested, approved, denied, available, cancelled.
+ - Manual admin state actions with audit events.
+ - Metadata cache/local catalog records.
+-- Library sources: Plex, Jellyfin, Navidrome/OpenSubsonic, RomM.
++- Library sources: Plex, Jellyfin, Navidrome/OpenSubsonic, RomM, Audiobookshelf.
+ - Background source sync into normalized inventory.
+ - Automatic request reconciliation and availability notification.
+ - In-app notifications and Apprise API integration.
+@@ -28,7 +30,8 @@
+ 
+ ## Explicitly out of V1
+ 
+-- Native catalog search/discovery/trending/recommendations.
++- Native catalog search/discovery/trending/recommendations (planned post-V1 using Seerr/Libreseerr as primary UX references).
++- Ebooks and ebook-library sources (BookOrbit/Kavita/Calibre-family); metadata/work-edition strategy is a V2 decision.
+ - Radarr/Sonarr/Lidarr runtime integration.
+ - Acquisition/download automation of any kind.
+ - Multiple request/vote counts for the same item.
+@@ -36,3 +39,6 @@
+ - Complex quotas/multi-level approvals.
+ - Game DLC/update/edition acquisition workflows.
+ - Mobile push implementation outside Apprise.
++
++### Audiobook reconciliation safety
++Audiobook V1 is edition-aware and explainable. Requestarr records reconciliation method/confidence and automatically marks requests Available only for exact or unambiguous high-confidence matches. Ambiguous title/author matches, narrator conflicts, or distinct dramatized/full-cast editions remain review-only. Chaptarr informs this domain/matching behavior but is not a V1 integration.
+diff --git a/docs/plan.md b/docs/plan.md
+index cdf9e20..38ead4d 100644
+--- a/docs/plan.md
++++ b/docs/plan.md
+@@ -183,7 +183,7 @@ The temporary bootstrap-session boundary governed by [D015](DECISIONS.md#d015--t
+ 
+ **Scope**
+ 
+-- Implement strict link recognition and canonical resolution for TMDB, MusicBrainz, and IGDB behind narrow interfaces.
++- Implement strict link recognition and canonical resolution for TMDB, MusicBrainz, IGDB, and Audible/Audnexus behind narrow interfaces.
+ - Cache canonical records locally, validate untrusted payloads, enforce bounded HTTP behavior, and preserve media-specific artwork proportions.
+ - Add explicit connection tests and stale cached reads where appropriate.
+ 
+@@ -214,7 +214,7 @@ The temporary bootstrap-session boundary governed by [D015](DECISIONS.md#d015--t
+ **Scope**
+ 
+ - Add durable, idempotent job runs and bounded background scheduling.
+-- Implement paginated/delta-capable Plex, Jellyfin, Navidrome/OpenSubsonic, and RomM adapters behind inventory interfaces.
++- Implement paginated/delta-capable Plex, Jellyfin, Navidrome/OpenSubsonic, RomM, and Audiobookshelf adapters behind inventory interfaces.
+ - Commit a source snapshot/removal decision only after a successful authoritative cycle; preserve last-known inventory on timeout, parse error, cancellation, or partial enumeration.
+ - Emit normalized change events and expose operational sync status from local state.
+ 
+@@ -232,6 +232,7 @@ The temporary bootstrap-session boundary governed by [D015](DECISIONS.md#d015--t
+ 
+ - Reconcile changed inventory against candidate active requests using stable external IDs first and reviewable fallback confidence only when necessary.
+ - Implement IGDB platform `Any` or explicit multi-select OR fulfillment semantics.
++- Implement audiobook reconciliation using exact ASIN/region and stable external IDs first, with reviewable narrator-aware fallback matching only when necessary.
+ - Emit idempotent availability events and create subscriber-specific in-app/Apprise deliveries with bounded retries and deduplication.
+ 
+ **Explicit non-goals**
+@@ -376,3 +377,15 @@ The final integration-test command and build tag may be adjusted to match the im
+ `feat(foundation): add PostgreSQL startup and readiness`
+ 
+ Keep the first pull request limited to the Phase 1 acceptance criteria. Repository implementations, setup persistence, OIDC, and UI delivery should follow in separate reviewable increments.
++
++## Audiobook V1 extension checkpoint
++
++Treat audiobook support as an extension of the existing metadata → catalog → request → inventory → reconcile pipeline, not a parallel subsystem. Add the media type and schema constraint changes through a new migration, then implement Audible/Audnexus resolution, Audiobookshelf source configuration/sync, exact-ID reconciliation, setup/settings UI, and end-to-end request/Notify Me/Available notification coverage. Do not start ebook adapters in this checkpoint.
++
++## Post-V1 discovery checkpoint
++
++After link-first V1 is stable, study Seerr/Libreseerr presentation and implement provider-concurrent universal search/discovery behind a normalized presentation model. External discovery latency may progressively enrich results, but request/availability/subscription state must be joined from local PostgreSQL and the existing universal item/request modal must remain the action surface.
++
++## Chaptarr-derived audiobook reconciliation refinement (2026-08-19)
++
++Before completing audiobook V1 reconciliation, implement the cross-media match-evidence contract from D024 and migration `000008_reconciliation_match_evidence`. Persist match method/confidence separately from request state. Automatic request -> Available transitions require `exact` or `high` confidence; `possible` candidates remain unresolved for admin review. Audiobook fallback matching must account for narrator and materially different productions. Do not introduce Chaptarr runtime integration or ebook acquisition/domain scope as part of this work.
+diff --git a/internal/domain/audiobook.go b/internal/domain/audiobook.go
+new file mode 100644
+index 0000000..0ee3f77
+--- /dev/null
++++ b/internal/domain/audiobook.go
+@@ -0,0 +1,24 @@
++package domain
++
++// AudiobookDetails contains normalized, provider-neutral audiobook-edition
++// fields used by request presentation and safe reconciliation. Provider-specific
++// payloads belong in adapters and/or CatalogItem.Metadata, not in this domain type.
++//
++// Requestarr intentionally distinguishes a broader written work from an audiobook
++// manifestation conceptually, but V1 does not introduce a full ebook/work schema.
++// These fields preserve enough edition identity to evolve toward that model later.
++type AudiobookDetails struct {
++	ASIN           string            `json:"asin,omitempty"`
++	AudibleRegion  string            `json:"audibleRegion,omitempty"`
++	Authors        []string          `json:"authors,omitempty"`
++	Narrators      []string          `json:"narrators,omitempty"`
++	Series         string            `json:"series,omitempty"`
++	SeriesPosition string            `json:"seriesPosition,omitempty"`
++	RuntimeSeconds int               `json:"runtimeSeconds,omitempty"`
++	Language       string            `json:"language,omitempty"`
++	Publisher      string            `json:"publisher,omitempty"`
++	ReleaseDate    string            `json:"releaseDate,omitempty"`
++	EditionType    string            `json:"editionType,omitempty"` // e.g. standard, dramatized/full-cast when provider supplies it
++	Abridged       *bool             `json:"abridged,omitempty"`
++	AlternateIDs   map[string]string `json:"alternateIds,omitempty"`
++}
+diff --git a/internal/domain/match.go b/internal/domain/match.go
+new file mode 100644
+index 0000000..eb90a55
+--- /dev/null
++++ b/internal/domain/match.go
+@@ -0,0 +1,40 @@
++package domain
++
++// MatchConfidence describes how safely Requestarr can use a reconciliation
++// result. Automatic availability transitions should require Exact or High
++// confidence; Possible matches are review-only.
++type MatchConfidence string
++
++const (
++	MatchExact    MatchConfidence = "exact"
++	MatchHigh     MatchConfidence = "high"
++	MatchPossible MatchConfidence = "possible"
++)
++
++// MatchMethod records why an inventory item was associated with a catalog
++// item/request. Methods are intentionally cross-media so reconciliation can use
++// one evidence model for TMDB, MusicBrainz, IGDB, ASIN, and fallback matching.
++type MatchMethod string
++
++const (
++	MatchExternalID          MatchMethod = "external_id"
++	MatchASINRegion          MatchMethod = "asin_region"
++	MatchTitleAuthorNarrator MatchMethod = "title_author_narrator"
++	MatchTitleAuthor         MatchMethod = "title_author"
++	MatchTitleYear           MatchMethod = "title_year"
++	MatchManual              MatchMethod = "manual"
++)
++
++// MatchEvidence is safe, normalized reconciliation provenance. Evidence must
++// never contain provider credentials, access tokens, or unbounded raw payloads.
++type MatchEvidence struct {
++	Method     MatchMethod     `json:"method"`
++	Confidence MatchConfidence `json:"confidence"`
++	Reason     string          `json:"reason,omitempty"`
++}
++
++// CanAutoFulfill returns whether a match is sufficiently trustworthy to drive
++// an automatic request -> available transition.
++func (m MatchEvidence) CanAutoFulfill() bool {
++	return m.Confidence == MatchExact || m.Confidence == MatchHigh
++}
+diff --git a/internal/domain/match_test.go b/internal/domain/match_test.go
+new file mode 100644
+index 0000000..d5358ec
+--- /dev/null
++++ b/internal/domain/match_test.go
+@@ -0,0 +1,24 @@
++package domain
++
++import "testing"
++
++func TestMatchEvidenceCanAutoFulfill(t *testing.T) {
++	tests := []struct {
++		name       string
++		confidence MatchConfidence
++		want       bool
++	}{
++		{name: "exact", confidence: MatchExact, want: true},
++		{name: "high", confidence: MatchHigh, want: true},
++		{name: "possible", confidence: MatchPossible, want: false},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			got := (MatchEvidence{Confidence: tt.confidence}).CanAutoFulfill()
++			if got != tt.want {
++				t.Fatalf("CanAutoFulfill() = %v, want %v", got, tt.want)
++			}
++		})
++	}
++}
+diff --git a/internal/domain/media.go b/internal/domain/media.go
+index 9ec6e9f..d7c8a43 100644
+--- a/internal/domain/media.go
++++ b/internal/domain/media.go
+@@ -5,11 +5,12 @@ import "time"
+ type MediaType string
+ 
+ const (
+-	MediaMovie MediaType = "movie"
+-	MediaTV    MediaType = "tv"
+-	MediaAlbum MediaType = "album"
+-	MediaSong  MediaType = "song"
+-	MediaGame  MediaType = "game"
++	MediaMovie     MediaType = "movie"
++	MediaTV        MediaType = "tv"
++	MediaAlbum     MediaType = "album"
++	MediaSong      MediaType = "song"
++	MediaGame      MediaType = "game"
++	MediaAudiobook MediaType = "audiobook"
+ )
+ 
+ type ArtworkKind string
+@@ -36,6 +37,7 @@ type CatalogItem struct {
+ type ResolvedItem struct {
+ 	Item      CatalogItem
+ 	Platforms []Platform
++	Audiobook *AudiobookDetails
+ }
+ 
+ type Platform struct {
+diff --git a/internal/inventory/audiobookshelf/README.md b/internal/inventory/audiobookshelf/README.md
+new file mode 100644
+index 0000000..4f9bcaf
+--- /dev/null
++++ b/internal/inventory/audiobookshelf/README.md
+@@ -0,0 +1,5 @@
++# Audiobookshelf inventory adapter
++
++Implement behind `inventory.Source`. Audiobookshelf is the only authoritative audiobook source in V1. Synchronize normalized inventory; do not change request state directly.
++
++Prefer exact ASIN/external IDs and retain author, narrator, series, source deep link, and raw identifiers needed for fallback reconciliation. Temporary errors, pagination failures, cancellation, or partial enumeration must retain the last-known successful inventory snapshot and must not emit mass removals.
+diff --git a/internal/providers/metadata/audnexus/README.md b/internal/providers/metadata/audnexus/README.md
+new file mode 100644
+index 0000000..91c42b2
+--- /dev/null
++++ b/internal/providers/metadata/audnexus/README.md
+@@ -0,0 +1,10 @@
++# Audible / Audnexus audiobook resolver
++
++Implement behind `metadata.Resolver`. V1 input is an Audible product URL. Parse the ASIN and storefront region defensively, then resolve/enrich through Audnexus into `domain.ResolvedItem` with `MediaAudiobook` and `AudiobookDetails`.
++
++Rules:
++- Audnexus identifies metadata; it never establishes availability.
++- Persist normalized catalog data so existing requests render while Audnexus is unavailable.
++- Prefer ASIN + Audible region as edition identity; preserve narrator, author, series, runtime, language, publisher, and alternate IDs when present.
++- Bound redirects, DNS/network access, response size, timeouts, and rate behavior using the same outbound-client security standards as other metadata adapters.
++- Add fixtures for multiple Audible storefronts, malformed URLs, changed slugs, missing optional fields, and multiple narrators.
+diff --git a/prompts/00_MASTER_CONTEXT.md b/prompts/00_MASTER_CONTEXT.md
+index deeba3c..4ce57c6 100644
+--- a/prompts/00_MASTER_CONTEXT.md
++++ b/prompts/00_MASTER_CONTEXT.md
+@@ -2,4 +2,4 @@
+ 
+ Use this prompt at the start of every fresh AI implementation session.
+ 
+-Read `AGENTS.md`, `docs/PROJECT_VISION.md`, `docs/V1_SCOPE.md`, `docs/DECISIONS.md`, `docs/ARCHITECTURE.md`, `docs/UI_UX.md`, and `docs/SECURITY.md`. Treat them as authoritative. Inspect the current repository and tests before changing code. Do not introduce acquisition/download behavior. Do not copy reference-project source code. Implement the smallest production-quality increment requested, preserve module boundaries, add tests, run the documented checks, and summarize changed behavior plus remaining risks.
++Read `AGENTS.md`, `docs/PROJECT_VISION.md`, `docs/V1_SCOPE.md`, `docs/DECISIONS.md`, `docs/ARCHITECTURE.md`, `docs/UI_UX.md`, and `docs/SECURITY.md`. Treat them as authoritative. Inspect the current repository and tests before changing code. Audiobooks are V1 using Audible/Audnexus metadata identity and Audiobookshelf availability; ebooks are V2. Long-term discovery UX should learn from Seerr/Libreseerr while preserving the link-first V1 and universal item modal. Chaptarr is a domain/matching reference for edition-aware audiobook identity and explainable reconciliation; it is not a runtime or acquisition dependency. Do not introduce acquisition/download behavior. Do not copy reference-project source code. Implement the smallest production-quality increment requested, preserve module boundaries, add tests, run the documented checks, and summarize changed behavior plus remaining risks.
+diff --git a/prompts/03_METADATA_RESOLUTION.md b/prompts/03_METADATA_RESOLUTION.md
+index 4c68803..ea4ee7c 100644
+--- a/prompts/03_METADATA_RESOLUTION.md
++++ b/prompts/03_METADATA_RESOLUTION.md
+@@ -1,3 +1,3 @@
+ # Prompt 03 — Metadata URL Resolution
+ 
+-Implement the resolver registry and provider adapters for TMDB movie/TV URLs, MusicBrainz release-group/recording URLs, and IGDB game URLs. Resolver output must be provider-neutral `domain.ResolvedItem`. Add bounded HTTP clients, caching, rate-limit awareness, error taxonomy, sanitized fixtures, and tests for malformed/unsupported URLs. IGDB must return the game's actual supported platforms for dynamic request controls. Do not add global search/discovery.
++Implement the resolver registry and provider adapters for TMDB movie/TV URLs, MusicBrainz release-group/recording URLs, IGDB game URLs, and Audible audiobook product URLs resolved/enriched through Audnexus. Resolver output must be provider-neutral `domain.ResolvedItem`. Add bounded HTTP clients, caching, rate-limit awareness, error taxonomy, sanitized fixtures, and tests for malformed/unsupported URLs. IGDB must return the game's actual supported platforms for dynamic request controls. Audiobook resolution must preserve ASIN, storefront region, authors, narrators, series/position, runtime, and source-native cover metadata when available; cache normalized output so existing request pages do not require live Audnexus. Do not add global search/discovery.
+diff --git a/prompts/06_LIBRARY_SYNC.md b/prompts/06_LIBRARY_SYNC.md
+index 6ac7ecc..f01bb61 100644
+--- a/prompts/06_LIBRARY_SYNC.md
++++ b/prompts/06_LIBRARY_SYNC.md
+@@ -1,3 +1,3 @@
+ # Prompt 06 — Availability Sources
+ 
+-Implement library source configuration and background inventory sync for Plex, Jellyfin, Navidrome/OpenSubsonic, and RomM. Each source can be authoritative only for configured media types. Persist normalized inventory and cursors. Use pagination/deltas where APIs support them. A failed/unreachable source must retain its last-known inventory and must never emit mass removals. Expose health, item counts, last successful sync, next sync, Test Connection, and Sync Now. Add fixtures and outage tests.
++Implement library source configuration and background inventory sync for Plex, Jellyfin, Navidrome/OpenSubsonic, RomM, and Audiobookshelf. Each source can be authoritative only for configured media types. Persist normalized inventory and cursors. Use pagination/deltas where APIs support them. A failed/unreachable source must retain its last-known inventory and must never emit mass removals. Audiobookshelf is authoritative only for audiobooks in V1; retain ASIN/external IDs plus author/narrator/series metadata needed for safe reconciliation. Expose health, item counts, last successful sync, next sync, Test Connection, and Sync Now. Add fixtures and outage tests.
+diff --git a/prompts/09_UI_POLISH.md b/prompts/09_UI_POLISH.md
+index caa24fb..c8f0629 100644
+--- a/prompts/09_UI_POLISH.md
++++ b/prompts/09_UI_POLISH.md
+@@ -1,3 +1,3 @@
+ # Prompt 09 — V1 UI Polish
+ 
+-Implement the approved Home, Requests, request modal, Settings/Libraries, and setup-wizard UX using `references/mockups/final/` and `docs/UI_UX.md`. Preserve native art ratios (poster vs square), support keyboard/controller-friendly focus order where reasonable, responsive layouts, reduced motion, accessible status semantics, skeleton/loading/error states, and bookmarkable filters. Do not add native discovery shelves/search beyond URL resolution.
++Implement the approved Home, Requests, request modal, Settings/Libraries, and setup-wizard UX using `references/mockups/final/` and `docs/UI_UX.md`. Include audiobook request/resolution states and preserve provider-native art ratios (poster, square, or audiobook cover), support keyboard/controller-friendly focus order where reasonable, responsive layouts, reduced motion, accessible status semantics, skeleton/loading/error states, and bookmarkable filters. Do not add native discovery shelves/search beyond URL resolution, but keep components provider-neutral and reusable for the planned Seerr/Libreseerr-style discovery phase.
+diff --git a/prompts/11_AUDIOBOOK_V1.md b/prompts/11_AUDIOBOOK_V1.md
+new file mode 100644
+index 0000000..ab48e6c
+--- /dev/null
++++ b/prompts/11_AUDIOBOOK_V1.md
+@@ -0,0 +1,20 @@
++# Prompt 11 — Audiobook V1
++
++Implement audiobook V1 as an extension of the existing Requestarr pipeline. Read D019-D026, `references/research/AUDIOBOOKS_AND_DISCOVERY.md`, and `references/research/CHAPTARR_LESSONS.md` first.
++
++Required behavior:
++- add `audiobook` media support through the forward-only migration;
++- accept Audible product URLs and resolve/enrich through an Audnexus adapter;
++- normalize ASIN, Audible region, authors, narrators, series/position, runtime, language, publisher, release date, abridged state, edition/presentation type when known, cover, and alternate stable IDs;
++- cache normalized catalog data so existing views/reconciliation do not depend on live Audnexus;
++- add Audiobookshelf as the only V1 audiobook availability authority;
++- record every reconciliation association using the shared match-evidence model;
++- prefer exact ASIN+region/shared external IDs; permit only unambiguous high-confidence title+author+narrator fallback matches to auto-fulfill;
++- treat title+author-only, narrator conflicts, and materially different productions as `possible`/review-only rather than automatically Available;
++- integrate audiobook provider/library configuration into setup + settings;
++- support ordinary shared request, approval, Notify Me, Available, and Apprise/in-app notification flows;
++- preserve source-native audiobook artwork ratio;
++- keep provider boundaries capable of future fallback/enrichment without implementing multi-provider consensus now;
++- keep the domain compatible with a future work -> manifestation relationship without implementing ebook/work hierarchy in V1.
++
++Do not add ebook support, Chaptarr runtime integration, acquisition, download progress, quality profiles, root folders, native global discovery, or Plex audiobook authority. Add provider fixtures, source-outage tests, exact-ID/fallback/ambiguity matching tests, migration tests, and end-to-end audiobook request->availability coverage.
+diff --git a/prompts/12_DISCOVERY_PREPARATION.md b/prompts/12_DISCOVERY_PREPARATION.md
+new file mode 100644
+index 0000000..d0dfc01
+--- /dev/null
++++ b/prompts/12_DISCOVERY_PREPARATION.md
+@@ -0,0 +1,7 @@
++# Prompt 12 — Discovery Preparation (post-V1, no discovery implementation yet)
++
++Use Seerr as the primary UX reference and Libreseerr as the secondary audiobook/book adaptation reference. Refactor only where necessary so URL resolution, future search results, discovery rails, and similar-item links can all normalize into one provider-neutral catalog presentation and reuse the existing item/request modal.
++
++Do not implement external search/discovery in this prompt. Establish component/domain boundaries, tests, and documentation that ensure future provider concurrency/progressive results cannot make Requests or known-item rendering depend on live external APIs. Preserve media-aware artwork ratios and simple user-facing states (`Available`, `Requested`, `Approved`, `Request`, `Notify Me`).
++
++Preserve the distinction between discovery/catalog identity and reconciliation evidence. Discovery results must not infer availability from fuzzy title matches; availability overlays come from persisted inventory reconciliation, including its confidence/provenance rules. Chaptarr is not a discovery UX reference.
+diff --git a/prompts/README.md b/prompts/README.md
+index 120fbd1..76e8601 100644
+--- a/prompts/README.md
++++ b/prompts/README.md
+@@ -1,3 +1,10 @@
+ # Implementation Prompt Sequence
+ 
+ Use `00_MASTER_CONTEXT.md` at the beginning of every new AI session. Then execute prompts 01–10 in order unless the repository clearly shows a phase is already complete. Each prompt is an implementation milestone, not permission to rewrite accepted product decisions. Commit working, tested increments between phases.
++
++## New decision prompts
++
++- `11_AUDIOBOOK_V1.md` — add Audnexus/Audible + Audiobookshelf audiobook support without ebook/acquisition scope creep.
++- `12_DISCOVERY_PREPARATION.md` — prepare provider-neutral presentation boundaries for eventual Seerr/Libreseerr-style discovery without implementing discovery yet.
++
++Audiobook implementation sessions must also read `references/research/CHAPTARR_LESSONS.md` and decisions D023-D026 before changing reconciliation or audiobook identity code.
+diff --git a/references/research/AUDIOBOOKS_AND_DISCOVERY.md b/references/research/AUDIOBOOKS_AND_DISCOVERY.md
+new file mode 100644
+index 0000000..3172c9f
+--- /dev/null
++++ b/references/research/AUDIOBOOKS_AND_DISCOVERY.md
+@@ -0,0 +1,30 @@
++# Audiobook + discovery research synthesis
++
++## Adopt
++
++- **Seerr:** discovery/catalog presentation overlaid with simple local availability/request state.
++- **Libreseerr:** proof that Seerr-style card/detail/request interaction translates to book/audiobook media.
++- **Shelfmark:** provider abstraction, audiobook-specific metadata selection, OIDC/caching lessons.
++- **Listenarr:** Audible-first audiobook identity fields (author, narrator, series, runtime, ASIN).
++- **Readarr:** refresh/library separation and a caution against a single irreplaceable metadata backend.
++- **Audiobookshelf:** V1 source of truth for audiobook availability.
++- **Audnexus:** preferred V1 audiobook metadata/enrichment provider.
++
++## Explicitly reject
++
++- acquisition/download/indexer/root-folder/quality-profile behavior from Libreseerr/Shelfmark/Listenarr/Readarr;
++- downloading/importing/progress states in the requester-facing lifecycle;
++- local-password-first authentication patterns; Requestarr remains OIDC-first;
++- provider-specific models leaking into UI/domain contracts;
++- treating a metadata provider as availability authority.
++
++## Requestarr audiobook V1
++
++Audible URL -> parse ASIN + storefront region -> Audnexus normalize/cache -> universal request modal -> one shared request -> Audiobookshelf inventory sync -> exact ID reconciliation -> Available -> notify requester + manual subscribers.
++
++## Future discovery
++
++Search/discovery is post-V1. Multiple provider searches may execute concurrently and progressively, but each result normalizes into the same catalog presentation and universal item/request modal. Shared Requests and known-item screens remain local-state-first and never wait on discovery providers.
++
++## Chaptarr refinement (2026-08-19)
++Chaptarr reinforces that audiobook identity is edition/manifestation-aware: narrator, publisher, release/presentation type and multi-edition coexistence can be significant, not merely decorative metadata. Requestarr therefore records reconciliation match provenance/confidence and only auto-fulfills exact/high-confidence matches. Chaptarr remains a domain/matching reference only; Audiobookshelf remains V1 availability authority and acquisition features stay out of scope. See `CHAPTARR_LESSONS.md`.
+diff --git a/references/research/CHAPTARR_LESSONS.md b/references/research/CHAPTARR_LESSONS.md
+new file mode 100644
+index 0000000..066fdbe
+--- /dev/null
++++ b/references/research/CHAPTARR_LESSONS.md
+@@ -0,0 +1,15 @@
++# Chaptarr lessons for Requestarr
++
++Chaptarr is a Readarr-derived library/acquisition manager focused on books and audiobooks. Requestarr does **not** copy its acquisition responsibilities. It is useful as a domain and metadata/matching reference.
++
++## Lessons to retain
++
++1. **Audiobook editions are materially distinct manifestations.** Preserve ASIN/storefront region, narrator(s), publisher, language, runtime, release date, and abridged/dramatized/full-cast information when providers expose it. A title+author pair alone is not sufficient to prove that two audiobook editions are equivalent.
++2. **Narrator-aware reconciliation matters.** Exact ASIN/external-ID matches are strongest. A normalized title+author+narrator match may be high confidence. Title+author without edition evidence is only a possible match and must not silently mark a request Available.
++3. **Matching provenance should be first-class.** Record the method, confidence, and bounded evidence for every availability match. Exact/high matches may auto-fulfill; possible matches are for admin review.
++4. **Metadata providers should be replaceable and composable.** V1 uses Audnexus as the preferred audiobook metadata provider, but the provider seam should allow fallback/enrichment later rather than making one service structurally irreplaceable.
++5. **Work -> manifestation is a future model, not a V1 requirement.** Preserve edition identity now so ebook V2 can later relate ebook and audiobook manifestations to a broader canonical work without rewriting existing audiobook requests.
++
++## Explicit non-lessons
++
++Do not import Chaptarr's download clients, indexers, quality profiles, root folders, renaming, conversion, upgrade policies, monitored-author behavior, or acquisition/download statuses. Audiobookshelf remains Requestarr's sole V1 audiobook availability authority.
+diff --git a/references/source/README.md b/references/source/README.md
+new file mode 100644
+index 0000000..9f6391a
+--- /dev/null
++++ b/references/source/README.md
+@@ -0,0 +1,7 @@
++# Reference source
++
++These repositories are optional local research checkouts and are not Requestarr dependencies. Run `scripts/fetch-references.sh` or `.ps1` on a networked development machine. `references/source/checkouts/` should remain uncommitted.
++
++Consult `manifest.yaml` for the purpose of each reference. Do not copy source across license boundaries without explicitly reviewing the upstream license and Requestarr's eventual project license.
++
++Chaptarr is included specifically as an audiobook/book domain and matching reference. Do not treat its downloader/indexer/acquisition architecture as Requestarr scope.
+diff --git a/references/source/manifest.yaml b/references/source/manifest.yaml
+new file mode 100644
+index 0000000..9426523
+--- /dev/null
++++ b/references/source/manifest.yaml
+@@ -0,0 +1,61 @@
++references:
++  - id: seerr
++    url: https://github.com/seerr-team/seerr.git
++    branch: develop
++    purpose: primary cross-media request/discovery UX
++  - id: libreseerr
++    url: https://github.com/zamnzim/Libreseerr.git
++    branch: main
++    purpose: Seerr-like book/audiobook UX patterns
++  - id: shelfmark
++    url: https://github.com/calibrain/shelfmark.git
++    branch: main
++    purpose: book/audiobook request UX, metadata-provider abstraction, OIDC and caching patterns
++  - id: listenarr
++    url: https://github.com/Listenarrs/Listenarr.git
++    branch: canary
++    purpose: Audible/audiobook domain identity and metadata fields
++  - id: chaptarr
++    url: https://github.com/Chaptarr/chaptarr.git
++    branch: develop
++    purpose: audiobook edition/narrator/publisher modeling, metadata aggregation and matching lessons
++  - id: readarr
++    url: https://github.com/readarr/readarr.git
++    branch: develop
++    purpose: retired book manager; refresh/domain and metadata-dependency lessons
++  - id: radarr
++    url: https://github.com/Radarr/Radarr.git
++    branch: develop
++    purpose: local state, jobs, refresh/reconciliation patterns
++  - id: sonarr
++    url: https://github.com/Sonarr/Sonarr.git
++    branch: develop
++    purpose: local state, jobs, refresh/reconciliation patterns
++  - id: lidarr
++    url: https://github.com/Lidarr/Lidarr.git
++    branch: develop
++    purpose: music identity and refresh patterns
++  - id: ggrequestz
++    url: https://github.com/XTREEMMAK/ggrequestz.git
++    branch: main
++    purpose: IGDB/game request and RomM integration patterns
++  - id: romm
++    url: https://github.com/rommapp/romm.git
++    branch: master
++    purpose: game inventory/source-of-truth representation
++  - id: audnexus
++    url: https://github.com/laxamentumtech/audnexus.git
++    branch: master
++    purpose: preferred audiobook metadata/enrichment reference
++  - id: audiobookshelf
++    url: https://github.com/advplyr/audiobookshelf.git
++    branch: master
++    purpose: V1 audiobook inventory/source-of-truth reference
++  - id: apprise
++    url: https://github.com/caronc/apprise.git
++    branch: master
++    purpose: notification gateway
++  - id: apprise-api
++    url: https://github.com/caronc/apprise-api.git
++    branch: master
++    purpose: notification API gateway
+diff --git a/scripts/fetch-references.ps1 b/scripts/fetch-references.ps1
+index 0ae6dc2..11f0552 100644
+--- a/scripts/fetch-references.ps1
++++ b/scripts/fetch-references.ps1
+@@ -5,11 +5,18 @@ New-Item -ItemType Directory -Force -Path $Out | Out-Null
+ 
+ $Refs = @(
+     @{ Id="seerr"; Url="https://github.com/seerr-team/seerr.git"; Branch="develop" },
++    @{ Id="libreseerr"; Url="https://github.com/zamnzim/Libreseerr.git"; Branch="main" },
++    @{ Id="shelfmark"; Url="https://github.com/calibrain/shelfmark.git"; Branch="main" },
++    @{ Id="listenarr"; Url="https://github.com/Listenarrs/Listenarr.git"; Branch="canary" },
++    @{ Id="chaptarr"; Url="https://github.com/Chaptarr/chaptarr.git"; Branch="develop" },
++    @{ Id="readarr"; Url="https://github.com/readarr/readarr.git"; Branch="develop" },
+     @{ Id="radarr"; Url="https://github.com/Radarr/Radarr.git"; Branch="develop" },
+     @{ Id="sonarr"; Url="https://github.com/Sonarr/Sonarr.git"; Branch="develop" },
+     @{ Id="lidarr"; Url="https://github.com/Lidarr/Lidarr.git"; Branch="develop" },
+     @{ Id="ggrequestz"; Url="https://github.com/XTREEMMAK/ggrequestz.git"; Branch="main" },
+     @{ Id="romm"; Url="https://github.com/rommapp/romm.git"; Branch="master" },
++    @{ Id="audnexus"; Url="https://github.com/laxamentumtech/audnexus.git"; Branch="master" },
++    @{ Id="audiobookshelf"; Url="https://github.com/advplyr/audiobookshelf.git"; Branch="master" },
+     @{ Id="apprise"; Url="https://github.com/caronc/apprise.git"; Branch="master" },
+     @{ Id="apprise-api"; Url="https://github.com/caronc/apprise-api.git"; Branch="master" }
+ )
+diff --git a/scripts/fetch-references.sh b/scripts/fetch-references.sh
+index be9cceb..009e1d9 100755
+--- a/scripts/fetch-references.sh
++++ b/scripts/fetch-references.sh
+@@ -20,11 +20,18 @@ clone_ref() {
+ }
+ 
+ clone_ref seerr https://github.com/seerr-team/seerr.git develop
++clone_ref libreseerr https://github.com/zamnzim/Libreseerr.git main
++clone_ref shelfmark https://github.com/calibrain/shelfmark.git main
++clone_ref listenarr https://github.com/Listenarrs/Listenarr.git canary
++clone_ref chaptarr https://github.com/Chaptarr/chaptarr.git develop
++clone_ref readarr https://github.com/readarr/readarr.git develop
+ clone_ref radarr https://github.com/Radarr/Radarr.git develop
+ clone_ref sonarr https://github.com/Sonarr/Sonarr.git develop
+ clone_ref lidarr https://github.com/Lidarr/Lidarr.git develop
+ clone_ref ggrequestz https://github.com/XTREEMMAK/ggrequestz.git main
+ clone_ref romm https://github.com/rommapp/romm.git master
++clone_ref audnexus https://github.com/laxamentumtech/audnexus.git master
++clone_ref audiobookshelf https://github.com/advplyr/audiobookshelf.git master
+ clone_ref apprise https://github.com/caronc/apprise.git master
+ clone_ref apprise-api https://github.com/caronc/apprise-api.git master
+ 

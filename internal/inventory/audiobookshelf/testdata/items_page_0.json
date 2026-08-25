@@ -1,0 +1,23 @@
+{
+    "results": [
+        {
+            "id": "book-001",
+            "media": {
+                "metadata": {
+                    "title": "Synthetic Title"
+                }
+            }
+        },
+        {
+            "id": "book-002",
+            "media": {
+                "metadata": {
+                    "title": "Second Synthetic Title"
+                }
+            }
+        }
+    ],
+    "total": 2,
+    "limit": 100,
+    "page": 0
+}

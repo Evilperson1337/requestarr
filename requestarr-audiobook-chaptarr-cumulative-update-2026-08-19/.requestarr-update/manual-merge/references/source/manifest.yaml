@@ -1,0 +1,61 @@
+references:
+  - id: seerr
+    url: https://github.com/seerr-team/seerr.git
+    branch: develop
+    purpose: primary cross-media request/discovery UX
+  - id: libreseerr
+    url: https://github.com/zamnzim/Libreseerr.git
+    branch: main
+    purpose: Seerr-like book/audiobook UX patterns
+  - id: shelfmark
+    url: https://github.com/calibrain/shelfmark.git
+    branch: main
+    purpose: book/audiobook request UX, metadata-provider abstraction, OIDC and caching patterns
+  - id: listenarr
+    url: https://github.com/Listenarrs/Listenarr.git
+    branch: canary
+    purpose: Audible/audiobook domain identity and metadata fields
+  - id: chaptarr
+    url: https://github.com/Chaptarr/chaptarr.git
+    branch: develop
+    purpose: audiobook edition/narrator/publisher modeling, metadata aggregation and matching lessons
+  - id: readarr
+    url: https://github.com/readarr/readarr.git
+    branch: develop
+    purpose: retired book manager; refresh/domain and metadata-dependency lessons
+  - id: radarr
+    url: https://github.com/Radarr/Radarr.git
+    branch: develop
+    purpose: local state, jobs, refresh/reconciliation patterns
+  - id: sonarr
+    url: https://github.com/Sonarr/Sonarr.git
+    branch: develop
+    purpose: local state, jobs, refresh/reconciliation patterns
+  - id: lidarr
+    url: https://github.com/Lidarr/Lidarr.git
+    branch: develop
+    purpose: music identity and refresh patterns
+  - id: ggrequestz
+    url: https://github.com/XTREEMMAK/ggrequestz.git
+    branch: main
+    purpose: IGDB/game request and RomM integration patterns
+  - id: romm
+    url: https://github.com/rommapp/romm.git
+    branch: master
+    purpose: game inventory/source-of-truth representation
+  - id: audnexus
+    url: https://github.com/laxamentumtech/audnexus.git
+    branch: master
+    purpose: preferred audiobook metadata/enrichment reference
+  - id: audiobookshelf
+    url: https://github.com/advplyr/audiobookshelf.git
+    branch: master
+    purpose: V1 audiobook inventory/source-of-truth reference
+  - id: apprise
+    url: https://github.com/caronc/apprise.git
+    branch: master
+    purpose: notification gateway
+  - id: apprise-api
+    url: https://github.com/caronc/apprise-api.git
+    branch: master
+    purpose: notification API gateway

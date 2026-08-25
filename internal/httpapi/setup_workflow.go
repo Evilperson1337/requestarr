@@ -7,22 +7,27 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"git.example.com/evilperson1337/Requestarr/internal/setup"
 )
 
 const (
-	setupWorkflowTimeout       = 2 * time.Second
-	setupGeneralBodyMax        = int64(4096)
-	setupAuthenticationBodyMax = int64(16 * 1024)
+	setupWorkflowTimeout                 = 2 * time.Second
+	setupGeneralBodyMax                  = int64(4096)
+	setupAuthenticationBodyMax           = int64(16 * 1024)
+	setupAuthenticationValidationBodyMax = int64(128)
+	setupAuthenticationValidationTimeout = 12 * time.Second
 )
 
 type setupStateResponse struct {
-	CurrentStep            setup.Step            `json:"current_step"`
-	General                *setup.General        `json:"general,omitempty"`
-	Authentication         *setup.Authentication `json:"authentication,omitempty"`
-	ClientSecretConfigured bool                  `json:"client_secret_configured,omitempty"`
+	CurrentStep            setup.Step                              `json:"current_step"`
+	General                *setup.General                          `json:"general,omitempty"`
+	Authentication         *setup.Authentication                   `json:"authentication,omitempty"`
+	ClientSecretConfigured bool                                    `json:"client_secret_configured,omitempty"`
+	AuthenticationRevision int64                                   `json:"authentication_revision,omitempty"`
+	AuthenticationEvidence *setup.AuthenticationValidationEvidence `json:"authentication_validation,omitempty"`
 }
 
 type setupAuthenticationRequest struct {
@@ -41,6 +46,38 @@ type setupGeneralRequest struct {
 	InstanceName string `json:"instance_name"`
 	PublicURL    string `json:"public_url"`
 	Timezone     string `json:"timezone"`
+}
+
+type setupAuthenticationValidationRequest struct {
+	AuthenticationRevision int64 `json:"authentication_revision"`
+}
+
+func (request *setupAuthenticationValidationRequest) UnmarshalJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return errors.New("validation document must be an object")
+	}
+	name, err := decoder.Token()
+	if err != nil || name != "authentication_revision" {
+		return errors.New("validation document must contain exactly authentication_revision")
+	}
+	number, err := decoder.Token()
+	value, ok := number.(json.Number)
+	if err != nil || !ok {
+		return errors.New("authentication_revision must be an integer")
+	}
+	revision, err := strconv.ParseInt(value.String(), 10, 64)
+	if err != nil || revision <= 0 || value.String() != strconv.FormatInt(revision, 10) {
+		return errors.New("authentication_revision must be a positive canonical integer")
+	}
+	request.AuthenticationRevision = revision
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') || decoder.More() {
+		return errors.New("validation document contains extra fields")
+	}
+	return nil
 }
 
 func (request *setupGeneralRequest) UnmarshalJSON(data []byte) error {
@@ -210,6 +247,136 @@ func setupAuthenticationHandler(options SetupSessionOptions) http.Handler {
 	})
 }
 
+func setupAuthenticationValidationHandler(options SetupSessionOptions) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, r, http.MethodPost)
+			return
+		}
+		if !exactSetupOrigin(r, options.PublicOrigin) {
+			writeAPIError(w, r, http.StatusForbidden, "setup_origin_forbidden", "The request origin is not allowed.")
+			return
+		}
+		csrf := r.Header.Values("X-Requestarr-CSRF")
+		if len(csrf) != 1 || csrf[0] != "1" {
+			writeAPIError(w, r, http.StatusForbidden, "setup_csrf_forbidden", "The setup CSRF check failed.")
+			return
+		}
+		contentTypes := r.Header.Values("Content-Type")
+		if len(contentTypes) != 1 || contentTypes[0] != "application/json" {
+			writeAPIError(w, r, http.StatusBadRequest, "invalid_request", "The request body is invalid.")
+			return
+		}
+		var request setupAuthenticationValidationRequest
+		if err := decodeJSON(w, r, &request, setupAuthenticationValidationBodyMax, false); err != nil {
+			writeAPIError(w, r, http.StatusBadRequest, "invalid_request", "The request body is invalid.")
+			return
+		}
+		session, ok := setupSessionCookie(r, options.SecureCookie)
+		if !ok || options.AuthenticationValidator == nil {
+			writeAPIError(w, r, http.StatusUnauthorized, "setup_session_required", "A valid setup session is required.")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), setupAuthenticationValidationTimeout)
+		defer cancel()
+		writeAuthenticationValidationResult(w, r, options.AuthenticationValidator.Validate(ctx, session, request.AuthenticationRevision))
+	})
+}
+
+func writeAuthenticationValidationResult(w http.ResponseWriter, r *http.Request, result setup.AuthenticationValidationResult) {
+	switch result.Outcome {
+	case setup.AuthenticationValidationSucceeded:
+		writeJSON(w, http.StatusOK, struct {
+			AuthenticationRevision int64                                   `json:"authentication_revision"`
+			Validation             *setup.AuthenticationValidationEvidence `json:"validation"`
+		}{AuthenticationRevision: result.Revision, Validation: result.Evidence})
+	case setup.AuthenticationValidationSessionRequired:
+		writeAPIError(w, r, http.StatusUnauthorized, "setup_session_required", "A valid setup session is required.")
+	case setup.AuthenticationValidationCompleted:
+		writeAPIError(w, r, http.StatusConflict, "setup_completed", "Setup has already been completed.")
+	case setup.AuthenticationValidationStale:
+		writeAPIError(w, r, http.StatusConflict, "setup_authentication_validation_stale", "The Authentication setup revision is stale.")
+	case setup.AuthenticationValidationRequired:
+		writeAPIError(w, r, http.StatusUnprocessableEntity, "setup_authentication_validation_required", "OIDC discovery metadata does not meet the required policy.")
+	case setup.AuthenticationValidationDestination:
+		writeAPIError(w, r, http.StatusUnprocessableEntity, "setup_authentication_destination_invalid", "The OIDC issuer destination is not allowed.")
+	case setup.AuthenticationValidationUnreachable:
+		writeAPIError(w, r, http.StatusUnprocessableEntity, "setup_authentication_unreachable", "The OIDC issuer could not be reached.")
+	case setup.AuthenticationValidationRateLimited:
+		seconds := int64(result.RetryAfter / time.Second)
+		if result.RetryAfter%time.Second != 0 {
+			seconds++
+		}
+		if seconds < 1 {
+			seconds = 1
+		}
+		if seconds > 300 {
+			seconds = 300
+		}
+		w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
+		writeAPIError(w, r, http.StatusTooManyRequests, "setup_authentication_validation_rate_limited", "Too many Authentication validation attempts. Try again later.")
+	default:
+		writeAPIError(w, r, http.StatusServiceUnavailable, "setup_unavailable", "Setup is temporarily unavailable.")
+	}
+}
+
+func setupAuthenticationActivationHandler(options SetupSessionOptions) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, r, http.MethodPost)
+			return
+		}
+		if !exactSetupOrigin(r, options.PublicOrigin) {
+			writeAPIError(w, r, http.StatusForbidden, "setup_origin_forbidden", "The request origin is not allowed.")
+			return
+		}
+		csrf := r.Header.Values("X-Requestarr-CSRF")
+		if len(csrf) != 1 || csrf[0] != "1" {
+			writeAPIError(w, r, http.StatusForbidden, "setup_csrf_forbidden", "The setup CSRF check failed.")
+			return
+		}
+		if contentTypes := r.Header.Values("Content-Type"); len(contentTypes) != 1 || contentTypes[0] != "application/json" {
+			writeAPIError(w, r, http.StatusBadRequest, "invalid_request", "The request body is invalid.")
+			return
+		}
+		var body struct{}
+		if err := decodeJSON(w, r, &body, 32, false); err != nil {
+			writeAPIError(w, r, http.StatusBadRequest, "invalid_request", "The request body is invalid.")
+			return
+		}
+		session, ok := setupSessionCookie(r, options.SecureCookie)
+		if !ok || options.AuthenticationActivator == nil {
+			writeAPIError(w, r, http.StatusUnauthorized, "setup_session_required", "A valid setup session is required.")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), setupWorkflowTimeout)
+		defer cancel()
+		writeAuthenticationActivationResult(w, r, options.AuthenticationActivator.Activate(ctx, session))
+	})
+}
+
+func writeAuthenticationActivationResult(w http.ResponseWriter, r *http.Request, result setup.ActivationResult) {
+	switch result.Outcome {
+	case setup.ActivationSucceeded:
+		writeJSON(w, http.StatusOK, struct {
+			AuthenticationRevision int64 `json:"authentication_revision"`
+			SetupComplete          bool  `json:"setup_complete"`
+		}{AuthenticationRevision: result.Revision, SetupComplete: false})
+	case setup.ActivationSessionRequired:
+		writeAPIError(w, r, http.StatusUnauthorized, "setup_session_required", "A valid setup session is required.")
+	case setup.ActivationRequired:
+		writeAPIError(w, r, http.StatusUnprocessableEntity, "setup_authentication_activation_required", "General and validated Authentication setup values are required.")
+	case setup.ActivationStale:
+		writeAPIError(w, r, http.StatusConflict, "setup_authentication_validation_stale", "The Authentication validation evidence is stale.")
+	case setup.ActivationAlreadyActive:
+		writeAPIError(w, r, http.StatusConflict, "setup_authentication_already_activated", "Runtime authentication has already been activated.")
+	case setup.ActivationLocked:
+		writeAPIError(w, r, http.StatusLocked, "setup_locked", "Setup is locked by server configuration.")
+	default:
+		writeAPIError(w, r, http.StatusServiceUnavailable, "setup_unavailable", "Setup is temporarily unavailable.")
+	}
+}
+
 func setupSessionCookie(r *http.Request, secure bool) (string, bool) {
 	selected := "__Host-requestarr_setup"
 	other := "requestarr_setup_dev"
@@ -246,7 +413,8 @@ func writeWorkflowResult(w http.ResponseWriter, r *http.Request, result setup.Wo
 	switch result.Outcome {
 	case setup.WorkflowAvailable:
 		writeJSON(w, http.StatusOK, setupStateResponse{CurrentStep: result.State.Current, General: result.State.General,
-			Authentication: result.State.Authentication, ClientSecretConfigured: result.State.ClientSecretConfigured})
+			Authentication: result.State.Authentication, ClientSecretConfigured: result.State.ClientSecretConfigured,
+			AuthenticationRevision: result.State.AuthenticationRevision, AuthenticationEvidence: result.State.AuthenticationEvidence})
 	case setup.WorkflowSessionRequired:
 		writeAPIError(w, r, http.StatusUnauthorized, "setup_session_required", "A valid setup session is required.")
 	case setup.WorkflowCompleted:

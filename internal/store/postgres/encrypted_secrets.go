@@ -66,17 +66,17 @@ func (r *EncryptedSecretRepository) read(ctx context.Context, executor Encrypted
 		return secrets.Envelope{}, ErrEncryptedSecretCanceled
 	}
 	var version int16
-	var keyID, nonce, ciphertext []byte
-	err := executor.QueryRow(ctx, `SELECT envelope_version,key_id,nonce,ciphertext FROM encrypted_secrets
+	var keyID, nonce, ciphertext, identity []byte
+	err := executor.QueryRow(ctx, `SELECT envelope_version,key_id,nonce,ciphertext,credential_identity FROM encrypted_secrets
 		WHERE namespace=$1 AND owner_id=$2 AND secret_name=$3`, semantic.Namespace, semantic.OwnerID, semantic.Name).
-		Scan(&version, &keyID, &nonce, &ciphertext)
+		Scan(&version, &keyID, &nonce, &ciphertext, &identity)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return secrets.Envelope{}, ErrEncryptedSecretNotFound
 	}
 	if err != nil {
 		return secrets.Envelope{}, classifyEncryptedSecretError(ctx, err)
 	}
-	if version != int16(secrets.EnvelopeVersion) || len(keyID) != secrets.KeyIDSize || len(nonce) != secrets.NonceSize || len(ciphertext) < 16 || len(ciphertext) > secrets.MaxCiphertext {
+	if version != int16(secrets.EnvelopeVersion) || len(keyID) != secrets.KeyIDSize || len(nonce) != secrets.NonceSize || len(ciphertext) < 16 || len(ciphertext) > secrets.MaxCiphertext || len(identity) != 32 {
 		return secrets.Envelope{}, ErrEncryptedSecretInvalid
 	}
 	var envelope secrets.Envelope
@@ -84,6 +84,7 @@ func (r *EncryptedSecretRepository) read(ctx context.Context, executor Encrypted
 	copy(envelope.KeyID[:], keyID)
 	copy(envelope.Nonce[:], nonce)
 	envelope.Ciphertext = append([]byte(nil), ciphertext...)
+	copy(envelope.Identity[:], identity)
 	return envelope, nil
 }
 
@@ -132,13 +133,13 @@ func (r *EncryptedSecretRepository) upsert(ctx context.Context, executor Encrypt
 		return ErrEncryptedSecretInvalid
 	}
 	tag, err := executor.Exec(ctx, `INSERT INTO encrypted_secrets
-		(namespace,owner_id,secret_name,envelope_version,key_id,nonce,ciphertext,created_at,updated_at)
-		SELECT $1,$2,$3,$4,$5,$6,$7,transaction_timestamp(),transaction_timestamp()
+		(namespace,owner_id,secret_name,envelope_version,key_id,nonce,ciphertext,credential_identity,created_at,updated_at)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,transaction_timestamp(),transaction_timestamp()
 		FROM encryption_key_registry WHERE singleton=TRUE AND active_key_id=$5
 		ON CONFLICT (namespace,owner_id,secret_name) DO UPDATE SET
 		envelope_version=EXCLUDED.envelope_version,key_id=EXCLUDED.key_id,nonce=EXCLUDED.nonce,
-		ciphertext=EXCLUDED.ciphertext,updated_at=transaction_timestamp()`, semantic.Namespace, semantic.OwnerID[:], semantic.Name,
-		envelope.Version, envelope.KeyID[:], envelope.Nonce[:], envelope.Ciphertext)
+		ciphertext=EXCLUDED.ciphertext,credential_identity=EXCLUDED.credential_identity,updated_at=transaction_timestamp()`, semantic.Namespace, semantic.OwnerID[:], semantic.Name,
+		envelope.Version, envelope.KeyID[:], envelope.Nonce[:], envelope.Ciphertext, envelope.Identity[:])
 	if err != nil {
 		return classifyEncryptedSecretError(ctx, err)
 	}

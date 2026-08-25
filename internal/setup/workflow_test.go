@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,6 +15,19 @@ type workflowPersistenceFake struct {
 	digest  Digest
 	general General
 	result  WorkflowResult
+}
+
+type activationPersistenceFake struct {
+	digest Digest
+	result ActivationResult
+	err    error
+	calls  int
+}
+
+func (f *activationPersistenceFake) ActivateAuthentication(_ context.Context, digest Digest) (ActivationResult, error) {
+	f.calls++
+	f.digest = digest
+	return f.result, f.err
 }
 
 func (f *workflowPersistenceFake) ReadWorkflow(_ context.Context, digest Digest) (WorkflowResult, error) {
@@ -114,6 +128,53 @@ func TestWorkflowServiceValidationPrecedesSessionAuthorization(t *testing.T) {
 	if fake.digest != (Digest{}) {
 		t.Fatal("persistence invoked for invalid values")
 	}
+}
+
+func TestActivationServiceReadinessOutcomesAndDigestBoundary(t *testing.T) {
+	token := [32]byte{1}
+	rawBytes := bytes.Repeat([]byte{2}, 32)
+	raw := base64.RawURLEncoding.EncodeToString(rawBytes)
+
+	tests := []struct {
+		name    string
+		service *ActivationService
+		ctx     context.Context
+		session string
+		want    ActivationOutcome
+		calls   int
+	}{
+		{name: "unconfigured", service: NewActivationService(&activationPersistenceFake{}, token, false), ctx: context.Background(), session: raw, want: ActivationSessionRequired},
+		{name: "malformed session", service: NewActivationService(&activationPersistenceFake{}, token, true), ctx: context.Background(), session: "not-a-session", want: ActivationSessionRequired},
+		{name: "nil persistence", service: NewActivationService(nil, token, true), ctx: context.Background(), session: raw, want: ActivationUnavailable},
+		{name: "canceled context", service: NewActivationService(&activationPersistenceFake{}, token, true), ctx: canceledContext(), session: raw, want: ActivationUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.service.Activate(tt.ctx, tt.session)
+			if got.Outcome != tt.want {
+				t.Fatalf("outcome=%v, want %v", got.Outcome, tt.want)
+			}
+		})
+	}
+
+	persistence := &activationPersistenceFake{result: ActivationResult{Outcome: ActivationSucceeded, Revision: 3}}
+	service := NewActivationService(persistence, token, true)
+	if got := service.Activate(context.Background(), raw); got != persistence.result {
+		t.Fatalf("result=%+v, want %+v", got, persistence.result)
+	}
+	if persistence.calls != 1 || persistence.digest == (Digest{}) || bytes.Contains(persistence.digest[:], rawBytes) {
+		t.Fatalf("calls=%d digest=%x; raw session crossed persistence boundary", persistence.calls, persistence.digest)
+	}
+	persistence.err = errors.New("database unavailable")
+	if got := service.Activate(context.Background(), raw); got.Outcome != ActivationUnavailable {
+		t.Fatalf("persistence error outcome=%v, want unavailable", got.Outcome)
+	}
+}
+
+func canceledContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
 }
 
 func TestWorkflowDraftStrictVersionedRoundTrip(t *testing.T) {

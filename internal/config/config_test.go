@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -15,6 +17,8 @@ func TestFromEnvDefaults(t *testing.T) {
 	t.Setenv("REQUESTARR_LOG_LEVEL", "")
 	t.Setenv("REQUESTARR_DATABASE_URL", "postgres://requestarr:secret@localhost:5432/requestarr?sslmode=disable")
 	t.Setenv("REQUESTARR_SETUP_TOKEN", "")
+	t.Setenv("REQUESTARR_OIDC_DESTINATION_CIDRS", "")
+	t.Setenv("REQUESTARR_ABS_DESTINATION_CIDRS", "")
 
 	got := FromEnv()
 	want := Config{
@@ -25,11 +29,93 @@ func TestFromEnvDefaults(t *testing.T) {
 		databaseURL: "postgres://requestarr:secret@localhost:5432/requestarr?sslmode=disable",
 	}
 
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("FromEnv() = %#v, want %#v", got, want)
 	}
 	if err := got.Validate(); err != nil {
 		t.Fatalf("default configuration failed validation: %v", err)
+	}
+}
+
+func TestABSDestinationCIDRsAreSeparateAndStrict(t *testing.T) {
+	t.Setenv("REQUESTARR_DATABASE_URL", "postgres://requestarr:secret@localhost/requestarr")
+	t.Setenv("REQUESTARR_OIDC_DESTINATION_CIDRS", "10.0.0.0/8")
+	t.Setenv("REQUESTARR_ABS_DESTINATION_CIDRS", "192.168.0.0/16")
+	cfg := FromEnv()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if got, want := cfg.ABSDestinationCIDRs(), []netip.Prefix{netip.MustParsePrefix("192.168.0.0/16")}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ABSDestinationCIDRs() = %v, want %v", got, want)
+	}
+	if reflect.DeepEqual(cfg.ABSDestinationCIDRs(), cfg.OIDCDestinationCIDRs()) {
+		t.Fatal("ABS and OIDC destination CIDRs were conflated")
+	}
+	t.Setenv("REQUESTARR_ABS_DESTINATION_CIDRS", "192.168.1.1/16")
+	invalid := FromEnv()
+	if err := invalid.Validate(); err == nil || !strings.Contains(err.Error(), "REQUESTARR_ABS_DESTINATION_CIDRS") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	for _, rendered := range []string{fmt.Sprint(cfg), fmt.Sprintf("%#v", cfg)} {
+		if strings.Contains(rendered, "192.168.0.0/16") || !strings.Contains(rendered, "ABSDestinationCIDRs:<redacted:") {
+			t.Fatalf("ABS topology redaction failed: %s", rendered)
+		}
+	}
+}
+
+func TestOIDCDestinationCIDRsStrictParsingSnapshotAndRedaction(t *testing.T) {
+	const valid = "10.0.0.0/8,fd00::/8"
+	tests := []struct {
+		name    string
+		value   string
+		want    []netip.Prefix
+		wantErr bool
+	}{
+		{name: "empty"},
+		{name: "canonical", value: valid, want: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("fd00::/8")}},
+		{name: "address without prefix", value: "10.0.0.1", wantErr: true},
+		{name: "host bits", value: "10.0.0.1/8", wantErr: true},
+		{name: "whitespace", value: "10.0.0.0/8, fd00::/8", wantErr: true},
+		{name: "duplicate", value: "10.0.0.0/8,10.0.0.0/8", wantErr: true},
+		{name: "empty element", value: "10.0.0.0/8,", wantErr: true},
+		{name: "zone", value: "fe80::%en0/64", wantErr: true},
+		{name: "noncanonical IPv6", value: "FD00::/8", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("REQUESTARR_DATABASE_URL", "postgres://requestarr:secret@localhost/requestarr")
+			t.Setenv("REQUESTARR_OIDC_DESTINATION_CIDRS", tt.value)
+			cfg := FromEnv()
+			err := cfg.Validate()
+			if tt.wantErr != (err != nil) {
+				t.Fatalf("Validate() error = %v, wantErr %t", err, tt.wantErr)
+			}
+			if !reflect.DeepEqual(cfg.OIDCDestinationCIDRs(), tt.want) {
+				t.Fatalf("OIDCDestinationCIDRs() = %v, want %v", cfg.OIDCDestinationCIDRs(), tt.want)
+			}
+			copy := cfg.OIDCDestinationCIDRs()
+			if len(copy) > 0 {
+				copy[0] = netip.Prefix{}
+				if cfg.OIDCDestinationCIDRs()[0] == (netip.Prefix{}) {
+					t.Fatal("OIDCDestinationCIDRs returned mutable backing storage")
+				}
+			}
+			for _, rendered := range []string{fmt.Sprint(cfg), fmt.Sprintf("%#v", cfg)} {
+				if tt.value != "" && strings.Contains(rendered, tt.value) {
+					t.Fatalf("configuration rendering exposed CIDRs: %s", rendered)
+				}
+				if !strings.Contains(rendered, "OIDCDestinationCIDRs:<redacted:") {
+					t.Fatalf("configuration rendering lacks CIDR redaction: %s", rendered)
+				}
+			}
+			if err != nil && tt.value != "" && strings.Contains(err.Error(), tt.value) {
+				t.Fatalf("validation error exposed CIDRs: %v", err)
+			}
+			t.Setenv("REQUESTARR_OIDC_DESTINATION_CIDRS", "192.168.0.0/16")
+			if !reflect.DeepEqual(cfg.OIDCDestinationCIDRs(), tt.want) {
+				t.Fatal("CIDR snapshot changed after environment mutation")
+			}
+		})
 	}
 }
 

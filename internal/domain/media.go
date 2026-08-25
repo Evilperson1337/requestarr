@@ -5,12 +5,23 @@ import "time"
 type MediaType string
 
 const (
-	MediaMovie MediaType = "movie"
-	MediaTV    MediaType = "tv"
-	MediaAlbum MediaType = "album"
-	MediaSong  MediaType = "song"
-	MediaGame  MediaType = "game"
+	MediaMovie     MediaType = "movie"
+	MediaTV        MediaType = "tv"
+	MediaAlbum     MediaType = "album"
+	MediaSong      MediaType = "song"
+	MediaGame      MediaType = "game"
+	MediaAudiobook MediaType = "audiobook"
 )
+
+// Valid reports whether t is a canonical media type supported by Requestarr.
+func (t MediaType) Valid() bool {
+	switch t {
+	case MediaMovie, MediaTV, MediaAlbum, MediaSong, MediaGame, MediaAudiobook:
+		return true
+	default:
+		return false
+	}
+}
 
 type ArtworkKind string
 

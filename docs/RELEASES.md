@@ -13,3 +13,15 @@ Before the first public release:
 3. finalize embedded frontend build strategy;
 4. add SBOM/provenance/container publishing policy;
 5. document migrations/backups and supported upgrade path.
+
+## Normal-auth foundation release gate
+
+Migration `000011_normal_auth_foundation` is supported only for a fresh database or an existing database with an empty `users` table. It changes user identity from a globally unique OIDC subject to an issuer-and-subject pair, but earlier rows have no trustworthy issuer provenance. The migration deliberately rejects legacy users transactionally and does not infer, default, or backfill an issuer. Do not release this build against an installation containing normal users; use a separately reviewed migration/export path when one is approved. Production migrations remain forward-only, and the v11 down migration is limited to empty local/test recovery.
+
+## Dirty-v20 recovery release gate
+
+The certified `maintenance recover-dirty-v20` procedure is a narrowly scoped,
+fail-closed operator action. It requires the exact dirty-v20 rollback state,
+resets history to truthful clean v19, and replays forward under one advisory
+lock. Releases containing it must retain migrations 20–23 unchanged and include
+[`000024_source_configuration_orphan_audit_validation.up.sql`](../db/migrations/000024_source_configuration_orphan_audit_validation.up.sql:1).

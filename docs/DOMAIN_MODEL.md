@@ -2,7 +2,7 @@
 
 ## Catalog item
 
-A canonical metadata-provider object. V1 uniqueness is `(provider, provider_id, media_type)`.
+A canonical metadata-provider object. V1 uniqueness is `(provider, provider_id, media_type)`. The planned audiobook specialization uses Audible ASIN plus normalized storefront region as its provider identity; it is not implemented in the current model or schema.
 
 ## Request
 
@@ -29,5 +29,10 @@ Normalized representation of an item found in an authoritative source. Each sour
 
 - `poster`: movie, TV, game;
 - `square`: album, song.
+- planned provider-native audiobook artwork: preserve the supplied aspect ratio; do not treat artwork as matching evidence.
 
 Do not force all artwork into a single aspect ratio.
+
+## Planned audiobook manifestation evidence
+
+Before implementation, audiobook catalog and inventory records must be able to retain narrator, publisher, language, runtime, release date, abridged state, presentation type, and alternate stable identifiers when providers expose them. Exact/high-confidence reconciliation needs method, confidence, and bounded evidence; possible matches require review. This preserves a migration path to a V2 canonical work that can relate ebook and audiobook manifestations without imposing that hierarchy on V1.

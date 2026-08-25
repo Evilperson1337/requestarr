@@ -42,11 +42,23 @@ type SetupWorkflow interface {
 	PutAuthentication(context.Context, string, setup.Authentication, setup.SecretOperation) setup.WorkflowResult
 }
 
+type SetupAuthenticationValidator interface {
+	Validate(context.Context, string, int64) setup.AuthenticationValidationResult
+}
+
+type SetupAuthenticationActivator interface {
+	Activate(context.Context, string) setup.ActivationResult
+}
+
 type SetupSessionOptions struct {
-	Exchanger    SetupSessionExchanger
-	Workflow     SetupWorkflow
-	PublicOrigin string
-	SecureCookie bool
+	Exchanger               SetupSessionExchanger
+	Workflow                SetupWorkflow
+	AuthenticationValidator SetupAuthenticationValidator
+	AuthenticationActivator SetupAuthenticationActivator
+	PublicOrigin            string
+	SecureCookie            bool
+	Auth                    AuthOptions
+	AudiobookshelfSources   AudiobookshelfSourceOptions
 }
 
 type probeResponse struct {
@@ -109,6 +121,10 @@ func New(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, 
 	mux.Handle("/api/v1/setup/state", noStore(setupStateHandler(sessionOptions)))
 	mux.Handle("/api/v1/setup/general", noStore(setupGeneralHandler(sessionOptions)))
 	mux.Handle("/api/v1/setup/authentication", noStore(setupAuthenticationHandler(sessionOptions)))
+	mux.Handle("/api/v1/setup/authentication/validate", noStore(setupAuthenticationValidationHandler(sessionOptions)))
+	mux.Handle("/api/v1/setup/activate-auth", noStore(setupAuthenticationActivationHandler(sessionOptions)))
+	authRoutes(mux, sessionOptions.Auth)
+	audiobookshelfSourceRoutes(mux, sessionOptions.AudiobookshelfSources)
 	mux.HandleFunc("/api/v1", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, http.StatusNotFound, "not_found", "The requested API resource was not found.")
 	})

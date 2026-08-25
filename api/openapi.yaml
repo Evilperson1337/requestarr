@@ -308,6 +308,9 @@ paths:
         '401': { $ref: '#/components/responses/SetupSessionRequired' }
         '403':
           description: Origin validation or the setup CSRF check failed.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestID' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema:
@@ -324,6 +327,203 @@ paths:
     patch: { operationId: rejectPatchSetupAuthentication, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
     delete: { operationId: rejectDeleteSetupAuthentication, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
     options: { operationId: rejectOptionsSetupAuthentication, responses: { '405': { $ref: '#/components/responses/SetupGeneralMethodNotAllowed' } } }
+  /setup/authentication/validate:
+    parameters:
+      - $ref: '#/components/parameters/RequestID'
+      - $ref: '#/components/parameters/SetupOrigin'
+      - in: header
+        name: X-Requestarr-CSRF
+        required: true
+        schema: { type: string, const: '1' }
+    post:
+      operationId: validateSetupAuthentication
+      summary: Validate OIDC discovery for the current Authentication revision
+      description: >-
+        Reserves durable per-session and global aligned five-minute limits in a
+        short transaction, performs one secret-free hardened discovery GET with
+        no database transaction, then rechecks and commits revision-bound
+        evidence. No client ID, client secret, setup credential, or other setup
+        value is sent. Processing precedence is method, Origin, CSRF, exact
+        content type and strict 128-byte JSON, cookie, snapshot/rate reservation,
+        network discovery, then compare-and-commit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetupAuthenticationValidationRequest' }
+      responses:
+        '200':
+          description: Current revision discovery evidence was committed or an equivalent concurrent success already exists.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestID' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupAuthenticationValidationResponse' }
+        '400': { $ref: '#/components/responses/SetupInvalidRequest' }
+        '401': { $ref: '#/components/responses/SetupSessionRequired' }
+        '403':
+          description: Origin validation or the setup CSRF check failed.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SetupOriginForbiddenError'
+                  - $ref: '#/components/schemas/SetupCSRFForbiddenError'
+        '409':
+          description: Setup is complete or the requested/result revision is stale.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestID' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIErrorEnvelope' }
+        '422':
+          description: Required metadata is absent, the destination is invalid, or the issuer is unreachable.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestID' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIErrorEnvelope' }
+        '429': { $ref: '#/components/responses/SetupAuthenticationValidationRateLimited' }
+        '503': { $ref: '#/components/responses/SetupUnavailable' }
+    get: { operationId: rejectGetSetupAuthenticationValidation, responses: { '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' } } }
+    head: { operationId: rejectHeadSetupAuthenticationValidation, responses: { '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' } } }
+    put: { operationId: rejectPutSetupAuthenticationValidation, responses: { '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' } } }
+    patch: { operationId: rejectPatchSetupAuthenticationValidation, responses: { '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' } } }
+    delete: { operationId: rejectDeleteSetupAuthenticationValidation, responses: { '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' } } }
+    options: { operationId: rejectOptionsSetupAuthenticationValidation, responses: { '405': { $ref: '#/components/responses/SetupSessionMethodNotAllowed' } } }
+  /setup/activate-auth:
+    parameters:
+      - $ref: '#/components/parameters/RequestID'
+      - $ref: '#/components/parameters/SetupOrigin'
+      - in: header
+        name: X-Requestarr-CSRF
+        required: true
+        schema: { type: string, const: '1' }
+    post:
+      operationId: activateSetupAuthentication
+      summary: Activate the validated Authentication draft for the runtime
+      description: >-
+        Atomically promotes the current General and validated Authentication
+        revision to an immutable runtime snapshot. It does not set setup
+        complete, does not expose normal OIDC login endpoints, and makes no
+        outbound call. For confidential clients it re-encrypts the secret into
+        a distinct runtime context and removes the setup-context envelope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '200':
+          description: Authentication is activated while the full setup wizard remains incomplete.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authentication_revision, setup_complete]
+                properties:
+                  authentication_revision: { type: integer, format: int64, minimum: 1 }
+                  setup_complete: { type: boolean, const: false }
+        '400': { $ref: '#/components/responses/SetupInvalidRequest' }
+        '401': { $ref: '#/components/responses/SetupSessionRequired' }
+        '403': { description: Origin validation or setup CSRF failed. }
+        '409': { description: Authentication has already been activated or validation evidence is stale. }
+        '422': { description: General, Authentication, secret, or validation evidence is incomplete. }
+        '423': { $ref: '#/components/responses/SetupLocked' }
+        '503': { $ref: '#/components/responses/SetupUnavailable' }
+  /admin/inventory/audiobookshelf/sources:
+    description: "Unsupported methods return 405 with Allow: GET and Allow: POST; OPTIONS is not implemented as a CORS preflight endpoint."
+    get:
+      operationId: listAudiobookshelfSources
+      summary: List locally persisted Audiobookshelf source configurations
+      description: Admin-only, secret-free local projection. This operation never contacts Audiobookshelf.
+      security: [{ browserSession: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/AudiobookshelfSources' }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '503': { $ref: '#/components/responses/SourceUnavailable' }
+    post:
+      operationId: createAudiobookshelfSource
+      summary: Create an Audiobookshelf source configuration
+      description: "Requires exact configured Origin, X-Requestarr-CSRF: 1, and application/json. Server derives source ID, audit ID, actor, and UTC timestamp. Credential replacement is required and write-only."
+      security: [{ browserSession: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AudiobookshelfSourceCreateRequest' } } } }
+      responses:
+        '201': { $ref: '#/components/responses/AudiobookshelfSourceSaved' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '422': { $ref: '#/components/responses/SourceInvalid' }
+        '503': { $ref: '#/components/responses/SourceUnavailable' }
+  /admin/inventory/audiobookshelf/sources/connection-test:
+    description: "Unsupported methods return 405 with Allow: POST; OPTIONS is not implemented as a CORS preflight endpoint."
+    post:
+      operationId: testAudiobookshelfConnection
+      summary: Test candidate Audiobookshelf connection
+      description: Performs exactly one /api/libraries probe using only candidate endpoint and credential. It does not read or persist source configuration.
+      security: [{ browserSession: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AudiobookshelfConnectionTestRequest' } } } }
+      responses:
+        '200': { $ref: '#/components/responses/AudiobookshelfConnectionTest' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/ConnectionTestAuthenticationFailed' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '422': { $ref: '#/components/responses/SourceInvalid' }
+        '502': { $ref: '#/components/responses/SourceUnavailable' }
+        '503': { $ref: '#/components/responses/SourceUnavailable' }
+  /admin/inventory/audiobookshelf/sources/{sourceID}:
+    parameters: [{ name: sourceID, in: path, required: true, schema: { type: string, format: uuid } }]
+    description: "A malformed sourceID returns 400 before method dispatch. For a syntactically valid sourceID, unsupported methods return 405 with Allow: GET and Allow: PUT; OPTIONS is not implemented as a CORS preflight endpoint."
+    get:
+      operationId: getAudiobookshelfSource
+      summary: Get a locally persisted Audiobookshelf source configuration
+      description: Admin-only, secret-free local projection. This operation never contacts Audiobookshelf.
+      security: [{ browserSession: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/AudiobookshelfSource' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '404': { $ref: '#/components/responses/SourceNotFound' }
+        '503': { $ref: '#/components/responses/SourceUnavailable' }
+    put:
+      operationId: updateAudiobookshelfSource
+      summary: Update an Audiobookshelf source configuration
+      description: "Requires exact configured Origin, X-Requestarr-CSRF: 1, and application/json. Credential mode is explicitly preserve or replace; clear/delete is not supported."
+      security: [{ browserSession: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AudiobookshelfSourceUpdateRequest' } } } }
+      responses:
+        '200': { $ref: '#/components/responses/AudiobookshelfSourceSaved' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '404': { $ref: '#/components/responses/SourceNotFound' }
+        '409': { $ref: '#/components/responses/SourceConflict' }
+        '422': { $ref: '#/components/responses/SourceInvalid' }
+        '503': { $ref: '#/components/responses/SourceUnavailable' }
+  /admin/inventory/audiobookshelf/sources/{sourceID}/sync:
+    parameters: [{ name: sourceID, in: path, required: true, schema: { type: string, format: uuid } }]
+    description: "Unsupported methods return 405 with Allow: POST before sourceID validation. For POST, a malformed sourceID returns 400. OPTIONS is not implemented as a CORS preflight endpoint."
+    post:
+      operationId: requestAudiobookshelfSourceSync
+      summary: Record a durable manual sync intent
+      description: Requires an exactly empty JSON object. The server derives request ID, actor, and UTC timestamp. It records only durable intent and never synchronizes or probes directly.
+      security: [{ browserSession: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false } } } }
+      responses:
+        '202': { $ref: '#/components/responses/AudiobookshelfSyncRequested' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '404': { $ref: '#/components/responses/SourceNotFound' }
+        '409': { $ref: '#/components/responses/SourceConflict' }
+        '503': { $ref: '#/components/responses/SourceUnavailable' }
 components:
   parameters:
     RequestID:
@@ -378,11 +578,72 @@ components:
       description: The sole method supported by General setup mutation.
       required: true
       schema: { type: string, const: PUT }
+    AllowGetPost:
+      description: The methods supported by the Audiobookshelf source collection.
+      required: true
+      schema: { type: array, items: { type: string, enum: [GET, POST] }, minItems: 2, maxItems: 2, uniqueItems: true }
+      style: simple
+      explode: true
+    AllowGetPut:
+      description: The methods supported by an Audiobookshelf source.
+      required: true
+      schema: { type: array, items: { type: string, enum: [GET, PUT] }, minItems: 2, maxItems: 2, uniqueItems: true }
+      style: simple
+      explode: true
     RetryAfter:
       description: Whole seconds until the next fixed rate-limit window, clamped to 1-900.
       required: true
       schema: { type: integer, minimum: 1, maximum: 900 }
+    ValidationRetryAfter:
+      description: Whole seconds until the next aligned five-minute validation window, clamped to 1-300.
+      required: true
+      schema: { type: integer, minimum: 1, maximum: 300 }
   responses:
+    AudiobookshelfSources:
+      description: Secret-free locally persisted source projections.
+      headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+      content: { application/json: { schema: { type: object, additionalProperties: false, required: [sources], properties: { sources: { type: array, items: { $ref: '#/components/schemas/AudiobookshelfSource' } } } } } }
+    AudiobookshelfSource:
+      description: Secret-free locally persisted source projection.
+      headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/AudiobookshelfSource' } } }
+    AudiobookshelfSourceSaved:
+      description: Source configuration was durably saved; credentials are never returned.
+      headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+      content: { application/json: { schema: { type: object, additionalProperties: false, required: [id, revision], properties: { id: { type: string, format: uuid }, revision: { type: integer, format: int64, minimum: 1 } } } } }
+    AudiobookshelfConnectionTest:
+      description: Candidate endpoint probe result, with remote library identities only.
+      headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+      content: { application/json: { schema: { type: object, additionalProperties: false, required: [libraries], properties: { libraries: { type: array, items: { $ref: '#/components/schemas/RemoteLibrary' } } } } } }
+    AudiobookshelfSyncRequested:
+      description: Durable sync intent accepted. No synchronous source operation occurred.
+      headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+      content: { application/json: { schema: { type: object, additionalProperties: false, required: [disposition, pendingIntentID], properties: { disposition: { type: string, enum: [recorded, replayed, coalesced] }, pendingIntentID: { type: string, format: uuid } } } } }
+    InvalidRequest: { description: Strict JSON, content type, or mutation precondition failure., headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } } }
+    AuthRequired: { description: Authentication is required or authentication infrastructure is unavailable., headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } } }
+    ConnectionTestAuthenticationFailed: { description: Either Requestarr browser authentication is missing or invalid (`unauthorized`), or an authenticated Requestarr administrator supplied a candidate Audiobookshelf credential that Audiobookshelf rejected (`connection_test_authentication_failed`). The latter is upstream credential rejection, not Requestarr browser authentication failure., headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { oneOf: [{ $ref: '#/components/schemas/APIErrorEnvelope' }, { $ref: '#/components/schemas/ConnectionTestAuthenticationFailedError' }] } } } }
+    AdminRequired: { description: Administrator access, valid origin, and valid CSRF header are required., headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } } }
+    SourceNotFound: { description: The requested source was not found., headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } } }
+    SourceConflict: { description: The source cannot accept this operation in its current durable state., headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } } }
+    SourceInvalid: { description: The candidate source configuration or destination is invalid., headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } } }
+    SourceUnavailable: { description: Local persistence or candidate remote source is temporarily unavailable., headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } } }
+    SourceForbidden: { description: Administrator access is required, or the required Origin or CSRF header was rejected., headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } } }
+    SourceCollectionMethodNotAllowed:
+      description: Only GET and POST are supported by this resource.
+      headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Allow: { $ref: '#/components/headers/AllowGetPost' } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } }
+    SourceConnectionTestMethodNotAllowed:
+      description: Only POST is supported by this resource.
+      headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Allow: { $ref: '#/components/headers/AllowPost' } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } }
+    SourceItemMethodNotAllowed:
+      description: Only GET and PUT are supported by this resource.
+      headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Allow: { $ref: '#/components/headers/AllowGetPut' } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } }
+    SourceSyncMethodNotAllowed:
+      description: Only POST is supported by this resource.
+      headers: { X-Request-ID: { $ref: '#/components/headers/RequestID' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Allow: { $ref: '#/components/headers/AllowPost' } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/APIErrorEnvelope' } } }
     MethodNotAllowed:
       description: The resource exists but does not support the requested method.
       headers:
@@ -471,6 +732,15 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/SetupRateLimitedError' }
+    SetupAuthenticationValidationRateLimited:
+      description: The setup-session or global Authentication validation limit is exhausted.
+      headers:
+        X-Request-ID: { $ref: '#/components/headers/RequestID' }
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+        Retry-After: { $ref: '#/components/headers/ValidationRetryAfter' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/APIErrorEnvelope' }
     SetupUnavailable:
       description: Required persistence or cryptographic randomness is unavailable.
       headers:
@@ -556,7 +826,86 @@ components:
       headers:
         X-Request-ID: { $ref: '#/components/headers/RequestID' }
         Cache-Control: { $ref: '#/components/headers/NoStore' }
+  securitySchemes:
+    browserSession:
+      type: apiKey
+      in: cookie
+      name: __Host-requestarr_session
+      description: OIDC-backed browser session; Audiobookshelf source routes require the persisted administrator role.
   schemas:
+    AudiobookshelfSourceCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, endpointURL, enabled, selectedLibraries, credentialMode, credential, expectedRevision]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 512 }
+        endpointURL: { type: string, format: uri, maxLength: 2048 }
+        enabled: { type: boolean }
+        selectedLibraries: { type: array, minItems: 1, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 256 } }
+        credentialMode: { type: string, const: replace }
+        credential: { type: string, minLength: 1, maxLength: 8192, writeOnly: true }
+        expectedRevision: { type: integer, const: 0 }
+    AudiobookshelfSourceUpdateRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [name, endpointURL, enabled, selectedLibraries, credentialMode, expectedRevision]
+          properties:
+            name: { type: string, minLength: 1, maxLength: 512 }
+            endpointURL: { type: string, format: uri, maxLength: 2048 }
+            enabled: { type: boolean }
+            selectedLibraries: { type: array, minItems: 1, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 256 } }
+            credentialMode: { type: string, const: preserve }
+            expectedRevision: { type: integer, format: int64, minimum: 1 }
+        - type: object
+          additionalProperties: false
+          required: [name, endpointURL, enabled, selectedLibraries, credentialMode, credential, expectedRevision]
+          properties:
+            name: { type: string, minLength: 1, maxLength: 512 }
+            endpointURL: { type: string, format: uri, maxLength: 2048 }
+            enabled: { type: boolean }
+            selectedLibraries: { type: array, minItems: 1, maxItems: 100, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 256 } }
+            credentialMode: { type: string, const: replace }
+            credential: { type: string, minLength: 1, maxLength: 8192, writeOnly: true }
+            expectedRevision: { type: integer, format: int64, minimum: 1 }
+    AudiobookshelfConnectionTestRequest:
+      type: object
+      additionalProperties: false
+      required: [endpointURL, credential]
+      properties:
+        endpointURL: { type: string, format: uri, maxLength: 2048 }
+        credential: { type: string, minLength: 1, maxLength: 8192, writeOnly: true }
+    AudiobookshelfSource:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, endpointURL, enabled, mediaTypes, selectedLibraries, revision, credentialConfigured, status]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        kind: { type: string, const: audiobookshelf }
+        endpointURL: { type: string, format: uri }
+        enabled: { type: boolean }
+        mediaTypes: { type: array, items: { type: string, const: audiobook } }
+        selectedLibraries: { type: array, items: { type: string } }
+        revision: { type: integer, format: int64, minimum: 1 }
+        credentialConfigured: { type: boolean }
+        status:
+          type: object
+          additionalProperties: false
+          required: [state]
+          properties:
+            state: { type: string, enum: [idle, running, succeeded, failed] }
+            lastStartedAt: { type: string, format: date-time }
+            lastCompletedAt: { type: string, format: date-time }
+            lastSuccessfulAt: { type: string, format: date-time }
+            failureDetail: { type: string }
+    RemoteLibrary:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
     APIErrorEnvelope:
       type: object
       additionalProperties: false
@@ -569,7 +918,7 @@ components:
           properties:
             code:
               type: string
-              enum: [not_found, method_not_allowed, setup_status_unavailable, invalid_request, setup_session_required, setup_general_invalid, setup_origin_forbidden, setup_csrf_forbidden, setup_token_invalid, setup_locked, setup_completed, setup_rate_limited, setup_unavailable]
+              enum: [not_found, method_not_allowed, setup_status_unavailable, invalid_request, setup_session_required, setup_general_invalid, setup_authentication_invalid, setup_authentication_validation_stale, setup_authentication_validation_required, setup_authentication_destination_invalid, setup_authentication_unreachable, setup_authentication_validation_rate_limited, setup_origin_forbidden, setup_csrf_forbidden, setup_token_invalid, setup_locked, setup_completed, setup_rate_limited, setup_unavailable, auth_unavailable, unauthorized, forbidden, origin_forbidden, csrf_forbidden, source_configuration_unavailable, source_configuration_invalid, source_not_found, source_configuration_conflict, connection_test_unavailable, connection_test_invalid_destination, connection_test_authentication_failed, connection_test_connection_failed, connection_test_response_invalid, manual_sync_unavailable, manual_sync_conflict]
             message: { type: string }
             request_id: { type: string }
     Liveness:
@@ -721,6 +1070,11 @@ components:
         general: { $ref: '#/components/schemas/SetupGeneral' }
         authentication: { $ref: '#/components/schemas/SetupAuthentication' }
         client_secret_configured: { type: boolean, description: Presence only; the stored secret is never returned. }
+        authentication_revision: { type: integer, format: int64, minimum: 1, description: Present after the first effective Authentication save. }
+        authentication_validation:
+          allOf:
+            - $ref: '#/components/schemas/SetupAuthenticationValidationEvidence'
+          description: Present only when evidence matches the current Authentication revision and policy version.
     SetupInvalidRequestError:
       $ref: '#/components/schemas/SetupErrorInvalidRequest'
     SetupOriginForbiddenError:
@@ -731,6 +1085,27 @@ components:
       $ref: '#/components/schemas/SetupErrorGeneralInvalid'
     SetupAuthenticationInvalidError:
       $ref: '#/components/schemas/SetupErrorAuthenticationInvalid'
+    SetupAuthenticationValidationRequest:
+      type: object
+      additionalProperties: false
+      required: [authentication_revision]
+      properties:
+        authentication_revision: { type: integer, format: int64, minimum: 1 }
+    SetupAuthenticationValidationEvidence:
+      type: object
+      additionalProperties: false
+      required: [authentication_revision, policy_version, validated_at]
+      properties:
+        authentication_revision: { type: integer, format: int64, minimum: 1 }
+        policy_version: { type: integer, minimum: 1 }
+        validated_at: { type: string, format: date-time }
+    SetupAuthenticationValidationResponse:
+      type: object
+      additionalProperties: false
+      required: [authentication_revision, validation]
+      properties:
+        authentication_revision: { type: integer, format: int64, minimum: 1 }
+        validation: { $ref: '#/components/schemas/SetupAuthenticationValidationEvidence' }
     SetupTokenInvalidError:
       $ref: '#/components/schemas/SetupErrorTokenInvalid'
     SetupLockedError:
@@ -741,6 +1116,21 @@ components:
       $ref: '#/components/schemas/SetupErrorRateLimited'
     SetupUnavailableError:
       $ref: '#/components/schemas/SetupErrorUnavailable'
+    ConnectionTestAuthenticationFailedError:
+      $ref: '#/components/schemas/ConnectionTestAuthenticationFailedAPIError'
+    ConnectionTestAuthenticationFailedAPIError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          properties:
+            code: { type: string, const: connection_test_authentication_failed }
+            message: { type: string, const: The connection-test credential was rejected. }
+            request_id: { type: string }
     SetupErrorInvalidRequest:
       $ref: '#/components/schemas/APIErrorEnvelope'
       examples: [{ error: { code: invalid_request, message: The request body is invalid., request_id: 0123456789abcdef0123456789abcdef } }]

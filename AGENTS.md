@@ -8,7 +8,7 @@ Requestarr is **request + availability + notification software**. It must not ac
 
 ## Accepted V1 decisions
 
-1. Link-first request entry using TMDB, MusicBrainz, and IGDB URLs.
+1. Link-first request entry using TMDB, MusicBrainz, IGDB, and (when the planned audiobook vertical is implemented) Audible URLs.
 2. One shared request per canonical item. No vote count and no duplicate per-user request rows.
 3. The creator is automatically subscribed; other authenticated users may choose **Notify Me**.
 4. Requests are visible to all authenticated users. `My Requests` is a filter only.
@@ -20,6 +20,7 @@ Requestarr is **request + availability + notification software**. It must not ac
 10. External services must not block routine UI rendering. Prefer local state, background jobs, caching, and stale-but-known data.
 11. Temporary library failures must never mass-mark previously available content missing.
 12. Setup wizard is required for V1 and includes OIDC, providers, libraries, notifications, request policy, validation, and review.
+13. Audiobooks are an approved but not yet implemented V1 media type. Their identity is Audible ASIN plus normalized storefront region; Audnexus is metadata/enrichment only, Audiobookshelf is the sole availability authority, and Chaptarr must not become a runtime or acquisition dependency. Preserve edition/narrator evidence, treat only exact/high-confidence matches as automatically available, and reserve work-to-manifestation relationships for ebook V2.
 
 ## Engineering rules
 
@@ -35,6 +36,7 @@ Requestarr is **request + availability + notification software**. It must not ac
 - Keep URLs/bookmarkable filters in the shared Requests page.
 - UI should follow `references/mockups/final/` and `docs/UI_UX.md`, but accessibility and responsive behavior take precedence over pixel matching.
 - Reference projects are for learning. Do not copy GPL/AGPL code into Requestarr unless the project license decision explicitly permits it and attribution obligations are understood.
+- Keep future audiobook metadata and library adapters replaceable behind narrow interfaces; provider-native artwork is presentation metadata, not availability evidence.
 
 ## Required checks before completing a change
 

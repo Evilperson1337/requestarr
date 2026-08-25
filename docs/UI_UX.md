@@ -4,7 +4,7 @@ The images under `references/mockups/final/` capture approved direction, not exa
 
 ## Home
 
-V1 focuses on a large `Request Something` URL field, supported-provider hints, recent shared requests, recently available items, and an admin-only `Needs Review` summary. Do not fabricate recommendation/discovery shelves before native discovery exists.
+V1 focuses on a large `Request Something` URL field, supported-provider hints, recent shared requests, recently available items, and an admin-only `Needs Review` summary. The future audiobook hint may name Audible only after that resolver is implemented. Do not fabricate recommendation/discovery shelves before native discovery exists.
 
 A recognized pasted URL may resolve automatically. Resolution errors remain inline; successful resolution opens the modal.
 
@@ -15,7 +15,7 @@ The modal is the core interaction surface and must be reusable later from URL en
 States:
 1. **Not requested/not available** -> request controls.
 2. **Already requested** -> request metadata + `Notify Me` / `Notifications On` + View Request.
-3. **Available** -> source availability and `Open in Plex/Jellyfin/Navidrome/RomM` when possible.
+3. **Available** -> source availability and `Open in Plex/Jellyfin/Navidrome/RomM` when possible; a future audiobook implementation may add Audiobookshelf.
 4. **Partially available** -> show child/unit state where applicable.
 
 Game request controls dynamically render IGDB-supported platforms:
@@ -52,6 +52,10 @@ Rows/cards allocate a consistent bounding area but preserve source ratio:
 - square: 1:1.
 
 Mixed-media lists should look intentionally heterogeneous rather than cropping square album art into posters.
+
+## Planned audiobook presentation
+
+No audiobook UI is implemented. When introduced, the resolved-item modal should identify the Audible storefront/edition and present narrator and other significant edition metadata without treating decorative similarity as availability. Preserve provider-native audiobook artwork proportions. A possible availability match belongs in an accessible admin review state, not an automatic `Available` badge; exact/high-confidence matching may be shown with concise provenance.
 
 ## Settings
 

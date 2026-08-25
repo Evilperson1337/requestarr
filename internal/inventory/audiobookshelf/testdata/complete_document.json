@@ -1,0 +1,27 @@
+{
+    "libraries": [
+        {
+            "ID": "library-fiction",
+            "Name": "Fiction"
+        }
+    ],
+    "items": [
+        {
+            "LibraryID": "library-fiction",
+            "ID": "book-42",
+            "Title": "Example Audiobook",
+            "URL": "https://books.invalid/item/book-42",
+            "Details": {
+                "asin": "B012345678",
+                "audibleRegion": "us",
+                "authors": [
+                    "Example Author"
+                ],
+                "narrators": [
+                    "Example Narrator"
+                ],
+                "runtimeSeconds": 3600
+            }
+        }
+    ]
+}

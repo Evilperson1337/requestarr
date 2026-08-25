@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -16,16 +17,20 @@ import (
 )
 
 type Config struct {
-	Environment         string
-	HTTPAddr            string
-	PublicURL           string
-	LogLevelRaw         string
-	databaseURL         string
-	setupToken          [32]byte
-	setupReady          bool
-	encryptionKey       [32]byte
-	encryptionKeyStatus EncryptionKeyStatus
-	secretReuseInvalid  bool
+	Environment          string
+	HTTPAddr             string
+	PublicURL            string
+	LogLevelRaw          string
+	databaseURL          string
+	setupToken           [32]byte
+	setupReady           bool
+	encryptionKey        [32]byte
+	encryptionKeyStatus  EncryptionKeyStatus
+	secretReuseInvalid   bool
+	oidcDestinationCIDRs []netip.Prefix
+	oidcCIDRsInvalid     bool
+	absDestinationCIDRs  []netip.Prefix
+	absCIDRsInvalid      bool
 }
 
 // EncryptionKeyStatus describes key availability without exposing key material.
@@ -47,6 +52,8 @@ func FromEnv() Config {
 	}
 	cfg.setupToken, cfg.setupReady = parseSetupToken(os.Getenv("REQUESTARR_SETUP_TOKEN"))
 	cfg.encryptionKey, cfg.encryptionKeyStatus = parseEncryptionKey(os.Getenv("REQUESTARR_ENCRYPTION_KEY"))
+	cfg.oidcDestinationCIDRs, cfg.oidcCIDRsInvalid = parseExactCIDRs(os.Getenv("REQUESTARR_OIDC_DESTINATION_CIDRS"))
+	cfg.absDestinationCIDRs, cfg.absCIDRsInvalid = parseExactCIDRs(os.Getenv("REQUESTARR_ABS_DESTINATION_CIDRS"))
 	if cfg.setupReady && cfg.encryptionKeyStatus == EncryptionKeyReady && subtle.ConstantTimeCompare(cfg.setupToken[:], cfg.encryptionKey[:]) == 1 {
 		cfg.encryptionKeyStatus = EncryptionKeyInvalid
 		cfg.secretReuseInvalid = true
@@ -79,11 +86,24 @@ func (c Config) Validate() error {
 	if c.secretReuseInvalid {
 		problems = append(problems, "deployment secret configuration is invalid")
 	}
+	if c.oidcCIDRsInvalid {
+		problems = append(problems, "REQUESTARR_OIDC_DESTINATION_CIDRS must be a comma-separated list of unique canonical CIDR prefixes")
+	}
+	if c.absCIDRsInvalid {
+		problems = append(problems, "REQUESTARR_ABS_DESTINATION_CIDRS must be a comma-separated list of unique canonical CIDR prefixes")
+	}
 
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+// ValidateMaintenanceDatabase validates only the setting required by database
+// maintenance commands. Maintenance must not be blocked by unrelated runtime
+// settings, and callers must not include the connection URL in diagnostics.
+func (c Config) ValidateMaintenanceDatabase() error {
+	return validateDatabaseURL(c.databaseURL)
 }
 
 // DatabaseURL returns the validated PostgreSQL connection URL. Callers must
@@ -105,6 +125,19 @@ func (c Config) EncryptionKey() ([32]byte, EncryptionKeyStatus) {
 	return c.encryptionKey, c.encryptionKeyStatus
 }
 
+// OIDCDestinationCIDRs returns a defensive copy of exact destination prefixes.
+// The configured topology is intentionally omitted from formatted Config values.
+func (c Config) OIDCDestinationCIDRs() []netip.Prefix {
+	return append([]netip.Prefix(nil), c.oidcDestinationCIDRs...)
+}
+
+// ABSDestinationCIDRs returns a defensive copy of exact destinations allowed
+// for a future self-hosted Audiobookshelf source. It is deliberately separate
+// from OIDC topology and is omitted from formatted Config values.
+func (c Config) ABSDestinationCIDRs() []netip.Prefix {
+	return append([]netip.Prefix(nil), c.absDestinationCIDRs...)
+}
+
 // SetupCookieSecure reports the validated environment-selected cookie policy.
 func (c Config) SetupCookieSecure() bool {
 	parsed, err := url.Parse(c.PublicURL)
@@ -113,7 +146,7 @@ func (c Config) SetupCookieSecure() bool {
 
 // String deliberately excludes secret-bearing configuration.
 func (c Config) String() string {
-	return fmt.Sprintf("Config{Environment:%q HTTPAddr:%q PublicURL:%q LogLevelRaw:%q DatabaseURL:<redacted> SetupToken:<redacted> EncryptionKey:<redacted>}", c.Environment, c.HTTPAddr, c.PublicURL, c.LogLevelRaw)
+	return fmt.Sprintf("Config{Environment:%q HTTPAddr:%q PublicURL:%q LogLevelRaw:%q DatabaseURL:<redacted> SetupToken:<redacted> EncryptionKey:<redacted> OIDCDestinationCIDRs:<redacted:%d> ABSDestinationCIDRs:<redacted:%d>}", c.Environment, c.HTTPAddr, c.PublicURL, c.LogLevelRaw, len(c.oidcDestinationCIDRs), len(c.absDestinationCIDRs))
 }
 
 // GoString prevents %#v diagnostics from exposing the database URL.
@@ -193,6 +226,30 @@ func parseEncryptionKey(value string) ([32]byte, EncryptionKeyStatus) {
 	}
 	copy(key[:], decoded)
 	return key, EncryptionKeyReady
+}
+
+func parseExactCIDRs(value string) ([]netip.Prefix, bool) {
+	if value == "" {
+		return nil, false
+	}
+	parts := strings.Split(value, ",")
+	prefixes := make([]netip.Prefix, 0, len(parts))
+	seen := make(map[netip.Prefix]struct{}, len(parts))
+	for _, part := range parts {
+		if part == "" || strings.TrimSpace(part) != part || strings.Contains(part, "%") {
+			return nil, true
+		}
+		prefix, err := netip.ParsePrefix(part)
+		if err != nil || !prefix.IsValid() || prefix != prefix.Masked() || prefix.String() != part {
+			return nil, true
+		}
+		if _, exists := seen[prefix]; exists {
+			return nil, true
+		}
+		seen[prefix] = struct{}{}
+		prefixes = append(prefixes, prefix)
+	}
+	return prefixes, false
 }
 
 func validatePublicURL(environment, value string) error {

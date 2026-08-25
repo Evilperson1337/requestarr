@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"git.example.com/evilperson1337/Requestarr/internal/buildinfo"
 	"git.example.com/evilperson1337/Requestarr/internal/setup"
@@ -42,6 +44,113 @@ type setupWorkflowFake struct {
 	authCalls   int
 	auth        setup.Authentication
 	secretKind  setup.SecretOperationKind
+}
+
+type authenticationValidatorFake struct {
+	mu       sync.Mutex
+	result   setup.AuthenticationValidationResult
+	session  string
+	revision int64
+	calls    int
+}
+
+type authenticationActivatorFake struct {
+	result  setup.ActivationResult
+	session string
+	calls   int
+}
+
+func TestSetupAuthenticationActivationContract(t *testing.T) {
+	activator := &authenticationActivatorFake{result: setup.ActivationResult{Outcome: setup.ActivationSucceeded, Revision: 7}}
+	options := SetupSessionOptions{AuthenticationActivator: activator, PublicOrigin: "https://requestarr.example:443", SecureCookie: false}
+	handler := noStore(setupAuthenticationActivationHandler(options))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup/activate-auth", strings.NewReader(`{}`))
+	request.Header.Set("Origin", "https://requestarr.example")
+	request.Header.Set("X-Requestarr-CSRF", "1")
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: "requestarr_setup_dev", Value: strings.Repeat("A", 43)})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"setup_complete":false`) || activator.calls != 1 {
+		t.Fatalf("activation response=%d body=%s calls=%d", recorder.Code, recorder.Body.String(), activator.calls)
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control=%q", got)
+	}
+}
+
+func TestSetupAuthenticationActivationFailurePathsAndPrecedence(t *testing.T) {
+	valid := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/setup/activate-auth", strings.NewReader(`{}`))
+		r.Header.Set("Origin", "https://requestarr.example")
+		r.Header.Set("X-Requestarr-CSRF", "1")
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(&http.Cookie{Name: "requestarr_setup_dev", Value: strings.Repeat("A", 43)})
+		return r
+	}
+	tests := []struct {
+		name       string
+		mutate     func(*http.Request)
+		result     setup.ActivationResult
+		wantStatus int
+		wantCode   string
+		wantCalls  int
+	}{
+		{name: "method precedes origin", mutate: func(r *http.Request) { r.Method = http.MethodGet; r.Header.Del("Origin") }, wantStatus: http.StatusMethodNotAllowed, wantCalls: 0},
+		{name: "origin precedes csrf", mutate: func(r *http.Request) {
+			r.Header.Set("Origin", "https://other.example")
+			r.Header.Del("X-Requestarr-CSRF")
+		}, wantStatus: http.StatusForbidden, wantCode: "setup_origin_forbidden", wantCalls: 0},
+		{name: "csrf precedes content type", mutate: func(r *http.Request) { r.Header.Del("X-Requestarr-CSRF"); r.Header.Set("Content-Type", "text/plain") }, wantStatus: http.StatusForbidden, wantCode: "setup_csrf_forbidden", wantCalls: 0},
+		{name: "content type precedes body", mutate: func(r *http.Request) {
+			r.Header.Set("Content-Type", "text/plain")
+			r.Body = io.NopCloser(strings.NewReader("not json"))
+		}, wantStatus: http.StatusBadRequest, wantCode: "invalid_request", wantCalls: 0},
+		{name: "invalid body precedes cookie", mutate: func(r *http.Request) { r.Body = io.NopCloser(strings.NewReader("{")); r.Header.Del("Cookie") }, wantStatus: http.StatusBadRequest, wantCode: "invalid_request", wantCalls: 0},
+		{name: "missing cookie", mutate: func(r *http.Request) { r.Header.Del("Cookie") }, wantStatus: http.StatusUnauthorized, wantCode: "setup_session_required", wantCalls: 0},
+		{name: "duplicate cookie", mutate: func(r *http.Request) {
+			r.AddCookie(&http.Cookie{Name: "requestarr_setup_dev", Value: strings.Repeat("B", 43)})
+		}, wantStatus: http.StatusUnauthorized, wantCode: "setup_session_required", wantCalls: 0},
+		{name: "required", result: setup.ActivationResult{Outcome: setup.ActivationRequired}, wantStatus: http.StatusUnprocessableEntity, wantCode: "setup_authentication_activation_required", wantCalls: 1},
+		{name: "stale", result: setup.ActivationResult{Outcome: setup.ActivationStale}, wantStatus: http.StatusConflict, wantCode: "setup_authentication_validation_stale", wantCalls: 1},
+		{name: "already active", result: setup.ActivationResult{Outcome: setup.ActivationAlreadyActive}, wantStatus: http.StatusConflict, wantCode: "setup_authentication_already_activated", wantCalls: 1},
+		{name: "locked", result: setup.ActivationResult{Outcome: setup.ActivationLocked}, wantStatus: http.StatusLocked, wantCode: "setup_locked", wantCalls: 1},
+		{name: "unavailable", result: setup.ActivationResult{Outcome: setup.ActivationUnavailable}, wantStatus: http.StatusServiceUnavailable, wantCode: "setup_unavailable", wantCalls: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &authenticationActivatorFake{result: tt.result}
+			r := valid()
+			if tt.mutate != nil {
+				tt.mutate(r)
+			}
+			w := httptest.NewRecorder()
+			noStore(setupAuthenticationActivationHandler(SetupSessionOptions{AuthenticationActivator: fake, PublicOrigin: "https://requestarr.example:443", SecureCookie: false})).ServeHTTP(w, r)
+			if w.Code != tt.wantStatus || fake.calls != tt.wantCalls || w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status=%d calls=%d cache=%q body=%s", w.Code, fake.calls, w.Header().Get("Cache-Control"), w.Body.String())
+			}
+			if tt.wantCode != "" && !strings.Contains(w.Body.String(), `"code":"`+tt.wantCode+`"`) {
+				t.Fatalf("body=%s, want code %q", w.Body.String(), tt.wantCode)
+			}
+			if w.Code == http.StatusMethodNotAllowed && w.Header().Get("Allow") != http.MethodPost {
+				t.Fatalf("Allow=%q", w.Header().Get("Allow"))
+			}
+		})
+	}
+}
+
+func (f *authenticationActivatorFake) Activate(_ context.Context, session string) setup.ActivationResult {
+	f.calls++
+	f.session = session
+	return f.result
+}
+
+func (f *authenticationValidatorFake) Validate(_ context.Context, session string, revision int64) setup.AuthenticationValidationResult {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	f.session, f.revision = session, revision
+	return f.result
 }
 
 func (f *setupWorkflowFake) State(_ context.Context, session string) setup.WorkflowResult {
@@ -118,6 +227,124 @@ func TestSetupAuthenticationContract(t *testing.T) {
 		handlerWithSetupWorkflow(fake).ServeHTTP(got, httptest.NewRequest(method, "/api/v1/setup/authentication", nil))
 		if got.Code != http.StatusMethodNotAllowed || got.Header().Get("Allow") != http.MethodPut {
 			t.Errorf("%s status=%d Allow=%q", method, got.Code, got.Header().Get("Allow"))
+		}
+	}
+}
+
+func TestSetupAuthenticationValidationContractAndPrecedence(t *testing.T) {
+	validRequest := func(method, body string) *http.Request {
+		request := httptest.NewRequest(method, "/api/v1/setup/authentication/validate", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "https://example.com")
+		request.Header.Set("X-Requestarr-CSRF", "1")
+		request.AddCookie(&http.Cookie{Name: "__Host-requestarr_setup", Value: httpSessionValue()})
+		return request
+	}
+	tests := []struct {
+		name   string
+		method string
+		body   string
+		mutate func(*http.Request)
+		status int
+		code   string
+	}{
+		{name: "method", method: http.MethodPut, body: `{`, mutate: func(r *http.Request) {
+			r.Header.Del("Origin")
+			r.Header.Del("X-Requestarr-CSRF")
+			r.Header.Del("Cookie")
+		}, status: 405, code: "method_not_allowed"},
+		{name: "origin", method: http.MethodPost, body: `{`, mutate: func(r *http.Request) {
+			r.Header.Del("Origin")
+			r.Header.Del("X-Requestarr-CSRF")
+			r.Header.Del("Cookie")
+		}, status: 403, code: "setup_origin_forbidden"},
+		{name: "csrf", method: http.MethodPost, body: `{`, mutate: func(r *http.Request) { r.Header.Del("X-Requestarr-CSRF"); r.Header.Del("Cookie") }, status: 403, code: "setup_csrf_forbidden"},
+		{name: "content type", method: http.MethodPost, body: `{"authentication_revision":1}`, mutate: func(r *http.Request) { r.Header.Set("Content-Type", "text/plain"); r.Header.Del("Cookie") }, status: 400, code: "invalid_request"},
+		{name: "body", method: http.MethodPost, body: `{`, mutate: func(r *http.Request) { r.Header.Del("Cookie") }, status: 400, code: "invalid_request"},
+		{name: "cookie", method: http.MethodPost, body: `{"authentication_revision":1}`, mutate: func(r *http.Request) { r.Header.Del("Cookie") }, status: 401, code: "setup_session_required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &authenticationValidatorFake{}
+			handler := handlerWithAuthenticationValidator(validator, nil)
+			request := validRequest(tt.method, tt.body)
+			tt.mutate(request)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			assertAPIError(t, response, tt.status, tt.code)
+			if validator.calls != 0 {
+				t.Fatalf("validator called %d times", validator.calls)
+			}
+			if response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal("validation response omitted no-store")
+			}
+		})
+	}
+
+	for _, body := range []string{
+		`{"authentication_revision":0}`,
+		`{"authentication_revision":-1}`,
+		`{"authentication_revision":1.0}`,
+		`{"authentication_revision":01}`,
+		`{"authentication_revision":"1"}`,
+		`{"authentication_revision":1,"extra":"distinctive-secret"}`,
+		`{"authentication_revision":1,"authentication_revision":2}`,
+	} {
+		response := httptest.NewRecorder()
+		handlerWithAuthenticationValidator(&authenticationValidatorFake{}, nil).ServeHTTP(response, validRequest(http.MethodPost, body))
+		assertAPIError(t, response, http.StatusBadRequest, "invalid_request")
+		if strings.Contains(response.Body.String(), "distinctive-secret") {
+			t.Fatal("invalid response exposed request value")
+		}
+	}
+
+	validatedAt := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	validator := &authenticationValidatorFake{result: setup.AuthenticationValidationResult{Outcome: setup.AuthenticationValidationSucceeded, Revision: 7,
+		Evidence: &setup.AuthenticationValidationEvidence{AuthenticationRevision: 7, PolicyVersion: 1, ValidatedAt: validatedAt}}}
+	response := httptest.NewRecorder()
+	handlerWithAuthenticationValidator(validator, nil).ServeHTTP(response, validRequest(http.MethodPost, `{"authentication_revision":7}`))
+	if response.Code != http.StatusOK || validator.calls != 1 || validator.revision != 7 || validator.session != httpSessionValue() {
+		t.Fatalf("status=%d calls=%d revision=%d session=%q", response.Code, validator.calls, validator.revision, validator.session)
+	}
+	if !strings.Contains(response.Body.String(), `"authentication_revision":7`) || strings.Contains(response.Body.String(), httpSessionValue()) {
+		t.Fatalf("response = %s", response.Body.String())
+	}
+}
+
+func TestSetupAuthenticationValidationOutcomeMappingAndRedaction(t *testing.T) {
+	tests := []struct {
+		outcome setup.AuthenticationValidationOutcome
+		status  int
+		code    string
+		retry   time.Duration
+	}{
+		{setup.AuthenticationValidationCompleted, 409, "setup_completed", 0},
+		{setup.AuthenticationValidationStale, 409, "setup_authentication_validation_stale", 0},
+		{setup.AuthenticationValidationRequired, 422, "setup_authentication_validation_required", 0},
+		{setup.AuthenticationValidationDestination, 422, "setup_authentication_destination_invalid", 0},
+		{setup.AuthenticationValidationUnreachable, 422, "setup_authentication_unreachable", 0},
+		{setup.AuthenticationValidationRateLimited, 429, "setup_authentication_validation_rate_limited", 999 * time.Second},
+		{setup.AuthenticationValidationUnavailable, 503, "setup_unavailable", 0},
+	}
+	for _, tt := range tests {
+		validator := &authenticationValidatorFake{result: setup.AuthenticationValidationResult{Outcome: tt.outcome, RetryAfter: tt.retry}}
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/setup/authentication/validate?issuer=https://distinctive.invalid", strings.NewReader(`{"authentication_revision":1}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "https://example.com")
+		request.Header.Set("X-Requestarr-CSRF", "1")
+		request.Header.Set("Authorization", "Bearer distinctive-authorization")
+		request.AddCookie(&http.Cookie{Name: "__Host-requestarr_setup", Value: httpSessionValue()})
+		var logs bytes.Buffer
+		response := httptest.NewRecorder()
+		handlerWithAuthenticationValidator(validator, &logs).ServeHTTP(response, request)
+		assertAPIError(t, response, tt.status, tt.code)
+		if tt.status == 429 && response.Header().Get("Retry-After") != "300" {
+			t.Fatalf("Retry-After = %q", response.Header().Get("Retry-After"))
+		}
+		for _, forbidden := range []string{"distinctive.invalid", "distinctive-authorization", httpSessionValue(), "Authorization", "Cookie", "issuer="} {
+			if strings.Contains(response.Body.String(), forbidden) || strings.Contains(logs.String(), forbidden) {
+				t.Fatalf("validation output exposed %q: body=%s logs=%s", forbidden, response.Body.String(), logs.String())
+			}
 		}
 	}
 }
@@ -369,5 +596,15 @@ func TestSetupWorkflowAccessLogRedactsRequestAndAdapterValues(t *testing.T) {
 func handlerWithSetupWorkflow(workflow SetupWorkflow) http.Handler {
 	return New(nil, buildinfo.Info{}, nil, successfulSetupStatus(false), SetupSessionOptions{
 		Workflow: workflow, PublicOrigin: "https://example.com:443", SecureCookie: true,
+	})
+}
+
+func handlerWithAuthenticationValidator(validator SetupAuthenticationValidator, logs *bytes.Buffer) http.Handler {
+	logger := slog.Default()
+	if logs != nil {
+		logger = slog.New(slog.NewJSONHandler(logs, nil))
+	}
+	return New(logger, buildinfo.Info{}, nil, successfulSetupStatus(false), SetupSessionOptions{
+		AuthenticationValidator: validator, PublicOrigin: "https://example.com:443", SecureCookie: true,
 	})
 }

@@ -1,0 +1,3 @@
+# Prompt 06 — Availability Sources
+
+Implement library source configuration and background inventory sync for Plex, Jellyfin, Navidrome/OpenSubsonic, RomM, and Audiobookshelf. Each source can be authoritative only for configured media types. Persist normalized inventory and cursors. Use pagination/deltas where APIs support them. A failed/unreachable source must retain its last-known inventory and must never emit mass removals. Audiobookshelf is authoritative only for audiobooks in V1; retain ASIN/external IDs plus author/narrator/series metadata needed for safe reconciliation. Expose health, item counts, last successful sync, next sync, Test Connection, and Sync Now. Add fixtures and outage tests.

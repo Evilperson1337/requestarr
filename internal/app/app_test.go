@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"git.example.com/evilperson1337/Requestarr/internal/auth"
 	"git.example.com/evilperson1337/Requestarr/internal/buildinfo"
 	"git.example.com/evilperson1337/Requestarr/internal/config"
 )
@@ -33,6 +34,80 @@ func TestReadinessRequiresMigrationsAndDatabase(t *testing.T) {
 	if err := checker.Ready(context.Background()); err == nil {
 		t.Fatal("Ready() succeeded while database was unavailable")
 	}
+}
+
+func TestVerifyRuntimeAuthenticationAllowsNotActivatedOnly(t *testing.T) {
+	if err := verifyRuntimeAuthentication(context.Background(), auth.NewRuntimeConfigurationService(runtimeConfigReadStub{err: auth.ErrRuntimeConfigNotActivated}, nil)); err != nil {
+		t.Fatalf("not activated verification = %v", err)
+	}
+	if err := verifyRuntimeAuthentication(context.Background(), auth.NewRuntimeConfigurationService(runtimeConfigReadStub{err: errors.New("read failed")}, nil)); err == nil {
+		t.Fatal("unavailable runtime authentication was accepted")
+	}
+}
+
+type lifecycleStub struct{ events *[]string }
+
+func (s lifecycleStub) Start(context.Context) error { return nil }
+func (s lifecycleStub) Stop(context.Context) error {
+	*s.events = append(*s.events, "runner.stop")
+	return nil
+}
+
+type failingLifecycleStub struct {
+	events *[]string
+	err    error
+}
+
+func (s failingLifecycleStub) Start(context.Context) error { return nil }
+func (s failingLifecycleStub) Stop(context.Context) error {
+	*s.events = append(*s.events, "runner.stop")
+	return s.err
+}
+
+type serverLifecycleStub struct{ events *[]string }
+
+func (s serverLifecycleStub) Shutdown(context.Context) error {
+	*s.events = append(*s.events, "server.shutdown")
+	return nil
+}
+
+func TestShutdownStopsRunnerBeforeHTTPServer(t *testing.T) {
+	var events []string
+	if err := shutdown(serverLifecycleStub{events: &events}, lifecycleStub{events: &events}, context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(events, ","), "runner.stop,server.shutdown"; got != want {
+		t.Fatalf("shutdown ordering = %q, want %q", got, want)
+	}
+}
+
+func TestShutdownStillStopsHTTPServerAfterRunnerFailure(t *testing.T) {
+	var events []string
+	runnerErr := errors.New("runner stop timed out")
+	serverErr := errors.New("server shutdown failed")
+	err := shutdown(failingServerLifecycleStub{events: &events, err: serverErr}, failingLifecycleStub{events: &events, err: runnerErr}, context.Background())
+	if !errors.Is(err, runnerErr) || !errors.Is(err, serverErr) {
+		t.Fatalf("shutdown error = %v, want both errors", err)
+	}
+	if got, want := strings.Join(events, ","), "runner.stop,server.shutdown"; got != want {
+		t.Fatalf("shutdown ordering = %q, want %q", got, want)
+	}
+}
+
+type failingServerLifecycleStub struct {
+	events *[]string
+	err    error
+}
+
+func (s failingServerLifecycleStub) Shutdown(context.Context) error {
+	*s.events = append(*s.events, "server.shutdown")
+	return s.err
+}
+
+type runtimeConfigReadStub struct{ err error }
+
+func (s runtimeConfigReadStub) ReadRuntimeConfig(context.Context) (auth.RuntimeConfig, error) {
+	return auth.RuntimeConfig{}, s.err
 }
 
 func TestRunDatabaseStartupFailureIsBoundedSanitizedAndDoesNotListen(t *testing.T) {

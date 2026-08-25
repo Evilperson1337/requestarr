@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -50,6 +51,10 @@ type Envelope struct {
 	KeyID      KeyID
 	Nonce      Nonce
 	Ciphertext []byte
+	// Identity is a context-bound, key-derived value stable across independently
+	// randomized envelopes for the same plaintext. It is not a plaintext digest
+	// and is safe to persist only because deriving it requires the encryption key.
+	Identity [sha256.Size]byte
 }
 
 // Cipher owns one immutable V1 key snapshot and an injectable random source.
@@ -95,7 +100,7 @@ func (c *Cipher) Encrypt(ctx Context, plaintext []byte) (Envelope, error) {
 	if _, err := io.ReadFull(c.random, nonce[:]); err != nil {
 		return Envelope{}, ErrRandomUnavailable
 	}
-	envelope := Envelope{Version: EnvelopeVersion, KeyID: c.keyID, Nonce: nonce}
+	envelope := Envelope{Version: EnvelopeVersion, KeyID: c.keyID, Nonce: nonce, Identity: c.identity(ctx, plaintext)}
 	envelope.Ciphertext = gcm.Seal(nil, nonce[:], plaintext, associatedData(envelope.Version, ctx))
 	return envelope, nil
 }
@@ -122,7 +127,21 @@ func (c *Cipher) Decrypt(ctx Context, envelope Envelope) ([]byte, error) {
 	if err != nil {
 		return nil, ErrAuthentication
 	}
+	expectedIdentity := c.identity(ctx, plaintext)
+	if envelope.Identity != ([sha256.Size]byte{}) && !hmac.Equal(envelope.Identity[:], expectedIdentity[:]) {
+		return nil, ErrAuthentication
+	}
 	return plaintext, nil
+}
+
+func (c *Cipher) identity(ctx Context, plaintext []byte) [sha256.Size]byte {
+	mac := hmac.New(sha256.New, c.key[:])
+	mac.Write([]byte("requestarr/encryption/v1/credential-identity\x00"))
+	mac.Write(associatedData(EnvelopeVersion, ctx))
+	mac.Write(plaintext)
+	var identity [sha256.Size]byte
+	copy(identity[:], mac.Sum(nil))
+	return identity
 }
 
 func validateContext(ctx Context) error {

@@ -1,0 +1,11 @@
+BEGIN;
+DROP TABLE inventory_accepted_observation_events;
+DROP TABLE inventory_desired_source_revision_items;
+DROP TABLE inventory_accepted_observation_items;
+DROP TABLE inventory_accepted_observation_coverage;
+DROP TABLE inventory_accepted_observations;
+DROP FUNCTION prevent_accepted_observation_evidence_change();
+DROP FUNCTION validate_desired_source_revision_item();
+DROP FUNCTION validate_accepted_observation_coverage_complete();
+DROP FUNCTION validate_accepted_observation_scope();
+COMMIT;
