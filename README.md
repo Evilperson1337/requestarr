@@ -66,15 +66,15 @@ scripts/                    development/reference helper scripts
 
 ## Quick start for development
 
-The scaffold intentionally keeps the Go starter build free of third-party dependencies, so the architecture can be reviewed before libraries are selected.
-
 ```bash
 cp .env.example .env
+make dev-up       # start PostgreSQL (and Keycloak/Apprise) via compose.dev.yaml
 make test
+make migrate-up   # apply pending database migrations
 make run
 ```
 
-The API starts on `http://localhost:8080` by default. For the full development environment, open the repository in its Dev Container. PostgreSQL, Keycloak, and Apprise API are defined in `compose.dev.yaml`.
+The API starts on `http://localhost:8080` by default and requires a reachable PostgreSQL at `REQUESTARR_DATABASE_URL` (`make run`/`make migrate-up` load `.env` automatically when present). `GET /healthz` is a dependency-free liveness probe; `GET /readyz` additionally checks the database and returns `503` while it is unreachable. For the full development environment, open the repository in its Dev Container. PostgreSQL, Keycloak, and Apprise API are defined in `compose.dev.yaml`.
 
 The frontend scaffold lives under `web/`:
 
@@ -91,7 +91,7 @@ make snapshot
 make release-check
 ```
 
-Releases are defined by `.goreleaser.yaml`. GoReleaser v2 is expected; run `goreleaser check` before publishing. The project targets Go 1.23+ syntax for broad compatibility while the development container uses Go 1.24.
+Releases are defined by `.goreleaser.yaml`. GoReleaser v2 is expected; run `goreleaser check` before publishing. The project, development container, CI, and production image all target Go 1.25.
 
 ## Reference code
 

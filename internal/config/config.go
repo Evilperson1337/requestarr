@@ -14,6 +14,7 @@ type Config struct {
 	HTTPAddr    string
 	PublicURL   string
 	LogLevelRaw string
+	DatabaseURL string
 }
 
 func FromEnv() Config {
@@ -22,11 +23,16 @@ func FromEnv() Config {
 		HTTPAddr:    env("REQUESTARR_HTTP_ADDR", ":8080"),
 		PublicURL:   env("REQUESTARR_PUBLIC_URL", "http://localhost:8080"),
 		LogLevelRaw: env("REQUESTARR_LOG_LEVEL", "info"),
+		DatabaseURL: env("REQUESTARR_DATABASE_URL", ""),
 	}
 }
 
 func (c Config) Validate() error {
 	var problems []string
+
+	if c.DatabaseURL == "" {
+		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
+	}
 
 	_, port, err := net.SplitHostPort(c.HTTPAddr)
 	if err != nil {

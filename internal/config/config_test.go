@@ -11,6 +11,7 @@ func TestFromEnvDefaults(t *testing.T) {
 	t.Setenv("REQUESTARR_HTTP_ADDR", "")
 	t.Setenv("REQUESTARR_PUBLIC_URL", "")
 	t.Setenv("REQUESTARR_LOG_LEVEL", "")
+	t.Setenv("REQUESTARR_DATABASE_URL", "postgres://requestarr:requestarr@localhost:5432/requestarr?sslmode=disable")
 
 	got := FromEnv()
 	want := Config{
@@ -18,6 +19,7 @@ func TestFromEnvDefaults(t *testing.T) {
 		HTTPAddr:    ":8080",
 		PublicURL:   "http://localhost:8080",
 		LogLevelRaw: "info",
+		DatabaseURL: "postgres://requestarr:requestarr@localhost:5432/requestarr?sslmode=disable",
 	}
 
 	if got != want {
@@ -28,6 +30,20 @@ func TestFromEnvDefaults(t *testing.T) {
 	}
 }
 
+func TestFromEnvDatabaseURLHasNoDefault(t *testing.T) {
+	t.Setenv("REQUESTARR_DATABASE_URL", "")
+
+	got := FromEnv()
+	if got.DatabaseURL != "" {
+		t.Fatalf("DatabaseURL = %q, want empty when unset", got.DatabaseURL)
+	}
+	if err := got.Validate(); err == nil {
+		t.Fatal("Validate() = nil, want error for missing database url")
+	}
+}
+
+const validDBURL = "postgres://requestarr:requestarr@localhost:5432/requestarr?sslmode=disable"
+
 func TestConfigValidate(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -37,54 +53,64 @@ func TestConfigValidate(t *testing.T) {
 	}{
 		{
 			name:   "defaults",
-			config: Config{HTTPAddr: ":8080", LogLevelRaw: "info"},
+			config: Config{HTTPAddr: ":8080", LogLevelRaw: "info", DatabaseURL: validDBURL},
 		},
 		{
 			name:   "hostname and uppercase log level",
-			config: Config{HTTPAddr: "localhost:8080", LogLevelRaw: "DEBUG"},
+			config: Config{HTTPAddr: "localhost:8080", LogLevelRaw: "DEBUG", DatabaseURL: validDBURL},
 		},
 		{
 			name:   "IPv4 address",
-			config: Config{HTTPAddr: "127.0.0.1:8080", LogLevelRaw: "warn"},
+			config: Config{HTTPAddr: "127.0.0.1:8080", LogLevelRaw: "warn", DatabaseURL: validDBURL},
 		},
 		{
 			name:   "IPv6 address",
-			config: Config{HTTPAddr: "[::1]:8080", LogLevelRaw: "warning"},
+			config: Config{HTTPAddr: "[::1]:8080", LogLevelRaw: "warning", DatabaseURL: validDBURL},
 		},
 		{
 			name:   "highest valid port",
-			config: Config{HTTPAddr: ":65535", LogLevelRaw: "error"},
+			config: Config{HTTPAddr: ":65535", LogLevelRaw: "error", DatabaseURL: validDBURL},
 		},
 		{
 			name:    "missing port",
-			config:  Config{HTTPAddr: "localhost", LogLevelRaw: "info"},
+			config:  Config{HTTPAddr: "localhost", LogLevelRaw: "info", DatabaseURL: validDBURL},
 			wantErr: "REQUESTARR_HTTP_ADDR must be in host:port form",
 		},
 		{
 			name:    "non-numeric port",
-			config:  Config{HTTPAddr: "localhost:http", LogLevelRaw: "info"},
+			config:  Config{HTTPAddr: "localhost:http", LogLevelRaw: "info", DatabaseURL: validDBURL},
 			wantErr: "REQUESTARR_HTTP_ADDR port must be a number between 1 and 65535",
 		},
 		{
 			name:    "zero port",
-			config:  Config{HTTPAddr: ":0", LogLevelRaw: "info"},
+			config:  Config{HTTPAddr: ":0", LogLevelRaw: "info", DatabaseURL: validDBURL},
 			wantErr: "REQUESTARR_HTTP_ADDR port must be a number between 1 and 65535",
 		},
 		{
 			name:    "port above maximum",
-			config:  Config{HTTPAddr: ":65536", LogLevelRaw: "info"},
+			config:  Config{HTTPAddr: ":65536", LogLevelRaw: "info", DatabaseURL: validDBURL},
 			wantErr: "REQUESTARR_HTTP_ADDR port must be a number between 1 and 65535",
 		},
 		{
 			name:       "invalid log level does not expose value",
-			config:     Config{HTTPAddr: ":8080", LogLevelRaw: "secret-log-value"},
+			config:     Config{HTTPAddr: ":8080", LogLevelRaw: "secret-log-value", DatabaseURL: validDBURL},
 			wantErr:    "REQUESTARR_LOG_LEVEL must be one of debug, info, warn, warning, or error",
 			notInError: "secret-log-value",
 		},
 		{
 			name:    "multiple invalid settings",
-			config:  Config{HTTPAddr: "bad-address", LogLevelRaw: "trace"},
+			config:  Config{HTTPAddr: "bad-address", LogLevelRaw: "trace", DatabaseURL: validDBURL},
 			wantErr: "REQUESTARR_HTTP_ADDR must be in host:port form; REQUESTARR_LOG_LEVEL must be one of debug, info, warn, warning, or error",
+		},
+		{
+			name:    "missing database url",
+			config:  Config{HTTPAddr: ":8080", LogLevelRaw: "info"},
+			wantErr: "REQUESTARR_DATABASE_URL is required",
+		},
+		{
+			name:    "missing database url does not expose other problems' order dependency",
+			config:  Config{HTTPAddr: "bad-address", LogLevelRaw: "info"},
+			wantErr: "REQUESTARR_DATABASE_URL is required; REQUESTARR_HTTP_ADDR must be in host:port form",
 		},
 	}
 

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -9,10 +10,29 @@ import (
 	"github.com/example/requestarr/internal/buildinfo"
 )
 
-func New(logger *slog.Logger, build buildinfo.Info) http.Handler {
+// ReadinessChecker reports whether the application's dependencies (currently
+// just the database) are usable. Kept as a small local interface so this
+// transport-only package never imports a concrete adapter such as
+// internal/store/postgres.
+type ReadinessChecker interface {
+	Ready(context.Context) error
+}
+
+const readyTimeout = 2 * time.Second
+
+func New(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "time": time.Now().UTC()})
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), readyTimeout)
+		defer cancel()
+		if err := readiness.Ready(ctx); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	})
 	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, build)

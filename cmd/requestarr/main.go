@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/example/requestarr/internal/app"
 	"github.com/example/requestarr/internal/buildinfo"
 	"github.com/example/requestarr/internal/config"
+	"github.com/example/requestarr/internal/store/postgres"
 )
 
 var (
@@ -21,8 +23,9 @@ var (
 )
 
 func main() {
-	var showVersion bool
+	var showVersion, migrateOnly bool
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
+	flag.BoolVar(&migrateOnly, "migrate-only", false, "apply pending database migrations then exit")
 	flag.Parse()
 
 	if showVersion {
@@ -36,6 +39,19 @@ func main() {
 		os.Exit(1)
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel()}))
+
+	if migrateOnly {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		store, err := postgres.Open(ctx, cfg.DatabaseURL)
+		if err != nil {
+			logger.Error("migration failed", "error", err)
+			os.Exit(1)
+		}
+		store.Close()
+		logger.Info("migrations applied")
+		return
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
