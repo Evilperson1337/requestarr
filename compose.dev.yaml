@@ -10,14 +10,40 @@ services:
     volumes:
       - requestarr-postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U requestarr -d requestarr"]
+      test: [ "CMD-SHELL", "pg_isready -U requestarr -d requestarr" ]
       interval: 5s
       timeout: 3s
       retries: 20
 
+  requestarr:
+    build:
+      context: .
+    environment:
+      REQUESTARR_ENV: development
+      REQUESTARR_HTTP_ADDR: :8080
+      REQUESTARR_PUBLIC_URL: ${REQUESTARR_PUBLIC_URL:-http://localhost:8080}
+      REQUESTARR_DATABASE_URL: postgres://requestarr:requestarr@postgres:5432/requestarr?sslmode=disable
+      REQUESTARR_OIDC_ISSUER: ${REQUESTARR_OIDC_ISSUER:?Set REQUESTARR_OIDC_ISSUER to an HTTPS issuer reachable by Requestarr}
+      REQUESTARR_OIDC_CLIENT_ID: ${REQUESTARR_OIDC_CLIENT_ID:?Set REQUESTARR_OIDC_CLIENT_ID}
+      REQUESTARR_OIDC_CLIENT_SECRET: ${REQUESTARR_OIDC_CLIENT_SECRET:?Set REQUESTARR_OIDC_CLIENT_SECRET}
+      REQUESTARR_SESSION_HMAC_SECRET: ${REQUESTARR_SESSION_HMAC_SECRET:?Set REQUESTARR_SESSION_HMAC_SECRET to at least 32 random bytes}
+      REQUESTARR_TMDB_READ_TOKEN: ${REQUESTARR_TMDB_READ_TOKEN:-}
+      REQUESTARR_IGDB_CLIENT_ID: ${REQUESTARR_IGDB_CLIENT_ID:-}
+      REQUESTARR_IGDB_CLIENT_SECRET: ${REQUESTARR_IGDB_CLIENT_SECRET:-}
+      REQUESTARR_JELLYFIN_URL: ${REQUESTARR_JELLYFIN_URL:-}
+      REQUESTARR_JELLYFIN_API_KEY: ${REQUESTARR_JELLYFIN_API_KEY:-}
+      REQUESTARR_APPRISE_URL: ${REQUESTARR_APPRISE_URL:-}
+      REQUESTARR_APPRISE_CONFIG_KEY: ${REQUESTARR_APPRISE_CONFIG_KEY:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   keycloak:
     image: quay.io/keycloak/keycloak:26.3
-    command: ["start-dev", "--import-realm"]
+    command: [ "start-dev", "--import-realm" ]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin

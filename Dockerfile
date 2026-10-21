@@ -1,9 +1,19 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.25-bookworm AS build
+FROM node:26-bookworm-slim AS web
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+FROM golang:1.27-bookworm AS build
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 COPY cmd ./cmd
 COPY internal ./internal
+COPY db ./db
+RUN mkdir -p ./internal/webui/dist
+COPY --from=web /src/web/dist/ ./internal/webui/dist/
 ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown

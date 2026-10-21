@@ -4,26 +4,49 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 )
 
 type Config struct {
-	Environment string
-	HTTPAddr    string
-	PublicURL   string
-	LogLevelRaw string
-	DatabaseURL string
+	Environment       string
+	HTTPAddr          string
+	PublicURL         string
+	LogLevelRaw       string
+	DatabaseURL       string
+	OIDCIssuer        string
+	OIDCClientID      string
+	OIDCClientSecret  string
+	SessionHMACSecret string
+	TMDBReadToken     string
+	IGDBClientID      string
+	IGDBClientSecret  string
+	JellyfinURL       string
+	JellyfinAPIKey    string
+	AppriseURL        string
+	AppriseConfigKey  string
 }
 
 func FromEnv() Config {
 	return Config{
-		Environment: env("REQUESTARR_ENV", "development"),
-		HTTPAddr:    env("REQUESTARR_HTTP_ADDR", ":8080"),
-		PublicURL:   env("REQUESTARR_PUBLIC_URL", "http://localhost:8080"),
-		LogLevelRaw: env("REQUESTARR_LOG_LEVEL", "info"),
-		DatabaseURL: env("REQUESTARR_DATABASE_URL", ""),
+		Environment:       env("REQUESTARR_ENV", "development"),
+		HTTPAddr:          env("REQUESTARR_HTTP_ADDR", ":8080"),
+		PublicURL:         env("REQUESTARR_PUBLIC_URL", "http://localhost:8080"),
+		LogLevelRaw:       env("REQUESTARR_LOG_LEVEL", "info"),
+		DatabaseURL:       env("REQUESTARR_DATABASE_URL", ""),
+		OIDCIssuer:        os.Getenv("REQUESTARR_OIDC_ISSUER"),
+		OIDCClientID:      os.Getenv("REQUESTARR_OIDC_CLIENT_ID"),
+		OIDCClientSecret:  os.Getenv("REQUESTARR_OIDC_CLIENT_SECRET"),
+		SessionHMACSecret: os.Getenv("REQUESTARR_SESSION_HMAC_SECRET"),
+		TMDBReadToken:     os.Getenv("REQUESTARR_TMDB_READ_TOKEN"),
+		IGDBClientID:      os.Getenv("REQUESTARR_IGDB_CLIENT_ID"),
+		IGDBClientSecret:  os.Getenv("REQUESTARR_IGDB_CLIENT_SECRET"),
+		JellyfinURL:       os.Getenv("REQUESTARR_JELLYFIN_URL"),
+		JellyfinAPIKey:    os.Getenv("REQUESTARR_JELLYFIN_API_KEY"),
+		AppriseURL:        os.Getenv("REQUESTARR_APPRISE_URL"),
+		AppriseConfigKey:  os.Getenv("REQUESTARR_APPRISE_CONFIG_KEY"),
 	}
 }
 
@@ -32,6 +55,52 @@ func (c Config) Validate() error {
 
 	if c.DatabaseURL == "" {
 		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
+	}
+	if (c.JellyfinURL == "") != (c.JellyfinAPIKey == "") {
+		problems = append(problems, "REQUESTARR_JELLYFIN_URL and REQUESTARR_JELLYFIN_API_KEY must be configured together")
+	} else if c.JellyfinURL != "" {
+		u, err := url.Parse(c.JellyfinURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+			problems = append(problems, "REQUESTARR_JELLYFIN_URL must be an absolute http(s) origin without credentials, path, query, or fragment")
+		} else if c.Environment != "" && c.Environment != "development" && u.Scheme != "https" {
+			problems = append(problems, "REQUESTARR_JELLYFIN_URL must use https outside development")
+		}
+	}
+	if (c.AppriseURL == "") != (c.AppriseConfigKey == "") {
+		problems = append(problems, "REQUESTARR_APPRISE_URL and REQUESTARR_APPRISE_CONFIG_KEY must be configured together")
+	} else if c.AppriseURL != "" {
+		u, err := url.Parse(c.AppriseURL)
+		if err != nil || (u.Scheme != "https" && !(c.Environment == "development" && u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"))) || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			problems = append(problems, "REQUESTARR_APPRISE_URL must be an absolute https URL (or local http in development), without credentials, query, or fragment")
+		}
+		if len(c.AppriseConfigKey) > 256 || strings.TrimSpace(c.AppriseConfigKey) != c.AppriseConfigKey {
+			problems = append(problems, "REQUESTARR_APPRISE_CONFIG_KEY is invalid")
+		}
+	}
+	if c.PublicURL == "" || !validPublicURL(c.PublicURL) {
+		problems = append(problems, "REQUESTARR_PUBLIC_URL must be an absolute http(s) origin without path, credentials, query, or fragment")
+	}
+	if c.Environment == "" || c.Environment == "development" {
+		// Empty Environment is retained for direct Config construction in tests;
+		// FromEnv always assigns an explicit environment.
+	} else if strings.HasPrefix(c.PublicURL, "https://") {
+		// HTTPS is required outside development.
+	} else {
+		problems = append(problems, "REQUESTARR_PUBLIC_URL must use https outside development")
+	}
+	{
+		if c.OIDCIssuer != "" {
+			u, err := url.Parse(c.OIDCIssuer)
+			if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+				problems = append(problems, "REQUESTARR_OIDC_ISSUER must be an absolute https URL without credentials, query, or fragment")
+			}
+		}
+		if c.OIDCIssuer == "" || c.OIDCClientID == "" || c.OIDCClientSecret == "" {
+			problems = append(problems, "REQUESTARR_OIDC_ISSUER, REQUESTARR_OIDC_CLIENT_ID, and REQUESTARR_OIDC_CLIENT_SECRET are required")
+		}
+		if len(c.SessionHMACSecret) < 32 {
+			problems = append(problems, "REQUESTARR_SESSION_HMAC_SECRET must contain at least 32 bytes")
+		}
 	}
 
 	_, port, err := net.SplitHostPort(c.HTTPAddr)
@@ -51,6 +120,11 @@ func (c Config) Validate() error {
 		return errors.New(strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+func validPublicURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.User == nil && (u.Path == "" || u.Path == "/") && u.RawQuery == "" && u.Fragment == ""
 }
 
 func (c Config) LogLevel() slog.Level {

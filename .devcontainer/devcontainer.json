@@ -1,18 +1,43 @@
 {
   "name": "Requestarr",
-  "dockerComposeFile": ["../compose.dev.yaml", "docker-compose.devcontainer.yaml"],
+  "dockerComposeFile": [
+    "../compose.dev.yaml",
+    "docker-compose.devcontainer.yaml"
+  ],
   "service": "workspace",
   "workspaceFolder": "/workspaces/requestarr",
   "shutdownAction": "stopCompose",
-  "forwardPorts": [5173, 8080, 8081, 8000, 5432],
+  "mounts": [
+    "source=${localEnv:ZOO_ROO_HOME},target=/home/vscode/.roo,type=bind,readonly",
+    "source=${localEnv:ZOO_MODES_FILE},target=/home/vscode/.zoo-host/custom_modes.yaml,type=bind,readonly",
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind"
+  ],
+  "forwardPorts": [
+    5173,
+    8080,
+    8081,
+    8000,
+    5432
+  ],
   "portsAttributes": {
-    "5173": { "label": "Requestarr Web" },
-    "8080": { "label": "Requestarr API" },
-    "8081": { "label": "Keycloak" },
-    "8000": { "label": "Apprise API" },
-    "5432": { "label": "PostgreSQL" }
+    "5173": {
+      "label": "Requestarr Web"
+    },
+    "8080": {
+      "label": "Requestarr API"
+    },
+    "8081": {
+      "label": "Keycloak"
+    },
+    "8000": {
+      "label": "Apprise API"
+    },
+    "5432": {
+      "label": "PostgreSQL"
+    }
   },
   "postCreateCommand": "bash .devcontainer/postCreate.sh",
+  "postStartCommand": "bash .devcontainer/sync-zoo-code-settings.sh",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -22,7 +47,9 @@
         "bradlc.vscode-tailwindcss",
         "ms-azuretools.vscode-docker",
         "redhat.vscode-yaml",
-        "humao.rest-client"
+        "humao.rest-client",
+        "ZooCodeOrganization.zoo-code",
+        "anthropic.claude-code"
       ]
     }
   }

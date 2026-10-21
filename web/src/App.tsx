@@ -1,5 +1,37 @@
+import { useEffect, useState } from 'react'
+import { api, type Session, type SetupStatus } from './api'
 import { HomePage } from './pages/HomePage'
+import { RequestsPage } from './pages/RequestsPage'
+import { NotificationsPage } from './pages/NotificationsPage'
+import { SettingsPage } from './pages/SettingsPage'
+import { SetupWizardPage } from './pages/SetupWizardPage'
 
 export function App() {
-  return <HomePage />
+    const [session, setSession] = useState<Session | null>(null)
+    const [checking, setChecking] = useState(true)
+    const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null)
+    const [page, setPage] = useState<'home' | 'requests' | 'notifications' | 'settings'>('home')
+    const [error, setError] = useState('')
+    const refresh = async () => {
+        setChecking(true)
+        try {
+            const [status, current] = await Promise.all([
+                api<SetupStatus>('/setup/status', { cache: 'no-store' }),
+                api<Session>('/auth/me', { cache: 'no-store' }).catch(() => null),
+            ])
+            setSetupStatus(status)
+            setSession(current)
+        } catch {
+            setError('Could not check first-run setup status. Refresh the page to try again.')
+        } finally { setChecking(false) }
+    }
+    useEffect(() => { void refresh() }, [])
+    async function logout() {
+        try { await api<void>('/auth/logout', { method: 'POST' }, session?.csrfToken); setSession(null) }
+        catch (e) { setError(e instanceof Error ? e.message : 'Could not sign out') }
+    }
+    if (checking || !setupStatus) return <main className="shell" aria-busy="true"><p role="status">{error || 'Checking setup and your session…'}</p></main>
+    if (setupStatus.required) return <SetupWizardPage session={session} onComplete={current => { setSession(current); setSetupStatus({ complete: true, required: false }); setPage('home') }} />
+    if (!session) return <main className="shell"><section className="card"><p className="eyebrow">Requestarr</p><h1>Sign in to Requestarr</h1><p>Sign in with your organization account to request and track availability.</p>{error && <p role="alert" className="error">{error}</p>}<a className="button" href="/api/v1/auth/login">Sign in</a></section></main>
+    return <><header className="topbar"><a className="brand" href="#home" onClick={() => setPage('home')}>Requestarr</a><nav aria-label="Main navigation"><button className="navlink" onClick={() => setPage('home')}>Request</button><button className="navlink" onClick={() => setPage('requests')}>Requests</button><button className="navlink" onClick={() => setPage('notifications')}>Notifications</button>{session.user.role === 'admin' && <button className="navlink" onClick={() => setPage('settings')}>Settings</button>}</nav><div className="account"><span>{session.user.displayName || session.user.email}</span><button className="button secondary" onClick={() => void logout()}>Sign out</button></div></header>{error && <p role="alert" className="shell error">{error}</p>}{page === 'home' ? <HomePage session={session} onCreated={() => setPage('requests')} /> : page === 'requests' ? <RequestsPage user={session.user} csrfToken={session.csrfToken} /> : page === 'settings' && session.user.role === 'admin' ? <SettingsPage session={session} /> : <NotificationsPage session={session} />}</>
 }

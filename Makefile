@@ -38,7 +38,7 @@ test:
 vet:
 	go vet ./...
 
-build:
+build: web-build
 	mkdir -p bin
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(APP) ./cmd/requestarr
 
@@ -59,6 +59,9 @@ web-dev:
 
 web-build:
 	cd web && npm run build
+	rm -rf internal/webui/dist
+	mkdir -p internal/webui/dist
+	cp -R web/dist/. internal/webui/dist/
 
 web-check:
 	cd web && npm run check

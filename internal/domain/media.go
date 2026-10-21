@@ -33,9 +33,40 @@ type CatalogItem struct {
 	UpdatedAt   time.Time
 }
 
+// Availability is independent of request lifecycle status.
+type Availability string
+
+const (
+	AvailabilityUnknown   Availability = "unknown"
+	AvailabilityAvailable Availability = "available"
+	AvailabilityMissing   Availability = "missing"
+)
+
+// AvailabilityEvidence records a source-local exact identity observation.
+type AvailabilityEvidence struct {
+	CatalogItemID string
+	SourceID      string
+	SourceItemID  string
+	ObservedAt    time.Time
+}
+
+// SourceSyncStatus is sanitized operational health for an availability source.
+type SourceSyncStatus struct {
+	Configured          bool       `json:"configured"`
+	Enabled             bool       `json:"enabled"`
+	LastSyncStartedAt   *time.Time `json:"lastSyncStartedAt"`
+	LastSyncSucceededAt *time.Time `json:"lastSyncSucceededAt"`
+	LastSyncError       *string    `json:"lastSyncError"`
+}
+
 type ResolvedItem struct {
 	Item      CatalogItem
 	Platforms []Platform
+}
+
+type CatalogPlatform struct {
+	CatalogItemID string
+	Platform      Platform
 }
 
 type Platform struct {

@@ -1,0 +1,9 @@
+DROP TABLE setup_audit_events;
+ALTER TABLE setup_state
+    DROP CONSTRAINT setup_state_token_expiry_pair_check,
+    DROP COLUMN completed_at,
+    DROP COLUMN claimed_by,
+    DROP COLUMN token_expires_at,
+    DROP COLUMN token_hash,
+    DROP COLUMN target_subject,
+    DROP COLUMN target_issuer;

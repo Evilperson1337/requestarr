@@ -13,12 +13,9 @@ const (
 )
 
 type Message struct {
-	Event  Event
-	UserID string
-	Title  string
-	Body   string
-	URL    string
-	Tags   []string
+	Event Event
+	Title string
+	Body  string
 }
 
 type Notifier interface {

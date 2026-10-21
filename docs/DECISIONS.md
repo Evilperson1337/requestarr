@@ -20,6 +20,10 @@ OIDC is mandatory for normal V1 operation. Keycloak is the primary tested provid
 ## D006 — Apprise integration
 In-app notifications are native; external notifications use Apprise API instead of implementing many destination-specific adapters.
 
+External Apprise delivery uses one operator-configured global route (environment URL + configuration key), enqueued once per event; native inbox delivery remains subscriber-scoped. Migration 000010 is retained unchanged and its user-level Apprise preferences are deprecated. Migration 000011 introduces the dedicated global outbox.
+
+External Apprise delivery uses one operator-configured global route (environment URL + configuration key), enqueued once per event; native inbox delivery remains subscriber-scoped. Migration 000010 is retained unchanged and its user-level Apprise preferences are deprecated. Migration 000011 introduces the dedicated global outbox.
+
 ## D007 — Library authority
 Plex/Jellyfin determine movie/TV availability, Plex/Jellyfin/Navidrome determine music availability, and RomM determines game availability. A source is authoritative only for configured media types.
 
@@ -37,3 +41,6 @@ Primary navigation says `Requests`, not `My Requests`. My Requests is a filter/b
 
 ## D012 — Setup wizard is V1
 First run guides General -> Authentication -> Metadata Providers -> Libraries -> Notifications -> Request Policy -> Review -> Finish, with external connection validation and resumability.
+
+## Migration 000007 — Correct in-place before release
+Migration 000001 already creates and seeds the singleton `setup_state` row. Migration 000007 extends that table with admin-bootstrap fields and must not create a second table or seed row. Editing 000007 in place is safe only because it is newly authored, unmerged/unreleased, and has not been applied in production; once shipped or applied, migrations are append-only and corrections require a new migration.

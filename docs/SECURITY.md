@@ -2,6 +2,7 @@
 
 - OIDC required after first-run setup; Keycloak compatibility covered by integration tests.
 - Authorization enforced server-side for every mutating/admin endpoint.
+- Admin user management exposes the IdP-provided email address and display name to administrators so they can deliberately identify and select accounts; no OIDC tokens or credentials are exposed.
 - Bootstrap setup token is temporary, high entropy, and invalidated after completion.
 - Never expose provider/library secrets after storage; UI returns redacted configuration state.
 - Encrypt secret material at rest or use a deployment secret provider before production release.

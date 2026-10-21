@@ -8,6 +8,64 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /auth/login:
+    get:
+      operationId: startOIDCLogin
+      responses:
+        '302': { description: Redirect to configured identity provider }
+  /auth/callback:
+    get:
+      operationId: completeOIDCLogin
+      responses:
+        '303': { description: Set session and CSRF cookies, then redirect to canonical PublicURL }
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      responses:
+        '200': { description: Authenticated user and synchronizer CSRF token }
+        '401': { description: Authentication required }
+  /auth/logout:
+    post:
+      operationId: logout
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Session revoked }
+        '403': { description: Origin or CSRF validation failed }
+  /notifications:
+    get:
+      operationId: listNotifications
+      summary: List the authenticated user's notification inbox
+      responses:
+        '200':
+          description: Up to 100 newest user-scoped inbox entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+        '401': { description: Authentication required }
+  /notifications/{notificationId}/read:
+    post:
+      operationId: markNotificationRead
+      parameters:
+        - in: path
+          name: notificationId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Notification marked read }
+        '401': { description: Authentication required }
+        '403': { description: Origin or CSRF validation failed }
+        '404': { description: Notification not found for current user }
   /version:
     get:
       operationId: getVersion
@@ -28,24 +86,114 @@ paths:
       operationId: getSetupStatus
       responses:
         '200':
-          description: First-run setup state
+          description: Minimal public first-run state; exposes no draft or identity information
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [complete, required]
+                properties:
+                  complete: { type: boolean }
+                  required: { type: boolean }
+  /setup/claim-admin:
+    post:
+      operationId: claimInitialAdmin
+      summary: Atomically consume the operator-issued initial-admin token
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [issuer, subject, token]
+              properties:
+                issuer: { type: string }
+                subject: { type: string }
+                token: { type: string }
+      responses:
+        '204': { description: Admin role granted and setup atomically completed }
+        '401': { description: Authentication required }
+        '403': { description: Generic claim failure }
   /resolve:
     post:
       operationId: resolveUrl
       summary: Resolve a supported metadata URL without creating a request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, format: uri, maxLength: 2048 }
       responses:
-        '501': { description: Scaffold placeholder }
+        '200': { description: Resolved canonical catalog item and dynamic platforms }
+        '400': { description: Unsupported URL or provider resolution failure }
+        '401': { description: Authentication required }
   /requests:
     get:
       operationId: listRequests
-      summary: List the shared request queue with filters
+        summary: List the shared request queue; mine filters by the current user's subscriptions
+      parameters:
+        - in: query
+          name: mine
+          schema: { type: boolean, default: false }
       responses:
-        '501': { description: Scaffold placeholder }
+        '200': { description: Shared queue for all authenticated users; items include catalog availability and latest positive observation time }
+        '401': { description: Authentication required }
+  /admin/sources/jellyfin/status:
+    get:
+      operationId: getJellyfinSyncStatus
+      summary: Get sanitized Jellyfin sync health (administrator only)
+      responses:
+        '200': { description: Configured state, sync timestamps, and safe error; excludes URLs, credentials, and inventory }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
     post:
       operationId: createRequest
       summary: Create the one canonical shared request for an item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platforms]
+              properties:
+                catalogId: { type: string, format: uuid }
+                url: { type: string, format: uri, maxLength: 2048, description: Supported TMDB, MusicBrainz, or IGDB metadata URL. Mutually exclusive with catalogId. }
+                note: { type: string, maxLength: 2000 }
+                platforms:
+                  type: object
+                  required: [any]
+                  properties:
+                    any: { type: boolean }
+                    platformKeys: { type: array, items: { type: string } }
       responses:
-        '501': { description: Scaffold placeholder }
+        '201': { description: Canonical request created with creator subscription and event }
+        '200': { description: Existing shared request returned }
+        '400': { description: Invalid request }
+        '403': { description: User role cannot create requests }
+        '401': { description: Authentication required }
+components:
+  schemas:
+    Notification:
+      type: object
+      additionalProperties: false
+      required: [id, title, body, createdAt, readAt]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        readAt: { type: [string, 'null'], format: date-time }
   /requests/{requestId}/subscription:
     put:
       operationId: subscribeToRequest
@@ -56,7 +204,42 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '501': { description: Scaffold placeholder }
+        '200': { description: Subscription enabled; changed=false when already enabled }
+        '400': { description: Invalid request ID }
+        '404': { description: Request not found }
+        '401': { description: Authentication required }
+  /requests/{requestId}/transition:
+    post:
+      operationId: transitionRequest
+      summary: Admin-only approval or denial of a requested item; does not alter availability
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [toStatus, expectedVersion, operationId]
+              properties:
+                toStatus: { type: string, enum: [approved, denied] }
+                expectedVersion: { type: integer, minimum: 1 }
+                operationId: { type: string, format: uuid }
+      responses:
+        '200': { description: Transition committed with incremented request version and audit event }
+        '400': { description: Invalid transition payload }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: Request not found }
+        '409': { description: Stale request version or invalid lifecycle transition }
     delete:
       operationId: unsubscribeFromRequest
       summary: Disable a manual subscription; requester subscription policy is enforced server-side
@@ -66,4 +249,8 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '501': { description: Scaffold placeholder }
+        '200': { description: Manual subscription removed or already absent }
+        '400': { description: Invalid request ID }
+        '404': { description: Request not found }
+        '409': { description: Creator subscription cannot be removed }
+        '401': { description: Authentication required }

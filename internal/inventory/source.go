@@ -26,6 +26,16 @@ type ChangeSet struct {
 	CompletedAt time.Time
 }
 
+// Snapshot describes one source's complete inventory view. Complete must only
+// be true when the source successfully enumerated every configured item; partial
+// results are useful for positive evidence but never for removals.
+type Snapshot struct {
+	SourceID   string
+	Items      []Item
+	Complete   bool
+	ObservedAt time.Time
+}
+
 // Source is authoritative for availability only for media types enabled in its configuration.
 type Source interface {
 	Name() string

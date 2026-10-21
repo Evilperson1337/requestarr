@@ -18,15 +18,25 @@ type PlatformSelection struct {
 }
 
 type Request struct {
-	ID            string
-	CatalogItemID string
-	Status        RequestStatus
-	RequestedBy   string
-	Note          string
-	Platforms     PlatformSelection
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	AvailableAt   *time.Time
+	ID                     string
+	Version                int64
+	CatalogItemID          string
+	Title                  string
+	MediaType              MediaType
+	ArtworkURL             string
+	ArtworkKind            ArtworkKind
+	Status                 RequestStatus
+	RequestedBy            string
+	Note                   string
+	Platforms              PlatformSelection
+	PlatformNames          []string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	AvailableAt            *time.Time
+	Availability           Availability       `json:"availability"`
+	AvailabilityObservedAt *time.Time         `json:"availabilityObservedAt"`
+	SubscriptionSource     SubscriptionSource `json:"subscriptionSource"`
+	Subscribed             bool               `json:"subscribed"`
 }
 
 type SubscriptionSource string
@@ -49,5 +59,18 @@ func ValidatePlatformSelection(s PlatformSelection) bool {
 	if s.Any {
 		return len(s.PlatformKeys) == 0
 	}
-	return len(s.PlatformKeys) > 0
+	if len(s.PlatformKeys) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(s.PlatformKeys))
+	for _, key := range s.PlatformKeys {
+		if key == "" {
+			return false
+		}
+		if _, ok := seen[key]; ok {
+			return false
+		}
+		seen[key] = struct{}{}
+	}
+	return true
 }

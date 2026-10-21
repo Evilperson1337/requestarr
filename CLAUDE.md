@@ -32,13 +32,14 @@ Single Go test: `go test ./internal/domain/... -run TestName -v`.
 
 Before opening a PR, run `scripts/check.sh` (fmt, test, vet, and web-check if `web/node_modules` exists). This mirrors what `AGENTS.md` calls "required checks before completing a change" — run all four (`make fmt test vet web-check`) after any change, not just Go changes.
 
-The Go module targets 1.23+ syntax for compatibility; the dev container itself runs Go 1.24. The web scaffold has no third-party runtime deps beyond React/Vite — deliberately, so the architecture can be reviewed before further libraries are added.
+The Go module and development container target Go 1.27. The web scaffold has no third-party runtime deps beyond React/Vite — deliberately, so the architecture can be reviewed before further libraries are added.
 
 ## Architecture
 
 Modular monolith: one Go process serves the HTTP API, (eventually) serves the production UI, runs background jobs, and talks to a single PostgreSQL database. Do not split into microservices/workers prematurely. External systems (metadata providers, media libraries, notification gateway) sit behind narrow interfaces in `internal/`, never called directly from HTTP handlers or domain logic.
 
 Module boundaries (`internal/`):
+
 - `auth/oidc` — OIDC discovery/login/callback/session/role mapping.
 - `providers/metadata` (+ `tmdb`, `musicbrainz`, `igdb`) — turns a pasted URL into a canonical catalog item. Answers "what is this?".
 - `domain` — core types (`Request`, `RequestStatus`, `PlatformSelection`, catalog/media types) and pure business rules (e.g. `ValidatePlatformSelection`). Keep this free of HTTP/DB/provider imports.
@@ -61,6 +62,7 @@ library sync -> normalized inventory -> InventoryChanged event -> targeted recon
 ```
 
 Key invariants worth knowing before touching this flow:
+
 - A source that fails to sync must never generate removals; true "no longer available" detection requires a successful authoritative enumeration, not an error path.
 - Reconciliation should be targeted (affected items), not a full N×M sweep, when it's possible to scope it.
 - Request status and availability are conceptually separate even though V1 UI/API collapses `available` into the status enum (`internal/domain/request.go`).
