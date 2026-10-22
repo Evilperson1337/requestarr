@@ -82,7 +82,23 @@ outages do not cause availability to be marked missing.
 Jellyfin covers movies and TV only; music comes from Plex (and later Navidrome) and games from RomM.
 
 ### Navidrome / OpenSubsonic
-Authoritative for enabled music. Normalize song/album identity to MusicBrainz IDs when present and retain fallback metadata for confidence matching.
+
+Set `REQUESTARR_NAVIDROME_URL`, `REQUESTARR_NAVIDROME_USERNAME`, and
+`REQUESTARR_NAVIDROME_PASSWORD` together to enable the optional music source.
+The URL follows the other Source origin rules: no credentials, path, query or
+fragment; HTTPS outside development. Use a dedicated read-only account. The
+OpenSubsonic salted-token authentication is passed using standard API query
+parameters; the clear password is not sent, but intermediaries must not log
+request URLs. Redirects are disabled and responses are size-limited.
+
+The adapter reads visible music folders, paginated albums, and each album's
+tracks. It declares authority for albums and songs only. MusicBrainz album and
+recording IDs are normalized to lowercase `musicbrainz` identifiers when present; items
+without IDs retain title/year metadata but do not automatically match catalog
+items. Every page and album detail must be fetched successfully before a
+complete snapshot is persisted. Failed, malformed, or incomplete syncs update
+health only and never remove prior availability evidence. Sync uses the shared
+job runner and the same `Sync now` action as other Sources.
 
 ### RomM
 Authoritative for games only. Set both `REQUESTARR_ROMM_URL` and

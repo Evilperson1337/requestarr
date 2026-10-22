@@ -1,0 +1,28 @@
+{
+    "subsonic-response": {
+        "status": "ok",
+        "version": "1.16.1",
+        "type": "navidrome",
+        "serverVersion": "0.54.5",
+        "albumList2": {
+            "album": [
+                {
+                    "id": "album-1",
+                    "name": "First Album",
+                    "artist": "Artist One",
+                    "year": 2020,
+                    "songCount": 2,
+                    "musicBrainzId": "release-group-1"
+                },
+                {
+                    "id": "album-2",
+                    "name": "Second Album",
+                    "artist": "Artist Two",
+                    "year": 2021,
+                    "songCount": 2,
+                    "musicBrainzId": "release-group-2"
+                }
+            ]
+        }
+    }
+}

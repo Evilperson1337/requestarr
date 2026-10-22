@@ -18,6 +18,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/httpapi"
 	"github.com/evilperson1337/requestarr/internal/inventory"
 	"github.com/evilperson1337/requestarr/internal/inventory/jellyfin"
+	"github.com/evilperson1337/requestarr/internal/inventory/navidrome"
 	"github.com/evilperson1337/requestarr/internal/inventory/plex"
 	"github.com/evilperson1337/requestarr/internal/inventory/romm"
 	"github.com/evilperson1337/requestarr/internal/jobs"
@@ -103,6 +104,13 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 			return fmt.Errorf("initialize RomM integration: %w", err)
 		}
 		addSource("romm", client, cfg.RommURL, nil)
+	}
+	if cfg.NavidromeURL != "" {
+		client, err := navidrome.New(cfg.NavidromeURL, cfg.NavidromeUsername, cfg.NavidromePassword)
+		if err != nil {
+			return fmt.Errorf("initialize Navidrome integration: %w", err)
+		}
+		addSource("navidrome", client, cfg.NavidromeURL, nil)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
 

@@ -1,0 +1,33 @@
+{
+    "subsonic-response": {
+        "status": "ok",
+        "version": "1.16.1",
+        "type": "navidrome",
+        "serverVersion": "0.54.5",
+        "album": {
+            "id": "album-2",
+            "name": "Second Album",
+            "artist": "Artist Two",
+            "year": 2021,
+            "songCount": 2,
+            "musicBrainzId": "release-group-2",
+            "song": [
+                {
+                    "id": "song-3",
+                    "title": "Third Song",
+                    "artist": "Artist Two",
+                    "album": "Second Album",
+                    "year": 2021,
+                    "musicBrainzId": "recording-3"
+                },
+                {
+                    "id": "song-4",
+                    "title": "Fourth Song",
+                    "artist": "Artist Two",
+                    "album": "Second Album",
+                    "year": 2021
+                }
+            ]
+        }
+    }
+}

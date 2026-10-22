@@ -29,6 +29,9 @@ type Config struct {
 	PlexToken         string
 	RommURL           string
 	RommToken         string
+	NavidromeURL      string
+	NavidromeUsername string
+	NavidromePassword string
 	AppriseURL        string
 	AppriseConfigKey  string
 }
@@ -53,6 +56,9 @@ func FromEnv() Config {
 		PlexToken:         os.Getenv("REQUESTARR_PLEX_TOKEN"),
 		RommURL:           os.Getenv("REQUESTARR_ROMM_URL"),
 		RommToken:         os.Getenv("REQUESTARR_ROMM_TOKEN"),
+		NavidromeURL:      os.Getenv("REQUESTARR_NAVIDROME_URL"),
+		NavidromeUsername: os.Getenv("REQUESTARR_NAVIDROME_USERNAME"),
+		NavidromePassword: os.Getenv("REQUESTARR_NAVIDROME_PASSWORD"),
 		AppriseURL:        os.Getenv("REQUESTARR_APPRISE_URL"),
 		AppriseConfigKey:  os.Getenv("REQUESTARR_APPRISE_CONFIG_KEY"),
 	}
@@ -91,6 +97,14 @@ func (c Config) Validate() error {
 		problems = append(problems, "REQUESTARR_ROMM_URL and REQUESTARR_ROMM_TOKEN must be configured together")
 	} else if c.RommURL != "" {
 		problems = append(problems, c.sourceURLProblems("REQUESTARR_ROMM_URL", c.RommURL)...)
+	}
+	navidromeConfigured := c.NavidromeURL != "" || c.NavidromeUsername != "" || c.NavidromePassword != ""
+	if navidromeConfigured {
+		if c.NavidromeURL == "" || c.NavidromeUsername == "" || c.NavidromePassword == "" {
+			problems = append(problems, "REQUESTARR_NAVIDROME_URL, REQUESTARR_NAVIDROME_USERNAME, and REQUESTARR_NAVIDROME_PASSWORD must be configured together")
+		} else {
+			problems = append(problems, c.sourceURLProblems("REQUESTARR_NAVIDROME_URL", c.NavidromeURL)...)
+		}
 	}
 	if (c.AppriseURL == "") != (c.AppriseConfigKey == "") {
 		problems = append(problems, "REQUESTARR_APPRISE_URL and REQUESTARR_APPRISE_CONFIG_KEY must be configured together")

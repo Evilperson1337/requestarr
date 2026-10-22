@@ -4,9 +4,9 @@
 
 **Blocked by:** 11 Adapter interface, contract suite, multi-source availability and Plex movie/TV, 12 Plex music
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Navidrome is authoritative for music only
-- [ ] Fixtures include success and failure paths and pass the contract suite
-- [ ] A music Request is satisfied by Navidrome in an integration test
-- [ ] A failed Navidrome sync never removes anything
+- [x] Navidrome is authoritative for albums and songs only
+- [x] Fixtures include success and failure paths and pass the shared contract suite
+- [x] A song Request is satisfied by Navidrome in a PostgreSQL integration test
+- [x] A failed Navidrome sync preserves existing availability evidence

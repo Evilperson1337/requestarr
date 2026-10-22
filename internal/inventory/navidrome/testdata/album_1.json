@@ -1,0 +1,33 @@
+{
+    "subsonic-response": {
+        "status": "ok",
+        "version": "1.16.1",
+        "type": "navidrome",
+        "serverVersion": "0.54.5",
+        "album": {
+            "id": "album-1",
+            "name": "First Album",
+            "artist": "Artist One",
+            "year": 2020,
+            "songCount": 2,
+            "musicBrainzId": "release-group-1",
+            "song": [
+                {
+                    "id": "song-1",
+                    "title": "First Song",
+                    "artist": "Artist One",
+                    "album": "First Album",
+                    "year": 2020,
+                    "musicBrainzId": "recording-1"
+                },
+                {
+                    "id": "song-2",
+                    "title": "Second Song",
+                    "artist": "Artist One",
+                    "album": "First Album",
+                    "year": 2020
+                }
+            ]
+        }
+    }
+}

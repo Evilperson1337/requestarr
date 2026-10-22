@@ -19,6 +19,9 @@ func TestFromEnvDefaults(t *testing.T) {
 	t.Setenv("REQUESTARR_TMDB_READ_TOKEN", "tmdb-token")
 	t.Setenv("REQUESTARR_IGDB_CLIENT_ID", "igdb-client")
 	t.Setenv("REQUESTARR_IGDB_CLIENT_SECRET", "igdb-secret")
+	t.Setenv("REQUESTARR_NAVIDROME_URL", "")
+	t.Setenv("REQUESTARR_NAVIDROME_USERNAME", "")
+	t.Setenv("REQUESTARR_NAVIDROME_PASSWORD", "")
 
 	got := FromEnv()
 	want := Config{
@@ -236,6 +239,47 @@ func TestPlexConfigurationMustBeCompleteAndSafe(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
 				t.Fatalf("error %v does not contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestNavidromeConfigurationMustBeCompleteAndSafe(t *testing.T) {
+	base := validBase()
+	t.Setenv("REQUESTARR_NAVIDROME_URL", "https://music.example.test")
+	t.Setenv("REQUESTARR_NAVIDROME_USERNAME", "requestarr")
+	t.Setenv("REQUESTARR_NAVIDROME_PASSWORD", "server-secret")
+	got := FromEnv()
+	if got.NavidromeURL != "https://music.example.test" || got.NavidromeUsername != "requestarr" || got.NavidromePassword != "server-secret" {
+		t.Fatalf("Navidrome env config not loaded: %#v", got)
+	}
+
+	for name, tc := range map[string]struct {
+		url, username, password string
+		environment             string
+		wantErr                 string
+	}{
+		"unset":                  {environment: "development"},
+		"complete":               {url: "http://music.local:4533", username: "requestarr", password: "secret", environment: "development"},
+		"missing password":       {url: "https://music.example.test", username: "requestarr", environment: "production", wantErr: "must be configured together"},
+		"credentials in URL":     {url: "https://user:secret@music.example.test", username: "requestarr", password: "secret", environment: "production", wantErr: "REQUESTARR_NAVIDROME_URL must be an absolute http(s) origin"},
+		"path in URL":            {url: "https://music.example.test/navidrome", username: "requestarr", password: "secret", environment: "production", wantErr: "REQUESTARR_NAVIDROME_URL must be an absolute http(s) origin"},
+		"HTTP in production":     {url: "http://music.example.test", username: "requestarr", password: "secret", environment: "production", wantErr: "REQUESTARR_NAVIDROME_URL must use https outside development"},
+		"valid HTTPS production": {url: "https://music.example.test", username: "requestarr", password: "secret", environment: "production"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := base
+			c.Environment = tc.environment
+			c.NavidromeURL, c.NavidromeUsername, c.NavidromePassword = tc.url, tc.username, tc.password
+			if tc.environment == "production" {
+				c.PublicURL = "https://requests.example.test"
+			}
+			err := c.Validate()
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("error %v does not contain %q", err, tc.wantErr)
+			}
+			if tc.wantErr == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}
