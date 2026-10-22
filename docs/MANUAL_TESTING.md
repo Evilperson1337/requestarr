@@ -1,6 +1,6 @@
 # Manual Testing Guide
 
-Step-by-step verification for what is currently implemented: config validation, PostgreSQL startup/migrations/readiness, and the frontend build. See `docs/TESTING.md` for the broader automated-testing strategy as more of the system is implemented.
+Step-by-step verification of the foundation: config validation, PostgreSQL startup/migrations/readiness, and the frontend build. These steps do not cover the request, OIDC, Jellyfin sync or notification features, which are implemented but have no manual walkthrough here yet (see `docs/IMPLEMENTATION_PLAN.md` for current status). See `docs/TESTING.md` for the broader automated-testing strategy as more of the system is implemented.
 
 ## 0. Prerequisites
 
@@ -54,7 +54,7 @@ make migrate-up
 docker compose -f compose.dev.yaml exec postgres psql -U requestarr -d requestarr -c '\dt'
 ```
 
-**Expect:** `users`, `catalog_items`, `requests`, `request_subscriptions`, `request_events`, `library_sources`, `inventory_items`, `notification_deliveries`, `setup_state`, `schema_migrations`.
+**Expect:** at least `users`, `catalog_items`, `requests`, `request_subscriptions`, `request_events`, `library_sources`, `inventory_items`, `notification_deliveries`, `setup_state`, `schema_migrations`, plus the tables added by later migrations in `db/migrations/`.
 
 Run `make migrate-up` a second time — **expect:** same success, no errors (idempotent, no duplicate-table errors).
 
@@ -71,7 +71,7 @@ curl -s localhost:8080/healthz | jq        # expect: {"status":"ok","time":"..."
 curl -s localhost:8080/readyz  | jq        # expect: {"status":"ok"}, HTTP 200 (Postgres is up)
 curl -s localhost:8080/api/v1/version | jq # expect: {"version":"dev","commit":"...","date":"..."}
 curl -s localhost:8080/api/v1/setup/status | jq
-curl -s localhost:8080/                    # expect: scaffold HTML page
+curl -s localhost:8080/                    # expect: the embedded web UI (HTML shell) when built with the web assets
 curl -s -o /dev/null -w '%{http_code}\n' localhost:8080/nope   # expect: 404
 ```
 
@@ -114,7 +114,7 @@ REQUESTARR_TEST_DATABASE_URL=postgres://requestarr:requestarr@localhost:5432/req
   go test -tags=integration ./internal/store/postgres/... -v
 ```
 
-**Expect:** `TestOpenAppliesMigrations` and `TestOpenIsIdempotent` both `PASS`.
+**Expect:** every test in the suite `PASS`es, including `TestOpenAppliesMigrations` and `TestOpenIsIdempotent`.
 
 Without that env var set:
 
@@ -131,6 +131,7 @@ make web-install   # npm ci against the committed package-lock.json
 make web-check      # expect: clean tsc, no errors
 make web-build       # expect: dist/ produced, no errors
 make web-dev          # then open http://localhost:5173 and confirm the "Request Something" home page renders
+make build             # builds the web app, embeds it in the Go binary and writes bin/requestarr
 ```
 
 ## 11. Full gate, one shot

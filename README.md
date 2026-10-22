@@ -51,7 +51,7 @@ Metadata providers answer **“What is this?”**. Library integrations answer *
 ```text
 cmd/requestarr/             application entry point
 internal/                   Go application/domain/integration boundaries
-web/                        React + TypeScript client scaffold
+web/                        React + TypeScript client
 api/                        OpenAPI contract
 config/                     example configuration
 db/migrations/              PostgreSQL schema
@@ -81,7 +81,7 @@ Before starting the stack, configure valid OIDC issuer/client values and a rando
 
 For initial administrator provisioning, see [`docs/OIDC_AUTH.md`](docs/OIDC_AUTH.md): operators run `requestarr setup-token --issuer <issuer> --subject <subject>`, then the matching authenticated OIDC user claims it once.
 
-The frontend scaffold lives under `web/`:
+The frontend lives under `web/`:
 
 ```bash
 make web-install

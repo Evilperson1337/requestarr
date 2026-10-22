@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Requestarr is a self-hosted shared request/availability/notification portal for movies, TV, music, and games. It is currently a **design-to-implementation scaffold**: most `internal/` packages are single-file stubs (e.g. `internal/inventory/plex`, `internal/providers/metadata/tmdb`, `internal/auth/oidc`) awaiting real implementation. Read `docs/PROJECT_VISION.md` and `docs/V1_SCOPE.md` before writing feature code so you know what's actually in scope.
+Requestarr is a self-hosted shared request/availability/notification portal for movies, TV, music, and games. It is a **working prototype, not yet V1-complete**: OIDC login, the TMDB/MusicBrainz/IGDB resolvers, shared requests with subscriptions, Jellyfin movie/TV sync, in-app notifications and a global Apprise outbox are implemented. Plex, Navidrome and RomM are README-only stubs, there is no real setup wizard, and there is no persistent job system. `docs/IMPLEMENTATION_PLAN.md` and `docs/research/PROJECT_STATUS.md` are the status sources; the V1 build plan is in `.scratch/v1-completion/`. Read `docs/PROJECT_VISION.md` and `docs/V1_SCOPE.md` before writing feature code so you know what's actually in scope. Domain vocabulary is in `GLOSSARY.md`.
 
-**Read `AGENTS.md` first.** It contains binding product-boundary and engineering rules for any AI agent working in this repo (no acquisition/downloader behavior, OIDC-only auth, one shared request per item, domain logic isolated from HTTP/DB/provider clients, etc.). `docs/DECISIONS.md` (D001–D012) records accepted architecture/product decisions — do not silently reverse them; if one seems wrong, document the conflict in `docs/DECISIONS.md` instead of quietly diverging.
+**Read `AGENTS.md` first.** It contains binding product-boundary and engineering rules for any AI agent working in this repo (no acquisition/downloader behavior, OIDC-only auth, one shared request per item, domain logic isolated from HTTP/DB/provider clients, etc.). `docs/DECISIONS.md` (D001–D019) records accepted architecture/product decisions — do not silently reverse them; if one seems wrong, document the conflict in `docs/DECISIONS.md` instead of quietly diverging.
 
 The `prompts/` directory contains a numbered sequence of implementation-phase prompts (`00_MASTER_CONTEXT.md` through `10_HARDEN_RELEASE.md`) intended to be run in order for AI-driven implementation work — check `prompts/README.md` and the current state of the repo to see which phase applies.
 
@@ -32,11 +32,11 @@ Single Go test: `go test ./internal/domain/... -run TestName -v`.
 
 Before opening a PR, run `scripts/check.sh` (fmt, test, vet, and web-check if `web/node_modules` exists). This mirrors what `AGENTS.md` calls "required checks before completing a change" — run all four (`make fmt test vet web-check`) after any change, not just Go changes.
 
-The Go module and development container target Go 1.27. The web scaffold has no third-party runtime deps beyond React/Vite — deliberately, so the architecture can be reviewed before further libraries are added.
+The Go module and development container target Go 1.27. The web app has no third-party runtime deps beyond React/Vite — deliberately, so the architecture can be reviewed before further libraries are added.
 
 ## Architecture
 
-Modular monolith: one Go process serves the HTTP API, (eventually) serves the production UI, runs background jobs, and talks to a single PostgreSQL database. Do not split into microservices/workers prematurely. External systems (metadata providers, media libraries, notification gateway) sit behind narrow interfaces in `internal/`, never called directly from HTTP handlers or domain logic.
+Modular monolith: one Go process serves the HTTP API, serves the embedded production UI, runs background jobs, and talks to a single PostgreSQL database. Do not split into microservices/workers prematurely. External systems (metadata providers, media libraries, notification gateway) sit behind narrow interfaces in `internal/`, never called directly from HTTP handlers or domain logic.
 
 Module boundaries (`internal/`):
 
@@ -44,12 +44,12 @@ Module boundaries (`internal/`):
 - `providers/metadata` (+ `tmdb`, `musicbrainz`, `igdb`) — turns a pasted URL into a canonical catalog item. Answers "what is this?".
 - `domain` — core types (`Request`, `RequestStatus`, `PlatformSelection`, catalog/media types) and pure business rules (e.g. `ValidatePlatformSelection`). Keep this free of HTTP/DB/provider imports.
 - `store` — repository interfaces close to domain use-cases, not a generic ORM; PostgreSQL is the only V1 target; SQL is explicit.
-- `inventory` (+ `plex`, `jellyfin`, `navidrome`, `romm`) — normalized snapshots of what each authoritative library actually has. Answers "do we have it?".
-- `reconcile` — matches inventory changes against active requests and drives status transitions.
+- `inventory` (+ `plex`, `jellyfin`, `navidrome`, `romm`; only `jellyfin` is implemented, the others are README-only) — normalized snapshots of what each authoritative library actually has. Answers "do we have it?".
+- `reconcile` — intended to match inventory changes against active requests. Currently unused: availability matching is done in SQL inside the Postgres store (see D014), and request status does not yet become `available`.
 - `notifications` (+ `apprise`) — fans out domain events to in-app notifications and the Apprise API.
-- `jobs` — persistent background task/sync coordination.
+- `jobs` — intended persistent background task/sync coordination (D018). Currently only an interface; Jellyfin sync is an ad hoc goroutine in `internal/app`.
 - `setup` — first-run wizard draft/validation/finalization state.
-- `httpapi` — transport only; no domain policy should live in handlers (see `internal/httpapi/router.go` for the current minimal scaffold: `/healthz`, `/api/v1/version`, `/api/v1/setup/status`).
+- `httpapi` — transport only; no domain policy should live in handlers (see `internal/httpapi/router.go` for the routes, and `api/openapi.yaml` for the contract).
 - `app` — wires config + logger + HTTP server lifecycle (`internal/app/app.go`).
 
 Data flow for the core loop (see README's architecture diagram and `docs/ARCHITECTURE.md`):
@@ -75,8 +75,22 @@ Database migrations under `db/migrations/` are append-only once merged — never
 
 ## Frontend
 
-`web/` is an independent React 19 + TypeScript + Vite scaffold (`web/src/App.tsx`, `web/src/pages`, `web/src/components`). It is not yet wired into the Go binary/release build. `references/mockups/final/` holds the authoritative UI decision mockups — follow them for behavior/decisions, but accessibility and responsive layout take precedence over pixel-perfect matching (per `AGENTS.md`).
+`web/` is a React 19 + TypeScript + Vite app (`web/src/App.tsx`, `web/src/pages`, `web/src/components`). `make build` builds it and embeds it in the Go binary via `internal/webui`; the Dockerfile does the same. GoReleaser does not yet build the web assets. `references/mockups/final/` holds the authoritative UI decision mockups — follow them for behavior/decisions, but accessibility and responsive layout take precedence over pixel-perfect matching (per `AGENTS.md`).
 
 ## Working with reference material
 
-`references/source/manifest.yaml` lists upstream projects that informed Requestarr's design. `./scripts/fetch-references.sh` (or `.ps1` on Windows) populates gitignored local checkouts — these are excluded from the repo on purpose. Do not copy implementation code from fetched checkouts into Requestarr; they're architectural/UX references with independent (some GPL/AGPL) licenses, and Requestarr's own license is still undecided (`LICENSE.md`).
+`references/source/manifest.yaml` lists upstream projects that informed Requestarr's design. `./scripts/fetch-references.sh` (or `.ps1` on Windows) populates gitignored local checkouts — these are excluded from the repo on purpose. Do not copy implementation code from fetched checkouts into Requestarr; they're architectural/UX references with independent (some GPL/AGPL) licenses, and Requestarr's own license is AGPL-3.0 (D013); `LICENSE.md` still shows the old "pending" notice until it is replaced.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are local markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary, recorded as a `Status:` line in each issue file. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` at the root. Architecture and product decisions are in `docs/DECISIONS.md` (D001+), not `docs/adr/`. See `docs/agents/domain.md`.
