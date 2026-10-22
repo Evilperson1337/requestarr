@@ -47,6 +47,27 @@ Prefer stable external IDs over title matching.
 - Games: IGDB canonical game + platform matching.
 - Fallback title/year matching must record confidence/reason and be reviewable.
 
+When no stable identifier matches, a complete inventory sync records reviewable
+title/year candidates separately from availability evidence. Candidate lookup
+uses an index on media type and normalized title: lower-case, trim, and collapse
+punctuation/whitespace into word separators. Titles must match exactly after
+normalization, media types must agree, and years must agree when both exist.
+A missing year is explicitly lower confidence (`title_only`) with a reason.
+
+Admins review candidates under **Settings → Suggested matches**. Acceptance
+records actor/time and normal source/platform evidence in the same transaction
+as availability, request events, and notifications. An accepted match is local
+to that catalog/library-item pair, not a global provider alias. Later complete
+syncs revalidate it and maintain evidence through the ordinary reconciliation
+path. If the item disappears or stops matching, ordinary absence safeguards
+apply. Exact identifier matches always take precedence.
+
+Dismissal is terminal for the pair and never changes availability. Both review
+decisions are idempotent and audited; a conflicting decision returns a conflict.
+Only current candidates from the last successful complete snapshot can be
+accepted. Failed syncs preserve the last-known view; a successful snapshot that
+omits the item makes the candidate stale, including guarded empty snapshots.
+
 ## Game fulfillment
 
 For an IGDB game request:

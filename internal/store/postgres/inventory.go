@@ -87,6 +87,15 @@ func (s *Store) PersistSnapshot(ctx context.Context, d inventory.Descriptor, bas
 		if err != nil {
 			return err
 		}
+		if len(matched) == 0 {
+			if err := suggestMatches(ctx, tx, item, now); err != nil {
+				return err
+			}
+			matched, err = acceptedMatches(ctx, tx, item, now)
+			if err != nil {
+				return err
+			}
+		}
 		for _, catalogID := range matched {
 			seen[evidenceKey{catalogID, item.PlatformKey}] = struct{}{}
 			if err := recordPresence(ctx, tx, d, catalogID, item.SourceItemID, item.PlatformKey, now); err != nil {

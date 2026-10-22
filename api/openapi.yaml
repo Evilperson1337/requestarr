@@ -250,6 +250,84 @@ paths:
         '403': { description: Administrator role required }
         '404': { description: User not found }
         '409': { description: Cannot change your own role, or cannot demote the last administrator; nothing is changed }
+  /admin/match-suggestions:
+    get:
+      operationId: listMatchSuggestions
+      summary: List current title/year candidates for administrator review
+      description: >-
+        Returns up to 100 pending candidates, oldest first, from the latest successful
+        complete source snapshots. Failed syncs preserve the last-known view.
+        Suggestions never establish availability. Exact identifier matches take precedence.
+      responses:
+        '200':
+          description: Pending candidates, including confidence and reason; an empty list is items=[]
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    items: { $ref: '#/components/schemas/MatchSuggestion' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '500': { description: Could not load suggestions }
+        '503': { description: Match review unavailable }
+  /admin/match-suggestions/{suggestionId}/accept:
+    post:
+      operationId: acceptMatchSuggestion
+      summary: Confirm a library match and reconcile availability (administrator only)
+      description: >-
+        Records the review actor, adds ordinary source/platform evidence, and invokes
+        the normal availability/event/notification path in one transaction. Repeating
+        an accepted decision succeeds without duplicate effects. A dismissed decision
+        cannot be reversed. Stale candidates cannot be accepted. No request body.
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Match accepted, or the same decision was already recorded }
+        '400': { description: Invalid suggestion ID }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required, or CSRF/origin validation failed }
+        '404': { description: Suggestion not found }
+        '409': { description: Suggestion dismissed already, or no longer current; refresh after a successful sync }
+        '500': { description: Review failed; transaction rolled back }
+        '503': { description: Match review unavailable }
+  /admin/match-suggestions/{suggestionId}/dismiss:
+    post:
+      operationId: dismissMatchSuggestion
+      summary: Permanently dismiss a candidate without changing availability (administrator only)
+      description: >-
+        Records an auditable terminal decision for this catalog/library-item pair.
+        Later syncs do not reopen it. Repeating the dismissal is a successful no-op.
+        An accepted decision cannot be reversed. No request body.
+      parameters:
+        - in: path
+          name: suggestionId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Dismissed, or dismissal already recorded; availability unchanged }
+        '400': { description: Invalid suggestion ID }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required, or CSRF/origin validation failed }
+        '404': { description: Suggestion not found }
+        '409': { description: Suggestion already accepted }
+        '500': { description: Review failed; transaction rolled back }
+        '503': { description: Match review unavailable }
   /admin/sources/jellyfin/status:
     get:
       operationId: getJellyfinSyncStatus
@@ -292,6 +370,23 @@ components:
         request_id. Client-supplied values are ignored. Quote it when reporting problems.
       schema: { type: string }
   schemas:
+    MatchSuggestion:
+      type: object
+      required: [id, catalogItemId, catalogTitle, catalogYear, inventoryTitle, inventoryYear, mediaType, platformKey, sourceName, sourceItemId, confidence, reason, observedAt]
+      properties:
+        id: { type: string, format: uuid }
+        catalogItemId: { type: string, format: uuid }
+        catalogTitle: { type: string }
+        catalogYear: { type: integer, description: Zero when unknown }
+        inventoryTitle: { type: string }
+        inventoryYear: { type: integer, description: Zero when unknown }
+        mediaType: { type: string, enum: [movie, tv, album, song, game] }
+        platformKey: { type: string, description: Observed platform key; empty when not applicable or unknown }
+        sourceName: { type: string }
+        sourceItemId: { type: string }
+        confidence: { type: string, enum: [title_year, title_only] }
+        reason: { type: string }
+        observedAt: { type: string, format: date-time }
     JobRun:
       type: object
       required: [id, sourceId, trigger, status, startedAt, finishedAt]

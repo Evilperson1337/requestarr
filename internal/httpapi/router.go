@@ -134,6 +134,7 @@ func NewWithSync(logger *slog.Logger, build buildinfo.Info, readiness ReadinessC
 		})
 	}
 	api.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, build) })
+	registerMatchReviewRoutes(api, readiness, authHandler)
 	api.HandleFunc("GET /setup/status", func(w http.ResponseWriter, r *http.Request) { writeSetupStatus(w, r, readiness) })
 	api.HandleFunc("GET /admin/sources/jellyfin/status", func(w http.ResponseWriter, r *http.Request) {
 		user, err := authHandler.CurrentSession(r)
@@ -548,6 +549,9 @@ func validUUID(value string) bool {
 }
 
 func protectedMutation(method, path string) bool {
+	if method == http.MethodPost && strings.HasPrefix(path, "/admin/match-suggestions/") {
+		return true
+	}
 	if path == "/resolve" && method == http.MethodPost || path == "/requests" && method == http.MethodPost || path == "/setup/claim-admin" && method == http.MethodPost || strings.HasPrefix(path, "/admin/users/") && strings.HasSuffix(path, "/role") && method == http.MethodPut || strings.HasPrefix(path, "/requests/") && strings.HasSuffix(path, "/transition") && method == http.MethodPost || strings.HasPrefix(path, "/notifications/") && strings.HasSuffix(path, "/read") && method == http.MethodPost || strings.HasPrefix(path, "/admin/sources/") && strings.HasSuffix(path, "/sync") && method == http.MethodPost {
 		return true
 	}

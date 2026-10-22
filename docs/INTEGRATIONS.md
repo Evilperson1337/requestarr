@@ -140,14 +140,21 @@ Reference: `references/source/manifest.yaml` includes upstream Apprise and Appri
 Use OIDC discovery rather than Keycloak-specific endpoints. Keycloak is the required compatibility/test target, not a hard-coded protocol variant. Requested scopes and the groups claim are separately configurable; do not assume a claim name automatically implies an OAuth client scope. Group-to-role mappings are application settings.
 # Availability core status
 
-The current availability types, evidence schema, and exact-identifier matching
-are domain/reconciliation foundations only. No library source is currently
-configured through runtime settings or the UI, so the application does not
-provide operational availability sync or availability badges. Title/year
-matches are suggestions, never automatic confirmations. Failed or incomplete
-source runs cannot establish absence; this core intentionally does not infer
-missing status because enabled-source coverage is not yet modeled. Request
-lifecycle status remains independent from availability.
+Configured runtime Sources persist complete snapshots through the shared
+availability pipeline. Exact identifiers establish source/platform evidence;
+title/year-only candidates are **suggestions**, never automatic confirmations.
+Admins can inspect both titles, years, Source, platform, confidence, and reason
+under **Settings → Suggested matches**, then accept or dismiss. Acceptance
+adds ordinary evidence and follows the same request/notification path as an
+exact match. Dismissal does not change availability and later syncs do not
+reopen the same candidate. These are local-state operations, not live provider
+lookups. The authenticated admin API is documented in `api/openapi.yaml`.
+
+Failed or incomplete source runs cannot establish absence. Accepted matches
+are revalidated on later complete syncs, with the same multi-Source and
+two-successful-absences safeguards as exact matches. A successful sync that
+omits a pending candidate hides it from review and prevents stale acceptance.
+Request lifecycle status remains independent from availability.
 # Durable notifications
 
 Approval, denial, and positive availability changes create user-scoped in-app

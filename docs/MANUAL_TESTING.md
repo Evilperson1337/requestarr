@@ -147,3 +147,32 @@ bash scripts/check.sh
 ```bash
 make dev-down
 ```
+
+## 13. Suggested-match review
+
+1. Create a request for an item whose library entry has the same title and year
+   but no matching stable provider ID. Run a successful Source sync.
+2. As an admin, open **Settings → Suggested matches**. Check both titles, years,
+   Source/library ID, platform (if any), observation time, confidence, and reason.
+   Confirm that the request has **not** become available merely because the
+   suggestion exists.
+3. Accept the match. Confirm that the request becomes available if its platform
+   selection is satisfied, and its subscribers get the ordinary availability
+   notification. Refresh/resync: the suggestion stays out of the pending list
+   and no duplicate notification appears.
+4. For a second candidate, dismiss it. Its availability must stay unchanged;
+   refresh/resync must not reopen it. Retrying the same decision is a no-op;
+   the opposite decision returns a conflict.
+5. Repeat with a missing year: the UI must show **Title only · lower confidence**
+   and explain the missing year. Different known years, media types, or
+   normalized titles must not create a candidate. Stable-ID matches bypass review.
+6. Remove a pending library entry and successfully sync, then attempt to accept
+   it from an old tab: acceptance must report a stale candidate. A temporary
+   Source failure alone must not discard the last-known pending candidate.
+7. As a viewer/requester, verify that the list and both review endpoints return
+   forbidden; without a session they return unauthorized. Mutations with a
+   missing/invalid CSRF token or untrusted Origin must fail without side effects.
+
+Automated PostgreSQL coverage lives in
+`internal/store/postgres/suggestions_integration_test.go`; router authorization,
+CSRF, and safe errors are covered by `internal/httpapi/suggestions_test.go`.
