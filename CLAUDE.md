@@ -45,7 +45,6 @@ Module boundaries (`internal/`):
 - `domain` — core types (`Request`, `RequestStatus`, `PlatformSelection`, catalog/media types) and pure business rules (e.g. `ValidatePlatformSelection`). Keep this free of HTTP/DB/provider imports.
 - `store` — repository interfaces close to domain use-cases, not a generic ORM; PostgreSQL is the only V1 target; SQL is explicit.
 - `inventory` (+ `plex`, `jellyfin`, `navidrome`, `romm`; only `jellyfin` is implemented, the others are README-only) — normalized snapshots of what each authoritative library actually has. Answers "do we have it?".
-- `reconcile` — intended to match inventory changes against active requests. Currently unused: availability matching is done in SQL inside the Postgres store (see D014), and request status does not yet become `available`.
 - `notifications` (+ `apprise`) — fans out domain events to in-app notifications and the Apprise API.
 - `jobs` — intended persistent background task/sync coordination (D018). Currently only an interface; Jellyfin sync is an ad hoc goroutine in `internal/app`.
 - `setup` — first-run wizard draft/validation/finalization state.

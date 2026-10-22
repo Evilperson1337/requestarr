@@ -91,16 +91,12 @@ func (s *Store) PersistJellyfinSnapshot(ctx context.Context, baseURL string, sna
 			if _, err = tx.Exec(ctx, `UPDATE catalog_items SET availability='available',availability_version=$2,updated_at=$3 WHERE id=$1`, catalogID, version, now); err != nil {
 				return fmt.Errorf("mark catalog item available: %w", err)
 			}
-			var insertedEventID string
-			err = tx.QueryRow(ctx, `INSERT INTO availability_events(id,catalog_item_id,idempotency_key,event_type,data,created_at) VALUES($1,$2,$3,'availability.available','{}'::jsonb,$4) ON CONFLICT(idempotency_key) DO NOTHING RETURNING id::text`, newUUID(), catalogID, fmt.Sprintf("jellyfin:%s:availability:%d", catalogID, version), now).Scan(&insertedEventID)
-			if err != nil && err != pgx.ErrNoRows {
+			if _, err = tx.Exec(ctx, `INSERT INTO availability_events(id,catalog_item_id,idempotency_key,event_type,data,created_at) VALUES($1,$2,$3,'availability.available','{}'::jsonb,$4) ON CONFLICT(idempotency_key) DO NOTHING`, newUUID(), catalogID, fmt.Sprintf("jellyfin:%s:availability:%d", catalogID, version), now); err != nil {
 				return fmt.Errorf("append availability event: %w", err)
 			}
-			if insertedEventID != "" {
-				if err := enqueueAvailabilityNotifications(ctx, tx, catalogID, version); err != nil {
-					return err
-				}
-			}
+		}
+		if err := markOpenRequestsAvailable(ctx, tx, catalogID, now); err != nil {
+			return err
 		}
 	}
 	if len(snap.Items) > 0 || allowEmpty {
@@ -115,7 +111,7 @@ func (s *Store) PersistJellyfinSnapshot(ctx context.Context, baseURL string, sna
 }
 
 func reconcileJellyfinAbsences(ctx context.Context, tx pgx.Tx, now time.Time, seen map[string]struct{}) error {
-	rows, err := tx.Query(ctx, `SELECT c.id::text,c.availability,c.availability_version,a.first_absent_at,a.last_absent_at,a.absence_count
+	rows, err := tx.Query(ctx, `SELECT c.id::text,c.availability,c.availability_version,a.first_absent_at,a.last_absent_at,COALESCE(a.absence_count,0)
 		FROM catalog_items c JOIN availability_evidence e ON e.catalog_item_id=c.id AND e.source_id=$1
 		JOIN inventory_items i ON i.source_id=e.source_id AND i.source_item_id=e.source_item_id
 		LEFT JOIN jellyfin_absence_state a ON a.catalog_item_id=c.id
@@ -193,21 +189,59 @@ func reconcileJellyfinAbsences(ctx context.Context, tx pgx.Tx, now time.Time, se
 	return nil
 }
 
-func enqueueAvailabilityNotifications(ctx context.Context, tx pgx.Tx, catalogID string, version int64) error {
-	key := fmt.Sprintf("availability:%s:%d", catalogID, version)
-	query := `INSERT INTO notification_deliveries(id,event_key,user_id,channel,status,title,body,created_at,available_at,updated_at)
-		SELECT gen_random_uuid(),$1,s.user_id,'in_app','pending',c.title,'A requested item is now available.',now(),now(),now()
-		FROM requests r JOIN request_subscriptions s ON s.request_id=r.id JOIN catalog_items c ON c.id=r.catalog_item_id
-		WHERE r.catalog_item_id=$2 AND c.availability='available'
-		ON CONFLICT(event_key,user_id,channel) WHERE event_key IS NOT NULL DO NOTHING`
-	if _, err := tx.Exec(ctx, query, key, catalogID); err != nil {
-		return fmt.Errorf("enqueue availability inbox notifications: %w", err)
+// markOpenRequestsAvailable is the RequestAvailable path (D014): each open
+// Request for the catalog item becomes available with a version bump, a
+// sequenced audit event and one notification per subscriber plus one global
+// Apprise event, all keyed by Request so re-running a sync adds nothing.
+func markOpenRequestsAvailable(ctx context.Context, tx pgx.Tx, catalogID string, now time.Time) error {
+	rows, err := tx.Query(ctx, `SELECT r.id::text,r.status,r.version,c.title FROM requests r JOIN catalog_items c ON c.id=r.catalog_item_id
+		WHERE r.catalog_item_id=$1 AND r.status IN ('requested','approved') ORDER BY r.id FOR UPDATE OF r`, catalogID)
+	if err != nil {
+		return fmt.Errorf("list open requests for available item: %w", err)
 	}
-	var title string
-	if err := tx.QueryRow(ctx, `SELECT title FROM catalog_items WHERE id=$1`, catalogID).Scan(&title); err != nil {
-		return err
+	type open struct {
+		id, status, title string
+		version           int64
 	}
-	return enqueueGlobalAppriseEvent(ctx, tx, key, title, "A requested item is now available.")
+	var opens []open
+	for rows.Next() {
+		var o open
+		if err := rows.Scan(&o.id, &o.status, &o.version, &o.title); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan open request: %w", err)
+		}
+		opens = append(opens, o)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate open requests: %w", err)
+	}
+	rows.Close()
+	for _, o := range opens {
+		if _, err := tx.Exec(ctx, `UPDATE requests SET status='available',available_at=$2,availability_state='available',updated_at=$2,version=version+1 WHERE id=$1`, o.id, now); err != nil {
+			return fmt.Errorf("mark request available: %w", err)
+		}
+		var sequence int64
+		if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(aggregate_sequence),0)+1 FROM request_events WHERE request_id=$1`, o.id).Scan(&sequence); err != nil {
+			return fmt.Errorf("sequence request audit event: %w", err)
+		}
+		data := mustJSON(map[string]any{"from": o.status, "to": domain.RequestAvailable, "version": o.version + 1, "source": "jellyfin"})
+		var eventID string
+		if err := tx.QueryRow(ctx, `INSERT INTO request_events(id,request_id,event_type,data,created_at,aggregate_sequence) VALUES($1,$2,'request.available',$3,$4,$5) RETURNING id::text`, newUUID(), o.id, data, now, sequence).Scan(&eventID); err != nil {
+			return fmt.Errorf("append request audit event: %w", err)
+		}
+		key := "request.available:" + o.id
+		const body = "A requested item is now available."
+		if _, err := tx.Exec(ctx, `INSERT INTO notification_deliveries(id,event_key,request_event_id,user_id,channel,status,title,body,created_at,available_at,updated_at)
+			SELECT gen_random_uuid(),$2,$3,s.user_id,'in_app','pending',$4,$5,now(),now(),now() FROM request_subscriptions s WHERE s.request_id=$1
+			ON CONFLICT(event_key,user_id,channel) WHERE event_key IS NOT NULL DO NOTHING`, o.id, key, eventID, o.title, body); err != nil {
+			return fmt.Errorf("enqueue availability inbox notifications: %w", err)
+		}
+		if err := enqueueGlobalAppriseEvent(ctx, tx, key, o.title, body); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RecordJellyfinFailure updates operational health without touching inventory or availability.

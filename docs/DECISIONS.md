@@ -47,7 +47,7 @@ Migration 000001 already creates and seeds the singleton `setup_state` row. Migr
 Requestarr is a network service; AGPL-3.0 keeps hosted forks open. The Go module path is `github.com/evilperson1337/requestarr`, matching the real remote. The default branch is `main`.
 
 ## D014 — Request status `available` is projected from Availability
-When a Source sync makes a catalog item available, open Requests for it move to `available` in the same transaction, with a version bump and an audit event, and the `RequestAvailable` event is emitted from that path. `internal/reconcile` is not authoritative until the adapter interface is designed.
+When a Source sync makes a catalog item available, open Requests for it move to `available` in the same transaction, with a version bump and an audit event, and the `RequestAvailable` event is emitted from that path. The unused `internal/reconcile` package was removed; availability matching lives in `internal/store/postgres/inventory.go` until the adapter interface (ticket 11) is designed.
 
 ## D015 — Availability is "present in at least one Source"
 An item becomes missing only after every covering Source completes a successful sync without it. Failed syncs never produce removals.

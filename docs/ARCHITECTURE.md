@@ -11,7 +11,6 @@ Requestarr should begin as a modular monolith. A single Go process exposes the H
 - **catalog** — cached canonical item records.
 - **requests** — request lifecycle and subscriptions.
 - **inventory** — normalized library snapshots.
-- **reconcile** — matches inventory changes to active requests.
 - **notifications** — event fan-out to in-app + Apprise.
 - **jobs** — persistent background task coordination.
 - **setup** — first-run draft/validation/finalization.

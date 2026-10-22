@@ -226,7 +226,9 @@ func TestJellyfinRequiresTwoCompleteAbsencesBeforeMarkingMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, at := range []time.Time{base.Add(25 * time.Hour), base.Add(50 * time.Hour)} {
-		if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", inventory.Snapshot{SourceID: source, Complete: true, ObservedAt: at}); err != nil {
+		// Non-empty: empty snapshots never count as absence evidence without opt-in.
+		other := inventory.Item{SourceID: source, SourceItemID: "other-" + id, MediaType: domain.MediaMovie, Title: "Unrelated"}
+		if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", inventory.Snapshot{SourceID: source, Complete: true, ObservedAt: at, Items: []inventory.Item{other}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -574,5 +576,125 @@ func TestAdminCanDemoteToViewerButNotTheLastAdmin(t *testing.T) {
 	}
 	if err := s.ChangeUserRole(ctx, adminOne, adminTwo, "requester", now); err != nil {
 		t.Fatalf("viewer to requester: %v", err)
+	}
+}
+
+func jellyfinSnapshotFor(catalogID string, complete bool) inventory.Snapshot {
+	return inventory.Snapshot{SourceID: jellyfinSourceID, Complete: complete, ObservedAt: time.Now().UTC(), Items: []inventory.Item{{SourceID: jellyfinSourceID, SourceItemID: "jf-" + catalogID, MediaType: domain.MediaMovie, Title: "Availability integration", ExternalIDs: map[string]string{"tmdb": catalogID}}}}
+}
+
+func newMovieWithRequest(t *testing.T, ctx context.Context, s *Store, status domain.RequestStatus) (catalogID, requestID, requester string) {
+	t.Helper()
+	catalogID = newUUID()
+	if _, err := s.pool.Exec(ctx, `INSERT INTO catalog_items(id,media_type,provider,provider_id,title,artwork_kind,external_url,metadata,created_at,updated_at) VALUES($1,'movie','tmdb',$2,'Availability integration','poster','https://example.test','{}',now(),now())`, catalogID, catalogID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = s.pool.Exec(context.Background(), `DELETE FROM catalog_items WHERE id=$1`, catalogID) })
+	requester = integrationUser(t, ctx, s)
+	req, _, err := s.CreateOrGet(ctx, domain.Request{CatalogItemID: catalogID, Status: domain.RequestRequested, RequestedBy: requester}, domain.RequestSubscription{UserID: requester, Source: domain.SubscriptionRequester})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != domain.RequestRequested {
+		if _, err := s.pool.Exec(ctx, `UPDATE requests SET status=$2 WHERE id=$1`, req.ID, status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return catalogID, req.ID, requester
+}
+
+type requestEvidence struct {
+	status                                     string
+	version                                    int64
+	availableAt                                bool
+	auditEvents, inApp, apprise, catalogEvents int
+}
+
+func readRequestEvidence(t *testing.T, ctx context.Context, s *Store, catalogID, requestID string) requestEvidence {
+	t.Helper()
+	var e requestEvidence
+	if err := s.pool.QueryRow(ctx, `SELECT status,version,available_at IS NOT NULL FROM requests WHERE id=$1`, requestID).Scan(&e.status, &e.version, &e.availableAt); err != nil {
+		t.Fatal(err)
+	}
+	key := "request.available:" + requestID
+	for query, dst := range map[string]*int{
+		`SELECT count(*) FROM request_events WHERE request_id='` + requestID + `' AND event_type='request.available'`:                &e.auditEvents,
+		`SELECT count(*) FROM notification_deliveries WHERE channel='in_app' AND event_key='` + key + `'`:                            &e.inApp,
+		`SELECT count(*) FROM notification_outbox WHERE event_key='` + key + `'`:                                                     &e.apprise,
+		`SELECT count(*) FROM availability_events WHERE catalog_item_id='` + catalogID + `' AND event_type='availability.available'`: &e.catalogEvents,
+	} {
+		if err := s.pool.QueryRow(ctx, query).Scan(dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return e
+}
+
+func TestJellyfinEvidenceMovesOpenRequestsToAvailableOnce(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s, err := Open(ctx, testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, open := range []domain.RequestStatus{domain.RequestRequested, domain.RequestApproved} {
+		t.Run(string(open), func(t *testing.T) {
+			catalogID, requestID, _ := newMovieWithRequest(t, ctx, s, open)
+			subscriber := integrationUser(t, ctx, s)
+			if _, err := s.pool.Exec(ctx, `INSERT INTO request_subscriptions(request_id,user_id,source,created_at) VALUES($1,$2,'manual',now())`, requestID, subscriber); err != nil {
+				t.Fatal(err)
+			}
+			before := readRequestEvidence(t, ctx, s, catalogID, requestID)
+			snap := jellyfinSnapshotFor(catalogID, true)
+			for run := 1; run <= 2; run++ {
+				if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", snap); err != nil {
+					t.Fatal(err)
+				}
+				got := readRequestEvidence(t, ctx, s, catalogID, requestID)
+				want := requestEvidence{status: "available", version: before.version + 1, availableAt: true, auditEvents: 1, inApp: 2, apprise: 1, catalogEvents: 1}
+				if got != want {
+					t.Fatalf("after run %d: got %+v want %+v", run, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestJellyfinSnapshotLeavesClosedAndUnmatchedRequestsAndFailedSyncsAlone(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s, err := Open(ctx, testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	deniedCatalog, deniedRequest, _ := newMovieWithRequest(t, ctx, s, domain.RequestDenied)
+	if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", jellyfinSnapshotFor(deniedCatalog, true)); err != nil {
+		t.Fatal(err)
+	}
+	if got := readRequestEvidence(t, ctx, s, deniedCatalog, deniedRequest); got.status != "denied" || got.auditEvents != 0 || got.inApp != 0 || got.apprise != 0 {
+		t.Fatalf("denied request changed: %+v", got)
+	}
+
+	openCatalog, openRequest, _ := newMovieWithRequest(t, ctx, s, domain.RequestRequested)
+	before := readRequestEvidence(t, ctx, s, openCatalog, openRequest)
+	if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", jellyfinSnapshotFor(openCatalog, false)); err == nil {
+		t.Fatal("incomplete snapshot was accepted")
+	}
+	if err := s.RecordJellyfinFailure(ctx, time.Now().UTC(), "safe failure"); err != nil {
+		t.Fatal(err)
+	}
+	if after := readRequestEvidence(t, ctx, s, openCatalog, openRequest); after != before {
+		t.Fatalf("failed sync changed state: before %+v after %+v", before, after)
+	}
+	var availability string
+	var evidence int
+	if err := s.pool.QueryRow(ctx, `SELECT availability,(SELECT count(*) FROM availability_evidence WHERE catalog_item_id=$1) FROM catalog_items WHERE id=$1`, openCatalog).Scan(&availability, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if availability != "unknown" || evidence != 0 {
+		t.Fatalf("failed sync wrote availability=%q evidence=%d", availability, evidence)
 	}
 }
