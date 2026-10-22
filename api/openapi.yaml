@@ -148,6 +148,40 @@ paths:
       responses:
         '200': { description: Shared queue for all authenticated users; items include catalog availability and latest positive observation time }
         '401': { description: Authentication required }
+  /admin/users:
+    get:
+      operationId: listAdminUsers
+      summary: List users and their roles (administrator only)
+      responses:
+        '200': { description: Users with id, email, displayName, role (viewer, requester or admin) and createdAt }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+  /admin/users/{userId}/role:
+    put:
+      operationId: changeUserRole
+      summary: Set a user's role; revokes the target's active sessions and records an audit event
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role]
+              properties:
+                role: { type: string, enum: [viewer, requester, admin] }
+      responses:
+        '204': { description: Role changed, or already set }
+        '400': { description: Invalid user ID or role }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: User not found }
+        '409': { description: Cannot change your own role, or cannot demote the last administrator; nothing is changed }
   /admin/sources/jellyfin/status:
     get:
       operationId: getJellyfinSyncStatus

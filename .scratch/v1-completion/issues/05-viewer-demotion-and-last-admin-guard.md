@@ -4,10 +4,10 @@
 
 **Blocked by:** 04 AGPL-3.0 license and real module path
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The role endpoint accepts viewer, requester and admin
-- [ ] Demoting the last admin returns a clear error and changes nothing
-- [ ] The Settings UI can assign viewer
-- [ ] HTTP-level and integration tests cover both rules
-- [ ] The contract in api/openapi.yaml is updated first
+- [x] The role endpoint accepts viewer, requester and admin
+- [x] Demoting the last admin returns a clear error and changes nothing
+- [x] The Settings UI can assign viewer
+- [x] HTTP-level and integration tests cover both rules
+- [x] The contract in api/openapi.yaml is updated first

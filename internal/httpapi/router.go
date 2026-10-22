@@ -185,8 +185,8 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil || (input.Role != "admin" && input.Role != "requester") {
-			writeJSON(w, 400, map[string]string{"error": "role must be admin or requester"})
+		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil || (input.Role != "admin" && input.Role != "requester" && input.Role != "viewer") {
+			writeJSON(w, 400, map[string]string{"error": "role must be viewer, requester or admin"})
 			return
 		}
 		store, ok := readiness.(interface {

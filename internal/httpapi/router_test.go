@@ -15,6 +15,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/store/postgres"
 )
 
 func TestRequireJSONEOF(t *testing.T) {
@@ -225,3 +226,54 @@ func TestJellyfinStatusEndpointRequiresAdminAndDoesNotExposeSecrets(t *testing.T
 }
 
 func ptrString(s string) *string { return &s }
+
+type roleChangeReadiness struct {
+	fakeReadiness
+	err   error
+	calls []string
+}
+
+func (f *roleChangeReadiness) ChangeUserRole(_ context.Context, actor, target, role string, _ time.Time) error {
+	f.calls = append(f.calls, actor+":"+target+":"+role)
+	return f.err
+}
+
+type csrfAuthRepo struct{ statusAuthRepo }
+
+func (f csrfAuthRepo) GetSession(context.Context, []byte, time.Time) (auth.User, []byte, time.Time, error) {
+	return f.user, auth.Hash("test-secret", "csrf-token"), time.Now().Add(time.Hour), nil
+}
+
+func TestRoleChangeEndpointAcceptsViewerAndReportsGuards(t *testing.T) {
+	const target = "11111111-1111-1111-1111-111111111111"
+	for _, tc := range []struct {
+		name, body string
+		err        error
+		want       int
+		wantCalls  int
+	}{
+		{"viewer", `{"role":"viewer"}`, nil, http.StatusNoContent, 1},
+		{"requester", `{"role":"requester"}`, nil, http.StatusNoContent, 1},
+		{"admin", `{"role":"admin"}`, nil, http.StatusNoContent, 1},
+		{"unknown role", `{"role":"owner"}`, nil, http.StatusBadRequest, 0},
+		{"last admin", `{"role":"viewer"}`, postgres.ErrLastAdmin, http.StatusConflict, 1},
+		{"self", `{"role":"viewer"}`, postgres.ErrAdminSelfRoleChange, http.StatusConflict, 1},
+		{"missing user", `{"role":"viewer"}`, postgres.ErrAdminUserNotFound, http.StatusNotFound, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ready := &roleChangeReadiness{err: tc.err}
+			h := New(testLogger(), buildinfo.Info{}, ready, &auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: "admin-1", Role: "admin"}}}, Secret: "test-secret", PublicURL: "http://example.test"})
+			r := httptest.NewRequest(http.MethodPut, "/api/v1/admin/users/"+target+"/role", strings.NewReader(tc.body))
+			r.AddCookie(&http.Cookie{Name: "requestarr_session", Value: "valid"})
+			r.AddCookie(&http.Cookie{Name: "requestarr_csrf", Value: "csrf-token"})
+			r.Header.Set("X-CSRF-Token", "csrf-token")
+			r.Header.Set("Origin", "http://example.test")
+			r.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, r)
+			if rec.Code != tc.want || len(ready.calls) != tc.wantCalls {
+				t.Fatalf("status=%d want=%d calls=%v body=%s", rec.Code, tc.want, ready.calls, rec.Body.String())
+			}
+		})
+	}
+}

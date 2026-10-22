@@ -524,3 +524,55 @@ func TestLoginProvisioningUsesMigratedSchemaAndIsConcurrentSafe(t *testing.T) {
 		t.Fatalf("stored identity key/email/issuer = %q/%q/%q, want %q/%q/%q", storedSubject, storedEmail, storedIssuer, wantLegacyKey, "person@example.test", issuer)
 	}
 }
+
+func TestAdminCanDemoteToViewerButNotTheLastAdmin(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s, err := Open(ctx, testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='requester'`); err != nil {
+		t.Fatal(err)
+	}
+	adminOne := integrationUser(t, ctx, s)
+	adminTwo := integrationUser(t, ctx, s)
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id IN ($1,$2)`, adminOne, adminTwo); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := s.ChangeUserRole(ctx, adminOne, adminTwo, "viewer", now); err != nil {
+		t.Fatalf("demote to viewer: %v", err)
+	}
+	var role string
+	if err := s.pool.QueryRow(ctx, `SELECT role FROM users WHERE id=$1`, adminTwo).Scan(&role); err != nil || role != "viewer" {
+		t.Fatalf("role=%q err=%v", role, err)
+	}
+	var audits int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM admin_user_audit_events WHERE target_user_id=$1 AND previous_role='admin' AND new_role='viewer'`, adminTwo).Scan(&audits); err != nil || audits != 1 {
+		t.Fatalf("audit count=%d err=%v", audits, err)
+	}
+	// adminOne is now the only administrator; another actor cannot demote them to viewer.
+	csrf := sha256.Sum256([]byte(fmt.Sprintf("csrf-%s", adminOne)))
+	token := sha256.Sum256([]byte(fmt.Sprintf("token-%s", adminOne)))
+	if err := s.CreateSession(ctx, adminOne, token[:], csrf[:], now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ChangeUserRole(ctx, adminTwo, adminOne, "viewer", now); !errors.Is(err, ErrLastAdmin) {
+		t.Fatalf("last admin demotion error = %v", err)
+	}
+	if err := s.pool.QueryRow(ctx, `SELECT role FROM users WHERE id=$1`, adminOne).Scan(&role); err != nil || role != "admin" {
+		t.Fatalf("last admin role=%q err=%v, want unchanged", role, err)
+	}
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM admin_user_audit_events WHERE target_user_id=$1`, adminOne).Scan(&audits); err != nil || audits != 0 {
+		t.Fatalf("refused demotion wrote %d audit rows, err=%v", audits, err)
+	}
+	var revoked int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM auth_sessions WHERE user_id=$1 AND revoked_at IS NOT NULL`, adminOne).Scan(&revoked); err != nil || revoked != 0 {
+		t.Fatalf("refused demotion revoked %d sessions, err=%v", revoked, err)
+	}
+	if err := s.ChangeUserRole(ctx, adminOne, adminTwo, "requester", now); err != nil {
+		t.Fatalf("viewer to requester: %v", err)
+	}
+}

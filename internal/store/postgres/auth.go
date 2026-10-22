@@ -211,7 +211,7 @@ var ErrLastAdmin = errors.New("cannot remove the last administrator")
 var ErrAdminUserNotFound = errors.New("user not found")
 
 func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role string, now time.Time) error {
-	if role != "admin" && role != "requester" {
+	if role != "admin" && role != "requester" && role != "viewer" {
 		return fmt.Errorf("invalid role")
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -236,7 +236,7 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 	if previous == role {
 		return tx.Commit(ctx)
 	}
-	if previous == "admin" && role == "requester" {
+	if previous == "admin" && role != "admin" {
 		var count int
 		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users WHERE role='admin'`).Scan(&count); err != nil {
 			return fmt.Errorf("count administrators: %w", err)

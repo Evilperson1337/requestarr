@@ -6,7 +6,7 @@ export type Platform = { providerId: string; key: string; name: string }
 export type ResolvedItem = { Item: CatalogItem; Platforms: Platform[] }
 export type RequestItem = { ID: string; CatalogItemID: string; Title: string; MediaType: string; ArtworkURL: string; ArtworkKind: string; CatalogPlatforms?: Platform[]; Status: string; Version: number; RequestedBy: string; Note: string; availability: 'unknown' | 'available' | 'missing'; availabilityObservedAt?: string | null; Platforms: { Any: boolean; PlatformKeys?: string[] }; CreatedAt: string; subscribed: boolean; subscriptionSource: 'requester' | 'manual' | '' }
 export type JellyfinStatus = { configured: boolean; enabled: boolean; lastSyncStartedAt: string | null; lastSyncSucceededAt: string | null; lastSyncError: string | null }
-export type AdminUser = { id: string; email: string; displayName: string; role: 'admin' | 'requester'; createdAt: string }
+export type AdminUser = { id: string; email: string; displayName: string; role: 'admin' | 'requester' | 'viewer'; createdAt: string }
 
 const base = '/api/v1'
 export async function api<T>(path: string, init: RequestInit = {}, csrf?: string): Promise<T> {
