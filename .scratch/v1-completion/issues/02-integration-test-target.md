@@ -4,9 +4,9 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A make target runs the suite with the integration build tag against the compose Postgres
-- [ ] scripts/check.sh can include it when a database URL is set
-- [ ] The baseline result is recorded (pass/fail with any failures listed) in docs/research/ or the implementation plan
-- [ ] docs/TESTING.md explains how to run it
+- [x] A make target runs the suite with the integration build tag against the compose Postgres
+- [x] scripts/check.sh can include it when a database URL is set
+- [x] The baseline result is recorded (pass/fail with any failures listed) in docs/research/ or the implementation plan
+- [x] docs/TESTING.md explains how to run it

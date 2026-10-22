@@ -5,7 +5,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: help fmt test vet build run clean web-install web-dev web-build web-check dev-up dev-down migrate-up snapshot release-check references
+.PHONY: help fmt test test-integration vet build run clean web-install web-dev web-build web-check dev-up dev-down migrate-up snapshot release-check references
 
 # Load .env into the recipe's environment when present, without requiring it
 # to be sourced into the caller's shell first.
@@ -15,6 +15,7 @@ help:
 	@printf '%s\n' \
 	  'make fmt            Format Go code' \
 	  'make test           Run Go tests' \
+	  'make test-integration  Run PostgreSQL integration tests against the dev compose database' \
 	  'make vet            Run go vet' \
 	  'make build          Build Requestarr' \
 	  'make run            Run Requestarr API scaffold (requires a reachable PostgreSQL, see make dev-up)' \
@@ -34,6 +35,24 @@ fmt:
 
 test:
 	go test ./...
+
+# Integration tests use a dedicated requestarr_test database on the dev compose
+# Postgres so they never touch the application's own database. Override
+# REQUESTARR_TEST_DATABASE_URL to target another disposable database instead.
+# Set REQUESTARR_POSTGRES_PORT when host port 5432 is already taken.
+REQUESTARR_POSTGRES_PORT ?= 5432
+export REQUESTARR_POSTGRES_PORT
+TEST_DB_URL ?= postgres://requestarr:requestarr@localhost:$(REQUESTARR_POSTGRES_PORT)/requestarr_test?sslmode=disable
+
+test-integration:
+	@set -e; \
+	if [ -z "$$REQUESTARR_TEST_DATABASE_URL" ]; then \
+	  export REQUESTARR_OIDC_ISSUER=unused REQUESTARR_OIDC_CLIENT_ID=unused REQUESTARR_OIDC_CLIENT_SECRET=unused REQUESTARR_SESSION_HMAC_SECRET=unused; \
+	  docker compose -f compose.dev.yaml up -d --wait postgres; \
+	  docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -tc "select 1 from pg_database where datname='requestarr_test'" | grep -q 1 \
+	    || docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -c 'create database requestarr_test'; \
+	fi; \
+	REQUESTARR_TEST_DATABASE_URL="$${REQUESTARR_TEST_DATABASE_URL:-$(TEST_DB_URL)}" go test -tags integration -count=1 ./internal/store/postgres/...
 
 vet:
 	go vet ./...
