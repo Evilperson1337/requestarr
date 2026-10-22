@@ -151,6 +151,37 @@ paths:
       responses:
         '200': { description: Shared queue for all authenticated users; items include catalog availability and latest positive observation time }
         '401': { description: Authentication required }
+  /admin/job-runs:
+    get:
+      operationId: listJobRuns
+      summary: Recent background job runs per Source (administrator only)
+      description: >-
+        Lists up to 10 newest runs for every Source that has run a job. A Source never has two
+        running runs; a run whose process crashed is failed with "abandoned: lease expired"
+        once its lease lapses. Errors are fixed, admin-safe strings.
+      responses:
+        '200':
+          description: Runs grouped by Source, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sources]
+                properties:
+                  sources:
+                    type: array
+                    items:
+                      type: object
+                      required: [sourceId, name, runs]
+                      properties:
+                        sourceId: { type: string, format: uuid }
+                        name: { type: string, description: Empty until the Source has been seen by a sync }
+                        runs:
+                          type: array
+                          items: { $ref: '#/components/schemas/JobRun' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '503': { description: Job runs unavailable }
   /admin/users:
     get:
       operationId: listAdminUsers
@@ -227,6 +258,17 @@ components:
         request_id. Client-supplied values are ignored. Quote it when reporting problems.
       schema: { type: string }
   schemas:
+    JobRun:
+      type: object
+      required: [id, sourceId, trigger, status, startedAt, finishedAt]
+      properties:
+        id: { type: string, format: uuid }
+        sourceId: { type: string, format: uuid }
+        trigger: { type: string, enum: [schedule, manual] }
+        status: { type: string, enum: [running, succeeded, failed] }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        error: { type: string, description: Present on failed runs; fixed admin-safe text }
     Error:
       type: object
       description: >-

@@ -15,6 +15,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/requests"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
@@ -42,6 +43,9 @@ type ReadinessChecker interface {
 }
 
 const readyTimeout = 2 * time.Second
+
+// recentRunsPerSource is how many runs the status endpoint returns per Source.
+const recentRunsPerSource = 10
 
 func New(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, authHandlers ...*auth.Handler) http.Handler {
 	return NewWithMetadata(logger, build, readiness, nil, authHandlers...)
@@ -140,6 +144,33 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 			return
 		}
 		writeJSON(w, 200, result)
+	})
+	api.HandleFunc("GET /admin/job-runs", func(w http.ResponseWriter, r *http.Request) {
+		user, err := authHandler.CurrentSession(r)
+		if err != nil {
+			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
+			return
+		}
+		if user.Role != "admin" {
+			apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
+			return
+		}
+		runs, ok := readiness.(interface {
+			RecentRunsBySource(context.Context, int) ([]jobs.SourceRuns, error)
+		})
+		if !ok {
+			apierror.Write(w, r, http.StatusServiceUnavailable, "job_runs_unavailable", "job runs unavailable")
+			return
+		}
+		groups, err := runs.RecentRunsBySource(r.Context(), recentRunsPerSource)
+		if err != nil {
+			apierror.Write(w, r, http.StatusInternalServerError, "job_runs_failed", "could not load job runs")
+			return
+		}
+		if groups == nil {
+			groups = []jobs.SourceRuns{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"sources": groups})
 	})
 	api.HandleFunc("GET /admin/users", func(w http.ResponseWriter, r *http.Request) {
 		user, err := authHandler.CurrentSession(r)

@@ -4,11 +4,11 @@
 
 **Blocked by:** 07 Jellyfin evidence moves Requests to available
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A new append-only migration adds the run table
-- [ ] A run records start, finish, outcome and error
-- [ ] The no-overlap guard holds across a process restart
-- [ ] A status endpoint lists recent runs per Source
-- [ ] Jellyfin sync is scheduled through the runner and the ad-hoc goroutine is gone
-- [ ] Integration tests cover overlap, crash recovery and failed-run recording; failed runs retry on the next tick
+- [x] A new append-only migration adds the run table
+- [x] A run records start, finish, outcome and error
+- [x] The no-overlap guard holds across a process restart
+- [x] A status endpoint lists recent runs per Source
+- [x] Jellyfin sync is scheduled through the runner and the ad-hoc goroutine is gone
+- [x] Integration tests cover overlap, crash recovery and failed-run recording; failed runs retry on the next tick

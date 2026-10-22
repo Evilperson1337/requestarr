@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Requestarr is a self-hosted shared request/availability/notification portal for movies, TV, music, and games. It is a **working prototype, not yet V1-complete**: OIDC login, the TMDB/MusicBrainz/IGDB resolvers, shared requests with subscriptions, Jellyfin movie/TV sync, in-app notifications and a global Apprise outbox are implemented. Plex, Navidrome and RomM are README-only stubs, there is no real setup wizard, and there is no persistent job system. `docs/IMPLEMENTATION_PLAN.md` and `docs/research/PROJECT_STATUS.md` are the status sources; the V1 build plan is in `.scratch/v1-completion/`. Read `docs/PROJECT_VISION.md` and `docs/V1_SCOPE.md` before writing feature code so you know what's actually in scope. Domain vocabulary is in `GLOSSARY.md`.
+Requestarr is a self-hosted shared request/availability/notification portal for movies, TV, music, and games. It is a **working prototype, not yet V1-complete**: OIDC login, the TMDB/MusicBrainz/IGDB resolvers, shared requests with subscriptions, Jellyfin movie/TV sync, in-app notifications and a global Apprise outbox are implemented. Plex, Navidrome and RomM are README-only stubs, and there is no real setup wizard. `docs/IMPLEMENTATION_PLAN.md` and `docs/research/PROJECT_STATUS.md` are the status sources; the V1 build plan is in `.scratch/v1-completion/`. Read `docs/PROJECT_VISION.md` and `docs/V1_SCOPE.md` before writing feature code so you know what's actually in scope. Domain vocabulary is in `GLOSSARY.md`.
 
 **Read `AGENTS.md` first.** It contains binding product-boundary and engineering rules for any AI agent working in this repo (no acquisition/downloader behavior, OIDC-only auth, one shared request per item, domain logic isolated from HTTP/DB/provider clients, etc.). `docs/DECISIONS.md` (D001–D019) records accepted architecture/product decisions — do not silently reverse them; if one seems wrong, document the conflict in `docs/DECISIONS.md` instead of quietly diverging.
 
@@ -46,7 +46,7 @@ Module boundaries (`internal/`):
 - `store` — repository interfaces close to domain use-cases, not a generic ORM; PostgreSQL is the only V1 target; SQL is explicit.
 - `inventory` (+ `plex`, `jellyfin`, `navidrome`, `romm`; only `jellyfin` is implemented, the others are README-only) — normalized snapshots of what each authoritative library actually has. Answers "do we have it?".
 - `notifications` (+ `apprise`) — fans out domain events to in-app notifications and the Apprise API.
-- `jobs` — intended persistent background task/sync coordination (D018). Currently only an interface; Jellyfin sync is an ad hoc goroutine in `internal/app`.
+- `jobs` — the D018 run recorder and no-overlap guard: `Runner` records each run (start, finish, outcome, safe error) in `job_runs`, a per-Source lease in PostgreSQL stops overlap across restarts, and `Schedule` retries failures on the next tick. Jellyfin sync runs through it (`internal/app`); "sync now" is ticket 10.
 - `setup` — first-run wizard draft/validation/finalization state.
 - `httpapi` — transport only; no domain policy should live in handlers (see `internal/httpapi/router.go` for the routes, and `api/openapi.yaml` for the contract).
 - `app` — wires config + logger + HTTP server lifecycle (`internal/app/app.go`).

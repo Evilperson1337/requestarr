@@ -17,6 +17,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/httpapi"
 	"github.com/evilperson1337/requestarr/internal/inventory"
 	"github.com/evilperson1337/requestarr/internal/inventory/jellyfin"
+	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/notifications/apprise"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata"
@@ -28,6 +29,9 @@ import (
 
 const startupTimeout = 30 * time.Second
 const jellyfinSourceID = "5efcc577-5236-4ce3-b2c0-b9d58c64a718"
+
+// jellyfinSyncInterval is also the retry interval: a failed run waits for the next tick.
+const jellyfinSyncInterval = 15 * time.Minute
 
 func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buildinfo.Info) error {
 	startupCtx, cancel := context.WithTimeout(ctx, startupTimeout)
@@ -63,7 +67,12 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 			return fmt.Errorf("initialize Jellyfin integration: %w", err)
 		}
 		workers.Add(1)
-		go func() { defer workers.Done(); syncJellyfin(workerCtx, logger, store, client, cfg.JellyfinURL) }()
+		runner := jobs.NewRunner(store)
+		runner.Logger = logger
+		go func() {
+			defer workers.Done()
+			runner.Schedule(workerCtx, jellyfinSyncInterval, jellyfinSourceID, jellyfinSyncJob(logger, store, client, cfg.JellyfinURL))
+		}()
 	}
 
 	server := &http.Server{
@@ -103,30 +112,35 @@ type jellyfinSnapshotter interface {
 	Snapshot(context.Context) ([]inventory.Item, error)
 }
 
-func syncJellyfin(ctx context.Context, logger *slog.Logger, db jellyfinSyncStore, client jellyfinSnapshotter, baseURL string) {
-	ticker := time.NewTicker(15 * time.Minute)
-	defer ticker.Stop()
-	for {
+// jellyfinSyncJob is one Jellyfin sync as a runner job. Errors it returns are
+// stored in job_runs and shown to administrators, so they are fixed strings:
+// provider and database errors can carry URLs, keys or connection strings.
+func jellyfinSyncJob(logger *slog.Logger, db jellyfinSyncStore, client jellyfinSnapshotter, baseURL string) func(context.Context) error {
+	return func(ctx context.Context) error {
 		started := time.Now().UTC()
 		items, err := client.Snapshot(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return ctx.Err()
 			}
-			logger.Warn("Jellyfin inventory sync failed", "error", "inventory request failed")
-			if e := db.RecordJellyfinFailure(ctx, started, "inventory request failed"); e != nil {
+			// A failed sync records health only; it never touches inventory.
+			if e := db.RecordJellyfinFailure(ctx, started, errInventoryRequest.Error()); e != nil {
 				logger.Warn("record Jellyfin sync health failed")
 			}
-		} else {
-			snap := inventory.Snapshot{SourceID: jellyfinSourceID, Items: items, Complete: true, ObservedAt: time.Now().UTC()}
-			if e := db.PersistJellyfinSnapshot(ctx, baseURL, snap); e != nil {
-				logger.Warn("persist Jellyfin inventory failed", "error", "snapshot persistence failed")
+			return errInventoryRequest
+		}
+		snap := inventory.Snapshot{SourceID: jellyfinSourceID, Items: items, Complete: true, ObservedAt: time.Now().UTC()}
+		if err := db.PersistJellyfinSnapshot(ctx, baseURL, snap); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
+			return errSnapshotPersistence
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
+		return nil
 	}
 }
+
+var (
+	errInventoryRequest    = errors.New("inventory request failed")
+	errSnapshotPersistence = errors.New("snapshot persistence failed")
+)
