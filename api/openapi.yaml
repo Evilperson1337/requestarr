@@ -264,6 +264,7 @@ components:
       responses:
         '200': { description: Subscription enabled; changed=false when already enabled }
         '400': { description: Invalid request ID }
+        '409': { description: Request is closed (denied, available or cancelled) and takes no new subscribers }
         '404': { description: Request not found }
         '401': { description: Authentication required }
     delete:

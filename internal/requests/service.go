@@ -15,6 +15,7 @@ var (
 	ErrInvalid             = errors.New("invalid request")
 	ErrCatalogNotFound     = errors.New("catalog item not found")
 	ErrRequestNotFound     = errors.New("request not found")
+	ErrRequestClosed       = errors.New("request is closed")
 	ErrTransitionForbidden = errors.New("request transition is not permitted")
 	ErrTransitionInvalid   = errors.New("invalid request transition")
 	ErrTransitionConflict  = errors.New("request version conflict")
@@ -95,7 +96,7 @@ func (s *Service) Subscribe(ctx context.Context, actor Actor, requestID string) 
 		return false, ErrInvalid
 	}
 	changed, err := s.repo.Subscribe(ctx, requestID, actor.ID)
-	if errors.Is(err, ErrRequestNotFound) {
+	if errors.Is(err, ErrRequestNotFound) || errors.Is(err, ErrRequestClosed) {
 		return false, err
 	}
 	if err != nil {

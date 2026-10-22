@@ -154,6 +154,7 @@ func (j *jsonScanner) Scan(src any) error {
 func (s *Store) List(ctx context.Context, userID string, mine bool) ([]domain.Request, error) {
 	query := `SELECT r.id::text,r.catalog_item_id::text,c.title,c.media_type,COALESCE(c.artwork_url,''),c.artwork_kind,r.status,r.version,r.requested_by::text,COALESCE(r.requester_note,''),r.acceptable_platforms,r.requested_at,r.updated_at,r.available_at,c.availability,(SELECT MAX(e.observed_at) FROM availability_evidence e WHERE e.catalog_item_id=c.id),
 		COALESCE((SELECT source FROM request_subscriptions s WHERE s.request_id=r.id AND s.user_id=$1),''),
+		(SELECT count(*) FROM request_subscriptions s WHERE s.request_id=r.id),
 		COALESCE((SELECT array_agg(p.name ORDER BY p.name) FROM catalog_item_platforms p WHERE p.catalog_item_id=r.catalog_item_id AND (r.acceptable_platforms->>'any'='true' OR p.platform_key IN (SELECT jsonb_array_elements_text(r.acceptable_platforms->'platformKeys')))), ARRAY[]::text[])
 		FROM requests r JOIN catalog_items c ON c.id=r.catalog_item_id`
 	if mine {
@@ -173,7 +174,7 @@ func (s *Store) List(ctx context.Context, userID string, mine bool) ([]domain.Re
 	for rows.Next() {
 		var r domain.Request
 		var platformNames pgtype.FlatArray[string]
-		err = rows.Scan(&r.ID, &r.CatalogItemID, &r.Title, &r.MediaType, &r.ArtworkURL, &r.ArtworkKind, &r.Status, &r.Version, &r.RequestedBy, &r.Note, requestJSON(&r), &r.CreatedAt, &r.UpdatedAt, &r.AvailableAt, &r.Availability, &r.AvailabilityObservedAt, &r.SubscriptionSource, &platformNames)
+		err = rows.Scan(&r.ID, &r.CatalogItemID, &r.Title, &r.MediaType, &r.ArtworkURL, &r.ArtworkKind, &r.Status, &r.Version, &r.RequestedBy, &r.Note, requestJSON(&r), &r.CreatedAt, &r.UpdatedAt, &r.AvailableAt, &r.Availability, &r.AvailabilityObservedAt, &r.SubscriptionSource, &r.SubscriberCount, &platformNames)
 		if err != nil {
 			return nil, err
 		}
@@ -193,11 +194,14 @@ func (s *Store) Subscribe(ctx context.Context, requestID, userID string) (bool, 
 		return false, err
 	}
 	defer tx.Rollback(ctx)
-	var version int64
-	if err = tx.QueryRow(ctx, `SELECT version FROM requests WHERE id=$1 FOR UPDATE`, requestID).Scan(&version); errors.Is(err, pgx.ErrNoRows) {
+	var status string
+	if err = tx.QueryRow(ctx, `SELECT status FROM requests WHERE id=$1 FOR UPDATE`, requestID).Scan(&status); errors.Is(err, pgx.ErrNoRows) {
 		return false, requests.ErrRequestNotFound
 	} else if err != nil {
 		return false, err
+	}
+	if !domain.RequestStatus(status).IsOpen() {
+		return false, requests.ErrRequestClosed
 	}
 	ct, err := tx.Exec(ctx, `INSERT INTO request_subscriptions(request_id,user_id,source,created_at) VALUES($1,$2,'manual',now()) ON CONFLICT(request_id,user_id) DO NOTHING`, requestID, userID)
 	if err != nil {

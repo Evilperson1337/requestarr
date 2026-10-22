@@ -18,6 +18,7 @@ type fakeRepository struct {
 	mediaErr     error
 	leaveResult  [2]bool
 	leaveErr     error
+	subscribeErr error
 }
 
 func (f *fakeRepository) CatalogMediaType(context.Context, string) (domain.MediaType, error) {
@@ -45,7 +46,12 @@ func (f *fakeRepository) CatalogPlatforms(context.Context, string) ([]domain.Pla
 func (f *fakeRepository) Transition(_ context.Context, in TransitionInput) (domain.Request, bool, error) {
 	return domain.Request{ID: in.RequestID, Status: in.ToStatus, Version: in.ExpectedVersion + 1}, true, nil
 }
-func (f *fakeRepository) Subscribe(context.Context, string, string) (bool, error) { return true, nil }
+func (f *fakeRepository) Subscribe(context.Context, string, string) (bool, error) {
+	if f.subscribeErr != nil {
+		return false, f.subscribeErr
+	}
+	return true, nil
+}
 func (f *fakeRepository) Unsubscribe(context.Context, string, string) (bool, bool, error) {
 	return f.leaveResult[0], f.leaveResult[1], f.leaveErr
 }
@@ -225,5 +231,12 @@ func TestLeavingReportsChangeAndCancellation(t *testing.T) {
 	}
 	if _, _, err := New(&fakeRepository{leaveErr: ErrRequestNotFound}).Unsubscribe(context.Background(), Actor{ID: "u"}, "request"); !errors.Is(err, ErrRequestNotFound) {
 		t.Fatalf("not found error=%v", err)
+	}
+}
+
+func TestSubscribePassesClosedRequestErrorThrough(t *testing.T) {
+	_, err := New(&fakeRepository{subscribeErr: ErrRequestClosed}).Subscribe(context.Background(), Actor{ID: "u", Role: "viewer"}, "request")
+	if !errors.Is(err, ErrRequestClosed) {
+		t.Fatalf("error=%v", err)
 	}
 }

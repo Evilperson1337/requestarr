@@ -311,6 +311,8 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 				status, code, msg := 500, "subscription_failed", "subscription could not be changed"
 				if errors.Is(err, requests.ErrRequestNotFound) {
 					status, code, msg = 404, "request_not_found", "request was not found"
+				} else if errors.Is(err, requests.ErrRequestClosed) {
+					status, code, msg = 409, "request_closed", "request is closed to new subscribers"
 				} else if errors.Is(err, requests.ErrInvalid) {
 					status, code, msg = 400, "invalid_request", "request ID is invalid"
 				}

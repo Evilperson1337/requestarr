@@ -19,6 +19,8 @@ type cancelBackend struct {
 	fakeReadiness
 	requests.Repository
 	leave         [2]bool
+	leaveErr      error
+	subscribeErr  error
 	transitionErr error
 	transitioned  []requests.TransitionInput
 }
@@ -28,7 +30,11 @@ func (*cancelBackend) Upsert(context.Context, domain.ResolvedItem) (domain.Catal
 }
 
 func (b *cancelBackend) Unsubscribe(context.Context, string, string) (bool, bool, error) {
-	return b.leave[0], b.leave[1], nil
+	return b.leave[0], b.leave[1], b.leaveErr
+}
+
+func (b *cancelBackend) Subscribe(context.Context, string, string) (bool, error) {
+	return false, b.subscribeErr
 }
 
 func (b *cancelBackend) Transition(_ context.Context, in requests.TransitionInput) (domain.Request, bool, error) {
@@ -97,4 +103,10 @@ func TestAdminCancelOutrightThroughTransitionEndpoint(t *testing.T) {
 	}
 	assertErrorEnvelope(t, cancelRequest(t, &cancelBackend{transitionErr: requests.ErrTransitionConflict}, "admin", http.MethodPost, path, body), http.StatusConflict, "version_conflict")
 	assertErrorEnvelope(t, cancelRequest(t, &cancelBackend{transitionErr: requests.ErrTransitionInvalid}, "admin", http.MethodPost, path, body), http.StatusBadRequest, "invalid_transition")
+}
+
+func TestSubscriptionRoutesReportMissingAndClosedRequests(t *testing.T) {
+	const path = "/requests/22222222-2222-2222-2222-222222222222/subscription"
+	assertErrorEnvelope(t, cancelRequest(t, &cancelBackend{leaveErr: requests.ErrRequestNotFound}, "requester", http.MethodDelete, path, ""), http.StatusNotFound, "request_not_found")
+	assertErrorEnvelope(t, cancelRequest(t, &cancelBackend{subscribeErr: requests.ErrRequestClosed}, "viewer", http.MethodPut, path, ""), http.StatusConflict, "request_closed")
 }

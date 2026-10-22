@@ -345,6 +345,22 @@ func TestLeavingIsIdempotentAndLastSubscriberCancels(t *testing.T) {
 			t.Fatalf("subscribe changed=%v iteration=%d", changed, i)
 		}
 	}
+	listed, err := s.List(ctx, creator, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen bool
+	for _, item := range listed {
+		if item.ID == r.ID {
+			seen = true
+			if item.SubscriberCount != 2 {
+				t.Fatalf("SubscriberCount=%d want 2", item.SubscriberCount)
+			}
+		}
+	}
+	if !seen {
+		t.Fatal("request missing from list")
+	}
 	leave := func(user string) (bool, bool) {
 		t.Helper()
 		changed, cancelled, err := s.Unsubscribe(ctx, r.ID, user)
@@ -754,5 +770,37 @@ func TestAdminCancelsOpenRequestsOutright(t *testing.T) {
 				t.Fatalf("cancelling a closed request error=%v", err)
 			}
 		})
+	}
+}
+
+func TestClosedRequestsRejectNewSubscribersAndReplayedCancelsAreConflicts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s, err := Open(ctx, testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	admin := integrationUser(t, ctx, s)
+	_, requestID, _ := newMovieWithRequest(t, ctx, s, domain.RequestRequested)
+	in := requests.TransitionInput{Actor: requests.Actor{ID: admin, Role: "admin"}, RequestID: requestID, ToStatus: domain.RequestCancelled, ExpectedVersion: 1, OperationID: newUUID()}
+	if _, _, err := s.Transition(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	// Replaying the identical operation must not append a second event.
+	if _, changed, err := s.Transition(ctx, in); !errors.Is(err, requests.ErrTransitionConflict) || changed {
+		t.Fatalf("replay changed=%v err=%v, want version conflict", changed, err)
+	}
+	var events int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM request_events WHERE request_id=$1 AND operation_id=$2`, requestID, in.OperationID).Scan(&events); err != nil || events != 1 {
+		t.Fatalf("events for operation=%d err=%v, want 1", events, err)
+	}
+	watcher := integrationUser(t, ctx, s)
+	if changed, err := s.Subscribe(ctx, requestID, watcher); !errors.Is(err, requests.ErrRequestClosed) || changed {
+		t.Fatalf("subscribe to cancelled changed=%v err=%v", changed, err)
+	}
+	var subs int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM request_subscriptions WHERE request_id=$1 AND user_id=$2`, requestID, watcher).Scan(&subs); err != nil || subs != 0 {
+		t.Fatalf("closed request gained subscriber: %d %v", subs, err)
 	}
 }
