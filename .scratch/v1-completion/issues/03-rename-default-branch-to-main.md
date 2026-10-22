@@ -4,9 +4,9 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human
+**Status:** in-progress (remote default switch + master deletion pending)
 
-- [ ] The default branch on the remote is main and local master is renamed
-- [ ] CI and release workflows trigger on main; a push runs CI
-- [ ] Docs referring to master or main are consistent
-- [ ] The maintainer explicitly approved the rename before it was executed
+- [~] The default branch on the remote is main and local master is renamed
+- [x] CI and release workflows trigger on main; a push runs CI
+- [x] Docs referring to master or main are consistent
+- [x] The maintainer explicitly approved the rename before it was executed

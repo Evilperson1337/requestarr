@@ -1,6 +1,6 @@
 # Requestarr Project Status Assessment
 
-Date: 2026-10-21. Method: read-only investigation of this repository (HEAD `696d607` on `master`) plus local command runs. Nothing external was consulted. Live PostgreSQL, Keycloak, TMDB/IGDB/MusicBrainz, Jellyfin and Apprise were NOT exercised; claims about them rest on code and tests only.
+Date: 2026-10-21. Method: read-only investigation of this repository (HEAD `696d607`, then on `master`; the default branch is now `main`) plus local command runs. Nothing external was consulted. Live PostgreSQL, Keycloak, TMDB/IGDB/MusicBrainz, Jellyfin and Apprise were NOT exercised; claims about them rest on code and tests only.
 
 ## 1. Verdict
 
@@ -96,7 +96,7 @@ Note: each `prompts/*.md` file is only 3-5 lines long. They are directional, not
 
 ## 7. Risks
 
-- **CI misconfiguration:** `.github/workflows/ci.yml` triggers `push` on branch `main`, but the repo's branch is `master` (`git branch -a`). Only pull-request runs fire. The `.github/workflows/release.yml` and docs also assume `main`. The CI `go` job also runs `gofmt -w ... && git diff --exit-code` (fine), and runs integration tests with `-tags=integration` against Postgres 17, so CI is the only place SQL is exercised.
+- **CI misconfiguration (resolved by renaming `master` to `main`, ticket 03):** `.github/workflows/ci.yml` triggers `push` on branch `main`, but the repo's branch was `master`, so only pull-request runs fired. The `.github/workflows/release.yml` and docs also assume `main`. The CI `go` job also runs `gofmt -w ... && git diff --exit-code` (fine), and runs integration tests with `-tags=integration` against Postgres 17, so CI is the only place SQL is exercised.
 - **Default tests do not cover the database layer.** A green `make test` is misleading: `store/postgres` integration tests (about 700 lines) need the build tag and a DB.
 - **Doc drift:** CLAUDE.md, `STATUS.md`, `docs/MANUAL_TESTING.md` ("what is currently implemented: config validation, PostgreSQL startup..., and the frontend build") and `docs/DECISIONS.md` (the D006 paragraph is duplicated; the "Migration 000007 edited in place" entry sits oddly with the append-only rule) disagree with reality. Future agents are likely to misjudge the state.
 - **At-least-once Apprise delivery** can send duplicates (admitted in the plan).
@@ -107,7 +107,7 @@ Note: each `prompts/*.md` file is only 3-5 lines long. They are directional, not
 
 ## 8. Prioritized next steps
 
-1. **Fix baseline hygiene (small).** Make CI trigger on `master` (or rename the branch). Run the integration suite locally against the compose Postgres and record the result. Refresh CLAUDE.md, `STATUS.md` and `docs/MANUAL_TESTING.md` to reflect current state.
+1. **Fix baseline hygiene (small).** Rename the branch to `main` (done, ticket 03). Run the integration suite locally against the compose Postgres and record the result. Refresh CLAUDE.md, `STATUS.md` and `docs/MANUAL_TESTING.md` to reflect current state.
 2. **Build the persistent job runner** (prompt 01 leftover): job-run table, no-overlap guard, manual trigger, status endpoint. Move `syncJellyfin` onto it.
 3. **Requests page completeness:** server-side search, status/media-type filters, sort, pagination (URL-bookmarkable per AGENTS.md); add the cancel action; show the viewer role correctly.
 4. **Library adapters:** RomM (game platform OR-matching), then Plex, then Navidrome/OpenSubsonic. Each needs fixtures and failure-path tests, and they must keep the "failed sync never removes" invariant. Extend `reconcile` to music and game identifiers beyond TMDB.
