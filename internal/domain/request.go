@@ -54,7 +54,6 @@ type Request struct {
 	AvailabilityObservedAt *time.Time         `json:"availabilityObservedAt"`
 	SubscriptionSource     SubscriptionSource `json:"subscriptionSource"`
 	Subscribed             bool               `json:"subscribed"`
-	SubscriberCount        int                `json:"subscriberCount"`
 }
 
 type SubscriptionSource string

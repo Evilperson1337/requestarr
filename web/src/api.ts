@@ -4,7 +4,7 @@ export type SetupStatus = { complete: boolean; required: boolean }
 export type CatalogItem = { ID: string; MediaType: string; Provider: string; Title: string; Year: number; ArtworkURL: string; ArtworkKind: string; ExternalURL: string }
 export type Platform = { providerId: string; key: string; name: string }
 export type ResolvedItem = { Item: CatalogItem; Platforms: Platform[] }
-export type RequestItem = { ID: string; CatalogItemID: string; Title: string; MediaType: string; ArtworkURL: string; ArtworkKind: string; CatalogPlatforms?: Platform[]; Status: string; Version: number; RequestedBy: string; Note: string; availability: 'unknown' | 'available' | 'missing'; availabilityObservedAt?: string | null; Platforms: { Any: boolean; PlatformKeys?: string[] }; CreatedAt: string; subscribed: boolean; subscriberCount: number; subscriptionSource: 'requester' | 'manual' | '' }
+export type RequestItem = { ID: string; CatalogItemID: string; Title: string; MediaType: string; ArtworkURL: string; ArtworkKind: string; CatalogPlatforms?: Platform[]; Status: string; Version: number; RequestedBy: string; Note: string; availability: 'unknown' | 'available' | 'missing'; availabilityObservedAt?: string | null; Platforms: { Any: boolean; PlatformKeys?: string[] }; CreatedAt: string; subscribed: boolean; subscriptionSource: 'requester' | 'manual' | '' }
 export type JellyfinStatus = { configured: boolean; enabled: boolean; lastSyncStartedAt: string | null; lastSyncSucceededAt: string | null; lastSyncError: string | null }
 export type AdminUser = { id: string; email: string; displayName: string; role: 'admin' | 'requester' | 'viewer'; createdAt: string }
 
@@ -15,21 +15,25 @@ export async function api<T>(path: string, init: RequestInit = {}, csrf?: string
     if (csrf) headers.set('X-CSRF-Token', csrf)
     const response = await fetch(base + path, { ...init, headers, credentials: 'same-origin' })
     if (!response.ok) {
-        throw new Error(await errorMessage(response))
+        throw await apiError(response)
     }
     if (response.status === 204) return undefined as T
     return response.json() as Promise<T>
 }
 
-// Errors use {error:{code,message,requestId}}; show the message and keep the
-// request ID so a user can quote it when reporting a problem.
-async function errorMessage(response: Response): Promise<string> {
+// Errors use {error:{code,message,requestId}}; keep the code for branching and
+// show the message plus request ID so a user can quote it when reporting a problem.
+export class ApiError extends Error {
+    constructor(message: string, readonly code = '') { super(message) }
+}
+
+async function apiError(response: Response): Promise<ApiError> {
     const body = await response.text()
     try {
-        const { error } = JSON.parse(body) as { error?: { message?: string; requestId?: string } }
-        if (error?.message) return error.requestId ? `${error.message} (request ${error.requestId})` : error.message
+        const { error } = JSON.parse(body) as { error?: { code?: string; message?: string; requestId?: string } }
+        if (error?.message) return new ApiError(error.requestId ? `${error.message} (request ${error.requestId})` : error.message, error.code)
     } catch { /* not the JSON envelope */ }
-    return body.trim() || `Request failed (${response.status})`
+    return new ApiError(body.trim() || `Request failed (${response.status})`)
 }
 
 // Never surface server-provided error bodies from the bootstrap claim endpoint.

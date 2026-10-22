@@ -19,7 +19,7 @@ Availability should be modeled separately in services/read models even though `a
 
 ## Request subscription
 
-`(request_id, user_id)` unique. The requester gets source=`requester` automatically. Other users use source=`manual` from **Notify Me**. This captures notification interest without turning Requestarr into a voting system. Any subscriber, the creator included, can leave (D016): the Request stays open while others remain and becomes `cancelled` (with an audit event) when the last subscriber of an open Request leaves. Admins can cancel an open Request outright.
+`(request_id, user_id)` unique. The requester gets source=`requester` automatically. Other users use source=`manual` from **Notify Me**. This captures notification interest without turning Requestarr into a voting system. Any subscriber, the creator included, can leave (D016): the Request stays open while others remain and becomes `cancelled` (with an audit event) when the last subscriber of an open Request leaves and confirms the cancellation. Admins can cancel an open Request outright.
 
 ## Inventory item
 

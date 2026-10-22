@@ -11,14 +11,15 @@ import (
 )
 
 var (
-	ErrForbidden           = errors.New("request creation is not permitted")
-	ErrInvalid             = errors.New("invalid request")
-	ErrCatalogNotFound     = errors.New("catalog item not found")
-	ErrRequestNotFound     = errors.New("request not found")
-	ErrRequestClosed       = errors.New("request is closed")
-	ErrTransitionForbidden = errors.New("request transition is not permitted")
-	ErrTransitionInvalid   = errors.New("invalid request transition")
-	ErrTransitionConflict  = errors.New("request version conflict")
+	ErrForbidden               = errors.New("request creation is not permitted")
+	ErrInvalid                 = errors.New("invalid request")
+	ErrCatalogNotFound         = errors.New("catalog item not found")
+	ErrRequestNotFound         = errors.New("request not found")
+	ErrRequestClosed           = errors.New("request is closed")
+	ErrCancelNeedsConfirmation = errors.New("leaving would cancel the request")
+	ErrTransitionForbidden     = errors.New("request transition is not permitted")
+	ErrTransitionInvalid       = errors.New("invalid request transition")
+	ErrTransitionConflict      = errors.New("request version conflict")
 )
 
 type Actor struct {
@@ -61,7 +62,7 @@ type Repository interface {
 	CatalogPlatforms(context.Context, string) ([]domain.Platform, error)
 	Transition(context.Context, TransitionInput) (domain.Request, bool, error)
 	Subscribe(context.Context, string, string) (bool, error)
-	Unsubscribe(context.Context, string, string) (changed, cancelled bool, err error)
+	Unsubscribe(ctx context.Context, requestID, userID string, confirmCancel bool) (changed, cancelled bool, err error)
 }
 
 func (s *Service) Transition(ctx context.Context, in TransitionInput) (TransitionResult, error) {
@@ -106,16 +107,17 @@ func (s *Service) Subscribe(ctx context.Context, actor Actor, requestID string) 
 }
 
 // Unsubscribe lets any subscriber, including the creator, leave a Request. It
-// reports whether the Request was cancelled because the last subscriber left.
-func (s *Service) Unsubscribe(ctx context.Context, actor Actor, requestID string) (changed, cancelled bool, err error) {
+// reports whether the Request was cancelled because the last subscriber left;
+// that needs confirmCancel, otherwise ErrCancelNeedsConfirmation and no change.
+func (s *Service) Unsubscribe(ctx context.Context, actor Actor, requestID string, confirmCancel bool) (changed, cancelled bool, err error) {
 	if actor.ID == "" {
 		return false, false, ErrForbidden
 	}
 	if requestID == "" {
 		return false, false, ErrInvalid
 	}
-	changed, cancelled, err = s.repo.Unsubscribe(ctx, requestID, actor.ID)
-	if errors.Is(err, ErrRequestNotFound) {
+	changed, cancelled, err = s.repo.Unsubscribe(ctx, requestID, actor.ID, confirmCancel)
+	if errors.Is(err, ErrRequestNotFound) || errors.Is(err, ErrCancelNeedsConfirmation) {
 		return false, false, err
 	}
 	if err != nil {

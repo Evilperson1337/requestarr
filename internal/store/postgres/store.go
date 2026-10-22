@@ -154,7 +154,6 @@ func (j *jsonScanner) Scan(src any) error {
 func (s *Store) List(ctx context.Context, userID string, mine bool) ([]domain.Request, error) {
 	query := `SELECT r.id::text,r.catalog_item_id::text,c.title,c.media_type,COALESCE(c.artwork_url,''),c.artwork_kind,r.status,r.version,r.requested_by::text,COALESCE(r.requester_note,''),r.acceptable_platforms,r.requested_at,r.updated_at,r.available_at,c.availability,(SELECT MAX(e.observed_at) FROM availability_evidence e WHERE e.catalog_item_id=c.id),
 		COALESCE((SELECT source FROM request_subscriptions s WHERE s.request_id=r.id AND s.user_id=$1),''),
-		(SELECT count(*) FROM request_subscriptions s WHERE s.request_id=r.id),
 		COALESCE((SELECT array_agg(p.name ORDER BY p.name) FROM catalog_item_platforms p WHERE p.catalog_item_id=r.catalog_item_id AND (r.acceptable_platforms->>'any'='true' OR p.platform_key IN (SELECT jsonb_array_elements_text(r.acceptable_platforms->'platformKeys')))), ARRAY[]::text[])
 		FROM requests r JOIN catalog_items c ON c.id=r.catalog_item_id`
 	if mine {
@@ -174,7 +173,7 @@ func (s *Store) List(ctx context.Context, userID string, mine bool) ([]domain.Re
 	for rows.Next() {
 		var r domain.Request
 		var platformNames pgtype.FlatArray[string]
-		err = rows.Scan(&r.ID, &r.CatalogItemID, &r.Title, &r.MediaType, &r.ArtworkURL, &r.ArtworkKind, &r.Status, &r.Version, &r.RequestedBy, &r.Note, requestJSON(&r), &r.CreatedAt, &r.UpdatedAt, &r.AvailableAt, &r.Availability, &r.AvailabilityObservedAt, &r.SubscriptionSource, &r.SubscriberCount, &platformNames)
+		err = rows.Scan(&r.ID, &r.CatalogItemID, &r.Title, &r.MediaType, &r.ArtworkURL, &r.ArtworkKind, &r.Status, &r.Version, &r.RequestedBy, &r.Note, requestJSON(&r), &r.CreatedAt, &r.UpdatedAt, &r.AvailableAt, &r.Availability, &r.AvailabilityObservedAt, &r.SubscriptionSource, &platformNames)
 		if err != nil {
 			return nil, err
 		}
@@ -221,8 +220,9 @@ func (s *Store) Subscribe(ctx context.Context, requestID, userID string) (bool, 
 
 // Unsubscribe removes the user's subscription (D016). When that was the last
 // subscriber of an open Request, the Request becomes cancelled in the same
-// transaction with a version bump and an audit event.
-func (s *Store) Unsubscribe(ctx context.Context, requestID, userID string) (changed, cancelled bool, err error) {
+// transaction with a version bump and an audit event, but only when
+// confirmCancel is set; otherwise nothing changes and the caller must confirm.
+func (s *Store) Unsubscribe(ctx context.Context, requestID, userID string, confirmCancel bool) (changed, cancelled bool, err error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return false, false, err
@@ -234,21 +234,25 @@ func (s *Store) Unsubscribe(ctx context.Context, requestID, userID string) (chan
 	} else if err != nil {
 		return false, false, err
 	}
-	ct, err := tx.Exec(ctx, `DELETE FROM request_subscriptions WHERE request_id=$1 AND user_id=$2`, requestID, userID)
-	if err != nil {
+	var subscribed bool
+	var remaining int
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(bool_or(user_id=$2),false),count(*) FROM request_subscriptions WHERE request_id=$1`, requestID, userID).Scan(&subscribed, &remaining); err != nil {
 		return false, false, err
 	}
-	if ct.RowsAffected() == 0 {
+	if !subscribed {
 		return false, false, tx.Commit(ctx)
+	}
+	willCancel := remaining == 1 && domain.RequestStatus(status).IsOpen()
+	if willCancel && !confirmCancel {
+		return false, false, requests.ErrCancelNeedsConfirmation
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM request_subscriptions WHERE request_id=$1 AND user_id=$2`, requestID, userID); err != nil {
+		return false, false, err
 	}
 	if err = appendSubscriptionEvent(ctx, tx, requestID, userID, "request.unsubscribed"); err != nil {
 		return false, false, err
 	}
-	var remaining int
-	if err = tx.QueryRow(ctx, `SELECT count(*) FROM request_subscriptions WHERE request_id=$1`, requestID).Scan(&remaining); err != nil {
-		return false, false, err
-	}
-	if remaining == 0 && domain.RequestStatus(status).IsOpen() {
+	if willCancel {
 		var version int64
 		if err = tx.QueryRow(ctx, `UPDATE requests SET status='cancelled',updated_at=now(),version=version+1 WHERE id=$1 RETURNING version`, requestID).Scan(&version); err != nil {
 			return false, false, err

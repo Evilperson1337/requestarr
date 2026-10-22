@@ -19,6 +19,7 @@ type fakeRepository struct {
 	leaveResult  [2]bool
 	leaveErr     error
 	subscribeErr error
+	leaveConfirm bool
 }
 
 func (f *fakeRepository) CatalogMediaType(context.Context, string) (domain.MediaType, error) {
@@ -52,7 +53,8 @@ func (f *fakeRepository) Subscribe(context.Context, string, string) (bool, error
 	}
 	return true, nil
 }
-func (f *fakeRepository) Unsubscribe(context.Context, string, string) (bool, bool, error) {
+func (f *fakeRepository) Unsubscribe(_ context.Context, _, _ string, confirm bool) (bool, bool, error) {
+	f.leaveConfirm = confirm
 	return f.leaveResult[0], f.leaveResult[1], f.leaveErr
 }
 
@@ -223,13 +225,13 @@ func TestLeavingReportsChangeAndCancellation(t *testing.T) {
 		wantChanged, wantC bool
 	}{{"others remain", [2]bool{true, false}, true, false}, {"last subscriber", [2]bool{true, true}, true, true}, {"not subscribed", [2]bool{false, false}, false, false}} {
 		t.Run(tc.name, func(t *testing.T) {
-			changed, cancelled, err := New(&fakeRepository{leaveResult: tc.result}).Unsubscribe(context.Background(), Actor{ID: "u", Role: "viewer"}, "request")
+			changed, cancelled, err := New(&fakeRepository{leaveResult: tc.result}).Unsubscribe(context.Background(), Actor{ID: "u", Role: "viewer"}, "request", false)
 			if err != nil || changed != tc.wantChanged || cancelled != tc.wantC {
 				t.Fatalf("changed=%v cancelled=%v err=%v", changed, cancelled, err)
 			}
 		})
 	}
-	if _, _, err := New(&fakeRepository{leaveErr: ErrRequestNotFound}).Unsubscribe(context.Background(), Actor{ID: "u"}, "request"); !errors.Is(err, ErrRequestNotFound) {
+	if _, _, err := New(&fakeRepository{leaveErr: ErrRequestNotFound}).Unsubscribe(context.Background(), Actor{ID: "u"}, "request", false); !errors.Is(err, ErrRequestNotFound) {
 		t.Fatalf("not found error=%v", err)
 	}
 }
@@ -238,5 +240,16 @@ func TestSubscribePassesClosedRequestErrorThrough(t *testing.T) {
 	_, err := New(&fakeRepository{subscribeErr: ErrRequestClosed}).Subscribe(context.Background(), Actor{ID: "u", Role: "viewer"}, "request")
 	if !errors.Is(err, ErrRequestClosed) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestLeavingForwardsCancelConfirmation(t *testing.T) {
+	repo := &fakeRepository{leaveErr: ErrCancelNeedsConfirmation}
+	if _, _, err := New(repo).Unsubscribe(context.Background(), Actor{ID: "u", Role: "viewer"}, "request", false); !errors.Is(err, ErrCancelNeedsConfirmation) || repo.leaveConfirm {
+		t.Fatalf("error=%v confirm=%v", err, repo.leaveConfirm)
+	}
+	repo.leaveErr = nil
+	if _, _, err := New(repo).Unsubscribe(context.Background(), Actor{ID: "u", Role: "viewer"}, "request", true); err != nil || !repo.leaveConfirm {
+		t.Fatalf("error=%v confirm=%v", err, repo.leaveConfirm)
 	}
 }

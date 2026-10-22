@@ -274,12 +274,19 @@ components:
         Removes the current user's subscription. Any subscriber may leave, including the
         creator. The request stays open while other subscribers remain; when the last
         subscriber of a requested or approved request leaves, it becomes cancelled with a
-        version bump and an audit event. Idempotent: leaving again returns changed=false.
+        version bump and an audit event, but only with confirmCancel=true; without it the
+        server returns 409 would_cancel and changes nothing. Idempotent by state, with no
+        operation key: leaving again returns changed=false and writes no event.
       parameters:
         - in: path
           name: requestId
           required: true
           schema: { type: string, format: uuid }
+        - in: query
+          name: confirmCancel
+          required: false
+          description: Must be true for a leave that would cancel the request (the caller is the last subscriber)
+          schema: { type: boolean, default: false }
         - in: header
           name: X-CSRF-Token
           required: true
@@ -298,6 +305,7 @@ components:
                   cancelled: { type: boolean, description: True when this leave cancelled the request }
         '400': { description: Invalid request ID }
         '401': { description: Authentication required }
+        '409': { description: Leaving would cancel the request and confirmCancel was not set (code would_cancel) }
         '404': { description: Request not found }
   /requests/{requestId}/transition:
     post:

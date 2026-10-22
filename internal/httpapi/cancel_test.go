@@ -20,6 +20,7 @@ type cancelBackend struct {
 	requests.Repository
 	leave         [2]bool
 	leaveErr      error
+	leaveConfirm  bool
 	subscribeErr  error
 	transitionErr error
 	transitioned  []requests.TransitionInput
@@ -29,7 +30,8 @@ func (*cancelBackend) Upsert(context.Context, domain.ResolvedItem) (domain.Catal
 	return domain.CatalogItem{}, nil
 }
 
-func (b *cancelBackend) Unsubscribe(context.Context, string, string) (bool, bool, error) {
+func (b *cancelBackend) Unsubscribe(_ context.Context, _, _ string, confirm bool) (bool, bool, error) {
+	b.leaveConfirm = confirm
 	return b.leave[0], b.leave[1], b.leaveErr
 }
 
@@ -109,4 +111,15 @@ func TestSubscriptionRoutesReportMissingAndClosedRequests(t *testing.T) {
 	const path = "/requests/22222222-2222-2222-2222-222222222222/subscription"
 	assertErrorEnvelope(t, cancelRequest(t, &cancelBackend{leaveErr: requests.ErrRequestNotFound}, "requester", http.MethodDelete, path, ""), http.StatusNotFound, "request_not_found")
 	assertErrorEnvelope(t, cancelRequest(t, &cancelBackend{subscribeErr: requests.ErrRequestClosed}, "viewer", http.MethodPut, path, ""), http.StatusConflict, "request_closed")
+}
+
+func TestCancellingByLeavingRequiresConfirmCancelFlag(t *testing.T) {
+	const path = "/requests/22222222-2222-2222-2222-222222222222/subscription"
+	assertErrorEnvelope(t, cancelRequest(t, &cancelBackend{leaveErr: requests.ErrCancelNeedsConfirmation}, "requester", http.MethodDelete, path, ""), http.StatusConflict, "would_cancel")
+	for query, want := range map[string]bool{"": false, "?confirmCancel=false": false, "?confirmCancel=true": true} {
+		backend := &cancelBackend{leave: [2]bool{true, true}}
+		if rec := cancelRequest(t, backend, "requester", http.MethodDelete, path+query, ""); rec.Code != http.StatusOK || backend.leaveConfirm != want {
+			t.Errorf("query %q: status=%d confirm=%v want %v", query, rec.Code, backend.leaveConfirm, want)
+		}
+	}
 }

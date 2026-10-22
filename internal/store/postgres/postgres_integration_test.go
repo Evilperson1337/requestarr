@@ -345,25 +345,9 @@ func TestLeavingIsIdempotentAndLastSubscriberCancels(t *testing.T) {
 			t.Fatalf("subscribe changed=%v iteration=%d", changed, i)
 		}
 	}
-	listed, err := s.List(ctx, creator, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var seen bool
-	for _, item := range listed {
-		if item.ID == r.ID {
-			seen = true
-			if item.SubscriberCount != 2 {
-				t.Fatalf("SubscriberCount=%d want 2", item.SubscriberCount)
-			}
-		}
-	}
-	if !seen {
-		t.Fatal("request missing from list")
-	}
 	leave := func(user string) (bool, bool) {
 		t.Helper()
-		changed, cancelled, err := s.Unsubscribe(ctx, r.ID, user)
+		changed, cancelled, err := s.Unsubscribe(ctx, r.ID, user, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -386,7 +370,14 @@ func TestLeavingIsIdempotentAndLastSubscriberCancels(t *testing.T) {
 	if status, version := state(); status != "requested" || version != 1 {
 		t.Fatalf("after non-last leave status=%s version=%d", status, version)
 	}
-	// The last subscriber leaving cancels the Request, once.
+	// Cancelling by leaving needs explicit confirmation; without it nothing changes.
+	if changed, cancelled, err := s.Unsubscribe(ctx, r.ID, watcher, false); !errors.Is(err, requests.ErrCancelNeedsConfirmation) || changed || cancelled {
+		t.Fatalf("unconfirmed last leave changed=%v cancelled=%v err=%v", changed, cancelled, err)
+	}
+	if status, version := state(); status != "requested" || version != 1 {
+		t.Fatalf("unconfirmed leave altered request: status=%s version=%d", status, version)
+	}
+	// Confirmed, the last subscriber leaving cancels the Request, once.
 	if changed, cancelled := leave(watcher); !changed || !cancelled {
 		t.Fatalf("last leave changed=%v cancelled=%v", changed, cancelled)
 	}

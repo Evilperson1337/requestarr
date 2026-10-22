@@ -53,7 +53,7 @@ When a Source sync makes a catalog item available, open Requests for it move to 
 An item becomes missing only after every covering Source completes a successful sync without it. Failed syncs never produce removals.
 
 ## D016 — Cancellation of shared Requests
-A Requester cancelling leaves the Request open if other Subscribers remain; it becomes `cancelled` only when the last Subscriber leaves or an admin cancels it. Admins can set `viewer` as well as `requester`/`admin`, and the last admin cannot be demoted.
+A Requester cancelling leaves the Request open if other Subscribers remain; it becomes `cancelled` only when the last Subscriber leaves or an admin cancels it. Admins can set `viewer` as well as `requester`/`admin`, and the last admin cannot be demoted. Leaving is idempotent by state and takes no operation key; a leave that would cancel the Request must be confirmed explicitly (`confirmCancel=true`), so the last-subscriber warning is decided by the server, not a stale page. Admin cancel uses the existing transition `expectedVersion`/`operationId`.
 
 ## D017 — Secrets stay environment-only in V1
 The setup wizard persists non-secret settings (URLs, library choices) and the names of environment variables holding secrets. Encrypted secrets in PostgreSQL are deferred. The wizard must state clearly what still needs an env edit and restart.

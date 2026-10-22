@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type RequestItem, type User } from '../api'
+import { api, ApiError, type RequestItem, type User } from '../api'
 
 declare global { interface Window { requestarrCSRF?: string } }
 
@@ -32,12 +32,20 @@ export function RequestsPage({ user, csrfToken }: { user: User; csrfToken: strin
     }
     async function changeSubscription(req: RequestItem) {
         setNotice('')
-        if (req.subscribed && req.subscriberCount <= 1 && !confirm(`You are the last subscriber. Leaving cancels the request for ${req.Title}. Continue?`)) return
+        const url = `/requests/${req.ID}/subscription`
+        const method = req.subscribed ? 'DELETE' : 'PUT'
         try {
-            const result = await api<{ cancelled?: boolean }>(`/requests/${req.ID}/subscription`, { method: req.subscribed ? 'DELETE' : 'PUT' }, csrfToken)
+            let result: { cancelled?: boolean }
+            try {
+                result = await api(url, { method }, csrfToken)
+            } catch (e) {
+                // The server decides whether leaving cancels the request, so the warning is never stale.
+                if (!(e instanceof ApiError && e.code === 'would_cancel') || !confirm(`You are the last subscriber. Leaving cancels the request for ${req.Title}. Continue?`)) throw e
+                result = await api(`${url}?confirmCancel=true`, { method }, csrfToken)
+            }
             if (result?.cancelled) setNotice(`The request for ${req.Title} was cancelled because you were its last subscriber.`)
             load()
-        } catch (e) { setError(e instanceof Error ? e.message : 'Could not update subscription') }
+        } catch (e) { setError(e instanceof Error ? e.message : 'Could not update subscription'); load() }
     }
     return <main className="shell"><section className="card"><div className="pageHeading"><div><p className="eyebrow">Availability tracking</p><h1>Requests</h1><p>One shared queue for everyone. Filter to requests you follow or created.</p></div><label className="toggle"><input type="checkbox" checked={mine} onChange={e => changeMine(e.target.checked)} /> My Requests</label></div>
         {notice && <p role="status">{notice}</p>}{loading && <p role="status" aria-busy="true">Loading requests…</p>}{error && <div role="alert" className="errorBox"><p>{error}</p><button className="button secondary" onClick={load}>Retry</button></div>}

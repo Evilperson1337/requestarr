@@ -305,12 +305,14 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 			if r.Method == http.MethodPut {
 				changed, err = requestService.Subscribe(r.Context(), requests.Actor{ID: user.ID, Role: user.Role}, r.PathValue("requestID"))
 			} else {
-				changed, cancelled, err = requestService.Unsubscribe(r.Context(), requests.Actor{ID: user.ID, Role: user.Role}, r.PathValue("requestID"))
+				changed, cancelled, err = requestService.Unsubscribe(r.Context(), requests.Actor{ID: user.ID, Role: user.Role}, r.PathValue("requestID"), r.URL.Query().Get("confirmCancel") == "true")
 			}
 			if err != nil {
 				status, code, msg := 500, "subscription_failed", "subscription could not be changed"
 				if errors.Is(err, requests.ErrRequestNotFound) {
 					status, code, msg = 404, "request_not_found", "request was not found"
+				} else if errors.Is(err, requests.ErrCancelNeedsConfirmation) {
+					status, code, msg = 409, "would_cancel", "you are the last subscriber; leaving cancels the request (retry with confirmCancel=true)"
 				} else if errors.Is(err, requests.ErrRequestClosed) {
 					status, code, msg = 409, "request_closed", "request is closed to new subscribers"
 				} else if errors.Is(err, requests.ErrInvalid) {
