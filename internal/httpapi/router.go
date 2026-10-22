@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/requestarr/internal/auth"
-	"github.com/example/requestarr/internal/buildinfo"
-	"github.com/example/requestarr/internal/domain"
-	"github.com/example/requestarr/internal/notifications"
-	"github.com/example/requestarr/internal/requests"
-	"github.com/example/requestarr/internal/store/postgres"
-	"github.com/example/requestarr/internal/webui"
+	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/buildinfo"
+	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/notifications"
+	"github.com/evilperson1337/requestarr/internal/requests"
+	"github.com/evilperson1337/requestarr/internal/store/postgres"
+	"github.com/evilperson1337/requestarr/internal/webui"
 )
 
 func requireJSONEOF(dec *json.Decoder) error {

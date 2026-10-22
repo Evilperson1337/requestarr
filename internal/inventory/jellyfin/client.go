@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/requestarr/internal/domain"
-	"github.com/example/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/inventory"
 )
 
 const (

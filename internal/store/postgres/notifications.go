@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/example/requestarr/internal/notifications"
+	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/jackc/pgx/v5"
 )
 

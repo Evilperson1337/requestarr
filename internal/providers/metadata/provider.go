@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/example/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
 // Resolver recognizes a provider URL and resolves it into Requestarr's

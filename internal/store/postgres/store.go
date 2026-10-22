@@ -13,8 +13,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/example/requestarr/internal/domain"
-	"github.com/example/requestarr/internal/requests"
+	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/requests"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"

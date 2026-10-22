@@ -8,7 +8,7 @@ The build system uses Make for local ergonomics and GoReleaser v2 for cross-plat
 - tags matching `v*` trigger `.github/workflows/release.yml`.
 
 Before the first public release:
-1. choose a Requestarr license;
+1. ~~choose a Requestarr license~~ (done: AGPL-3.0, D013);
 2. pin production frontend dependencies and commit a valid lockfile;
 3. finalize embedded frontend build strategy;
 4. add SBOM/provenance/container publishing policy;

@@ -90,7 +90,7 @@ Note: each `prompts/*.md` file is only 3-5 lines long. They are directional, not
 2. **No setup wizard or configuration UI.** This is a V1 requirement (D012). Configuration is environment-only and the "wizard" is an admin-claim form.
 3. **No job system.** Sync is an unmanaged goroutine in `app.go` with no persistence, retries, manual trigger or ops visibility. Settings and operational status is therefore missing.
 4. **Requests page lacks search, filter, sort and pagination** (scope requirement). There is no cancel action.
-5. **License undecided.** `LICENSE.md` says "License Pending... Do not publish or redistribute". The module path is the placeholder `github.com/example/requestarr` (`go.mod:1`). `docs/RELEASES.md` lists the license as a pre-release gate.
+5. **License resolved.** AGPL-3.0 is in `LICENSE.md` and the module path is `github.com/evilperson1337/requestarr` (ticket 04).
 6. **No end-to-end acceptance.** There is no live Keycloak, provider, library or Apprise run (the plan says so), no browser/E2E tests and no frontend tests.
 7. **Release pipeline unverified.** `docs/RELEASES.md` still lists as open: frontend embedding strategy, SBOM/provenance/container policy, and the migration/backup/upgrade doc. The Dockerfile does build the web app and embed it, but the plan notes Docker was last verified before admin management was added. The `.goreleaser.yaml` build config has no step that builds the web assets, so a bare `goreleaser` run depends on `internal/webui/dist` already existing; I did not run it.
 

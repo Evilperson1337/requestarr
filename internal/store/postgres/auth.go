@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/example/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/jackc/pgx/v5"
 )
 

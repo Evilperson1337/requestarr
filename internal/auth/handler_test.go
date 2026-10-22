@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/requestarr/internal/auth/oidc"
+	"github.com/evilperson1337/requestarr/internal/auth/oidc"
 )
 
 type authRepoFake struct {

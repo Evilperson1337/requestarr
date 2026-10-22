@@ -79,7 +79,7 @@ Database migrations under `db/migrations/` are append-only once merged — never
 
 ## Working with reference material
 
-`references/source/manifest.yaml` lists upstream projects that informed Requestarr's design. `./scripts/fetch-references.sh` (or `.ps1` on Windows) populates gitignored local checkouts — these are excluded from the repo on purpose. Do not copy implementation code from fetched checkouts into Requestarr; they're architectural/UX references with independent (some GPL/AGPL) licenses, and Requestarr's own license is AGPL-3.0 (D013); `LICENSE.md` still shows the old "pending" notice until it is replaced.
+`references/source/manifest.yaml` lists upstream projects that informed Requestarr's design. `./scripts/fetch-references.sh` (or `.ps1` on Windows) populates gitignored local checkouts — these are excluded from the repo on purpose. Do not copy implementation code from fetched checkouts into Requestarr; they're architectural/UX references with independent (some GPL/AGPL) licenses, and Requestarr's own license is AGPL-3.0 (D013); `LICENSE.md` carries the AGPL-3.0 text.
 
 ## Agent skills
 

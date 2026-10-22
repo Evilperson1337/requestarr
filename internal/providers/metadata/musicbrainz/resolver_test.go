@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/example/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
 func TestCanResolveUsesExactHostAndHTTPSPort(t *testing.T) {

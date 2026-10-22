@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/example/requestarr/internal/app"
-	"github.com/example/requestarr/internal/buildinfo"
-	"github.com/example/requestarr/internal/config"
-	"github.com/example/requestarr/internal/store/postgres"
+	"github.com/evilperson1337/requestarr/internal/app"
+	"github.com/evilperson1337/requestarr/internal/buildinfo"
+	"github.com/evilperson1337/requestarr/internal/config"
+	"github.com/evilperson1337/requestarr/internal/store/postgres"
 )
 
 var (

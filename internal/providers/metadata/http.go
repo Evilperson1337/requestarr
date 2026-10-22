@@ -20,7 +20,7 @@ func Fetch(ctx context.Context, client *http.Client, endpoint string, headers ht
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "Requestarr/1.0 (+https://github.com/example/requestarr)")
+	req.Header.Set("User-Agent", "Requestarr/1.0 (+https://github.com/evilperson1337/requestarr)")
 	for key, values := range headers {
 		for _, value := range values {
 			req.Header.Add(key, value)
@@ -67,7 +67,7 @@ func FetchWithBody(ctx context.Context, client *http.Client, endpoint, body stri
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "Requestarr/1.0 (+https://github.com/example/requestarr)")
+	req.Header.Set("User-Agent", "Requestarr/1.0 (+https://github.com/evilperson1337/requestarr)")
 	for key, values := range headers {
 		for _, value := range values {
 			req.Header.Add(key, value)

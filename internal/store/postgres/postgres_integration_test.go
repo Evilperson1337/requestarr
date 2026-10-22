@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/requestarr/internal/domain"
-	"github.com/example/requestarr/internal/inventory"
-	"github.com/example/requestarr/internal/requests"
+	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/requests"
 )
 
 // testDatabaseURL returns the database used only by these integration tests.

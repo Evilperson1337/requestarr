@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/example/requestarr/db/migrations"
+	"github.com/evilperson1337/requestarr/db/migrations"
 )
 
 // runMigrations applies all pending embedded up migrations using the given

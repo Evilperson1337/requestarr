@@ -1,4 +1,4 @@
-module github.com/example/requestarr
+module github.com/evilperson1337/requestarr
 
 go 1.27.1
 

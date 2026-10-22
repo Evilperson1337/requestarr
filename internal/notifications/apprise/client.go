@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/requestarr/internal/notifications"
+	"github.com/evilperson1337/requestarr/internal/notifications"
 )
 
 type Client struct {

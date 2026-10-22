@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/requestarr/internal/domain"
-	"github.com/example/requestarr/internal/providers/metadata"
+	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/providers/metadata"
 )
 
 type Resolver struct{ client *http.Client }

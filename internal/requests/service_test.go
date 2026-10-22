@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/example/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
 type fakeRepository struct {

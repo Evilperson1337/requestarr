@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/requestarr/internal/auth"
-	"github.com/example/requestarr/internal/buildinfo"
-	"github.com/example/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/buildinfo"
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
 func TestRequireJSONEOF(t *testing.T) {

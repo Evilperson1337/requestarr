@@ -124,7 +124,7 @@ External source trees are deliberately excluded from this repository. The fetch 
 
 ## License
 
-No Requestarr project license has been selected yet. `LICENSE.md` intentionally records that decision as pending. Do not assume the licenses of reference projects apply to Requestarr.
+Requestarr is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0); see `LICENSE.md` and decision D013 in `docs/DECISIONS.md`. Reference projects keep their own licenses and do not apply to Requestarr.
 # Production UI build
 
 `make build` runs the Vite production build before compiling the Go binary; Node/npm are required locally. The Docker build performs the same ordering in a Node builder stage and embeds the resulting assets in the Go binary. Browser routes fall back to the SPA, while `/api/` and `/auth/` routes remain server-owned. Development can continue to use `make web-dev`.

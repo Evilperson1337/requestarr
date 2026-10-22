@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/example/requestarr/internal/notifications"
+	"github.com/evilperson1337/requestarr/internal/notifications"
 )
 
 func TestSendPostsJSONToConfiguredGlobalKey(t *testing.T) {
