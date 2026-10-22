@@ -59,7 +59,7 @@ A Requester cancelling leaves the Request open if other Subscribers remain; it b
 The setup wizard persists non-secret settings (URLs, library choices) and the names of environment variables holding secrets. Encrypted secrets in PostgreSQL are deferred. The wizard must state clearly what still needs an env edit and restart.
 
 ## D018 — V1 job runner is Postgres-backed and minimal
-A job-run table with status, timestamps and errors, a no-overlap guard that survives restarts, an admin "sync now" action and a status endpoint. No queue library or worker process; retries use the next scheduled tick.
+A job-run table with status, timestamps and errors, a no-overlap guard that survives restarts, an admin "sync now" action and a status endpoint. No queue library or worker process; retries use the next scheduled tick. Lease and run times come from the database clock, a job whose lease cannot be renewed is cancelled, and each Source keeps its newest 200 runs.
 
 ## D019 — V1 build order
 Baseline hygiene, then the `available` flow, then the job runner, then the adapter interface with Plex, RomM, Jellyfin (onto the new interface) and Navidrome in that order, then the Requests page, then wizard/settings/ops status, then release hardening.

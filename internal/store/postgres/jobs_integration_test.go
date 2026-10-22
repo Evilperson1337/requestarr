@@ -29,26 +29,33 @@ func jobSource(t *testing.T, ctx context.Context, s *Store) string {
 	return id
 }
 
+// expireLease simulates a crashed process: its lease ran out without a heartbeat.
+func expireLease(t *testing.T, ctx context.Context, s *Store, runID string) {
+	t.Helper()
+	if _, err := s.pool.Exec(ctx, `UPDATE job_runs SET lease_until=now()-interval '1 second' WHERE id=$1`, runID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunsOfTheSameSourceNeverOverlap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	s := openJobStore(t, ctx)
 	source, other := jobSource(t, ctx, s), jobSource(t, ctx, s)
-	now := time.Now().UTC()
-	first, err := s.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute, now)
-	if err != nil || first.Status != jobs.StatusRunning {
+	first, err := s.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute)
+	if err != nil || first.Status != jobs.StatusRunning || first.StartedAt.IsZero() {
 		t.Fatalf("first start run=%+v err=%v", first, err)
 	}
-	if _, err := s.StartRun(ctx, source, jobs.TriggerManual, time.Minute, now.Add(time.Second)); !errors.Is(err, jobs.ErrAlreadyRunning) {
+	if _, err := s.StartRun(ctx, source, jobs.TriggerManual, time.Minute); !errors.Is(err, jobs.ErrAlreadyRunning) {
 		t.Fatalf("overlapping start err=%v", err)
 	}
-	if _, err := s.StartRun(ctx, other, jobs.TriggerSchedule, time.Minute, now); err != nil {
+	if _, err := s.StartRun(ctx, other, jobs.TriggerSchedule, time.Minute); err != nil {
 		t.Fatalf("a different source was blocked: %v", err)
 	}
-	if err := s.FinishRun(ctx, first.ID, jobs.StatusSucceeded, "", now.Add(2*time.Second)); err != nil {
-		t.Fatal(err)
+	if finished, err := s.FinishRun(ctx, first.ID, jobs.StatusSucceeded, ""); err != nil || finished.Before(first.StartedAt) {
+		t.Fatalf("finish at %v err=%v", finished, err)
 	}
-	if _, err := s.StartRun(ctx, source, jobs.TriggerManual, time.Minute, now.Add(3*time.Second)); err != nil {
+	if _, err := s.StartRun(ctx, source, jobs.TriggerManual, time.Minute); err != nil {
 		t.Fatalf("start after finish: %v", err)
 	}
 }
@@ -58,20 +65,20 @@ func TestGuardSurvivesRestartAndCrashedRunIsReclaimedAfterLeaseExpiry(t *testing
 	defer cancel()
 	before := openJobStore(t, ctx)
 	source := jobSource(t, ctx, before)
-	t0 := time.Now().UTC().Truncate(time.Millisecond)
-	crashed, err := before.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute, t0)
+	crashed, err := before.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// "Restart": the process dies and a fresh pool opens the same database. The
-	// guard lives in PostgreSQL, so the lease still blocks a new run.
+	// guard lives in PostgreSQL, so the live lease still blocks a new run.
 	before.Close()
 	after := openJobStore(t, ctx)
-	if _, err := after.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute, t0.Add(30*time.Second)); !errors.Is(err, jobs.ErrAlreadyRunning) {
+	if _, err := after.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute); !errors.Is(err, jobs.ErrAlreadyRunning) {
 		t.Fatalf("live lease after restart err=%v", err)
 	}
 	// Once the lease lapses the abandoned run is failed and a new one starts.
-	next, err := after.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute, t0.Add(2*time.Minute))
+	expireLease(t, ctx, after, crashed.ID)
+	next, err := after.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute)
 	if err != nil {
 		t.Fatalf("start after lease expiry: %v", err)
 	}
@@ -83,18 +90,50 @@ func TestGuardSurvivesRestartAndCrashedRunIsReclaimedAfterLeaseExpiry(t *testing
 		t.Fatalf("crashed run status=%q error=%q", status, message)
 	}
 	// The zombie process waking up cannot overwrite the reclaimed run or extend its lease.
-	if err := after.FinishRun(ctx, crashed.ID, jobs.StatusSucceeded, "", t0.Add(3*time.Minute)); !errors.Is(err, jobs.ErrRunLost) {
+	if _, err := after.FinishRun(ctx, crashed.ID, jobs.StatusSucceeded, ""); !errors.Is(err, jobs.ErrRunLost) {
 		t.Fatalf("finish of reclaimed run err=%v", err)
 	}
-	if err := after.Heartbeat(ctx, crashed.ID, time.Minute, t0.Add(3*time.Minute)); !errors.Is(err, jobs.ErrRunLost) {
+	if err := after.Heartbeat(ctx, crashed.ID, time.Minute); !errors.Is(err, jobs.ErrRunLost) {
 		t.Fatalf("heartbeat of reclaimed run err=%v", err)
 	}
-	if err := after.Heartbeat(ctx, next.ID, time.Minute, t0.Add(2*time.Minute+30*time.Second)); err != nil {
+	// A heartbeat pushes the live run's lease out by the requested duration.
+	if err := after.Heartbeat(ctx, next.ID, time.Hour); err != nil {
 		t.Fatalf("heartbeat of live run: %v", err)
 	}
-	// The heartbeat extended the live run's lease past its original expiry.
-	if _, err := after.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute, t0.Add(3*time.Minute+15*time.Second)); !errors.Is(err, jobs.ErrAlreadyRunning) {
-		t.Fatalf("heartbeat did not extend lease: %v", err)
+	var remaining time.Duration
+	if err := after.pool.QueryRow(ctx, `SELECT lease_until-now() FROM job_runs WHERE id=$1`, next.ID).Scan(&remaining); err != nil || remaining < 50*time.Minute {
+		t.Fatalf("lease remaining after heartbeat=%v err=%v", remaining, err)
+	}
+}
+
+func TestOldFinishedRunsArePrunedPerSource(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	s := openJobStore(t, ctx)
+	source, other := jobSource(t, ctx, s), jobSource(t, ctx, s)
+	for i := 0; i < jobRunRetention+5; i++ {
+		run, err := s.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.FinishRun(ctx, run.ID, jobs.StatusSucceeded, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	otherRun, err := s.StartRun(ctx, other, jobs.TriggerSchedule, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept, otherKept int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM job_runs WHERE source_id=$1`, source).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM job_runs WHERE source_id=$1`, other).Scan(&otherKept); err != nil {
+		t.Fatal(err)
+	}
+	// Retention counts finished runs; the still-running one is never pruned.
+	if kept > jobRunRetention || otherKept != 1 || otherRun.ID == "" {
+		t.Fatalf("kept=%d (limit %d) other=%d", kept, jobRunRetention, otherKept)
 	}
 }
 
@@ -133,13 +172,12 @@ func TestRecentRunsBySourceGroupsAndLimitsPerSource(t *testing.T) {
 	defer cancel()
 	s := openJobStore(t, ctx)
 	a, b := jobSource(t, ctx, s), jobSource(t, ctx, s)
-	t0 := time.Now().UTC().Truncate(time.Millisecond)
-	for i, source := range []string{a, a, a, b} {
-		run, err := s.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute, t0.Add(time.Duration(i)*time.Second))
+	for _, source := range []string{a, a, a, b} {
+		run, err := s.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.FinishRun(ctx, run.ID, jobs.StatusSucceeded, "", t0.Add(time.Duration(i)*time.Second+time.Millisecond)); err != nil {
+		if _, err := s.FinishRun(ctx, run.ID, jobs.StatusSucceeded, ""); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -55,12 +55,15 @@ type SourceRuns struct {
 	Runs     []Run  `json:"runs"`
 }
 
-// Store persists runs. StartRun atomically reclaims runs whose lease expired
-// (marking them failed) and fails with ErrAlreadyRunning while a live one exists.
+// Store persists runs. Time is owned by the store (the database clock), so
+// leases stay comparable across processes whatever their local clocks say.
+// StartRun atomically reclaims runs whose lease expired (marking them failed)
+// and fails with ErrAlreadyRunning while a live one exists. FinishRun returns
+// the finish time it recorded.
 type Store interface {
-	StartRun(ctx context.Context, sourceID, trigger string, lease time.Duration, now time.Time) (Run, error)
-	Heartbeat(ctx context.Context, runID string, lease time.Duration, now time.Time) error
-	FinishRun(ctx context.Context, runID string, status Status, message string, now time.Time) error
+	StartRun(ctx context.Context, sourceID, trigger string, lease time.Duration) (Run, error)
+	Heartbeat(ctx context.Context, runID string, lease time.Duration) error
+	FinishRun(ctx context.Context, runID string, status Status, message string) (time.Time, error)
 	RecentRuns(ctx context.Context, sourceID string, limit int) ([]Run, error)
 }
 
@@ -71,18 +74,17 @@ type Runner struct {
 	Lease     time.Duration
 	Heartbeat time.Duration
 	Logger    *slog.Logger
-	Now       func() time.Time
 }
 
 func NewRunner(store Store) *Runner {
-	return &Runner{Store: store, Lease: 2 * time.Minute, Heartbeat: 30 * time.Second, Logger: slog.Default(), Now: func() time.Time { return time.Now().UTC() }}
+	return &Runner{Store: store, Lease: 2 * time.Minute, Heartbeat: 30 * time.Second, Logger: slog.Default()}
 }
 
 // Run executes fn as a recorded run of sourceID. It returns ErrAlreadyRunning
 // without calling fn when the Source has a live run. The recorded run is
 // returned together with fn's error.
 func (r *Runner) Run(ctx context.Context, sourceID, trigger string, fn func(context.Context) error) (Run, error) {
-	run, err := r.Store.StartRun(ctx, sourceID, trigger, r.Lease, r.Now())
+	run, err := r.Store.StartRun(ctx, sourceID, trigger, r.Lease)
 	if err != nil {
 		return Run{}, err
 	}
@@ -94,18 +96,28 @@ func (r *Runner) Run(ctx context.Context, sourceID, trigger string, fn func(cont
 		defer close(beatDone)
 		ticker := time.NewTicker(r.Heartbeat)
 		defer ticker.Stop()
+		lastRenewed := time.Now()
 		for {
 			select {
 			case <-stopBeat:
 				return
 			case <-ticker.C:
-				err := r.Store.Heartbeat(context.WithoutCancel(ctx), run.ID, r.Lease, r.Now())
-				if errors.Is(err, ErrRunLost) {
+				err := r.Store.Heartbeat(context.WithoutCancel(ctx), run.ID, r.Lease)
+				switch {
+				case err == nil:
+					lastRenewed = time.Now()
+				case errors.Is(err, ErrRunLost):
 					cancelJob() // another run owns the Source now; stop working
 					return
-				}
-				if err != nil {
+				default:
 					r.Logger.Warn("job heartbeat failed", "source_id", sourceID, "run_id", run.ID)
+					// Past a full lease without renewal another run may start, so
+					// stop rather than risk two syncs of one Source overlapping.
+					if time.Since(lastRenewed) >= r.Lease {
+						r.Logger.Warn("job lease could not be renewed; stopping", "source_id", sourceID, "run_id", run.ID)
+						cancelJob()
+						return
+					}
 				}
 			}
 		}
@@ -121,12 +133,12 @@ func (r *Runner) Run(ctx context.Context, sourceID, trigger string, fn func(cont
 			message = "interrupted by shutdown"
 		}
 	}
-	now := r.Now()
 	// Record the outcome even when shutdown cancelled ctx.
-	if err := r.Store.FinishRun(context.WithoutCancel(ctx), run.ID, status, message, now); err != nil {
+	finished, err := r.Store.FinishRun(context.WithoutCancel(ctx), run.ID, status, message)
+	if err != nil {
 		return run, errors.Join(runErr, fmt.Errorf("record run outcome: %w", err))
 	}
-	run.Status, run.Error, run.FinishedAt = status, message, &now
+	run.Status, run.Error, run.FinishedAt = status, message, &finished
 	return run, runErr
 }
 

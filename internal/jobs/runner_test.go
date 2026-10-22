@@ -21,7 +21,7 @@ type memStore struct {
 	heartbeatErr error
 }
 
-func (m *memStore) StartRun(_ context.Context, sourceID, trigger string, _ time.Duration, now time.Time) (Run, error) {
+func (m *memStore) StartRun(_ context.Context, sourceID, trigger string, _ time.Duration) (Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range m.runs {
@@ -29,12 +29,12 @@ func (m *memStore) StartRun(_ context.Context, sourceID, trigger string, _ time.
 			return Run{}, ErrAlreadyRunning
 		}
 	}
-	run := &Run{ID: string(rune('a' + len(m.runs))), SourceID: sourceID, Trigger: trigger, Status: StatusRunning, StartedAt: now}
+	run := &Run{ID: string(rune('a' + len(m.runs))), SourceID: sourceID, Trigger: trigger, Status: StatusRunning, StartedAt: time.Now()}
 	m.runs = append(m.runs, run)
 	return *run, nil
 }
 
-func (m *memStore) Heartbeat(context.Context, string, time.Duration, time.Time) error {
+func (m *memStore) Heartbeat(context.Context, string, time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.heartbeats++
@@ -44,15 +44,16 @@ func (m *memStore) Heartbeat(context.Context, string, time.Duration, time.Time) 
 	return m.heartbeatErr
 }
 
-func (m *memStore) FinishRun(_ context.Context, id string, status Status, message string, now time.Time) error {
+func (m *memStore) FinishRun(_ context.Context, id string, status Status, message string) (time.Time, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := time.Now()
 	for _, r := range m.runs {
 		if r.ID == id {
 			r.Status, r.Error, r.FinishedAt = status, message, &now
 		}
 	}
-	return nil
+	return now, nil
 }
 
 func (m *memStore) RecentRuns(context.Context, string, int) ([]Run, error) { return nil, nil }
@@ -179,12 +180,12 @@ func TestScheduleRetriesSoonWhenSourceWasBusyAtStart(t *testing.T) {
 	runner := NewRunner(store)
 	runner.Lease = 10 * time.Millisecond
 	// A run left over from a crashed process holds the Source until it ends.
-	stale, err := store.StartRun(context.Background(), "src", TriggerSchedule, runner.Lease, time.Now())
+	stale, err := store.StartRun(context.Background(), "src", TriggerSchedule, runner.Lease)
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.AfterFunc(30*time.Millisecond, func() {
-		_ = store.FinishRun(context.Background(), stale.ID, StatusFailed, "abandoned: lease expired", time.Now())
+		_, _ = store.FinishRun(context.Background(), stale.ID, StatusFailed, "abandoned: lease expired")
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -238,5 +239,28 @@ func TestTruncatedErrorStaysValidUTF8WithinTheCharacterLimit(t *testing.T) {
 	})
 	if !utf8.ValidString(run.Error) || utf8.RuneCountInString(run.Error) != maxErrorLen {
 		t.Fatalf("error has %d runes, valid=%v; want %d valid runes", utf8.RuneCountInString(run.Error), utf8.ValidString(run.Error), maxErrorLen)
+	}
+}
+
+func TestJobIsCancelledWhenItsLeaseCannotBeRenewed(t *testing.T) {
+	store := &memStore{heartbeatErr: errors.New("db unreachable")}
+	runner := NewRunner(store)
+	runner.Lease, runner.Heartbeat = 30*time.Millisecond, 5*time.Millisecond
+	cancelled := make(chan struct{})
+	go func() {
+		_, _ = runner.Run(context.Background(), "src", TriggerSchedule, func(ctx context.Context) error {
+			select {
+			case <-ctx.Done():
+				close(cancelled)
+				return ctx.Err()
+			case <-time.After(2 * time.Second):
+				return nil
+			}
+		})
+	}()
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("job kept running after its lease could no longer be renewed, so a new run could overlap it")
 	}
 }

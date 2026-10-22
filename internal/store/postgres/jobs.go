@@ -12,25 +12,33 @@ import (
 
 const abandonedRunError = "abandoned: lease expired"
 
+// jobRunRetention is how many of a Source's newest runs are kept; older
+// finished runs are pruned whenever a new run starts.
+const jobRunRetention = 200
+
 // StartRun fails runs of the Source whose lease expired (their process
 // crashed), then claims the Source. The partial unique index makes the claim
-// atomic, so concurrent processes cannot both win.
-func (s *Store) StartRun(ctx context.Context, sourceID, trigger string, lease time.Duration, now time.Time) (jobs.Run, error) {
+// atomic, so concurrent processes cannot both win. All times are the database
+// clock's, never the caller's.
+func (s *Store) StartRun(ctx context.Context, sourceID, trigger string, lease time.Duration) (jobs.Run, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return jobs.Run{}, fmt.Errorf("begin job run: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `UPDATE job_runs SET status='failed',finished_at=$2,error=$3 WHERE source_id=$1 AND status='running' AND lease_until<=$2`, sourceID, now, abandonedRunError); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE job_runs SET status='failed',finished_at=now(),error=$2 WHERE source_id=$1 AND status='running' AND lease_until<=now()`, sourceID, abandonedRunError); err != nil {
 		return jobs.Run{}, fmt.Errorf("reclaim abandoned job runs: %w", err)
 	}
-	run := jobs.Run{SourceID: sourceID, Trigger: trigger, Status: jobs.StatusRunning, StartedAt: now}
-	err = tx.QueryRow(ctx, `INSERT INTO job_runs(source_id,triggered_by,status,started_at,lease_until) VALUES($1,$2,'running',$3,$4) ON CONFLICT(source_id) WHERE status='running' DO NOTHING RETURNING id::text`, sourceID, trigger, now, now.Add(lease)).Scan(&run.ID)
+	run := jobs.Run{SourceID: sourceID, Trigger: trigger, Status: jobs.StatusRunning}
+	err = tx.QueryRow(ctx, `INSERT INTO job_runs(source_id,triggered_by,status,started_at,lease_until) VALUES($1,$2,'running',now(),now()+make_interval(secs=>$3)) ON CONFLICT(source_id) WHERE status='running' DO NOTHING RETURNING id::text,started_at`, sourceID, trigger, lease.Seconds()).Scan(&run.ID, &run.StartedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return jobs.Run{}, jobs.ErrAlreadyRunning
 	}
 	if err != nil {
 		return jobs.Run{}, fmt.Errorf("start job run: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM job_runs WHERE source_id=$1 AND status<>'running' AND id NOT IN (SELECT id FROM job_runs WHERE source_id=$1 ORDER BY started_at DESC,id LIMIT $2)`, sourceID, jobRunRetention); err != nil {
+		return jobs.Run{}, fmt.Errorf("prune old job runs: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return jobs.Run{}, fmt.Errorf("commit job run: %w", err)
@@ -39,8 +47,8 @@ func (s *Store) StartRun(ctx context.Context, sourceID, trigger string, lease ti
 }
 
 // Heartbeat extends a running run's lease; ErrRunLost means it was reclaimed.
-func (s *Store) Heartbeat(ctx context.Context, runID string, lease time.Duration, now time.Time) error {
-	ct, err := s.pool.Exec(ctx, `UPDATE job_runs SET lease_until=$2 WHERE id=$1 AND status='running'`, runID, now.Add(lease))
+func (s *Store) Heartbeat(ctx context.Context, runID string, lease time.Duration) error {
+	ct, err := s.pool.Exec(ctx, `UPDATE job_runs SET lease_until=now()+make_interval(secs=>$2) WHERE id=$1 AND status='running'`, runID, lease.Seconds())
 	if err != nil {
 		return fmt.Errorf("extend job run lease: %w", err)
 	}
@@ -50,16 +58,18 @@ func (s *Store) Heartbeat(ctx context.Context, runID string, lease time.Duration
 	return nil
 }
 
-// FinishRun records the outcome of a run still owned by the caller.
-func (s *Store) FinishRun(ctx context.Context, runID string, status jobs.Status, message string, now time.Time) error {
-	ct, err := s.pool.Exec(ctx, `UPDATE job_runs SET status=$2,finished_at=$3,error=NULLIF($4,'') WHERE id=$1 AND status='running'`, runID, status, now, message)
+// FinishRun records the outcome of a run still owned by the caller and
+// returns the database time it finished at.
+func (s *Store) FinishRun(ctx context.Context, runID string, status jobs.Status, message string) (time.Time, error) {
+	var finished time.Time
+	err := s.pool.QueryRow(ctx, `UPDATE job_runs SET status=$2,finished_at=now(),error=NULLIF($3,'') WHERE id=$1 AND status='running' RETURNING finished_at`, runID, status, message).Scan(&finished)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, jobs.ErrRunLost
+	}
 	if err != nil {
-		return fmt.Errorf("finish job run: %w", err)
+		return time.Time{}, fmt.Errorf("finish job run: %w", err)
 	}
-	if ct.RowsAffected() == 0 {
-		return jobs.ErrRunLost
-	}
-	return nil
+	return finished, nil
 }
 
 // RecentRuns lists a Source's newest runs first.

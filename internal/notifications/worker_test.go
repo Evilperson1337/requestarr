@@ -3,11 +3,15 @@ package notifications
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
 
+// fakeOutbox is written by the worker goroutine while tests poll it, so state
+// is guarded by mu; tests poll through isCompleted.
 type fakeOutbox struct {
+	mu                 sync.Mutex
 	claimed, completed bool
 	success            bool
 	claimErr           error
@@ -19,7 +23,15 @@ type fakeOutbox struct {
 	claimAttempts      int
 }
 
+func (f *fakeOutbox) isCompleted() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.completed
+}
+
 func (f *fakeOutbox) ClaimGlobalApprise(context.Context, time.Duration) (string, string, string, string, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.claims++
 	if f.claimErr != nil {
 		return "", "", "", "", 0, f.claimErr
@@ -37,6 +49,8 @@ func (f *fakeOutbox) claimAttemptsOrDefault() int {
 	return f.claimAttempts
 }
 func (f *fakeOutbox) CompleteGlobalApprise(_ context.Context, id, token string, success bool, delay time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if id != "delivery" || token != "lease" {
 		return errors.New("bad lease")
 	}
@@ -60,7 +74,7 @@ func TestRunWorkerDeliversGlobalEventAndCompletesLease(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- RunWorker(ctx, outbox, sender) }()
 	deadline := time.After(time.Second)
-	for !outbox.completed {
+	for !outbox.isCompleted() {
 		select {
 		case <-deadline:
 			t.Fatal("worker did not complete")
@@ -92,7 +106,7 @@ func TestRunWorkerSchedulesRetryAfterSendFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- RunWorker(ctx, outbox, sender) }()
-	waitFor(t, func() bool { return outbox.completed })
+	waitFor(t, outbox.isCompleted)
 	cancel()
 	<-done
 	if outbox.success {
@@ -109,7 +123,7 @@ func TestRunWorkerTerminalAttemptStillRecordsFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- RunWorker(ctx, outbox, sender) }()
-	waitFor(t, func() bool { return outbox.completed })
+	waitFor(t, outbox.isCompleted)
 	cancel()
 	<-done
 	if outbox.success {

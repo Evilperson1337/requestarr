@@ -158,7 +158,8 @@ paths:
       description: >-
         Lists up to 10 newest runs for every Source that has run a job. A Source never has two
         running runs; a run whose process crashed is failed with "abandoned: lease expired"
-        once its lease lapses. Errors are fixed, admin-safe strings.
+        once its lease lapses (lease times use the database clock). Each Source keeps its newest 200
+        runs; older finished runs are pruned. Errors are fixed, admin-safe strings.
       responses:
         '200':
           description: Runs grouped by Source, newest first
