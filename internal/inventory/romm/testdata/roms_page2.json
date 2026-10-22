@@ -1,0 +1,4 @@
+{"items":[
+ {"id":13,"name":"Homebrew Game","slug":"homebrew-game","fs_name":"hb.bin","igdb_id":null,"platform_id":3,"platform_slug":"my-homebrew","platform_display_name":"Homebrew","missing_from_fs":false},
+ {"id":14,"name":"Gone ROM","slug":"gone-rom","fs_name":"gone.sfc","igdb_id":4242,"platform_id":1,"platform_slug":"snes","platform_display_name":"Super Nintendo Entertainment System","missing_from_fs":true}],
+ "total":4,"limit":2,"offset":2}

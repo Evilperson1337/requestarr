@@ -66,3 +66,6 @@ Baseline hygiene, then the `available` flow, then the job runner, then the adapt
 
 ## D020 — Music identity is release-group and recording, bridged to library ids by aliases
 An album Request's canonical identity is a MusicBrainz release group and a song's is a recording; release ids are never equated with release groups, and a pasted release link resolves to its group. Library Sources often expose other identifiers (Plex: release and release-track MBIDs), so an alias table (`catalog_item_aliases`, kind `mbid`) maps them to the catalog item. Aliases are looked up from MusicBrainz, rate-limited and best-effort, only for open music Requests, and matched per media type; a failed lookup delays a match but never changes inventory.
+
+## D021 — Game availability is per platform
+Availability evidence and absence streaks carry a platform key (`igdb:<id>`, or `''` for non-game media and platforms a Source cannot map to IGDB). A game Request is moved to `available` only when the evidence satisfies its selection (`domain.PlatformSelection.SatisfiedBy`, D009): any selected platform for an explicit selection, any platform at all for Any. Evidence with an unknown platform satisfies Any but never an explicit selection. A game is available as a catalog item whenever any platform holds it; each platform's evidence expires on its own.

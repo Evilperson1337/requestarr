@@ -50,3 +50,28 @@ func TestCanTransitionAndOpenStatuses(t *testing.T) {
 		}
 	}
 }
+
+func TestPlatformSelectionSatisfiedByEvidenceOnAnySelectedPlatform(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		sel      PlatformSelection
+		evidence []string
+		want     bool
+	}{
+		{"any, one platform", PlatformSelection{Any: true}, []string{"igdb:130"}, true},
+		{"any, platform unknown to the library", PlatformSelection{Any: true}, []string{""}, true},
+		{"any, no evidence at all", PlatformSelection{Any: true}, nil, false},
+		{"explicit, selected platform present", PlatformSelection{PlatformKeys: []string{"igdb:167", "igdb:130"}}, []string{"igdb:130"}, true},
+		{"explicit, OR across several selected platforms", PlatformSelection{PlatformKeys: []string{"igdb:167", "igdb:130"}}, []string{"igdb:19", "igdb:167"}, true},
+		{"explicit, only other platforms present", PlatformSelection{PlatformKeys: []string{"igdb:167"}}, []string{"igdb:19", "igdb:130"}, false},
+		{"explicit, platform unknown cannot satisfy", PlatformSelection{PlatformKeys: []string{"igdb:167"}}, []string{""}, false},
+		{"explicit, no evidence", PlatformSelection{PlatformKeys: []string{"igdb:167"}}, nil, false},
+		{"empty selection behaves as any", PlatformSelection{}, []string{"igdb:19"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.sel.SatisfiedBy(tc.evidence); got != tc.want {
+				t.Fatalf("SatisfiedBy(%v)=%v want %v", tc.evidence, got, tc.want)
+			}
+		})
+	}
+}

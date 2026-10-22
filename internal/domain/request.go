@@ -70,6 +70,34 @@ type RequestSubscription struct {
 	CreatedAt time.Time
 }
 
+// SatisfiedBy applies the V1 OR rule (D009): evidence of the game on any
+// selected platform satisfies an explicit selection, and Any is satisfied by
+// evidence on any platform at all. platformKeys are the platforms the game was
+// observed on; "" means a Source that could not say which platform. Such
+// evidence satisfies Any but never an explicit selection. A selection that is
+// neither Any nor explicit (non-game Requests) behaves as Any. Game selections
+// are checked by ValidatePlatformSelection when a Request is created, so Any
+// combined with explicit keys never reaches here.
+func (s PlatformSelection) SatisfiedBy(platformKeys []string) bool {
+	if len(platformKeys) == 0 {
+		return false
+	}
+	if s.Any || len(s.PlatformKeys) == 0 {
+		return true
+	}
+	for _, observed := range platformKeys {
+		if observed == "" {
+			continue
+		}
+		for _, wanted := range s.PlatformKeys {
+			if observed == wanted {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ValidatePlatformSelection encodes the V1 UX rule: Any is mutually exclusive
 // with explicit selections, and an explicit selection requires at least one platform.
 func ValidatePlatformSelection(s PlatformSelection) bool {

@@ -53,4 +53,5 @@ For an IGDB game request:
 - `Any = true` means any RomM platform instance of the canonical game satisfies it.
 - Explicit platform keys are a set of acceptable alternatives.
 - Presence of one matching selected platform satisfies the request.
+- Evidence is tracked per platform (D021); a platform a Source cannot map to IGDB satisfies Any but never an explicit selection.
 - `Any` and explicit selections are mutually exclusive.

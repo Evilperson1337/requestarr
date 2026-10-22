@@ -1,0 +1,4 @@
+{"items":[
+ {"id":11,"name":"Chrono Trigger","slug":"chrono-trigger","fs_name":"Chrono Trigger (USA).sfc","igdb_id":1035,"platform_id":1,"platform_slug":"snes","platform_display_name":"Super Nintendo Entertainment System","missing_from_fs":false},
+ {"id":12,"name":"Hades","slug":"hades","fs_name":"Hades.nsp","igdb_id":113112,"platform_id":2,"platform_slug":"switch","platform_display_name":"Nintendo Switch","missing_from_fs":false}],
+ "total":4,"limit":2,"offset":0}

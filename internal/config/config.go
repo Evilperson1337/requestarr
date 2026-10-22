@@ -27,6 +27,8 @@ type Config struct {
 	JellyfinAPIKey    string
 	PlexURL           string
 	PlexToken         string
+	RommURL           string
+	RommToken         string
 	AppriseURL        string
 	AppriseConfigKey  string
 }
@@ -49,6 +51,8 @@ func FromEnv() Config {
 		JellyfinAPIKey:    os.Getenv("REQUESTARR_JELLYFIN_API_KEY"),
 		PlexURL:           os.Getenv("REQUESTARR_PLEX_URL"),
 		PlexToken:         os.Getenv("REQUESTARR_PLEX_TOKEN"),
+		RommURL:           os.Getenv("REQUESTARR_ROMM_URL"),
+		RommToken:         os.Getenv("REQUESTARR_ROMM_TOKEN"),
 		AppriseURL:        os.Getenv("REQUESTARR_APPRISE_URL"),
 		AppriseConfigKey:  os.Getenv("REQUESTARR_APPRISE_CONFIG_KEY"),
 	}
@@ -82,6 +86,11 @@ func (c Config) Validate() error {
 		problems = append(problems, "REQUESTARR_PLEX_URL and REQUESTARR_PLEX_TOKEN must be configured together")
 	} else if c.PlexURL != "" {
 		problems = append(problems, c.sourceURLProblems("REQUESTARR_PLEX_URL", c.PlexURL)...)
+	}
+	if (c.RommURL == "") != (c.RommToken == "") {
+		problems = append(problems, "REQUESTARR_ROMM_URL and REQUESTARR_ROMM_TOKEN must be configured together")
+	} else if c.RommURL != "" {
+		problems = append(problems, c.sourceURLProblems("REQUESTARR_ROMM_URL", c.RommURL)...)
 	}
 	if (c.AppriseURL == "") != (c.AppriseConfigKey == "") {
 		problems = append(problems, "REQUESTARR_APPRISE_URL and REQUESTARR_APPRISE_CONFIG_KEY must be configured together")

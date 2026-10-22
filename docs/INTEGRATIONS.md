@@ -79,13 +79,37 @@ contents. Request list items expose catalog availability separately from request
 lifecycle and include the latest positive evidence observation time. Jellyfin
 outages do not cause availability to be marked missing.
 
-Plex and the remaining Jellyfin media types are not operationally integrated.
+Jellyfin covers movies and TV only; music comes from Plex (and later Navidrome) and games from RomM.
 
 ### Navidrome / OpenSubsonic
 Authoritative for enabled music. Normalize song/album identity to MusicBrainz IDs when present and retain fallback metadata for confidence matching.
 
 ### RomM
-Authoritative for games. Preserve platform identity and game metadata-provider IDs when exposed. A request with explicit acceptable platform keys is available when any matching platform instance exists.
+Authoritative for games only. Set both `REQUESTARR_ROMM_URL` and
+`REQUESTARR_ROMM_TOKEN` to enable it (same URL rules, trust caveat and
+header-only secret handling as the other Sources). The token is a bearer token
+RomM accepts for `Authorization: Bearer`, with at least the `roms.read` and
+`platforms.read` scopes. It syncs through the job runner on the same schedule and
+Sync now action as the others.
+
+Each ROM is matched to a game Request by its IGDB game id. RomM keeps one ROM per
+platform, so evidence and absence streaks are tracked per platform: the platform
+is RomM's platform mapped to its IGDB platform id (`igdb:<id>`, the same keys the
+request modal offers). A game Request is satisfied by the OR rule (D009): with
+explicit platforms, when the game is present on **any** selected platform; with
+Any, on any platform at all. A platform RomM cannot map to IGDB (no `igdb_id`)
+counts for Any but never for an explicit selection. ROMs whose file is missing
+from disk are not evidence. Like Plex, any failure (HTTP error, bad token,
+malformed or truncated page, an unknown platform, an older RomM that answers
+`/api/roms` with a bare array instead of the paged envelope) discards the whole
+run and removes nothing.
+
+The platform fields come from RomM's published API reference; the ROM item
+fields used (`id`, `name`, `igdb_id`, `platform_id`, `missing_from_fs`) were not
+visible in the docs available when this was built, so decoding is strict and a
+mismatch fails the sync visibly. Check your RomM version's `/api/docs` if a sync
+reports an invalid response. The fixtures are hand-written to that shape, not
+captured from a live server.
 
 ## Apprise API
 

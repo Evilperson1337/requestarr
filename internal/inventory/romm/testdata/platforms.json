@@ -1,0 +1,3 @@
+[{"id":1,"slug":"snes","fs_slug":"snes","name":"Super Nintendo Entertainment System","custom_name":null,"display_name":"Super Nintendo Entertainment System","rom_count":2,"igdb_id":19,"igdb_slug":"snes","moby_id":15,"is_identified":true,"missing_from_fs":false},
+ {"id":2,"slug":"switch","fs_slug":"switch","name":"Nintendo Switch","custom_name":null,"display_name":"Nintendo Switch","rom_count":1,"igdb_id":130,"igdb_slug":"switch","is_identified":true,"missing_from_fs":false},
+ {"id":3,"slug":"my-homebrew","fs_slug":"homebrew","name":"Homebrew","custom_name":"Homebrew","display_name":"Homebrew","rom_count":1,"igdb_id":null,"igdb_slug":null,"is_identified":false,"missing_from_fs":false}]

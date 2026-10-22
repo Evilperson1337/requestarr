@@ -4,10 +4,10 @@
 
 **Blocked by:** 11 Adapter interface, contract suite, multi-source availability and Plex movie/TV
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] RomM is authoritative only for games
-- [ ] A game Request with several platforms is satisfied when any selected platform is present
-- [ ] Any is mutually exclusive with explicit platforms, reusing the existing validation
-- [ ] Fixtures include success and failure paths and pass the contract suite
-- [ ] A failed RomM sync never removes anything
+- [x] RomM is authoritative only for games
+- [x] A game Request with several platforms is satisfied when any selected platform is present
+- [x] Any is mutually exclusive with explicit platforms, reusing the existing validation
+- [x] Fixtures include success and failure paths and pass the contract suite
+- [x] A failed RomM sync never removes anything

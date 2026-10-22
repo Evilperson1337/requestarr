@@ -19,6 +19,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/inventory"
 	"github.com/evilperson1337/requestarr/internal/inventory/jellyfin"
 	"github.com/evilperson1337/requestarr/internal/inventory/plex"
+	"github.com/evilperson1337/requestarr/internal/inventory/romm"
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/notifications/apprise"
@@ -95,6 +96,13 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		addSource("plex", client, cfg.PlexURL, func(job func(context.Context) error) func(context.Context) error {
 			return withAliasRefresh(func(ctx context.Context) { refreshMusicAliases(ctx, logger, store, aliaser) }, job)
 		})
+	}
+	if cfg.RommURL != "" {
+		client, err := romm.New(cfg.RommURL, cfg.RommToken)
+		if err != nil {
+			return fmt.Errorf("initialize RomM integration: %w", err)
+		}
+		addSource("romm", client, cfg.RommURL, nil)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
 

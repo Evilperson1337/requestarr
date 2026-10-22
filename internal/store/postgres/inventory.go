@@ -71,7 +71,7 @@ func (s *Store) PersistSnapshot(ctx context.Context, d inventory.Descriptor, bas
 	for _, m := range d.MediaTypes {
 		declared[m] = true
 	}
-	seen := make(map[string]struct{}, len(snap.Items))
+	seen := make(map[evidenceKey]struct{}, len(snap.Items))
 	for _, item := range snap.Items {
 		if strings.TrimSpace(item.SourceID) != d.ID || strings.TrimSpace(item.SourceItemID) == "" || !declared[item.MediaType] {
 			return fmt.Errorf("invalid %s inventory item", d.Kind)
@@ -80,7 +80,7 @@ func (s *Store) PersistSnapshot(ctx context.Context, d inventory.Descriptor, bas
 		if err != nil {
 			return fmt.Errorf("encode %s provider IDs: %w", d.Kind, err)
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO inventory_items(id,source_id,source_item_id,media_type,title,year,external_ids,first_seen_at,last_seen_at) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),$7,$8,$8) ON CONFLICT(source_id,source_item_id) DO UPDATE SET media_type=EXCLUDED.media_type,title=EXCLUDED.title,year=EXCLUDED.year,external_ids=EXCLUDED.external_ids,last_seen_at=EXCLUDED.last_seen_at`, newUUID(), d.ID, item.SourceItemID, item.MediaType, item.Title, item.Year, ids, now); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO inventory_items(id,source_id,source_item_id,media_type,title,year,platform_key,external_ids,first_seen_at,last_seen_at) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),NULLIF($7,''),$8,$9,$9) ON CONFLICT(source_id,source_item_id) DO UPDATE SET media_type=EXCLUDED.media_type,title=EXCLUDED.title,year=EXCLUDED.year,platform_key=EXCLUDED.platform_key,external_ids=EXCLUDED.external_ids,last_seen_at=EXCLUDED.last_seen_at`, newUUID(), d.ID, item.SourceItemID, item.MediaType, item.Title, item.Year, item.PlatformKey, ids, now); err != nil {
 			return fmt.Errorf("upsert %s inventory item: %w", d.Kind, err)
 		}
 		matched, err := matchCatalogItems(ctx, tx, d, item)
@@ -88,8 +88,8 @@ func (s *Store) PersistSnapshot(ctx context.Context, d inventory.Descriptor, bas
 			return err
 		}
 		for _, catalogID := range matched {
-			seen[catalogID] = struct{}{}
-			if err := recordPresence(ctx, tx, d, catalogID, item.SourceItemID, now); err != nil {
+			seen[evidenceKey{catalogID, item.PlatformKey}] = struct{}{}
+			if err := recordPresence(ctx, tx, d, catalogID, item.SourceItemID, item.PlatformKey, now); err != nil {
 				return err
 			}
 		}
@@ -104,6 +104,10 @@ func (s *Store) PersistSnapshot(ctx context.Context, d inventory.Descriptor, bas
 	}
 	return nil
 }
+
+// evidenceKey identifies one piece of availability evidence from a Source: the
+// catalog item and the platform it was observed on ("" when not applicable).
+type evidenceKey struct{ catalogID, platformKey string }
 
 // matchCatalogItems finds the catalog items an inventory item's identifiers
 // name. Only identifier kinds the Source declares are trusted; each is a
@@ -154,11 +158,11 @@ func matchCatalogItems(ctx context.Context, tx pgx.Tx, d inventory.Descriptor, i
 // recordPresence is positive evidence from one Source: it clears that Source's
 // absence streak, records the evidence, makes the item available and moves its
 // open Requests (D014).
-func recordPresence(ctx context.Context, tx pgx.Tx, d inventory.Descriptor, catalogID, sourceItemID string, now time.Time) error {
-	if _, err := tx.Exec(ctx, `DELETE FROM source_absence_state WHERE source_id=$1 AND catalog_item_id=$2`, d.ID, catalogID); err != nil {
+func recordPresence(ctx context.Context, tx pgx.Tx, d inventory.Descriptor, catalogID, sourceItemID, platformKey string, now time.Time) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM source_absence_state WHERE source_id=$1 AND catalog_item_id=$2 AND platform_key=$3`, d.ID, catalogID, platformKey); err != nil {
 		return fmt.Errorf("clear %s absence streak: %w", d.Kind, err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO availability_evidence(catalog_item_id,source_id,source_item_id,observed_at) VALUES($1,$2,$3,$4) ON CONFLICT(catalog_item_id,source_id) DO UPDATE SET source_item_id=EXCLUDED.source_item_id,observed_at=EXCLUDED.observed_at`, catalogID, d.ID, sourceItemID, now); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO availability_evidence(catalog_item_id,source_id,source_item_id,platform_key,observed_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(catalog_item_id,source_id,platform_key) DO UPDATE SET source_item_id=EXCLUDED.source_item_id,observed_at=EXCLUDED.observed_at`, catalogID, d.ID, sourceItemID, platformKey, now); err != nil {
 		return fmt.Errorf("upsert availability evidence: %w", err)
 	}
 	var prior string
@@ -184,23 +188,23 @@ func recordPresence(ctx context.Context, tx pgx.Tx, d inventory.Descriptor, cata
 // evidence. Only when no enabled covering Source still has evidence does the
 // item become missing (D015), so one Source dropping an item never hides it
 // while another still holds it.
-func reconcileAbsences(ctx context.Context, tx pgx.Tx, d inventory.Descriptor, now time.Time, seen map[string]struct{}) error {
-	rows, err := tx.Query(ctx, `SELECT c.id::text,c.availability,c.availability_version,a.first_absent_at,a.last_absent_at,COALESCE(a.absence_count,0)
+func reconcileAbsences(ctx context.Context, tx pgx.Tx, d inventory.Descriptor, now time.Time, seen map[evidenceKey]struct{}) error {
+	rows, err := tx.Query(ctx, `SELECT c.id::text,e.platform_key,c.availability,c.availability_version,a.first_absent_at,a.last_absent_at,COALESCE(a.absence_count,0)
 		FROM availability_evidence e JOIN catalog_items c ON c.id=e.catalog_item_id
-		LEFT JOIN source_absence_state a ON a.source_id=e.source_id AND a.catalog_item_id=c.id
-		WHERE e.source_id=$1 ORDER BY c.id FOR UPDATE OF c`, d.ID)
+		LEFT JOIN source_absence_state a ON a.source_id=e.source_id AND a.catalog_item_id=c.id AND a.platform_key=e.platform_key
+		WHERE e.source_id=$1 ORDER BY c.id,e.platform_key FOR UPDATE OF c`, d.ID)
 	if err != nil {
 		return fmt.Errorf("list %s availability candidates: %w", d.Kind, err)
 	}
 	type candidate struct {
-		id, availability string
-		version, count   int64
-		first, last      *time.Time
+		id, platformKey, availability string
+		version, count                int64
+		first, last                   *time.Time
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
-		if err := rows.Scan(&c.id, &c.availability, &c.version, &c.first, &c.last, &c.count); err != nil {
+		if err := rows.Scan(&c.id, &c.platformKey, &c.availability, &c.version, &c.first, &c.last, &c.count); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan %s availability candidate: %w", d.Kind, err)
 		}
@@ -212,11 +216,11 @@ func reconcileAbsences(ctx context.Context, tx pgx.Tx, d inventory.Descriptor, n
 	}
 	rows.Close()
 	for _, c := range candidates {
-		if _, ok := seen[c.id]; ok {
+		if _, ok := seen[evidenceKey{c.id, c.platformKey}]; ok {
 			continue
 		}
 		if c.first == nil {
-			if _, err := tx.Exec(ctx, `INSERT INTO source_absence_state(source_id,catalog_item_id,first_absent_at,last_absent_at,absence_count) VALUES($1,$2,$3,$3,1) ON CONFLICT(source_id,catalog_item_id) DO NOTHING`, d.ID, c.id, now); err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO source_absence_state(source_id,catalog_item_id,platform_key,first_absent_at,last_absent_at,absence_count) VALUES($1,$2,$3,$4,$4,1) ON CONFLICT(source_id,catalog_item_id,platform_key) DO NOTHING`, d.ID, c.id, c.platformKey, now); err != nil {
 				return fmt.Errorf("record first %s absence: %w", d.Kind, err)
 			}
 			continue
@@ -225,10 +229,10 @@ func reconcileAbsences(ctx context.Context, tx pgx.Tx, d inventory.Descriptor, n
 			continue
 		}
 		// This Source has now completed enough syncs without the item: drop its evidence.
-		if _, err := tx.Exec(ctx, `DELETE FROM availability_evidence WHERE catalog_item_id=$1 AND source_id=$2`, c.id, d.ID); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM availability_evidence WHERE catalog_item_id=$1 AND source_id=$2 AND platform_key=$3`, c.id, d.ID, c.platformKey); err != nil {
 			return fmt.Errorf("remove stale %s availability evidence: %w", d.Kind, err)
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM source_absence_state WHERE catalog_item_id=$1 AND source_id=$2`, c.id, d.ID); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM source_absence_state WHERE catalog_item_id=$1 AND source_id=$2 AND platform_key=$3`, c.id, d.ID, c.platformKey); err != nil {
 			return fmt.Errorf("clear finished %s absence streak: %w", d.Kind, err)
 		}
 		var covered bool
@@ -253,26 +257,52 @@ func reconcileAbsences(ctx context.Context, tx pgx.Tx, d inventory.Descriptor, n
 	return nil
 }
 
+// observedPlatforms lists the platforms the item is currently evidenced on by
+// enabled Sources covering its media type ("" for a platform a Source could not identify).
+func observedPlatforms(ctx context.Context, tx pgx.Tx, catalogID string) ([]string, error) {
+	rows, err := tx.Query(ctx, `SELECT DISTINCT e.platform_key FROM availability_evidence e JOIN library_sources s ON s.id=e.source_id JOIN catalog_items c ON c.id=e.catalog_item_id WHERE e.catalog_item_id=$1 AND s.enabled AND s.authoritative_media_types ? c.media_type`, catalogID)
+	if err != nil {
+		return nil, fmt.Errorf("list observed platforms: %w", err)
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, fmt.Errorf("scan observed platform: %w", err)
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
 // markOpenRequestsAvailable is the RequestAvailable path (D014): each open
 // Request for the catalog item becomes available with a version bump, a
 // sequenced audit event and one notification per subscriber plus one global
 // Apprise event, all keyed by Request so re-running a sync adds nothing.
 func markOpenRequestsAvailable(ctx context.Context, tx pgx.Tx, catalogID, source string, now time.Time) error {
-	rows, err := tx.Query(ctx, `SELECT r.id::text,r.status,r.version,c.title FROM requests r JOIN catalog_items c ON c.id=r.catalog_item_id
+	rows, err := tx.Query(ctx, `SELECT r.id::text,r.status,r.version,c.title,c.media_type,r.acceptable_platforms FROM requests r JOIN catalog_items c ON c.id=r.catalog_item_id
 		WHERE r.catalog_item_id=$1 AND r.status IN ('requested','approved') ORDER BY r.id FOR UPDATE OF r`, catalogID)
 	if err != nil {
 		return fmt.Errorf("list open requests for available item: %w", err)
 	}
 	type open struct {
 		id, status, title string
+		media             domain.MediaType
+		platforms         domain.PlatformSelection
 		version           int64
 	}
 	var opens []open
 	for rows.Next() {
 		var o open
-		if err := rows.Scan(&o.id, &o.status, &o.version, &o.title); err != nil {
+		var criteria []byte
+		if err := rows.Scan(&o.id, &o.status, &o.version, &o.title, &o.media, &criteria); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan open request: %w", err)
+		}
+		if err := json.Unmarshal(criteria, &o.platforms); err != nil {
+			rows.Close()
+			return fmt.Errorf("decode request platforms: %w", err)
 		}
 		opens = append(opens, o)
 	}
@@ -281,6 +311,24 @@ func markOpenRequestsAvailable(ctx context.Context, tx pgx.Tx, catalogID, source
 		return fmt.Errorf("iterate open requests: %w", err)
 	}
 	rows.Close()
+	// A game Request names the platforms it accepts, so the game being present
+	// somewhere is not enough: the evidence must satisfy the selection (D009).
+	var observed []string
+	for _, o := range opens {
+		if o.media == domain.MediaGame {
+			if observed, err = observedPlatforms(ctx, tx, catalogID); err != nil {
+				return err
+			}
+			break
+		}
+	}
+	var satisfied []open
+	for _, o := range opens {
+		if o.media != domain.MediaGame || o.platforms.SatisfiedBy(observed) {
+			satisfied = append(satisfied, o)
+		}
+	}
+	opens = satisfied
 	for _, o := range opens {
 		if _, err := tx.Exec(ctx, `UPDATE requests SET status='available',available_at=$2,availability_state='available',updated_at=$2,version=version+1 WHERE id=$1`, o.id, now); err != nil {
 			return fmt.Errorf("mark request available: %w", err)

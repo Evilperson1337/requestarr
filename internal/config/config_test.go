@@ -240,3 +240,36 @@ func TestPlexConfigurationMustBeCompleteAndSafe(t *testing.T) {
 		})
 	}
 }
+
+func TestRommConfigurationMustBeCompleteAndSafe(t *testing.T) {
+	t.Setenv("REQUESTARR_ROMM_URL", "http://romm.local:3000")
+	t.Setenv("REQUESTARR_ROMM_TOKEN", "tok")
+	if got := FromEnv(); got.RommURL != "http://romm.local:3000" || got.RommToken != "tok" {
+		t.Fatalf("FromEnv romm = %q %q", got.RommURL, got.RommToken)
+	}
+	for name, tc := range map[string]struct {
+		env, url, tok, wantErr string
+	}{
+		"unset":              {"development", "", "", ""},
+		"complete":           {"development", "http://romm.local:3000", "tok", ""},
+		"token only":         {"development", "", "tok", "REQUESTARR_ROMM_URL and REQUESTARR_ROMM_TOKEN must be configured together"},
+		"url only":           {"development", "http://romm.local:3000", "", "REQUESTARR_ROMM_URL and REQUESTARR_ROMM_TOKEN must be configured together"},
+		"path in url":        {"development", "http://romm.local:3000/api", "tok", "REQUESTARR_ROMM_URL must be an absolute http(s) origin"},
+		"http in production": {"production", "http://romm.local:3000", "tok", "REQUESTARR_ROMM_URL must use https outside development"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := validBase()
+			c.Environment, c.RommURL, c.RommToken = tc.env, tc.url, tc.tok
+			if tc.env == "production" {
+				c.PublicURL = "https://requests.example.test"
+			}
+			err := c.Validate()
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("error %v does not contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
