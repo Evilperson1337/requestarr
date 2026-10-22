@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"github.com/evilperson1337/requestarr/internal/apierror"
 	"io"
 	"net/http"
 	"net/url"
@@ -44,22 +45,22 @@ func (h *Handler) claimAdmin(w http.ResponseWriter, r *http.Request) {
 	d.DisallowUnknownFields()
 	decodeErr := d.Decode(&in)
 	if decodeErr != nil || requireEOF(d) != nil || in.Issuer == "" || in.Subject == "" || len(in.Token) < 32 || len(in.Token) > 512 {
-		http.Error(w, "claim unavailable", http.StatusForbidden)
+		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
 		return
 	}
 	u, _, _, err := h.current(r)
 	if err != nil || u.Issuer != in.Issuer || u.Subject != in.Subject {
-		http.Error(w, "claim unavailable", http.StatusForbidden)
+		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
 		return
 	}
 	repo, ok := h.Repo.(BootstrapRepository)
 	if !ok {
-		http.Error(w, "claim unavailable", http.StatusForbidden)
+		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
 		return
 	}
 	hash := sha256.Sum256([]byte(in.Token))
 	if repo.ClaimAdmin(r.Context(), u.ID, u.Issuer, u.Subject, hash[:], time.Now()) != nil {
-		http.Error(w, "claim unavailable", http.StatusForbidden)
+		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -74,26 +75,26 @@ func requireEOF(d *json.Decoder) error {
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	preauth, err := oidc.RandomValue()
 	if err != nil {
-		http.Error(w, "auth unavailable", 500)
+		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	state, err := oidc.RandomValue()
 	if err != nil {
-		http.Error(w, "auth unavailable", 500)
+		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	nonce, err := oidc.RandomValue()
 	if err != nil {
-		http.Error(w, "auth unavailable", 500)
+		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	verifier, err := oidc.RandomValue()
 	if err != nil {
-		http.Error(w, "auth unavailable", 500)
+		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	if err = h.Repo.SaveTransaction(r.Context(), HashString(h.Secret, state), nonce, verifier, HashString(h.Secret, preauth), time.Now().Add(5*time.Minute)); err != nil {
-		http.Error(w, "auth unavailable", 500)
+		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: preauthCookie, Value: preauth, Path: "/api/v1/auth", HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, MaxAge: 300})
@@ -103,53 +104,53 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie("requestarr_oidc_state")
 	if err != nil || !Equal(c.Value, r.URL.Query().Get("state")) {
-		http.Error(w, "invalid login transaction", 400)
+		apierror.Write(w, r, 400, "invalid_login_transaction", "invalid login transaction")
 		return
 	}
 	preauth, err := r.Cookie(preauthCookie)
 	if err != nil {
-		http.Error(w, "invalid login transaction", 400)
+		apierror.Write(w, r, 400, "invalid_login_transaction", "invalid login transaction")
 		return
 	}
 	clearCookie(w, preauthCookie, "/api/v1/auth", h.Secure)
 	clearCookie(w, "requestarr_oidc_state", "/api/v1/auth", h.Secure)
 	nonce, verifier, err := h.Repo.ConsumeTransaction(r.Context(), HashString(h.Secret, c.Value), HashString(h.Secret, preauth.Value), time.Now())
 	if err != nil {
-		http.Error(w, "invalid login transaction", 400)
+		apierror.Write(w, r, 400, "invalid_login_transaction", "invalid login transaction")
 		return
 	}
 	if r.URL.Query().Get("error") != "" {
-		http.Error(w, "identity provider rejected sign-in", 401)
+		apierror.Write(w, r, 401, "sign_in_rejected", "identity provider rejected sign-in")
 		return
 	}
 	id, err := h.Provider.Exchange(r.Context(), r.URL.Query().Get("code"), verifier, nonce)
 	if err != nil {
-		http.Error(w, "sign-in failed", 401)
+		apierror.Write(w, r, 401, "sign_in_failed", "sign-in failed")
 		return
 	}
 	uid, err := oidc.RandomValue()
 	if err != nil {
-		http.Error(w, "auth unavailable", 500)
+		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	u, err := h.Repo.Login(r.Context(), h.Issuer, id.Subject, id.Email, id.DisplayName, uid, time.Now())
 	if err != nil {
-		http.Error(w, "sign-in failed", 500)
+		apierror.Write(w, r, 500, "sign_in_failed", "sign-in failed")
 		return
 	}
 	token, err := oidc.RandomValue()
 	if err != nil {
-		http.Error(w, "auth unavailable", 500)
+		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	csrf, err := oidc.RandomValue()
 	if err != nil {
-		http.Error(w, "auth unavailable", 500)
+		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	exp := time.Now().Add(lifetime)
 	if err = h.Repo.CreateSession(r.Context(), u.ID, Hash(h.Secret, token), Hash(h.Secret, csrf), exp); err != nil {
-		http.Error(w, "auth unavailable", 500)
+		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, Expires: exp})
@@ -172,7 +173,7 @@ func (h *Handler) CurrentSession(r *http.Request) (User, error) {
 func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	u, csrf, exp, e := h.current(r)
 	if e != nil {
-		http.Error(w, "authentication required", 401)
+		apierror.Write(w, r, 401, "authentication_required", "authentication required")
 		return
 	}
 	// The synchronizer token is returned only to the authenticated same-origin client.
@@ -181,7 +182,7 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 		token = x.Value
 	}
 	if token == "" {
-		http.Error(w, "session invalid", 401)
+		apierror.Write(w, r, 401, "session_invalid", "session invalid")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -193,23 +194,23 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 }
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	if !sameOrigin(r, h.PublicURL) {
-		http.Error(w, "origin rejected", 403)
+		apierror.Write(w, r, 403, "origin_rejected", "origin rejected")
 		return
 	}
 	u, csrf, _, err := h.current(r)
 	_ = u
 	if err != nil {
-		http.Error(w, "authentication required", 401)
+		apierror.Write(w, r, 401, "authentication_required", "authentication required")
 		return
 	}
 	c, _ := r.Cookie(sessionCookie)
 	tc, err := r.Cookie("requestarr_csrf")
 	if err != nil || !subtleHashEqual(Hash(h.Secret, tc.Value), csrf) || !Equal(tc.Value, r.Header.Get("X-CSRF-Token")) {
-		http.Error(w, "CSRF validation failed", 403)
+		apierror.Write(w, r, 403, "csrf_invalid", "CSRF validation failed")
 		return
 	}
 	if err = h.Repo.RevokeSession(r.Context(), Hash(h.Secret, c.Value), time.Now()); err != nil {
-		http.Error(w, "logout failed", 500)
+		apierror.Write(w, r, 500, "logout_failed", "logout failed")
 		return
 	}
 	clearCookie(w, sessionCookie, "/", h.Secure)
@@ -220,17 +221,17 @@ func (h *Handler) CSRFMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if unsafeMethod(r.Method) {
 			if _, _, _, err := h.current(r); err != nil {
-				http.Error(w, "authentication required", http.StatusUnauthorized)
+				apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 				return
 			}
 			if !sameOrigin(r, h.PublicURL) {
-				http.Error(w, "origin rejected", 403)
+				apierror.Write(w, r, 403, "origin_rejected", "origin rejected")
 				return
 			}
 			_, csrf, _, _ := h.current(r)
 			tc, e := r.Cookie("requestarr_csrf")
 			if e != nil || !Equal(tc.Value, r.Header.Get("X-CSRF-Token")) || !subtleHashEqual(Hash(h.Secret, tc.Value), csrf) {
-				http.Error(w, "CSRF validation failed", 403)
+				apierror.Write(w, r, 403, "csrf_invalid", "CSRF validation failed")
 				return
 			}
 		}
@@ -249,7 +250,7 @@ func (h *Handler) RequireSession(next http.Handler) http.Handler {
 			return
 		}
 		if _, _, _, err := h.current(r); err != nil {
-			http.Error(w, "authentication required", http.StatusUnauthorized)
+			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 			return
 		}
 		next.ServeHTTP(w, r)

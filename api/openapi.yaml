@@ -3,6 +3,9 @@ info:
   title: Requestarr API
   version: 0.0.0
   description: >-
+    Every error response (4xx/5xx, including unknown paths and wrong methods) has the JSON body
+    described by components/schemas/Error, and every response carries an X-Request-Id header
+    (components/headers/RequestId). Per-operation error entries only list status meanings.
     Initial contract scaffold. Keep this synchronized with implemented handlers and
     generate clients/types only after endpoint semantics are reviewed.
 servers:
@@ -217,7 +220,28 @@ paths:
         '403': { description: User role cannot create requests }
         '401': { description: Authentication required }
 components:
+  headers:
+    RequestId:
+      description: >-
+        Unique ID assigned to every response; also logged by the server as
+        request_id. Client-supplied values are ignored. Quote it when reporting problems.
+      schema: { type: string }
   schemas:
+    Error:
+      type: object
+      description: >-
+        The single error shape for every 4xx/5xx response under /api/v1, including
+        unknown paths (404) and wrong methods (405). Responses also carry the
+        X-Request-Id header, equal to error.requestId. Branch on code, never message.
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code: { type: string, description: Stable machine-readable identifier, example: authentication_required }
+            message: { type: string, description: Human-readable summary; not for programmatic use }
+            requestId: { type: string, description: Same value as the X-Request-Id response header }
     Notification:
       type: object
       additionalProperties: false

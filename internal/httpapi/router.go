@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/evilperson1337/requestarr/internal/apierror"
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/domain"
@@ -81,12 +82,12 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 		api.HandleFunc("GET /notifications", func(w http.ResponseWriter, r *http.Request) {
 			user, err := authHandler.CurrentSession(r)
 			if err != nil {
-				writeJSON(w, 401, map[string]string{"error": "authentication required"})
+				apierror.Write(w, r, 401, "authentication_required", "authentication required")
 				return
 			}
 			items, err := inbox.ListInbox(r.Context(), user.ID)
 			if err != nil {
-				writeJSON(w, 500, map[string]string{"error": "could not load notifications"})
+				apierror.Write(w, r, 500, "notifications_failed", "could not load notifications")
 				return
 			}
 			writeJSON(w, 200, map[string]any{"items": items})
@@ -94,21 +95,21 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 		api.HandleFunc("POST /notifications/{notificationID}/read", func(w http.ResponseWriter, r *http.Request) {
 			user, err := authHandler.CurrentSession(r)
 			if err != nil {
-				writeJSON(w, 401, map[string]string{"error": "authentication required"})
+				apierror.Write(w, r, 401, "authentication_required", "authentication required")
 				return
 			}
 			id := r.PathValue("notificationID")
 			if !validUUID(id) {
-				writeJSON(w, 400, map[string]string{"error": "invalid notification ID"})
+				apierror.Write(w, r, 400, "invalid_notification_id", "invalid notification ID")
 				return
 			}
 			changed, err := inbox.MarkInboxRead(r.Context(), user.ID, id)
 			if err != nil {
-				writeJSON(w, 500, map[string]string{"error": "could not update notification"})
+				apierror.Write(w, r, 500, "notification_update_failed", "could not update notification")
 				return
 			}
 			if !changed {
-				writeJSON(w, 404, map[string]string{"error": "notification not found"})
+				apierror.Write(w, r, 404, "notification_not_found", "notification not found")
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -119,23 +120,23 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 	api.HandleFunc("GET /admin/sources/jellyfin/status", func(w http.ResponseWriter, r *http.Request) {
 		user, err := authHandler.CurrentSession(r)
 		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 			return
 		}
 		if user.Role != "admin" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "administrator role required"})
+			apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
 			return
 		}
 		statusStore, ok := readiness.(interface {
 			JellyfinSyncStatus(context.Context) (domain.SourceSyncStatus, error)
 		})
 		if !ok {
-			http.Error(w, "source status unavailable", 503)
+			apierror.Write(w, r, 503, "source_status_unavailable", "source status unavailable")
 			return
 		}
 		result, err := statusStore.JellyfinSyncStatus(r.Context())
 		if err != nil {
-			writeJSON(w, 500, map[string]string{"error": "could not load source status"})
+			apierror.Write(w, r, 500, "source_status_failed", "could not load source status")
 			return
 		}
 		writeJSON(w, 200, result)
@@ -143,23 +144,23 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 	api.HandleFunc("GET /admin/users", func(w http.ResponseWriter, r *http.Request) {
 		user, err := authHandler.CurrentSession(r)
 		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 			return
 		}
 		if user.Role != "admin" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "administrator role required"})
+			apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
 			return
 		}
 		store, ok := readiness.(interface {
 			ListAdminUsers(context.Context) ([]postgres.AdminUser, error)
 		})
 		if !ok {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user management unavailable"})
+			apierror.Write(w, r, http.StatusServiceUnavailable, "user_management_unavailable", "user management unavailable")
 			return
 		}
 		users, err := store.ListAdminUsers(r.Context())
 		if err != nil {
-			writeJSON(w, 500, map[string]string{"error": "could not load users"})
+			apierror.Write(w, r, 500, "users_failed", "could not load users")
 			return
 		}
 		writeJSON(w, 200, map[string]any{"users": users})
@@ -167,16 +168,16 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 	api.HandleFunc("PUT /admin/users/{userID}/role", func(w http.ResponseWriter, r *http.Request) {
 		user, err := authHandler.CurrentSession(r)
 		if err != nil {
-			writeJSON(w, 401, map[string]string{"error": "authentication required"})
+			apierror.Write(w, r, 401, "authentication_required", "authentication required")
 			return
 		}
 		if user.Role != "admin" {
-			writeJSON(w, 403, map[string]string{"error": "administrator role required"})
+			apierror.Write(w, r, 403, "forbidden", "administrator role required")
 			return
 		}
 		id := r.PathValue("userID")
 		if !validUUID(id) {
-			writeJSON(w, 400, map[string]string{"error": "invalid user ID"})
+			apierror.Write(w, r, 400, "invalid_user_id", "invalid user ID")
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
@@ -186,51 +187,51 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil || (input.Role != "admin" && input.Role != "requester" && input.Role != "viewer") {
-			writeJSON(w, 400, map[string]string{"error": "role must be viewer, requester or admin"})
+			apierror.Write(w, r, 400, "invalid_role", "role must be viewer, requester or admin")
 			return
 		}
 		store, ok := readiness.(interface {
 			ChangeUserRole(context.Context, string, string, string, time.Time) error
 		})
 		if !ok {
-			writeJSON(w, 503, map[string]string{"error": "user management unavailable"})
+			apierror.Write(w, r, 503, "user_management_unavailable", "user management unavailable")
 			return
 		}
 		err = store.ChangeUserRole(r.Context(), user.ID, id, input.Role, time.Now().UTC())
 		switch {
 		case errors.Is(err, postgres.ErrAdminSelfRoleChange):
-			writeJSON(w, 409, map[string]string{"error": "cannot change your own role"})
+			apierror.Write(w, r, 409, "self_role_change", "cannot change your own role")
 		case errors.Is(err, postgres.ErrLastAdmin):
-			writeJSON(w, 409, map[string]string{"error": "cannot remove the last administrator"})
+			apierror.Write(w, r, 409, "last_admin", "cannot remove the last administrator")
 		case errors.Is(err, postgres.ErrAdminUserNotFound):
-			writeJSON(w, 404, map[string]string{"error": "user not found"})
+			apierror.Write(w, r, 404, "user_not_found", "user not found")
 		case err != nil:
-			writeJSON(w, 500, map[string]string{"error": "could not change user role"})
+			apierror.Write(w, r, 500, "role_change_failed", "could not change user role")
 		default:
 			w.WriteHeader(http.StatusNoContent)
 		}
 	})
 	api.HandleFunc("GET /requests", func(w http.ResponseWriter, r *http.Request) {
 		if requestService == nil {
-			http.Error(w, "requests unavailable", 503)
+			apierror.Write(w, r, 503, "requests_unavailable", "requests unavailable")
 			return
 		}
 		user, err := authHandler.CurrentSession(r)
 		if err != nil {
-			http.Error(w, "authentication required", 401)
+			apierror.Write(w, r, 401, "authentication_required", "authentication required")
 			return
 		}
 		mine := false
 		if value := r.URL.Query().Get("mine"); value != "" {
 			if value != "true" && value != "false" {
-				writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]string{"code": "invalid_query", "message": "mine must be true or false"}})
+				apierror.Write(w, r, http.StatusBadRequest, "invalid_query", "mine must be true or false")
 				return
 			}
 			mine = value == "true"
 		}
 		items, err := requestService.List(r.Context(), requests.Actor{ID: user.ID, Role: user.Role}, mine)
 		if err != nil {
-			http.Error(w, "could not list requests", 500)
+			apierror.Write(w, r, 500, "requests_list_failed", "could not list requests")
 			return
 		}
 		type queueItem struct {
@@ -241,7 +242,7 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 		for _, item := range items {
 			platforms, platformErr := requestService.CatalogPlatforms(r.Context(), item.CatalogItemID)
 			if platformErr != nil {
-				http.Error(w, "could not load request metadata", 500)
+				apierror.Write(w, r, 500, "request_metadata_failed", "could not load request metadata")
 				return
 			}
 			out = append(out, queueItem{Request: item, CatalogPlatforms: platforms})
@@ -250,12 +251,12 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 	})
 	api.HandleFunc("POST /requests/{requestID}/transition", func(w http.ResponseWriter, r *http.Request) {
 		if requestService == nil {
-			writeJSON(w, 503, map[string]any{"error": map[string]string{"code": "requests_unavailable", "message": "requests unavailable"}})
+			apierror.Write(w, r, 503, "requests_unavailable", "requests unavailable")
 			return
 		}
 		user, err := authHandler.CurrentSession(r)
 		if err != nil {
-			writeJSON(w, 401, map[string]any{"error": map[string]string{"code": "authentication_required", "message": "authentication required"}})
+			apierror.Write(w, r, 401, "authentication_required", "authentication required")
 			return
 		}
 		var in struct {
@@ -267,7 +268,7 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 		d := json.NewDecoder(r.Body)
 		d.DisallowUnknownFields()
 		if d.Decode(&in) != nil || requireJSONEOF(d) != nil || in.ToStatus == "" || in.ExpectedVersion < 1 || !validUUID(in.OperationID) {
-			writeJSON(w, 400, map[string]any{"error": map[string]string{"code": "invalid_transition", "message": "transition body is invalid"}})
+			apierror.Write(w, r, 400, "invalid_transition", "transition body is invalid")
 			return
 		}
 		result, err := requestService.Transition(r.Context(), requests.TransitionInput{Actor: requests.Actor{ID: user.ID, Role: user.Role}, RequestID: r.PathValue("requestID"), ToStatus: in.ToStatus, ExpectedVersion: in.ExpectedVersion, OperationID: in.OperationID})
@@ -283,7 +284,7 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 			case errors.Is(err, requests.ErrRequestNotFound):
 				status, code, message = 404, "request_not_found", "request was not found"
 			}
-			writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
+			apierror.Write(w, r, status, code, message)
 			return
 		}
 		writeJSON(w, 200, result)
@@ -292,12 +293,12 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 		method := method
 		api.HandleFunc(method+" /requests/{requestID}/subscription", func(w http.ResponseWriter, r *http.Request) {
 			if requestService == nil {
-				writeJSON(w, 503, map[string]any{"error": map[string]string{"code": "requests_unavailable", "message": "requests unavailable"}})
+				apierror.Write(w, r, 503, "requests_unavailable", "requests unavailable")
 				return
 			}
 			user, err := authHandler.CurrentSession(r)
 			if err != nil {
-				writeJSON(w, 401, map[string]any{"error": map[string]string{"code": "authentication_required", "message": "authentication required"}})
+				apierror.Write(w, r, 401, "authentication_required", "authentication required")
 				return
 			}
 			var changed bool
@@ -315,7 +316,7 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 				} else if errors.Is(err, requests.ErrInvalid) {
 					status, code, msg = 400, "invalid_request", "request ID is invalid"
 				}
-				writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": msg}})
+				apierror.Write(w, r, status, code, msg)
 				return
 			}
 			writeJSON(w, 200, map[string]bool{"subscribed": r.Method == http.MethodPut, "changed": changed})
@@ -323,7 +324,7 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 	}
 	api.HandleFunc("POST /resolve", func(w http.ResponseWriter, r *http.Request) {
 		if resolverService == nil {
-			http.Error(w, "metadata resolution unavailable", 503)
+			apierror.Write(w, r, 503, "metadata_unavailable", "metadata resolution unavailable")
 			return
 		}
 		var in struct {
@@ -332,27 +333,27 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 		r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 		decoder := json.NewDecoder(r.Body)
 		if err := decoder.Decode(&in); err != nil {
-			http.Error(w, "invalid JSON body", 400)
+			apierror.Write(w, r, 400, "invalid_json", "invalid JSON body")
 			return
 		}
 		if err := requireJSONEOF(decoder); err != nil {
-			http.Error(w, "invalid JSON body", 400)
+			apierror.Write(w, r, 400, "invalid_json", "invalid JSON body")
 			return
 		}
 		if in.URL == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]string{"code": "invalid_request", "message": "url is required"}})
+			apierror.Write(w, r, http.StatusBadRequest, "invalid_request", "url is required")
 			return
 		}
 		item, err := resolverService.ResolveAndUpsert(r.Context(), in.URL)
 		if err != nil {
-			writeJSON(w, 400, map[string]any{"error": map[string]string{"code": "metadata_resolution_failed", "message": "metadata URL could not be resolved"}})
+			apierror.Write(w, r, 400, "metadata_resolution_failed", "metadata URL could not be resolved")
 			return
 		}
 		writeJSON(w, 200, item)
 	})
 	api.HandleFunc("POST /requests", func(w http.ResponseWriter, r *http.Request) {
 		if requestService == nil {
-			http.Error(w, "requests unavailable", 503)
+			apierror.Write(w, r, 503, "requests_unavailable", "requests unavailable")
 			return
 		}
 		var in struct {
@@ -364,36 +365,36 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 		r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 		decoder := json.NewDecoder(r.Body)
 		if err := decoder.Decode(&in); err != nil {
-			http.Error(w, "invalid JSON body", 400)
+			apierror.Write(w, r, 400, "invalid_json", "invalid JSON body")
 			return
 		}
 		if err := requireJSONEOF(decoder); err != nil {
-			http.Error(w, "invalid JSON body", 400)
+			apierror.Write(w, r, 400, "invalid_json", "invalid JSON body")
 			return
 		}
 		if in.URL != "" && in.CatalogID != "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]string{"code": "invalid_request", "message": "provide url or catalogId, not both"}})
+			apierror.Write(w, r, http.StatusBadRequest, "invalid_request", "provide url or catalogId, not both")
 			return
 		}
 		if in.URL != "" {
 			if resolverService == nil {
-				http.Error(w, "metadata resolution unavailable", 503)
+				apierror.Write(w, r, 503, "metadata_unavailable", "metadata resolution unavailable")
 				return
 			}
 			resolved, resolveErr := resolverService.ResolveAndUpsert(r.Context(), in.URL)
 			if resolveErr != nil {
-				writeJSON(w, 400, map[string]any{"error": map[string]string{"code": "invalid_metadata_url", "message": "metadata URL could not be resolved"}})
+				apierror.Write(w, r, 400, "invalid_metadata_url", "metadata URL could not be resolved")
 				return
 			}
 			in.CatalogID = resolved.Item.ID
 		}
 		if in.CatalogID == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]string{"code": "missing_catalog_id", "message": "catalogId is required when url is omitted"}})
+			apierror.Write(w, r, http.StatusBadRequest, "missing_catalog_id", "catalogId is required when url is omitted")
 			return
 		}
 		user, err := authHandler.CurrentSession(r)
 		if err != nil {
-			http.Error(w, "authentication required", 401)
+			apierror.Write(w, r, 401, "authentication_required", "authentication required")
 			return
 		}
 		result, err := requestService.Create(r.Context(), requests.CreateInput{Actor: requests.Actor{ID: user.ID, Role: user.Role}, CatalogID: in.CatalogID, Note: in.Note, Platforms: in.Platforms})
@@ -417,7 +418,7 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 			if code == "invalid_request" {
 				message = "request details are invalid"
 			}
-			writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
+			apierror.Write(w, r, status, code, message)
 			return
 		}
 		status := 200
@@ -431,18 +432,18 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 	apiHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/api/v1")
 		if path == "/version" || path == "/setup/status" || (r.Method == http.MethodGet && (path == "/auth/login" || path == "/auth/callback")) {
-			http.StripPrefix("/api/v1", api).ServeHTTP(w, r)
+			http.StripPrefix("/api/v1", routeMisses(api)).ServeHTTP(w, r)
 			return
 		}
 		if authHandler == nil {
-			http.Error(w, "authentication required", http.StatusUnauthorized)
+			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 			return
 		}
 		if _, err := authHandler.CurrentSession(r); err != nil {
-			http.Error(w, "authentication required", http.StatusUnauthorized)
+			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 			return
 		}
-		dispatch := http.Handler(http.StripPrefix("/api/v1", api))
+		dispatch := http.Handler(http.StripPrefix("/api/v1", routeMisses(api)))
 		if protectedMutation(r.Method, path) {
 			dispatch = authHandler.CSRFMiddleware(dispatch)
 		}
@@ -455,7 +456,7 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 	}))
 	mux.Handle("/", webui.Handler())
 
-	return requestLogger(logger, securityHeaders(mux))
+	return apierror.Middleware(requestLogger(logger, securityHeaders(mux)))
 }
 
 func validUUID(value string) bool {
@@ -504,10 +505,49 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 func requestLogger(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		next.ServeHTTP(w, r)
-		logger.Debug("http request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(started))
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		logger.Debug("http request", "request_id", apierror.RequestID(r.Context()), "method", r.Method, "path", r.URL.Path, "status", rec.status, "duration", time.Since(started))
 	})
 }
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(status int) {
+	s.status = status
+	s.ResponseWriter.WriteHeader(status)
+}
+
+// routeMisses turns the mux's plain-text 404/405 replies into the standard
+// error body, keeping any Allow header the mux set.
+func routeMisses(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler, pattern := mux.Handler(r)
+		if pattern != "" {
+			mux.ServeHTTP(w, r) // ServeHTTP, not handler, so path values are set
+			return
+		}
+		probe := &missProbe{header: w.Header()}
+		handler.ServeHTTP(probe, r)
+		if probe.status == http.StatusMethodNotAllowed {
+			apierror.Write(w, r, probe.status, "method_not_allowed", "method not allowed")
+			return
+		}
+		apierror.Write(w, r, http.StatusNotFound, "not_found", "resource not found")
+	})
+}
+
+type missProbe struct {
+	header http.Header
+	status int
+}
+
+func (m *missProbe) Header() http.Header         { return m.header }
+func (m *missProbe) Write(b []byte) (int, error) { return len(b), nil }
+func (m *missProbe) WriteHeader(status int)      { m.status = status }
 
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
