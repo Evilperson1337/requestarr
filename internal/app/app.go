@@ -61,23 +61,27 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 			}
 		}()
 	}
+	runner := jobs.NewRunner(store)
+	runner.Logger = logger
+	syncSources := map[string]syncSource{}
 	if cfg.JellyfinURL != "" {
 		client, err := jellyfin.New(cfg.JellyfinURL, cfg.JellyfinAPIKey, jellyfinSourceID)
 		if err != nil {
 			return fmt.Errorf("initialize Jellyfin integration: %w", err)
 		}
+		job := jellyfinSyncJob(logger, store, client, cfg.JellyfinURL)
+		syncSources["jellyfin"] = syncSource{id: jellyfinSourceID, job: job}
 		workers.Add(1)
-		runner := jobs.NewRunner(store)
-		runner.Logger = logger
 		go func() {
 			defer workers.Done()
-			runner.Schedule(workerCtx, jellyfinSyncInterval, jellyfinSourceID, jellyfinSyncJob(logger, store, client, cfg.JellyfinURL))
+			runner.Schedule(workerCtx, jellyfinSyncInterval, jellyfinSourceID, job)
 		}()
 	}
+	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewWithMetadata(logger, build, store, metadataService, authHandler),
+		Handler:           httpapi.NewWithSync(logger, build, store, metadataService, syncer, authHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -144,3 +148,40 @@ var (
 	errInventoryRequest    = errors.New("inventory request failed")
 	errSnapshotPersistence = errors.New("snapshot persistence failed")
 )
+
+// syncSource is one Source's sync job and its stable ID.
+type syncSource struct {
+	id  string
+	job func(context.Context) error
+}
+
+// sourceSyncer starts manual syncs through the same runner and jobs the
+// schedule uses, so manual and scheduled runs share one no-overlap guard.
+type sourceSyncer struct {
+	ctx     context.Context
+	runner  *jobs.Runner
+	workers *sync.WaitGroup
+	sources map[string]syncSource
+}
+
+// newSourceSyncer's ctx outlives any request: it bounds manual runs, which
+// shutdown cancels and waits for through workers.
+func newSourceSyncer(ctx context.Context, runner *jobs.Runner, workers *sync.WaitGroup, sources map[string]syncSource) *sourceSyncer {
+	return &sourceSyncer{ctx: ctx, runner: runner, workers: workers, sources: sources}
+}
+
+func (s *sourceSyncer) SyncNow(_ context.Context, slug string) (jobs.Run, error) {
+	source, ok := s.sources[slug]
+	if !ok {
+		return jobs.Run{}, jobs.ErrUnknownSource
+	}
+	// Register before starting so shutdown's Wait can never miss the run.
+	s.workers.Add(1)
+	run, done, err := s.runner.Start(s.ctx, source.id, jobs.TriggerManual, source.job)
+	if err != nil {
+		s.workers.Done()
+		return jobs.Run{}, err
+	}
+	go func() { defer s.workers.Done(); <-done }()
+	return run, nil
+}

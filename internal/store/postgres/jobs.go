@@ -12,6 +12,16 @@ import (
 
 const abandonedRunError = "abandoned: lease expired"
 
+// runProjection reads a run as it is, except that a running run whose lease has
+// lapsed is shown as the failed run it effectively is: its process crashed and
+// nothing has reclaimed it yet. Without this an admin would see "running" (and a
+// disabled Sync now) until the next StartRun reclaims it.
+const runProjection = `id::text AS id,source_id::text AS source_id,triggered_by,
+	CASE WHEN status='running' AND lease_until<=now() THEN 'failed' ELSE status END AS status,
+	started_at,
+	CASE WHEN status='running' AND lease_until<=now() THEN lease_until ELSE finished_at END AS finished_at,
+	CASE WHEN status='running' AND lease_until<=now() THEN '` + abandonedRunError + `' ELSE COALESCE(error,'') END AS error`
+
 // jobRunRetention is how many of a Source's newest runs are kept; older
 // finished runs are pruned whenever a new run starts.
 const jobRunRetention = 200
@@ -74,7 +84,7 @@ func (s *Store) FinishRun(ctx context.Context, runID string, status jobs.Status,
 
 // RecentRuns lists a Source's newest runs first.
 func (s *Store) RecentRuns(ctx context.Context, sourceID string, limit int) ([]jobs.Run, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id::text,source_id::text,triggered_by,status,started_at,finished_at,COALESCE(error,'') FROM job_runs WHERE source_id=$1 ORDER BY started_at DESC,id LIMIT $2`, sourceID, limit)
+	rows, err := s.pool.Query(ctx, `SELECT `+runProjection+` FROM job_runs WHERE source_id=$1 ORDER BY started_at DESC,id LIMIT $2`, sourceID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list job runs: %w", err)
 	}
@@ -92,9 +102,9 @@ func (s *Store) RecentRuns(ctx context.Context, sourceID string, limit int) ([]j
 
 // RecentRunsBySource lists every Source that has runs, each with its newest runs.
 func (s *Store) RecentRunsBySource(ctx context.Context, perSource int) ([]jobs.SourceRuns, error) {
-	rows, err := s.pool.Query(ctx, `SELECT r.source_id::text,COALESCE(l.name,''),r.id::text,r.triggered_by,r.status,r.started_at,r.finished_at,COALESCE(r.error,'')
-		FROM (SELECT *,row_number() OVER (PARTITION BY source_id ORDER BY started_at DESC,id) AS n FROM job_runs) r
-		LEFT JOIN library_sources l ON l.id=r.source_id
+	rows, err := s.pool.Query(ctx, `SELECT r.source_id,COALESCE(l.name,''),r.id,r.triggered_by,r.status,r.started_at,r.finished_at,r.error
+		FROM (SELECT `+runProjection+`,row_number() OVER (PARTITION BY source_id ORDER BY started_at DESC,id) AS n FROM job_runs) r
+		LEFT JOIN library_sources l ON l.id::text=r.source_id
 		WHERE r.n<=$1 ORDER BY r.source_id,r.started_at DESC,r.id`, perSource)
 	if err != nil {
 		return nil, fmt.Errorf("list job runs by source: %w", err)

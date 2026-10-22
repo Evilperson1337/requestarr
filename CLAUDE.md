@@ -46,7 +46,7 @@ Module boundaries (`internal/`):
 - `store` — repository interfaces close to domain use-cases, not a generic ORM; PostgreSQL is the only V1 target; SQL is explicit.
 - `inventory` (+ `plex`, `jellyfin`, `navidrome`, `romm`; only `jellyfin` is implemented, the others are README-only) — normalized snapshots of what each authoritative library actually has. Answers "do we have it?".
 - `notifications` (+ `apprise`) — fans out domain events to in-app notifications and the Apprise API.
-- `jobs` — the D018 run recorder and no-overlap guard: `Runner` records each run (start, finish, outcome, safe error) in `job_runs`, a per-Source lease in PostgreSQL stops overlap across restarts, and `Schedule` retries failures on the next tick. Jellyfin sync runs through it (`internal/app`); "sync now" is ticket 10.
+- `jobs` — the D018 run recorder and no-overlap guard: `Runner` records each run (start, finish, outcome, safe error) in `job_runs`, a per-Source lease in PostgreSQL stops overlap across restarts, and `Schedule` retries failures on the next tick. Jellyfin sync runs through it (`internal/app`), on the schedule and via the admin "Sync now" action (`POST /admin/sources/{source}/sync`), which share one guard.
 - `setup` — first-run wizard draft/validation/finalization state.
 - `httpapi` — transport only; no domain policy should live in handlers (see `internal/httpapi/router.go` for the routes, and `api/openapi.yaml` for the contract).
 - `app` — wires config + logger + HTTP server lifecycle (`internal/app/app.go`).

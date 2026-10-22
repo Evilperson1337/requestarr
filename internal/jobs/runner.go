@@ -33,6 +33,8 @@ const maxErrorLen = 256
 var (
 	// ErrAlreadyRunning means another run of the same Source holds a live lease.
 	ErrAlreadyRunning = errors.New("a run for this source is already in progress")
+	// ErrUnknownSource means no job is registered for the requested Source.
+	ErrUnknownSource = errors.New("no job is configured for this source")
 	// ErrRunLost means the run's lease expired and was reclaimed by another run.
 	ErrRunLost = errors.New("run lease was lost")
 )
@@ -80,14 +82,40 @@ func NewRunner(store Store) *Runner {
 	return &Runner{Store: store, Lease: 2 * time.Minute, Heartbeat: 30 * time.Second, Logger: slog.Default()}
 }
 
-// Run executes fn as a recorded run of sourceID. It returns ErrAlreadyRunning
-// without calling fn when the Source has a live run. The recorded run is
-// returned together with fn's error.
+// Run executes fn as a recorded run of sourceID and waits for it. It returns
+// ErrAlreadyRunning without calling fn when the Source has a live run. The
+// recorded run is returned together with fn's error.
 func (r *Runner) Run(ctx context.Context, sourceID, trigger string, fn func(context.Context) error) (Run, error) {
 	run, err := r.Store.StartRun(ctx, sourceID, trigger, r.Lease)
 	if err != nil {
 		return Run{}, err
 	}
+	return r.execute(ctx, run, fn)
+}
+
+// Start claims the Source and runs fn in the background, returning as soon as
+// the run is recorded as running. ctx bounds the job's lifetime, so it must be
+// a long-lived context, not a request's. done closes when the outcome has been
+// recorded. ErrAlreadyRunning is returned, with no work started, when the
+// Source has a live run.
+func (r *Runner) Start(ctx context.Context, sourceID, trigger string, fn func(context.Context) error) (Run, <-chan struct{}, error) {
+	run, err := r.Store.StartRun(ctx, sourceID, trigger, r.Lease)
+	if err != nil {
+		return Run{}, nil, err
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if finished, err := r.execute(ctx, run, fn); err != nil && ctx.Err() == nil {
+			r.Logger.Warn("job run failed", "source_id", sourceID, "run_id", run.ID, "error", finished.Error)
+		}
+	}()
+	return run, done, nil
+}
+
+// execute works a claimed run: it heartbeats the lease, calls fn and records the outcome.
+func (r *Runner) execute(ctx context.Context, run Run, fn func(context.Context) error) (Run, error) {
+	sourceID := run.SourceID
 	jobCtx, cancelJob := context.WithCancel(ctx)
 	defer cancelJob()
 	stopBeat := make(chan struct{})

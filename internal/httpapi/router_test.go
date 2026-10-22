@@ -110,7 +110,7 @@ func TestProtectedMutationRouteAllowlist(t *testing.T) {
 	for _, tc := range []struct {
 		method, path string
 		want         bool
-	}{{http.MethodPost, "/requests", true}, {http.MethodPut, "/admin/users/id/role", true}, {http.MethodPut, "/requests/id/subscription", true}, {http.MethodDelete, "/requests/id/subscription", true}, {http.MethodPost, "/requests/id/transition", true}, {http.MethodPost, "/setup/claim-admin", true}, {http.MethodPost, "/auth/callback", false}, {http.MethodGet, "/requests", false}, {http.MethodPost, "/requests/id/subscription/extra", false}} {
+	}{{http.MethodPost, "/requests", true}, {http.MethodPut, "/admin/users/id/role", true}, {http.MethodPut, "/requests/id/subscription", true}, {http.MethodDelete, "/requests/id/subscription", true}, {http.MethodPost, "/requests/id/transition", true}, {http.MethodPost, "/setup/claim-admin", true}, {http.MethodPost, "/admin/sources/jellyfin/sync", true}, {http.MethodGet, "/admin/sources/jellyfin/status", false}, {http.MethodPost, "/auth/callback", false}, {http.MethodGet, "/requests", false}, {http.MethodPost, "/requests/id/subscription/extra", false}} {
 		if got := protectedMutation(tc.method, tc.path); got != tc.want {
 			t.Errorf("protectedMutation(%q, %q)=%v want %v", tc.method, tc.path, got, tc.want)
 		}

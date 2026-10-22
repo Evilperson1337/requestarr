@@ -47,3 +47,6 @@ export async function claimSetupAdmin(input: { issuer: string; subject: string; 
     })
     if (!response.ok) throw new Error('Admin claim could not be completed. Check the values and setup token, then try again.')
 }
+
+export type JobRun = { id: string; sourceId: string; trigger: 'schedule' | 'manual'; status: 'running' | 'succeeded' | 'failed'; startedAt: string; finishedAt: string | null; error?: string }
+export type SourceRuns = { sourceId: string; name: string; runs: JobRun[] }

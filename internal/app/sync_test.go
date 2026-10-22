@@ -5,10 +5,12 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/jobs"
 )
 
 type fakeSyncStore struct {
@@ -59,4 +61,78 @@ func TestJellyfinSyncJobReportsOnlySafeErrorsAndChangesNothingOnFailure(t *testi
 	if err == nil || err.Error() != "snapshot persistence failed" {
 		t.Fatalf("error=%v, want the generic safe message", err)
 	}
+}
+
+// memRuns is a minimal jobs.Store: one running run per source.
+type memRuns struct {
+	mu      sync.Mutex
+	running map[string]bool
+	started []jobs.Run
+}
+
+func (m *memRuns) StartRun(_ context.Context, sourceID, trigger string, _ time.Duration) (jobs.Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.running == nil {
+		m.running = map[string]bool{}
+	}
+	if m.running[sourceID] {
+		return jobs.Run{}, jobs.ErrAlreadyRunning
+	}
+	m.running[sourceID] = true
+	run := jobs.Run{ID: "run", SourceID: sourceID, Trigger: trigger, Status: jobs.StatusRunning}
+	m.started = append(m.started, run)
+	return run, nil
+}
+func (m *memRuns) Heartbeat(context.Context, string, time.Duration) error { return nil }
+func (m *memRuns) FinishRun(_ context.Context, _ string, _ jobs.Status, _ string) (time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.running = map[string]bool{}
+	return time.Now(), nil
+}
+func (m *memRuns) RecentRuns(context.Context, string, int) ([]jobs.Run, error) { return nil, nil }
+
+func TestSyncNowStartsManualRunOnceAndRejectsUnknownSources(t *testing.T) {
+	var workers sync.WaitGroup
+	store := &memRuns{}
+	release := make(chan struct{})
+	ran := make(chan struct{}, 1)
+	syncer := newSourceSyncer(context.Background(), jobs.NewRunner(store), &workers, map[string]syncSource{
+		"jellyfin": {id: jellyfinSourceID, job: func(context.Context) error { ran <- struct{}{}; <-release; return nil }},
+	})
+	if _, err := syncer.SyncNow(context.Background(), "plex"); !errors.Is(err, jobs.ErrUnknownSource) {
+		t.Fatalf("unknown source err=%v", err)
+	}
+	run, err := syncer.SyncNow(context.Background(), "jellyfin")
+	if err != nil || run.Trigger != jobs.TriggerManual || run.SourceID != jellyfinSourceID {
+		t.Fatalf("run=%+v err=%v", run, err)
+	}
+	<-ran
+	if _, err := syncer.SyncNow(context.Background(), "jellyfin"); !errors.Is(err, jobs.ErrAlreadyRunning) {
+		t.Fatalf("second sync err=%v", err)
+	}
+	close(release)
+	workers.Wait() // shutdown waits for background syncs
+}
+
+func TestManualSyncIsBlockedByARunningScheduledRun(t *testing.T) {
+	var workers sync.WaitGroup
+	store := &memRuns{}
+	runner := jobs.NewRunner(store)
+	release, started := make(chan struct{}), make(chan struct{})
+	job := func(context.Context) error { close(started); <-release; return nil }
+	syncer := newSourceSyncer(context.Background(), runner, &workers, map[string]syncSource{"jellyfin": {id: jellyfinSourceID, job: job}})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = runner.Run(context.Background(), jellyfinSourceID, jobs.TriggerSchedule, job)
+	}()
+	<-started
+	if _, err := syncer.SyncNow(context.Background(), "jellyfin"); !errors.Is(err, jobs.ErrAlreadyRunning) {
+		t.Fatalf("manual sync during a scheduled run err=%v", err)
+	}
+	close(release)
+	<-done
+	workers.Wait()
 }

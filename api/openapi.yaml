@@ -151,6 +151,39 @@ paths:
       responses:
         '200': { description: Shared queue for all authenticated users; items include catalog availability and latest positive observation time }
         '401': { description: Authentication required }
+  /admin/sources/{source}/sync:
+    post:
+      operationId: syncSourceNow
+      summary: Start a manual sync of a library Source (administrator only)
+      description: >-
+        Starts a sync in the background through the job runner and returns the new run.
+        Manual and scheduled syncs share one no-overlap guard, so this returns 409 while a run
+        is active instead of starting another. Follow progress with GET /admin/job-runs.
+      parameters:
+        - in: path
+          name: source
+          required: true
+          description: Source slug, currently only jellyfin
+          schema: { type: string }
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '202':
+          description: Sync started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run]
+                properties:
+                  run: { $ref: '#/components/schemas/JobRun' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role or CSRF validation failed }
+        '404': { description: Source is not configured (code source_not_configured) }
+        '409': { description: A sync for this source is already running (code sync_in_progress) }
+        '503': { description: Sync unavailable }
   /admin/job-runs:
     get:
       operationId: listJobRuns

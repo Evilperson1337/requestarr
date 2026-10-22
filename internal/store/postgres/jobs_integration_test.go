@@ -198,3 +198,38 @@ func TestRecentRunsBySourceGroupsAndLimitsPerSource(t *testing.T) {
 		t.Fatalf("counts a=%d b=%d, want 2 and 1", counts[a], counts[b])
 	}
 }
+
+func TestCrashedRunReadsAsFailedBeforeAnythingReclaimsIt(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s := openJobStore(t, ctx)
+	source := jobSource(t, ctx, s)
+	crashed, err := s.StartRun(ctx, source, jobs.TriggerSchedule, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := s.RecentRuns(ctx, source, 5)
+	if err != nil || len(live) != 1 || live[0].Status != jobs.StatusRunning {
+		t.Fatalf("live lease runs=%+v err=%v", live, err)
+	}
+	expireLease(t, ctx, s, crashed.ID)
+	check := func(name string, run jobs.Run) {
+		if run.Status != jobs.StatusFailed || run.Error != "abandoned: lease expired" || run.FinishedAt == nil {
+			t.Errorf("%s: expired run reads %+v, want failed/abandoned with a finish time", name, run)
+		}
+	}
+	runs, err := s.RecentRuns(ctx, source, 5)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("runs=%+v err=%v", runs, err)
+	}
+	check("RecentRuns", runs[0])
+	groups, err := s.RecentRunsBySource(ctx, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range groups {
+		if g.SourceID == source {
+			check("RecentRunsBySource", g.Runs[0])
+		}
+	}
+}

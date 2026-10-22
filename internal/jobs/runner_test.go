@@ -264,3 +264,30 @@ func TestJobIsCancelledWhenItsLeaseCannotBeRenewed(t *testing.T) {
 		t.Fatal("job kept running after its lease could no longer be renewed, so a new run could overlap it")
 	}
 }
+
+func TestStartReturnsOnceClaimedAndRecordsOutcomeInBackground(t *testing.T) {
+	store := &memStore{}
+	runner := NewRunner(store)
+	release := make(chan struct{})
+	run, done, err := runner.Start(context.Background(), "src", TriggerManual, func(context.Context) error {
+		<-release
+		return errors.New("inventory request failed")
+	})
+	if err != nil || run.Status != StatusRunning || run.Trigger != TriggerManual {
+		t.Fatalf("started run=%+v err=%v", run, err)
+	}
+	// While it works, a second start reports the active run instead of starting another.
+	if _, _, err := runner.Start(context.Background(), "src", TriggerManual, func(context.Context) error { return nil }); !errors.Is(err, ErrAlreadyRunning) {
+		t.Fatalf("second start err=%v", err)
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("background run never finished")
+	}
+	got := store.snapshot()
+	if len(got) != 1 || got[0].Status != StatusFailed || got[0].Error != "inventory request failed" {
+		t.Fatalf("recorded runs=%+v", got)
+	}
+}

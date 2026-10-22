@@ -4,9 +4,9 @@
 
 **Blocked by:** 09 Persistent job runner
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] An admin-only trigger endpoint and button exist; non-admins get 403
-- [ ] Triggering while a run is active reports it rather than starting another
-- [ ] Settings shows recent runs with status and errors
-- [ ] Tests cover the role check and the active-run case
+- [x] An admin-only trigger endpoint and button exist; non-admins get 403
+- [x] Triggering while a run is active reports it rather than starting another
+- [x] Settings shows recent runs with status and errors
+- [x] Tests cover the role check and the active-run case

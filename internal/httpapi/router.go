@@ -51,9 +51,23 @@ func New(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, 
 	return NewWithMetadata(logger, build, readiness, nil, authHandlers...)
 }
 
+// SourceSyncer starts a manual sync of a library Source, named by its route
+// slug (for example "jellyfin"), and returns the run it started. It returns
+// jobs.ErrAlreadyRunning while a run is active and jobs.ErrUnknownSource for a
+// Source that is not configured.
+type SourceSyncer interface {
+	SyncNow(ctx context.Context, source string) (jobs.Run, error)
+}
+
 func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, resolverService interface {
 	ResolveAndUpsert(context.Context, string) (domain.ResolvedItem, error)
 }, authHandlers ...*auth.Handler) http.Handler {
+	return NewWithSync(logger, build, readiness, resolverService, nil, authHandlers...)
+}
+
+func NewWithSync(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, resolverService interface {
+	ResolveAndUpsert(context.Context, string) (domain.ResolvedItem, error)
+}, syncer SourceSyncer, authHandlers ...*auth.Handler) http.Handler {
 	var authHandler *auth.Handler
 	if len(authHandlers) > 0 {
 		authHandler = authHandlers[0]
@@ -144,6 +158,32 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 			return
 		}
 		writeJSON(w, 200, result)
+	})
+	api.HandleFunc("POST /admin/sources/{source}/sync", func(w http.ResponseWriter, r *http.Request) {
+		user, err := authHandler.CurrentSession(r)
+		if err != nil {
+			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
+			return
+		}
+		if user.Role != "admin" {
+			apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
+			return
+		}
+		if syncer == nil {
+			apierror.Write(w, r, http.StatusServiceUnavailable, "sync_unavailable", "sync unavailable")
+			return
+		}
+		run, err := syncer.SyncNow(r.Context(), r.PathValue("source"))
+		switch {
+		case errors.Is(err, jobs.ErrAlreadyRunning):
+			apierror.Write(w, r, http.StatusConflict, "sync_in_progress", "a sync for this source is already running")
+		case errors.Is(err, jobs.ErrUnknownSource):
+			apierror.Write(w, r, http.StatusNotFound, "source_not_configured", "source is not configured")
+		case err != nil:
+			apierror.Write(w, r, http.StatusInternalServerError, "sync_failed", "could not start sync")
+		default:
+			writeJSON(w, http.StatusAccepted, map[string]any{"run": run})
+		}
 	})
 	api.HandleFunc("GET /admin/job-runs", func(w http.ResponseWriter, r *http.Request) {
 		user, err := authHandler.CurrentSession(r)
@@ -508,7 +548,7 @@ func validUUID(value string) bool {
 }
 
 func protectedMutation(method, path string) bool {
-	if path == "/resolve" && method == http.MethodPost || path == "/requests" && method == http.MethodPost || path == "/setup/claim-admin" && method == http.MethodPost || strings.HasPrefix(path, "/admin/users/") && strings.HasSuffix(path, "/role") && method == http.MethodPut || strings.HasPrefix(path, "/requests/") && strings.HasSuffix(path, "/transition") && method == http.MethodPost || strings.HasPrefix(path, "/notifications/") && strings.HasSuffix(path, "/read") && method == http.MethodPost {
+	if path == "/resolve" && method == http.MethodPost || path == "/requests" && method == http.MethodPost || path == "/setup/claim-admin" && method == http.MethodPost || strings.HasPrefix(path, "/admin/users/") && strings.HasSuffix(path, "/role") && method == http.MethodPut || strings.HasPrefix(path, "/requests/") && strings.HasSuffix(path, "/transition") && method == http.MethodPost || strings.HasPrefix(path, "/notifications/") && strings.HasSuffix(path, "/read") && method == http.MethodPost || strings.HasPrefix(path, "/admin/sources/") && strings.HasSuffix(path, "/sync") && method == http.MethodPost {
 		return true
 	}
 	return strings.HasPrefix(path, "/requests/") && strings.HasSuffix(path, "/subscription") && (method == http.MethodPut || method == http.MethodDelete)
