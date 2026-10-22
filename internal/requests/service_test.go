@@ -16,6 +16,8 @@ type fakeRepository struct {
 	platformErr  error
 	mediaType    domain.MediaType
 	mediaErr     error
+	leaveResult  [2]bool
+	leaveErr     error
 }
 
 func (f *fakeRepository) CatalogMediaType(context.Context, string) (domain.MediaType, error) {
@@ -43,8 +45,10 @@ func (f *fakeRepository) CatalogPlatforms(context.Context, string) ([]domain.Pla
 func (f *fakeRepository) Transition(_ context.Context, in TransitionInput) (domain.Request, bool, error) {
 	return domain.Request{ID: in.RequestID, Status: in.ToStatus, Version: in.ExpectedVersion + 1}, true, nil
 }
-func (f *fakeRepository) Subscribe(context.Context, string, string) (bool, error)   { return true, nil }
-func (f *fakeRepository) Unsubscribe(context.Context, string, string) (bool, error) { return true, nil }
+func (f *fakeRepository) Subscribe(context.Context, string, string) (bool, error) { return true, nil }
+func (f *fakeRepository) Unsubscribe(context.Context, string, string) (bool, bool, error) {
+	return f.leaveResult[0], f.leaveResult[1], f.leaveErr
+}
 
 func TestSubscriptionAllowedForAnyAuthenticatedRole(t *testing.T) {
 	for _, role := range []string{"viewer", "requester", "admin"} {
@@ -186,5 +190,40 @@ func TestCreateNormalizesPlatformsForNonGameAndRequiresGameChoice(t *testing.T) 
 				t.Fatalf("platform selection=%#v", repo.request.Platforms)
 			}
 		})
+	}
+}
+
+func TestAdminCanCancelButOtherTargetStatusesStayRejected(t *testing.T) {
+	svc := New(&fakeRepository{})
+	in := TransitionInput{Actor: Actor{ID: "admin", Role: "admin"}, RequestID: "request", ToStatus: domain.RequestCancelled, ExpectedVersion: 3, OperationID: "op"}
+	got, err := svc.Transition(context.Background(), in)
+	if err != nil || got.Request.Status != domain.RequestCancelled || got.Request.Version != 4 {
+		t.Fatalf("cancel result=%#v error=%v", got, err)
+	}
+	in.Actor = Actor{ID: "u", Role: "requester"}
+	if _, err := svc.Transition(context.Background(), in); !errors.Is(err, ErrTransitionForbidden) {
+		t.Fatalf("requester cancel error=%v, want forbidden (requesters leave, they do not cancel outright)", err)
+	}
+	in.Actor, in.ToStatus = Actor{ID: "admin", Role: "admin"}, domain.RequestAvailable
+	if _, err := svc.Transition(context.Background(), in); !errors.Is(err, ErrTransitionInvalid) {
+		t.Fatalf("available target error=%v", err)
+	}
+}
+
+func TestLeavingReportsChangeAndCancellation(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		result             [2]bool
+		wantChanged, wantC bool
+	}{{"others remain", [2]bool{true, false}, true, false}, {"last subscriber", [2]bool{true, true}, true, true}, {"not subscribed", [2]bool{false, false}, false, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			changed, cancelled, err := New(&fakeRepository{leaveResult: tc.result}).Unsubscribe(context.Background(), Actor{ID: "u", Role: "viewer"}, "request")
+			if err != nil || changed != tc.wantChanged || cancelled != tc.wantC {
+				t.Fatalf("changed=%v cancelled=%v err=%v", changed, cancelled, err)
+			}
+		})
+	}
+	if _, _, err := New(&fakeRepository{leaveErr: ErrRequestNotFound}).Unsubscribe(context.Background(), Actor{ID: "u"}, "request"); !errors.Is(err, ErrRequestNotFound) {
+		t.Fatalf("not found error=%v", err)
 	}
 }

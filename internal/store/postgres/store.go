@@ -215,50 +215,62 @@ func (s *Store) Subscribe(ctx context.Context, requestID, userID string) (bool, 
 	return changed, nil
 }
 
-func (s *Store) Unsubscribe(ctx context.Context, requestID, userID string) (bool, error) {
+// Unsubscribe removes the user's subscription (D016). When that was the last
+// subscriber of an open Request, the Request becomes cancelled in the same
+// transaction with a version bump and an audit event.
+func (s *Store) Unsubscribe(ctx context.Context, requestID, userID string) (changed, cancelled bool, err error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	defer tx.Rollback(ctx)
-	var version int64
-	if err = tx.QueryRow(ctx, `SELECT version FROM requests WHERE id=$1 FOR UPDATE`, requestID).Scan(&version); errors.Is(err, pgx.ErrNoRows) {
-		return false, requests.ErrRequestNotFound
+	var status string
+	if err = tx.QueryRow(ctx, `SELECT status FROM requests WHERE id=$1 FOR UPDATE`, requestID).Scan(&status); errors.Is(err, pgx.ErrNoRows) {
+		return false, false, requests.ErrRequestNotFound
 	} else if err != nil {
-		return false, err
+		return false, false, err
 	}
-	var source string
-	err = tx.QueryRow(ctx, `SELECT source FROM request_subscriptions WHERE request_id=$1 AND user_id=$2`, requestID, userID).Scan(&source)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if err = tx.Commit(ctx); err != nil {
-			return false, err
-		}
-		return false, nil
-	}
+	ct, err := tx.Exec(ctx, `DELETE FROM request_subscriptions WHERE request_id=$1 AND user_id=$2`, requestID, userID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	if source == string(domain.SubscriptionRequester) {
-		return false, requests.ErrRequesterSubscription
-	}
-	if _, err = tx.Exec(ctx, `DELETE FROM request_subscriptions WHERE request_id=$1 AND user_id=$2`, requestID, userID); err != nil {
-		return false, err
+	if ct.RowsAffected() == 0 {
+		return false, false, tx.Commit(ctx)
 	}
 	if err = appendSubscriptionEvent(ctx, tx, requestID, userID, "request.unsubscribed"); err != nil {
-		return false, err
+		return false, false, err
+	}
+	var remaining int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM request_subscriptions WHERE request_id=$1`, requestID).Scan(&remaining); err != nil {
+		return false, false, err
+	}
+	if remaining == 0 && domain.RequestStatus(status).IsOpen() {
+		var version int64
+		if err = tx.QueryRow(ctx, `UPDATE requests SET status='cancelled',updated_at=now(),version=version+1 WHERE id=$1 RETURNING version`, requestID).Scan(&version); err != nil {
+			return false, false, err
+		}
+		data := mustJSON(map[string]any{"from": status, "to": domain.RequestCancelled, "version": version, "reason": "last_subscriber_left"})
+		if err = appendRequestEvent(ctx, tx, requestID, userID, "request.cancelled", data); err != nil {
+			return false, false, err
+		}
+		cancelled = true
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return false, err
+		return false, false, err
 	}
-	return true, nil
+	return true, cancelled, nil
 }
 
 func appendSubscriptionEvent(ctx context.Context, tx pgx.Tx, requestID, userID, eventType string) error {
+	return appendRequestEvent(ctx, tx, requestID, userID, eventType, []byte("{}"))
+}
+
+func appendRequestEvent(ctx context.Context, tx pgx.Tx, requestID, userID, eventType string, data []byte) error {
 	var sequence int64
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(aggregate_sequence),0)+1 FROM request_events WHERE request_id=$1`, requestID).Scan(&sequence); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO request_events(id,request_id,event_type,actor_user_id,data,created_at,aggregate_sequence) VALUES($1,$2,$3,$4,'{}',now(),$5)`, newUUID(), requestID, eventType, userID, sequence)
+	_, err := tx.Exec(ctx, `INSERT INTO request_events(id,request_id,event_type,actor_user_id,data,created_at,aggregate_sequence) VALUES($1,$2,$3,$4,$5,now(),$6)`, newUUID(), requestID, eventType, userID, data, sequence)
 	return err
 }
 
@@ -283,7 +295,7 @@ func (s *Store) Transition(ctx context.Context, in requests.TransitionInput) (do
 	if currentVersion != in.ExpectedVersion {
 		return domain.Request{}, false, requests.ErrTransitionConflict
 	}
-	if out.Status != domain.RequestRequested || (in.ToStatus != domain.RequestApproved && in.ToStatus != domain.RequestDenied) {
+	if !domain.CanTransition(out.Status, in.ToStatus) {
 		return domain.Request{}, false, requests.ErrTransitionInvalid
 	}
 	var sequence int64

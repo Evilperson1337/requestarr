@@ -278,7 +278,7 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 			case errors.Is(err, requests.ErrTransitionForbidden):
 				status, code, message = 403, "forbidden", "administrator role required"
 			case errors.Is(err, requests.ErrTransitionInvalid):
-				status, code, message = 400, "invalid_transition", "only requested requests can be approved or denied"
+				status, code, message = 400, "invalid_transition", "requested requests can be approved or denied; open requests can be cancelled"
 			case errors.Is(err, requests.ErrTransitionConflict):
 				status, code, message = 409, "version_conflict", "request changed; refresh and retry"
 			case errors.Is(err, requests.ErrRequestNotFound):
@@ -301,25 +301,23 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 				apierror.Write(w, r, 401, "authentication_required", "authentication required")
 				return
 			}
-			var changed bool
+			var changed, cancelled bool
 			if r.Method == http.MethodPut {
 				changed, err = requestService.Subscribe(r.Context(), requests.Actor{ID: user.ID, Role: user.Role}, r.PathValue("requestID"))
 			} else {
-				changed, err = requestService.Unsubscribe(r.Context(), requests.Actor{ID: user.ID, Role: user.Role}, r.PathValue("requestID"))
+				changed, cancelled, err = requestService.Unsubscribe(r.Context(), requests.Actor{ID: user.ID, Role: user.Role}, r.PathValue("requestID"))
 			}
 			if err != nil {
 				status, code, msg := 500, "subscription_failed", "subscription could not be changed"
 				if errors.Is(err, requests.ErrRequestNotFound) {
 					status, code, msg = 404, "request_not_found", "request was not found"
-				} else if errors.Is(err, requests.ErrRequesterSubscription) {
-					status, code, msg = 409, "creator_subscription_required", "the request creator remains subscribed"
 				} else if errors.Is(err, requests.ErrInvalid) {
 					status, code, msg = 400, "invalid_request", "request ID is invalid"
 				}
 				apierror.Write(w, r, status, code, msg)
 				return
 			}
-			writeJSON(w, 200, map[string]bool{"subscribed": r.Method == http.MethodPut, "changed": changed})
+			writeJSON(w, 200, map[string]bool{"subscribed": r.Method == http.MethodPut, "changed": changed, "cancelled": cancelled})
 		})
 	}
 	api.HandleFunc("POST /resolve", func(w http.ResponseWriter, r *http.Request) {

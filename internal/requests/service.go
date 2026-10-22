@@ -11,14 +11,13 @@ import (
 )
 
 var (
-	ErrForbidden             = errors.New("request creation is not permitted")
-	ErrInvalid               = errors.New("invalid request")
-	ErrCatalogNotFound       = errors.New("catalog item not found")
-	ErrRequestNotFound       = errors.New("request not found")
-	ErrRequesterSubscription = errors.New("creator subscription cannot be removed")
-	ErrTransitionForbidden   = errors.New("request transition is not permitted")
-	ErrTransitionInvalid     = errors.New("invalid request transition")
-	ErrTransitionConflict    = errors.New("request version conflict")
+	ErrForbidden           = errors.New("request creation is not permitted")
+	ErrInvalid             = errors.New("invalid request")
+	ErrCatalogNotFound     = errors.New("catalog item not found")
+	ErrRequestNotFound     = errors.New("request not found")
+	ErrTransitionForbidden = errors.New("request transition is not permitted")
+	ErrTransitionInvalid   = errors.New("invalid request transition")
+	ErrTransitionConflict  = errors.New("request version conflict")
 )
 
 type Actor struct {
@@ -61,7 +60,7 @@ type Repository interface {
 	CatalogPlatforms(context.Context, string) ([]domain.Platform, error)
 	Transition(context.Context, TransitionInput) (domain.Request, bool, error)
 	Subscribe(context.Context, string, string) (bool, error)
-	Unsubscribe(context.Context, string, string) (bool, error)
+	Unsubscribe(context.Context, string, string) (changed, cancelled bool, err error)
 }
 
 func (s *Service) Transition(ctx context.Context, in TransitionInput) (TransitionResult, error) {
@@ -71,7 +70,7 @@ func (s *Service) Transition(ctx context.Context, in TransitionInput) (Transitio
 	if in.RequestID == "" || in.ExpectedVersion < 1 || in.OperationID == "" {
 		return TransitionResult{}, ErrTransitionInvalid
 	}
-	if in.ToStatus != domain.RequestApproved && in.ToStatus != domain.RequestDenied {
+	if !domain.CanTransition(domain.RequestRequested, in.ToStatus) {
 		return TransitionResult{}, ErrTransitionInvalid
 	}
 	req, changed, err := s.repo.Transition(ctx, in)
@@ -105,21 +104,23 @@ func (s *Service) Subscribe(ctx context.Context, actor Actor, requestID string) 
 	return changed, nil
 }
 
-func (s *Service) Unsubscribe(ctx context.Context, actor Actor, requestID string) (bool, error) {
+// Unsubscribe lets any subscriber, including the creator, leave a Request. It
+// reports whether the Request was cancelled because the last subscriber left.
+func (s *Service) Unsubscribe(ctx context.Context, actor Actor, requestID string) (changed, cancelled bool, err error) {
 	if actor.ID == "" {
-		return false, ErrForbidden
+		return false, false, ErrForbidden
 	}
 	if requestID == "" {
-		return false, ErrInvalid
+		return false, false, ErrInvalid
 	}
-	changed, err := s.repo.Unsubscribe(ctx, requestID, actor.ID)
-	if errors.Is(err, ErrRequestNotFound) || errors.Is(err, ErrRequesterSubscription) {
-		return false, err
+	changed, cancelled, err = s.repo.Unsubscribe(ctx, requestID, actor.ID)
+	if errors.Is(err, ErrRequestNotFound) {
+		return false, false, err
 	}
 	if err != nil {
-		return false, fmt.Errorf("unsubscribe from request: %w", err)
+		return false, false, fmt.Errorf("unsubscribe from request: %w", err)
 	}
-	return changed, nil
+	return changed, cancelled, nil
 }
 
 func (s *Service) CatalogPlatforms(ctx context.Context, catalogID string) ([]domain.Platform, error) {

@@ -317,7 +317,7 @@ func TestCreateOrGetDeduplicatesAndRecordsCreatorSubscriptionAndEvent(t *testing
 	}
 }
 
-func TestSubscriptionTransactionsAreIdempotentAndPreserveCreator(t *testing.T) {
+func TestLeavingIsIdempotentAndLastSubscriberCancels(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	s, err := Open(ctx, testDatabaseURL(t))
@@ -345,27 +345,47 @@ func TestSubscriptionTransactionsAreIdempotentAndPreserveCreator(t *testing.T) {
 			t.Fatalf("subscribe changed=%v iteration=%d", changed, i)
 		}
 	}
-	if changed, err := s.Unsubscribe(ctx, r.ID, creator); !errors.Is(err, requests.ErrRequesterSubscription) || changed {
-		t.Fatalf("creator unsubscribe changed=%v err=%v", changed, err)
-	}
-	for i := 0; i < 2; i++ {
-		changed, err := s.Unsubscribe(ctx, r.ID, watcher)
+	leave := func(user string) (bool, bool) {
+		t.Helper()
+		changed, cancelled, err := s.Unsubscribe(ctx, r.ID, user)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if changed != (i == 0) {
-			t.Fatalf("unsubscribe changed=%v iteration=%d", changed, i)
+		return changed, cancelled
+	}
+	state := func() (status string, version int) {
+		t.Helper()
+		if err := s.pool.QueryRow(ctx, `SELECT status,version FROM requests WHERE id=$1`, r.ID).Scan(&status, &version); err != nil {
+			t.Fatal(err)
 		}
+		return status, version
 	}
-	var events, version int
-	if err = s.pool.QueryRow(ctx, `SELECT count(*) FROM request_events WHERE request_id=$1 AND event_type IN ('request.subscribed','request.unsubscribed')`, r.ID).Scan(&events); err != nil {
+	// The creator may leave; the Request stays open while the watcher remains.
+	if changed, cancelled := leave(creator); !changed || cancelled {
+		t.Fatalf("creator leave changed=%v cancelled=%v", changed, cancelled)
+	}
+	if changed, cancelled := leave(creator); changed || cancelled {
+		t.Fatalf("repeat creator leave changed=%v cancelled=%v", changed, cancelled)
+	}
+	if status, version := state(); status != "requested" || version != 1 {
+		t.Fatalf("after non-last leave status=%s version=%d", status, version)
+	}
+	// The last subscriber leaving cancels the Request, once.
+	if changed, cancelled := leave(watcher); !changed || !cancelled {
+		t.Fatalf("last leave changed=%v cancelled=%v", changed, cancelled)
+	}
+	if changed, cancelled := leave(watcher); changed || cancelled {
+		t.Fatalf("repeat last leave changed=%v cancelled=%v", changed, cancelled)
+	}
+	if status, version := state(); status != "cancelled" || version != 2 {
+		t.Fatalf("after last leave status=%s version=%d", status, version)
+	}
+	var subscribed, unsubscribed, cancelledEvents int
+	if err = s.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE event_type='request.subscribed'),count(*) FILTER (WHERE event_type='request.unsubscribed'),count(*) FILTER (WHERE event_type='request.cancelled') FROM request_events WHERE request_id=$1`, r.ID).Scan(&subscribed, &unsubscribed, &cancelledEvents); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.pool.QueryRow(ctx, `SELECT version FROM requests WHERE id=$1`, r.ID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if events != 2 || version != 1 {
-		t.Fatalf("subscription events=%d version=%d, want 2 and unchanged version 1", events, version)
+	if subscribed != 1 || unsubscribed != 2 || cancelledEvents != 1 {
+		t.Fatalf("events subscribed=%d unsubscribed=%d cancelled=%d, want 1,2,1", subscribed, unsubscribed, cancelledEvents)
 	}
 }
 
@@ -696,5 +716,43 @@ func TestJellyfinSnapshotLeavesClosedAndUnmatchedRequestsAndFailedSyncsAlone(t *
 	}
 	if availability != "unknown" || evidence != 0 {
 		t.Fatalf("failed sync wrote availability=%q evidence=%d", availability, evidence)
+	}
+}
+
+func TestAdminCancelsOpenRequestsOutright(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s, err := Open(ctx, testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	admin := integrationUser(t, ctx, s)
+	for _, from := range []domain.RequestStatus{domain.RequestRequested, domain.RequestApproved} {
+		t.Run(string(from), func(t *testing.T) {
+			_, requestID, _ := newMovieWithRequest(t, ctx, s, from)
+			in := requests.TransitionInput{Actor: requests.Actor{ID: admin, Role: "admin"}, RequestID: requestID, ToStatus: domain.RequestCancelled, ExpectedVersion: 1, OperationID: newUUID()}
+			if _, _, err := s.Transition(ctx, requests.TransitionInput{Actor: in.Actor, RequestID: requestID, ToStatus: domain.RequestCancelled, ExpectedVersion: 9, OperationID: newUUID()}); !errors.Is(err, requests.ErrTransitionConflict) {
+				t.Fatalf("stale version error=%v", err)
+			}
+			got, changed, err := s.Transition(ctx, in)
+			if err != nil || !changed || got.Status != domain.RequestCancelled || got.Version != 2 {
+				t.Fatalf("cancel got=%+v changed=%v err=%v", got, changed, err)
+			}
+			var events, inApp int
+			if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM request_events WHERE request_id=$1 AND event_type='request.cancelled' AND operation_id=$2`, requestID, in.OperationID).Scan(&events); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM notification_deliveries WHERE channel='in_app' AND event_key='request.cancelled' AND request_event_id IN (SELECT id FROM request_events WHERE request_id=$1)`, requestID).Scan(&inApp); err != nil {
+				t.Fatal(err)
+			}
+			if events != 1 || inApp != 1 {
+				t.Fatalf("audit events=%d subscriber notifications=%d, want 1 and 1", events, inApp)
+			}
+			again := requests.TransitionInput{Actor: in.Actor, RequestID: requestID, ToStatus: domain.RequestCancelled, ExpectedVersion: 2, OperationID: newUUID()}
+			if _, _, err := s.Transition(ctx, again); !errors.Is(err, requests.ErrTransitionInvalid) {
+				t.Fatalf("cancelling a closed request error=%v", err)
+			}
+		})
 	}
 }

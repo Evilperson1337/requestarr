@@ -187,7 +187,7 @@ M1 TV requests mean the whole series; no season input accepted. Music canonicali
 | Approve/deny/cancel any item | No | No | Yes |
 | Change settings/policy/users; view private admin note/audit | No | No | Yes |
 
-Creator subscription cannot be removed in M1 (409 requester_subscription_required); manual subscriptions use idempotent PUT/DELETE. Denied/cancelled requests remain the one canonical row; a new create returns it. Reopening is admin-only and uses that row. This preserves history without introducing duplicate requests.
+Any subscriber, the creator included, can leave through the idempotent DELETE; the last subscriber of an open request leaving cancels it (D016). Manual subscriptions use idempotent PUT/DELETE. Denied/cancelled requests remain the one canonical row; a new create returns it. Reopening is admin-only and uses that row. This preserves history without introducing duplicate requests.
 
 Lifecycle is requested, approved, denied, cancelled. Rules: requested → approved/denied/cancelled; approved → cancelled; denied/cancelled → requested only through explicit admin reopen. Creator cancellation is restricted to requested. Every transition carries expectedVersion; stale version or illegal transition gives 409. Repeating the same operation ID with identical payload returns its recorded outcome; reused operation ID with different payload gives 409. Auto-approval creates approved plus creation/auto-approval events atomically when policy permits; admins also follow policy rather than hidden bypasses. Denial/cancellation requires a bounded plain-text reason; admin-private note is never included in shared DTOs/events visible to non-admins.
 
