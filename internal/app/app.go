@@ -85,7 +85,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		if err != nil {
 			return fmt.Errorf("initialize Jellyfin integration: %w", err)
 		}
-		addSource("jellyfin", jellyfinSource{client}, cfg.JellyfinURL, nil)
+		addSource("jellyfin", client, cfg.JellyfinURL, nil)
 	}
 	if cfg.PlexURL != "" {
 		client, err := plex.New(cfg.PlexURL, cfg.PlexToken)
@@ -169,18 +169,6 @@ func sourceSyncJob(logger *slog.Logger, db sourceSyncStore, src inventory.Source
 		}
 		return nil
 	}
-}
-
-// jellyfinSource adapts the Jellyfin client, whose Snapshot still returns bare
-// items, to inventory.Source until it moves onto the interface natively.
-type jellyfinSource struct{ *jellyfin.Client }
-
-func (j jellyfinSource) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
-	items, err := j.Client.Snapshot(ctx)
-	if err != nil {
-		return inventory.Snapshot{}, err
-	}
-	return inventory.Snapshot{SourceID: j.Descriptor().ID, Items: items, Complete: true, ObservedAt: time.Now().UTC()}, nil
 }
 
 var (

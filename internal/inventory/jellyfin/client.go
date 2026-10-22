@@ -55,14 +55,14 @@ func NewWithHTTPClient(baseURL, apiKey, sourceID string, hc *http.Client) (*Clie
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, sourceID: sourceID, http: hc}, nil
 }
 
-// Descriptor declares what this Source covers. Jellyfin's native move onto
-// inventory.Source (Snapshot returning inventory.Snapshot) is ticket 14; until
-// then the app adapts Snapshot.
+// Descriptor declares what this Source covers.
 func (c *Client) Descriptor() inventory.Descriptor {
 	return inventory.Descriptor{ID: c.sourceID, Kind: "jellyfin", Name: "Jellyfin", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV}, IdentifierKinds: []string{"tmdb"}}
 }
 
-func (c *Client) Snapshot(ctx context.Context) ([]inventory.Item, error) {
+// Snapshot returns a complete normalized inventory or an error. It never
+// returns partial items as a successful snapshot.
+func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 	var all []inventory.Item
 	total := -1
 	for page := 0; page < maxPages; page++ {
@@ -77,28 +77,28 @@ func (c *Client) Snapshot(ctx context.Context) ([]inventory.Item, error) {
 		u.RawQuery = q.Encode()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 		if err != nil {
-			return nil, fmt.Errorf("create Jellyfin request")
+			return inventory.Snapshot{}, fmt.Errorf("create Jellyfin request")
 		}
 		req.Header.Set("X-Emby-Token", c.apiKey)
 		req.Header.Set("User-Agent", userAgent)
 		resp, err := c.http.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("Jellyfin inventory request failed")
+			return inventory.Snapshot{}, fmt.Errorf("Jellyfin inventory request failed")
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 		closeErr := resp.Body.Close()
 		if readErr != nil || closeErr != nil {
-			return nil, fmt.Errorf("read Jellyfin inventory response")
+			return inventory.Snapshot{}, fmt.Errorf("read Jellyfin inventory response")
 		}
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("Jellyfin inventory returned HTTP %d", resp.StatusCode)
+			return inventory.Snapshot{}, fmt.Errorf("Jellyfin inventory returned HTTP %d", resp.StatusCode)
 		}
 		if len(body) > maxBody {
-			return nil, fmt.Errorf("Jellyfin inventory response exceeds size limit")
+			return inventory.Snapshot{}, fmt.Errorf("Jellyfin inventory response exceeds size limit")
 		}
 		mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil || mediaType != "application/json" {
-			return nil, fmt.Errorf("Jellyfin inventory response is not application/json")
+			return inventory.Snapshot{}, fmt.Errorf("Jellyfin inventory response is not application/json")
 		}
 		var result struct {
 			Items []struct {
@@ -112,13 +112,13 @@ func (c *Client) Snapshot(ctx context.Context) ([]inventory.Item, error) {
 			StartIndex       *int `json:"StartIndex"`
 		}
 		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, fmt.Errorf("decode Jellyfin inventory response")
+			return inventory.Snapshot{}, fmt.Errorf("decode Jellyfin inventory response")
 		}
 		if result.Items == nil || result.StartIndex == nil || result.TotalRecordCount == nil {
-			return nil, fmt.Errorf("Jellyfin inventory response is missing required fields")
+			return inventory.Snapshot{}, fmt.Errorf("Jellyfin inventory response is missing required fields")
 		}
 		if *result.StartIndex != offset || *result.TotalRecordCount < 0 || *result.TotalRecordCount > pageSize*maxPages || len(result.Items) > pageSize || offset+len(result.Items) > *result.TotalRecordCount || (total >= 0 && *result.TotalRecordCount != total) {
-			return nil, fmt.Errorf("inconsistent Jellyfin inventory pagination")
+			return inventory.Snapshot{}, fmt.Errorf("inconsistent Jellyfin inventory pagination")
 		}
 		if total < 0 {
 			total = *result.TotalRecordCount
@@ -132,7 +132,7 @@ func (c *Client) Snapshot(ctx context.Context) ([]inventory.Item, error) {
 				media = domain.MediaTV
 			}
 			if media == "" || raw.ID == "" || len(raw.ID) > 256 || len(raw.Name) > 512 {
-				return nil, fmt.Errorf("invalid Jellyfin inventory item")
+				return inventory.Snapshot{}, fmt.Errorf("invalid Jellyfin inventory item")
 			}
 			tmdb := raw.ProviderIDs["Tmdb"]
 			ids := map[string]string{}
@@ -142,11 +142,11 @@ func (c *Client) Snapshot(ctx context.Context) ([]inventory.Item, error) {
 			all = append(all, inventory.Item{SourceID: c.sourceID, SourceItemID: raw.ID, MediaType: media, Title: raw.Name, Year: raw.Year, ExternalIDs: ids, LastSeenAt: time.Now().UTC()})
 		}
 		if offset+len(result.Items) == total {
-			return all, nil
+			return inventory.Snapshot{SourceID: c.sourceID, Items: all, Complete: true, ObservedAt: time.Now().UTC()}, nil
 		}
 		if len(result.Items) != pageSize {
-			return nil, fmt.Errorf("incomplete Jellyfin inventory pagination")
+			return inventory.Snapshot{}, fmt.Errorf("incomplete Jellyfin inventory pagination")
 		}
 	}
-	return nil, fmt.Errorf("Jellyfin inventory exceeds page limit")
+	return inventory.Snapshot{}, fmt.Errorf("Jellyfin inventory exceeds page limit")
 }

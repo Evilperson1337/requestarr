@@ -5,9 +5,58 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/inventory/inventorytest"
 )
+
+const testAPIKey = "jellyfin-test-key"
+
+func TestJellyfinPassesTheInventorySourceContract(t *testing.T) {
+	inventorytest.Run(t, func(t *testing.T, scenario inventorytest.Scenario) inventory.Source {
+		t.Helper()
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("X-Emby-Token") != testAPIKey {
+				http.Error(w, "unauthorized "+testAPIKey, http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			switch scenario {
+			case inventorytest.ServerError, inventorytest.MidwayFailure:
+				http.Error(w, "failure", http.StatusInternalServerError)
+			case inventorytest.Unauthorized:
+				http.Error(w, "unauthorized "+testAPIKey, http.StatusUnauthorized)
+			case inventorytest.Malformed:
+				_, _ = w.Write([]byte("{"))
+			case inventorytest.Truncated:
+				_, _ = w.Write([]byte(`{"StartIndex":0,"TotalRecordCount":2,"Items":[{"Id":"movie-1","Type":"Movie","Name":"Film"}]}`))
+			case inventorytest.Empty:
+				writeFixture(t, w, "empty.json")
+			default:
+				writeFixture(t, w, "library.json")
+			}
+		}))
+		t.Cleanup(ts.Close)
+		client, err := NewWithHTTPClient(ts.URL, testAPIKey, "configured-jellyfin-source", ts.Client())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return client
+	}, inventorytest.Expectations{LibraryItems: 2, Secret: testAPIKey})
+}
+
+func writeFixture(t *testing.T, w http.ResponseWriter, name string) {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write(body)
+}
 
 func TestSnapshotPaginationAndAuth(t *testing.T) {
 	requests := 0
@@ -39,12 +88,12 @@ func TestSnapshotPaginationAndAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	items, err := c.Snapshot(context.Background())
+	snap, err := c.Snapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 501 || requests != 2 {
-		t.Fatalf("got %d items over %d requests", len(items), requests)
+	if !snap.Complete || snap.SourceID != "source" || len(snap.Items) != 501 || requests != 2 {
+		t.Fatalf("snapshot=%+v over %d requests", snap, requests)
 	}
 }
 
@@ -90,15 +139,15 @@ func TestSnapshotFailuresNeverReturnPartial(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			items, err := c.Snapshot(context.Background())
+			snap, err := c.Snapshot(context.Background())
 			if tt.name == "empty complete" {
-				if err != nil || len(items) != 0 {
-					t.Fatalf("items=%v err=%v", items, err)
+				if err != nil || !snap.Complete || len(snap.Items) != 0 {
+					t.Fatalf("snapshot=%+v err=%v", snap, err)
 				}
 				return
 			}
-			if err == nil || items != nil {
-				t.Fatalf("partial snapshot returned: %v, %v", items, err)
+			if err == nil || snap.Complete || len(snap.Items) != 0 {
+				t.Fatalf("partial snapshot returned: %+v, %v", snap, err)
 			}
 			if strings.Contains(err.Error(), "secret") {
 				t.Fatal("error leaked key")

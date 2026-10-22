@@ -4,8 +4,8 @@
 
 **Blocked by:** 11 Adapter interface, contract suite, multi-source availability and Plex movie/TV
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Jellyfin passes the shared contract suite using fixtures
-- [ ] Its source identity is configuration, not hard-coded
-- [ ] Existing availability and absence behaviour is unchanged (integration tests still pass)
+- [x] Jellyfin passes the shared contract suite using fixtures
+- [x] Its source identity is provided to the adapter at construction and is reflected in its descriptor and snapshots
+- [x] Existing availability and absence behaviour is unchanged (integration tests pass)

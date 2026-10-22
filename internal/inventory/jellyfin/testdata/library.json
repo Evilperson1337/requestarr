@@ -1,0 +1,24 @@
+{
+    "StartIndex": 0,
+    "TotalRecordCount": 2,
+    "Items": [
+        {
+            "Id": "movie-1",
+            "Type": "Movie",
+            "Name": "Film",
+            "ProductionYear": 2024,
+            "ProviderIds": {
+                "Tmdb": "603"
+            }
+        },
+        {
+            "Id": "series-1",
+            "Type": "Series",
+            "Name": "Show",
+            "ProductionYear": 2023,
+            "ProviderIds": {
+                "Tmdb": "1399"
+            }
+        }
+    ]
+}
