@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
 	"github.com/evilperson1337/requestarr/internal/jobs"
 )
@@ -151,4 +152,89 @@ func TestManualSyncIsBlockedByARunningScheduledRun(t *testing.T) {
 	close(release)
 	<-done
 	workers.Wait()
+}
+
+type fakeAliasStore struct {
+	pending []domain.CatalogRef
+	limit   int
+	saved   map[string][]string
+	failed  []string
+}
+
+func (f *fakeAliasStore) OpenCatalogItemsNeedingAliases(_ context.Context, provider string, limit int) ([]domain.CatalogRef, error) {
+	f.limit = limit
+	if provider != "musicbrainz" {
+		return nil, errors.New("unexpected provider " + provider)
+	}
+	return f.pending, nil
+}
+
+func (f *fakeAliasStore) SaveCatalogAliases(_ context.Context, id, kind string, values []string) error {
+	if kind != "mbid" {
+		return errors.New("unexpected alias kind " + kind)
+	}
+	if f.saved == nil {
+		f.saved = map[string][]string{}
+	}
+	f.saved[id] = values
+	return nil
+}
+
+func (f *fakeAliasStore) RecordAliasLookupFailure(_ context.Context, id string) error {
+	f.failed = append(f.failed, id)
+	return nil
+}
+
+type fakeAliasLookup struct {
+	failFor map[string]bool
+	calls   []string
+}
+
+func (f *fakeAliasLookup) Aliases(_ context.Context, ref domain.CatalogRef) ([]string, error) {
+	f.calls = append(f.calls, ref.ID)
+	if f.failFor[ref.ID] {
+		return nil, errors.New("MusicBrainz release lookup failed")
+	}
+	return []string{ref.ProviderID, "release-of-" + ref.ID}, nil
+}
+
+func TestAliasRefreshSavesLookupsAndSurvivesIndividualFailures(t *testing.T) {
+	store := &fakeAliasStore{pending: []domain.CatalogRef{{ID: "a", ProviderID: "pa"}, {ID: "b", ProviderID: "pb"}, {ID: "c", ProviderID: "pc"}}}
+	lookup := &fakeAliasLookup{failFor: map[string]bool{"b": true}}
+	refreshMusicAliases(context.Background(), discardLogger, store, lookup)
+	if store.limit != maxAliasLookupsPerSync {
+		t.Fatalf("limit=%d want %d", store.limit, maxAliasLookupsPerSync)
+	}
+	if len(lookup.calls) != 3 {
+		t.Fatalf("a failed lookup must not stop the others: calls=%v", lookup.calls)
+	}
+	if _, ok := store.saved["b"]; ok {
+		t.Fatal("a failed lookup saved aliases")
+	}
+	if len(store.failed) != 1 || store.failed[0] != "b" {
+		t.Fatalf("failed lookups recorded for backoff: %v (want only b)", store.failed)
+	}
+	if len(store.saved["a"]) != 2 || len(store.saved["c"]) != 2 {
+		t.Fatalf("saved=%v", store.saved)
+	}
+}
+
+func TestAliasRefreshStopsWhenShuttingDown(t *testing.T) {
+	store := &fakeAliasStore{pending: []domain.CatalogRef{{ID: "a"}, {ID: "b"}}}
+	lookup := &fakeAliasLookup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	refreshMusicAliases(ctx, discardLogger, store, lookup)
+	if len(lookup.calls) != 0 {
+		t.Fatalf("lookups after cancellation: %v", lookup.calls)
+	}
+}
+
+func TestSyncWithAliasRefreshRefreshesFirstAndStillSyncsWhenRefreshFails(t *testing.T) {
+	var order []string
+	job := func(context.Context) error { order = append(order, "sync"); return nil }
+	refresh := func(context.Context) { order = append(order, "refresh") }
+	if err := withAliasRefresh(refresh, job)(context.Background()); err != nil || len(order) != 2 || order[0] != "refresh" || order[1] != "sync" {
+		t.Fatalf("order=%v err=%v", order, err)
+	}
 }

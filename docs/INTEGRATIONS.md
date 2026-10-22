@@ -9,11 +9,11 @@ Movie and TV identity/metadata. V1 accepts canonical TMDB movie/TV URLs and extr
 Game identity, cover metadata, and supported platforms. Authentication uses Twitch/IGDB credentials. Platform lists in the request modal come from the resolved game payload and are normalized to stable Requestarr platform keys.
 
 ### MusicBrainz
-Album requests target release groups; song requests target recordings. Configure an application identity/contact and respect MusicBrainz rate/use requirements. Representative release artwork is presentation metadata only and must not alter recording identity.
+Album requests target release groups; song requests target recordings. A pasted `/release/` link is accepted but resolved to its release group (a release is one edition of the album), and any other entity is unsupported. Catalog rows created by earlier builds may hold a release or recording filed as an album; they cannot be corrected automatically and should be re-requested from the right link. Configure an application identity/contact and respect MusicBrainz rate/use requirements. Representative release artwork is presentation metadata only and must not alter recording identity.
 
 ## Availability sources
 
-### Plex (movies and TV)
+### Plex (movies, TV and music)
 
 Set both `REQUESTARR_PLEX_URL` and `REQUESTARR_PLEX_TOKEN` to enable it. The URL
 is an origin with the same rules as Jellyfin's (no credentials, path, query or
@@ -21,14 +21,29 @@ fragment; HTTPS outside development) and is trusted operator configuration with
 the same private-network caveat. The token is sent only in the `X-Plex-Token`
 header, never in a URL, and never appears in errors, logs or run history.
 
-Every movie and TV library visible to the token is read (music and photo
+Every movie, TV and music library visible to the token is read (photo
 libraries are ignored) through the job runner on the same schedule and Sync now
 action as Jellyfin. Items are matched to the catalog by TMDB id from Plex's
 `Guid` entries; IMDb and TVDB ids are kept as inventory but match nothing yet.
-A token that sees no movie or TV library is an error, not an empty library, and
+A token that sees no movie, TV or music library is an error, not an empty library, and
 every failure (HTTP error, bad token, malformed or truncated page, a later
 library failing) discards the whole run: it records health only and removes
 nothing. Availability rules are shared with every Source (see Jellyfin below).
+
+Music libraries are read as albums and tracks. Plex tags an album with a
+MusicBrainz *release* id and a track with a *release-track* id (older agents in
+the top-level `guid`, newer ones in `Guid` as `mbid://`), while a Request's
+identity is the release group (album) or recording (song). Before each Plex sync
+Requestarr therefore asks MusicBrainz, for up to 20 open music Requests that
+have no aliases yet, which releases belong to the release group (album) or which
+tracks carry the recording (song), and stores the answers as aliases of the
+catalog item (`catalog_item_aliases`). The Plex `mbid` values are then matched
+against those aliases, per media type. Lookups are spaced one per second as
+MusicBrainz requires, are best-effort (a failure is logged, retried next sync and
+never alters inventory), and a Request made after a sync is matched from the next
+one. Libraries where Plex exposes only `plex://` identifiers match nothing until
+Plex tags them with MusicBrainz ids. These Plex identifier semantics come from
+community reports, not official Plex documentation: verify against your server.
 
 Known limit: evidence is only expired by that Source's own successful syncs. If a Source is removed from configuration its existing evidence is not expired yet, so items only it held stay available until evidence expiry for removed or disabled Sources is built.
 

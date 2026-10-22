@@ -15,7 +15,7 @@ func TestCanResolveUsesExactHostAndHTTPSPort(t *testing.T) {
 		raw  string
 		want bool
 	}{
-		{"https://musicbrainz.org/release/00000000-0000-0000-0000-000000000000", true},
+		{"https://musicbrainz.org/release-group/00000000-0000-0000-0000-000000000000", true},
 		{"https://musicbrainz.org:443/release/00000000-0000-0000-0000-000000000000", true},
 		{"https://evil.musicbrainz.org/release/00000000-0000-0000-0000-000000000000", false},
 		{"https://musicbrainz.org:8443/release/00000000-0000-0000-0000-000000000000", false},
@@ -27,31 +27,66 @@ func TestCanResolveUsesExactHostAndHTTPSPort(t *testing.T) {
 	}
 }
 
-func TestResolveReleaseAndRecording(t *testing.T) {
+func TestResolveUsesReleaseGroupForAlbumsAndRecordingForSongs(t *testing.T) {
 	const id = "00000000-0000-0000-0000-000000000000"
-	for _, tc := range []struct{ path, expected, media string }{{"/release/" + id, "/ws/2/release/" + id + "?fmt=json&inc=artists", "album"}, {"/recording/" + id, "/ws/2/recording/" + id + "?fmt=json&inc=artists", "album"}} {
-		t.Run(tc.path, func(t *testing.T) {
+	const group = "11111111-1111-1111-1111-111111111111"
+	for _, tc := range []struct {
+		name, path, expectedURI, body string
+		wantMedia                     domain.MediaType
+		wantProviderID, wantURL       string
+		wantTitle                     string
+		wantYear                      int
+	}{
+		{"release-group", "/release-group/" + id, "/ws/2/release-group/" + id + "?fmt=json&inc=artists",
+			`{"id":"` + id + `","title":"Title","first-release-date":"1999-05-01","artist-credit":[{"name":"Artist"}]}`,
+			domain.MediaAlbum, id, "https://musicbrainz.org/release-group/" + id, "Artist — Title", 1999},
+		{"recording", "/recording/" + id, "/ws/2/recording/" + id + "?fmt=json&inc=artists",
+			`{"id":"` + id + `","title":"Song","first-release-date":"2001-02-03","artist-credit":[{"name":"Artist"}]}`,
+			domain.MediaSong, id, "https://musicbrainz.org/recording/" + id, "Artist — Song", 2001},
+		// A pasted release link is accepted, but the request's identity is its release-group.
+		{"release resolves to its group", "/release/" + id, "/ws/2/release/" + id + "?fmt=json&inc=artists+release-groups",
+			`{"id":"` + id + `","title":"Deluxe Edition","artist-credit":[{"name":"Artist"}],"release-group":{"id":"` + group + `","title":"Group Title","first-release-date":"1999-05-01"}}`,
+			domain.MediaAlbum, group, "https://musicbrainz.org/release-group/" + group, "Artist — Group Title", 1999},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.RequestURI() != tc.expected {
-					t.Errorf("request URI=%q", r.URL.RequestURI())
+				if r.URL.RequestURI() != tc.expectedURI {
+					t.Errorf("request URI=%q want %q", r.URL.RequestURI(), tc.expectedURI)
 				}
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"id":"` + id + `","title":"Title","artist-credit":[{"name":"Artist"}]}`))
+				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer s.Close()
 			// Resolver API is fixed-origin; custom transport redirects the provider host to this deterministic fixture.
 			client := s.Client()
 			client.Transport = rewriteTransport{base: s.URL, next: http.DefaultTransport}
-			r := New(client)
 			u, _ := url.Parse("https://musicbrainz.org" + tc.path)
-			item, err := r.Resolve(context.Background(), u)
+			item, err := New(client).Resolve(context.Background(), u)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if item.Item.Title != "Artist — Title" || item.Item.MediaType != domain.MediaAlbum {
-				t.Fatalf("resolved item=%#v", item.Item)
+			got := item.Item
+			if got.MediaType != tc.wantMedia || got.Provider != "musicbrainz" || got.ProviderID != tc.wantProviderID || got.ExternalURL != tc.wantURL || got.Title != tc.wantTitle || got.Year != tc.wantYear {
+				t.Fatalf("resolved item=%#v", got)
 			}
 		})
+	}
+}
+
+func TestResolveRejectsReleaseWithoutAGroupAndUnsupportedEntities(t *testing.T) {
+	const id = "00000000-0000-0000-0000-000000000000"
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"` + id + `","title":"No group"}`))
+	}))
+	defer s.Close()
+	client := s.Client()
+	client.Transport = rewriteTransport{base: s.URL, next: http.DefaultTransport}
+	for _, path := range []string{"/release/" + id, "/artist/" + id, "/work/" + id, "/release-group/not-a-uuid"} {
+		u, _ := url.Parse("https://musicbrainz.org" + path)
+		if item, err := New(client).Resolve(context.Background(), u); err == nil {
+			t.Errorf("%s resolved to %#v", path, item.Item)
+		}
 	}
 }
 

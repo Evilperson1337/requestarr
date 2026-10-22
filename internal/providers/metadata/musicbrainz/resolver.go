@@ -32,12 +32,18 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 	if len(parts) < 2 {
 		return domain.ResolvedItem{}, fmt.Errorf("unsupported MusicBrainz URL")
 	}
-	var entity string
+	// An album's identity is its release-group and a song's is its recording.
+	// A pasted release link is accepted but resolved to its release-group, since
+	// a release is only one edition of the album (never equate the two).
+	var entity, inc string
+	media := domain.MediaAlbum
 	switch parts[0] {
-	case "release":
-		entity = "release"
+	case "release-group":
+		entity, inc = "release-group", "artists"
 	case "recording":
-		entity = "recording"
+		entity, inc, media = "recording", "artists", domain.MediaSong
+	case "release":
+		entity, inc = "release", "artists+release-groups"
 	default:
 		return domain.ResolvedItem{}, fmt.Errorf("unsupported MusicBrainz URL")
 	}
@@ -45,40 +51,57 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 	if !mbidPattern.MatchString(id) {
 		return domain.ResolvedItem{}, fmt.Errorf("invalid MusicBrainz identifier")
 	}
-	parsed, err := url.Parse("https://musicbrainz.org/ws/2/" + entity + "/" + url.PathEscape(id) + "?fmt=json&inc=artists")
-	if err != nil {
-		return domain.ResolvedItem{}, err
+	endpoint := "https://musicbrainz.org/ws/2/" + entity + "/" + url.PathEscape(id) + "?fmt=json&inc=" + inc
+	type credit struct {
+		Name   string `json:"name"`
+		Artist struct {
+			Name string `json:"name"`
+		} `json:"artist"`
 	}
 	var data struct {
-		ID           string `json:"id"`
-		Title        string `json:"title"`
-		Date         string `json:"date"`
-		ArtistCredit []struct {
-			Name   string `json:"name"`
-			Artist struct {
-				Name string `json:"name"`
-			} `json:"artist"`
-		} `json:"artist-credit"`
+		ID               string   `json:"id"`
+		Title            string   `json:"title"`
+		FirstReleaseDate string   `json:"first-release-date"`
+		Date             string   `json:"date"`
+		ArtistCredit     []credit `json:"artist-credit"`
+		ReleaseGroup     *struct {
+			ID               string `json:"id"`
+			Title            string `json:"title"`
+			FirstReleaseDate string `json:"first-release-date"`
+		} `json:"release-group"`
 	}
-	if err := metadata.Fetch(ctx, r.client, parsed.String(), nil, &data); err != nil {
+	if err := metadata.Fetch(ctx, r.client, endpoint, nil, &data); err != nil {
 		return domain.ResolvedItem{}, err
 	}
 	if data.ID == "" || data.Title == "" {
 		return domain.ResolvedItem{}, fmt.Errorf("invalid MusicBrainz response")
 	}
-	title := data.Title
-	if len(data.ArtistCredit) > 0 {
-		name := data.ArtistCredit[0].Name
-		if name == "" {
-			name = data.ArtistCredit[0].Artist.Name
+	canonicalID, name, date := data.ID, data.Title, data.FirstReleaseDate
+	if date == "" {
+		date = data.Date
+	}
+	if entity == "release" {
+		if data.ReleaseGroup == nil || !mbidPattern.MatchString(data.ReleaseGroup.ID) || data.ReleaseGroup.Title == "" {
+			return domain.ResolvedItem{}, fmt.Errorf("invalid MusicBrainz response")
 		}
-		if name != "" {
-			title = name + " — " + title
+		canonicalID, entity, name = data.ReleaseGroup.ID, "release-group", data.ReleaseGroup.Title
+		if data.ReleaseGroup.FirstReleaseDate != "" {
+			date = data.ReleaseGroup.FirstReleaseDate
 		}
 	}
-	item := domain.CatalogItem{MediaType: domain.MediaAlbum, Provider: "musicbrainz", ProviderID: data.ID, Title: title, ArtworkKind: domain.ArtworkSquare, ExternalURL: "https://musicbrainz.org/" + entity + "/" + data.ID}
-	if len(data.Date) >= 4 {
-		fmt.Sscanf(data.Date[:4], "%d", &item.Year)
+	title := name
+	if len(data.ArtistCredit) > 0 {
+		artist := data.ArtistCredit[0].Name
+		if artist == "" {
+			artist = data.ArtistCredit[0].Artist.Name
+		}
+		if artist != "" {
+			title = artist + " — " + name
+		}
+	}
+	item := domain.CatalogItem{MediaType: media, Provider: "musicbrainz", ProviderID: canonicalID, Title: title, ArtworkKind: domain.ArtworkSquare, ExternalURL: "https://musicbrainz.org/" + entity + "/" + canonicalID}
+	if len(date) >= 4 {
+		fmt.Sscanf(date[:4], "%d", &item.Year)
 	}
 	return domain.ResolvedItem{Item: item}, nil
 }

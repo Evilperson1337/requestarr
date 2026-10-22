@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -124,17 +123,29 @@ func matchCatalogItems(ctx context.Context, tx pgx.Tx, d inventory.Descriptor, i
 	var matched []string
 	have := map[string]bool{}
 	for _, kind := range kinds {
-		var catalogID string
-		err := tx.QueryRow(ctx, `SELECT id::text FROM catalog_items WHERE provider=$1 AND media_type=$2 AND provider_id=$3`, kind, item.MediaType, strings.TrimSpace(item.ExternalIDs[kind])).Scan(&catalogID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
+		// Either the identifier is the catalog item's canonical one (kind is the
+		// provider), or it was recorded as an alias of it.
+		rows, err := tx.Query(ctx, `SELECT id::text FROM catalog_items WHERE provider=$1 AND media_type=$2 AND provider_id=$3
+			UNION
+			SELECT a.catalog_item_id::text FROM catalog_item_aliases a JOIN catalog_items c ON c.id=a.catalog_item_id WHERE a.kind=$1 AND a.value=$3 AND c.media_type=$2`, kind, item.MediaType, strings.TrimSpace(item.ExternalIDs[kind]))
 		if err != nil {
 			return nil, fmt.Errorf("match inventory item: %w", err)
 		}
-		if !have[catalogID] {
-			have[catalogID] = true
-			matched = append(matched, catalogID)
+		for rows.Next() {
+			var catalogID string
+			if err := rows.Scan(&catalogID); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan matched catalog item: %w", err)
+			}
+			if !have[catalogID] {
+				have[catalogID] = true
+				matched = append(matched, catalogID)
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, fmt.Errorf("match inventory item: %w", err)
 		}
 	}
 	return matched, nil

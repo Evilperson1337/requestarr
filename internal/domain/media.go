@@ -74,3 +74,11 @@ type Platform struct {
 	Key        string `json:"key"`
 	Name       string `json:"name"`
 }
+
+// CatalogRef names a catalog item by its canonical provider identity.
+type CatalogRef struct {
+	ID         string
+	MediaType  MediaType
+	Provider   string
+	ProviderID string
+}

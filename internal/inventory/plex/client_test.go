@@ -62,6 +62,12 @@ func (b *backend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(fixture(b.t, "movies_page1.json"))
 	case section == "/library/sections/1/all" && offset == "2":
 		_, _ = w.Write(fixture(b.t, "movies_page2.json"))
+	case section == "/library/sections/3/all" && r.URL.Query().Get("type") == "9" && offset == "0":
+		_, _ = w.Write(fixture(b.t, "albums_page1.json"))
+	case section == "/library/sections/3/all" && r.URL.Query().Get("type") == "10" && offset == "0":
+		_, _ = w.Write(fixture(b.t, "tracks_page1.json"))
+	case section == "/library/sections/3/all" && r.URL.Query().Get("type") == "10" && offset == "2":
+		_, _ = w.Write(fixture(b.t, "tracks_page2.json"))
 	case section == "/library/sections/2/all" && b.scenario == inventorytest.MidwayFailure:
 		http.Error(w, "boom", http.StatusInternalServerError)
 	case section == "/library/sections/2/all" && offset == "0":
@@ -88,10 +94,10 @@ func TestPlexPassesTheInventorySourceContract(t *testing.T) {
 	inventorytest.Run(t, func(t *testing.T, s inventorytest.Scenario) inventory.Source {
 		c, _ := newBackendClient(t, s)
 		return c
-	}, inventorytest.Expectations{LibraryItems: 5, Secret: testToken})
+	}, inventorytest.Expectations{LibraryItems: 10, Secret: testToken})
 }
 
-func TestSnapshotNormalizesMoviesAndShowsAndReadsOnlyThoseLibraries(t *testing.T) {
+func TestSnapshotNormalizesMoviesShowsAlbumsAndTracks(t *testing.T) {
 	c, b := newBackendClient(t, inventorytest.Library)
 	snap, err := c.Snapshot(context.Background())
 	if err != nil {
@@ -111,10 +117,31 @@ func TestSnapshotNormalizesMoviesAndShowsAndReadsOnlyThoseLibraries(t *testing.T
 	if sev := byID["201"]; sev.MediaType != domain.MediaTV || sev.ExternalIDs["tmdb"] != "95396" {
 		t.Fatalf("severance=%+v", sev)
 	}
+	ok := byID["301"]
+	if ok.MediaType != domain.MediaAlbum || ok.Title != "OK Computer" || ok.Year != 1997 || ok.ExternalIDs["mbid"] != "3a1f0e5e-1c1a-4e7a-9d6b-0b9a8f2f6a01" {
+		t.Fatalf("album=%+v", ok)
+	}
+	if untagged := byID["302"]; untagged.MediaType != domain.MediaAlbum || len(untagged.ExternalIDs) != 0 {
+		t.Fatalf("an album Plex never matched must be inventory without ids: %+v", untagged)
+	}
+	if paranoid := byID["401"]; paranoid.MediaType != domain.MediaSong || paranoid.ExternalIDs["mbid"] != "7b2e1f6a-2d2b-4f8b-8e7c-1c0b9a3f7b02" {
+		t.Fatalf("track=%+v", paranoid)
+	}
+	// Older agents put the MusicBrainz id only in the top-level guid string.
+	if karma := byID["402"]; karma.ExternalIDs["mbid"] != "8c3f2a7b-3e3c-4a9c-9f8d-2d1c0b4a8c03" {
+		t.Fatalf("legacy guid track=%+v", karma)
+	}
+	if home := byID["403"]; home.MediaType != domain.MediaSong || len(home.ExternalIDs) != 0 {
+		t.Fatalf("track=%+v", home)
+	}
+	asked := map[string]bool{}
 	for _, r := range b.requests {
-		if strings.HasPrefix(r.URL.Path, "/library/sections/3") {
-			t.Fatalf("the music library was read: %s", r.URL)
+		if strings.HasPrefix(r.URL.Path, "/library/sections/3/all") {
+			asked[r.URL.Query().Get("type")] = true
 		}
+	}
+	if !asked["9"] || !asked["10"] {
+		t.Fatalf("music library must be read as albums (type 9) and tracks (type 10): %v", asked)
 	}
 }
 
@@ -136,10 +163,10 @@ func TestTokenTravelsOnlyInTheHeader(t *testing.T) {
 	}
 }
 
-func TestServerWithoutMovieOrTVLibrariesIsAnErrorNotAnEmptyInventory(t *testing.T) {
+func TestServerWithoutAnyReadableLibraryIsAnErrorNotAnEmptyInventory(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(fixture(t, "only_music.json"))
+		_, _ = w.Write(fixture(t, "only_photos.json"))
 	}))
 	defer ts.Close()
 	c, err := NewWithHTTPClient(ts.URL, testToken, ts.Client())
@@ -147,7 +174,7 @@ func TestServerWithoutMovieOrTVLibrariesIsAnErrorNotAnEmptyInventory(t *testing.
 		t.Fatal(err)
 	}
 	if snap, err := c.Snapshot(context.Background()); err == nil || snap.Complete {
-		t.Fatalf("err=%v complete=%v: a token that sees no movie/TV library must not read as an empty library", err, snap.Complete)
+		t.Fatalf("err=%v complete=%v: a token that sees no movie, TV or music library must not read as an empty library", err, snap.Complete)
 	}
 }
 
@@ -161,5 +188,27 @@ func TestNewRejectsUnsafeConfiguration(t *testing.T) {
 	}
 	if _, err := New("https://plex.example:32400", "t"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMusicTracksFailingAfterAlbumsSucceededDiscardsEverything(t *testing.T) {
+	b := &backend{t: t, scenario: inventorytest.Library}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Movies, shows and albums all succeed; the tracks' second page fails.
+		if r.URL.Path == "/library/sections/3/all" && r.URL.Query().Get("type") == "10" && r.URL.Query().Get("X-Plex-Container-Start") == "2" {
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		}
+		b.ServeHTTP(w, r)
+	}))
+	defer ts.Close()
+	c, err := NewWithHTTPClient(ts.URL, testToken, ts.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.pageSize = 2
+	snap, err := c.Snapshot(context.Background())
+	if err == nil || snap.Complete || len(snap.Items) != 0 {
+		t.Fatalf("err=%v complete=%v items=%d: movies, shows and albums were read, but a failed tracks page must discard the lot", err, snap.Complete, len(snap.Items))
 	}
 }

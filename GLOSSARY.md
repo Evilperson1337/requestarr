@@ -39,3 +39,7 @@ _Avoid_: State, stage
 **Cancellation**:
 A Requester leaving a Request. The Request becomes `cancelled` only if they were the last Subscriber; otherwise they just unsubscribe. An admin can cancel any Request outright.
 _Avoid_: Delete, withdraw
+
+**Alias**:
+An alternate identifier recorded for a catalog item so a Source's identifiers can be matched to it. Plex exposes MusicBrainz release and release-track ids, while an album Request is identified by its release group and a song by its recording, so those ids are stored as aliases of the item (D020).
+_Avoid_: Synonym, duplicate ID

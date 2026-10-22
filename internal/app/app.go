@@ -14,6 +14,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/config"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/httpapi"
 	"github.com/evilperson1337/requestarr/internal/inventory"
 	"github.com/evilperson1337/requestarr/internal/inventory/jellyfin"
@@ -65,8 +66,11 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	runner := jobs.NewRunner(store)
 	runner.Logger = logger
 	syncSources := map[string]syncSource{}
-	addSource := func(slug string, src inventory.Source, baseURL string) {
+	addSource := func(slug string, src inventory.Source, baseURL string, decorate func(func(context.Context) error) func(context.Context) error) {
 		job := sourceSyncJob(logger, store, src, baseURL)
+		if decorate != nil {
+			job = decorate(job)
+		}
 		id := src.Descriptor().ID
 		syncSources[slug] = syncSource{id: id, job: job}
 		workers.Add(1)
@@ -80,14 +84,17 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		if err != nil {
 			return fmt.Errorf("initialize Jellyfin integration: %w", err)
 		}
-		addSource("jellyfin", jellyfinSource{client}, cfg.JellyfinURL)
+		addSource("jellyfin", jellyfinSource{client}, cfg.JellyfinURL, nil)
 	}
 	if cfg.PlexURL != "" {
 		client, err := plex.New(cfg.PlexURL, cfg.PlexToken)
 		if err != nil {
 			return fmt.Errorf("initialize Plex integration: %w", err)
 		}
-		addSource("plex", client, cfg.PlexURL)
+		aliaser := musicbrainz.NewAliaser(nil, musicbrainz.DefaultMinInterval)
+		addSource("plex", client, cfg.PlexURL, func(job func(context.Context) error) func(context.Context) error {
+			return withAliasRefresh(func(ctx context.Context) { refreshMusicAliases(ctx, logger, store, aliaser) }, job)
+		})
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
 
@@ -208,4 +215,55 @@ func (s *sourceSyncer) SyncNow(_ context.Context, slug string) (jobs.Run, error)
 	}
 	go func() { defer s.workers.Done(); <-done }()
 	return run, nil
+}
+
+// maxAliasLookupsPerSync bounds the MusicBrainz calls one sync makes (each lookup
+// takes at least one rate-limited request); the rest wait for the next sync.
+const maxAliasLookupsPerSync = 20
+
+type aliasStore interface {
+	OpenCatalogItemsNeedingAliases(ctx context.Context, provider string, limit int) ([]domain.CatalogRef, error)
+	SaveCatalogAliases(ctx context.Context, catalogID, kind string, values []string) error
+	RecordAliasLookupFailure(ctx context.Context, catalogID string) error
+}
+
+type aliasLookup interface {
+	Aliases(context.Context, domain.CatalogRef) ([]string, error)
+}
+
+// refreshMusicAliases asks MusicBrainz which release / release-track ids belong
+// to each open music Request, so Plex's identifiers can be matched to it. It is
+// best-effort: a failed lookup is logged and retried next sync, and never
+// changes inventory or fails the sync (a missing alias only delays a match).
+func refreshMusicAliases(ctx context.Context, logger *slog.Logger, store aliasStore, lookup aliasLookup) {
+	pending, err := store.OpenCatalogItemsNeedingAliases(ctx, "musicbrainz", maxAliasLookupsPerSync)
+	if err != nil {
+		logger.Warn("list music requests needing aliases failed")
+		return
+	}
+	for _, ref := range pending {
+		if ctx.Err() != nil {
+			return
+		}
+		values, err := lookup.Aliases(ctx, ref)
+		if err != nil {
+			logger.Warn("music alias lookup failed", "catalog_item", ref.ID)
+			if e := store.RecordAliasLookupFailure(ctx, ref.ID); e != nil {
+				logger.Warn("record alias lookup failure failed", "catalog_item", ref.ID)
+			}
+			continue
+		}
+		if err := store.SaveCatalogAliases(ctx, ref.ID, "mbid", values); err != nil {
+			logger.Warn("save music aliases failed", "catalog_item", ref.ID)
+		}
+	}
+}
+
+// withAliasRefresh runs refresh before job so a sync can match music requested
+// since the last one. refresh never returns an error, so job always runs.
+func withAliasRefresh(refresh func(context.Context), job func(context.Context) error) func(context.Context) error {
+	return func(ctx context.Context) error {
+		refresh(ctx)
+		return job(ctx)
+	}
 }

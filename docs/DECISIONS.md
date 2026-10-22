@@ -63,3 +63,6 @@ A job-run table with status, timestamps and errors, a no-overlap guard that surv
 
 ## D019 — V1 build order
 Baseline hygiene, then the `available` flow, then the job runner, then the adapter interface with Plex, RomM, Jellyfin (onto the new interface) and Navidrome in that order, then the Requests page, then wizard/settings/ops status, then release hardening.
+
+## D020 — Music identity is release-group and recording, bridged to library ids by aliases
+An album Request's canonical identity is a MusicBrainz release group and a song's is a recording; release ids are never equated with release groups, and a pasted release link resolves to its group. Library Sources often expose other identifiers (Plex: release and release-track MBIDs), so an alias table (`catalog_item_aliases`, kind `mbid`) maps them to the catalog item. Aliases are looked up from MusicBrainz, rate-limited and best-effort, only for open music Requests, and matched per media type; a failed lookup delays a match but never changes inventory.

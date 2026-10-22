@@ -1,5 +1,5 @@
-// Package plex is the Plex Media Server inventory adapter for movie and TV
-// libraries. It implements inventory.Source: it only reads, never touches
+// Package plex is the Plex Media Server inventory adapter for movie, TV and
+// music libraries. It implements inventory.Source: it only reads, never touches
 // request status, and every failure is an error with no items so a failed sync
 // can never look like removals (D015).
 package plex
@@ -25,8 +25,8 @@ const SourceID = "8d1b6e34-5a3f-4c0e-9a57-2f0f6a9c1d42"
 
 const (
 	userAgent       = "Requestarr/1.0 (+https://github.com/example/requestarr)"
-	defaultPageSize = 200
-	maxPages        = 500 // per library
+	defaultPageSize = 500
+	maxPages        = 2000 // per library enumeration; music tracks run to six figures
 	maxLibraries    = 100
 	maxBody         = 8 << 20
 )
@@ -57,7 +57,7 @@ func NewWithHTTPClient(baseURL, token string, hc *http.Client) (*Client, error) 
 }
 
 func (c *Client) Descriptor() inventory.Descriptor {
-	return inventory.Descriptor{ID: SourceID, Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV}, IdentifierKinds: []string{"tmdb", "imdb", "tvdb"}}
+	return inventory.Descriptor{ID: SourceID, Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong}, IdentifierKinds: []string{"tmdb", "imdb", "tvdb", "mbid"}}
 }
 
 // library is a Plex library section Requestarr reads: its key and Plex type (movie or show).
@@ -98,24 +98,37 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 		return inventory.Snapshot{}, fmt.Errorf("Plex reports too many libraries")
 	}
 	for _, d := range sections.MediaContainer.Directory {
-		if (d.Type == "movie" || d.Type == "show") && d.Key != "" {
+		if (d.Type == "movie" || d.Type == "show" || d.Type == "artist") && d.Key != "" {
 			libs = append(libs, library{key: d.Key, kind: d.Type})
 		}
 	}
 	if len(libs) == 0 {
-		return inventory.Snapshot{}, fmt.Errorf("Plex has no movie or TV libraries visible to this token")
+		return inventory.Snapshot{}, fmt.Errorf("Plex has no movie, TV or music libraries visible to this token")
 	}
 	items := []inventory.Item{}
 	for _, lib := range libs {
-		media := domain.MediaMovie
-		if lib.kind == "show" {
-			media = domain.MediaTV
+		// A music library is read twice: its albums and its tracks are separate
+		// enumerations (Plex library types 9 and 10).
+		passes := []struct {
+			media    domain.MediaType
+			plexType string
+		}{{domain.MediaMovie, ""}}
+		switch lib.kind {
+		case "show":
+			passes[0].media = domain.MediaTV
+		case "artist":
+			passes = []struct {
+				media    domain.MediaType
+				plexType string
+			}{{domain.MediaAlbum, "9"}, {domain.MediaSong, "10"}}
 		}
-		got, err := c.library(ctx, lib.key, media)
-		if err != nil {
-			return inventory.Snapshot{}, err
+		for _, pass := range passes {
+			got, err := c.library(ctx, lib.key, pass.media, pass.plexType)
+			if err != nil {
+				return inventory.Snapshot{}, err
+			}
+			items = append(items, got...)
 		}
-		items = append(items, got...)
 	}
 	now := time.Now().UTC()
 	for i := range items {
@@ -124,12 +137,15 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 	return inventory.Snapshot{SourceID: SourceID, Items: items, Complete: true, ObservedAt: now}, nil
 }
 
-func (c *Client) library(ctx context.Context, key string, media domain.MediaType) ([]inventory.Item, error) {
+func (c *Client) library(ctx context.Context, key string, media domain.MediaType, plexType string) ([]inventory.Item, error) {
 	var items []inventory.Item
 	total := -1
 	for page := 0; page < maxPages; page++ {
 		offset := page * c.pageSize
 		q := url.Values{"includeGuids": {"1"}, "X-Plex-Container-Start": {strconv.Itoa(offset)}, "X-Plex-Container-Size": {strconv.Itoa(c.pageSize)}}
+		if plexType != "" {
+			q.Set("type", plexType)
+		}
 		res, err := c.get(ctx, "/library/sections/"+url.PathEscape(key)+"/all", q)
 		if err != nil {
 			return nil, err
@@ -144,9 +160,22 @@ func (c *Client) library(ctx context.Context, key string, media domain.MediaType
 				return nil, fmt.Errorf("invalid Plex library item")
 			}
 			ids := map[string]string{}
+			guids := make([]string, 0, len(m.Guid)+1)
 			for _, g := range m.Guid {
-				if kind, value, ok := strings.Cut(g.ID, "://"); ok && value != "" && (kind == "tmdb" || kind == "imdb" || kind == "tvdb") {
+				guids = append(guids, g.ID)
+			}
+			// Older music agents carry the MusicBrainz id only in the top-level guid.
+			guids = append(guids, m.PlexGUID)
+			for _, g := range guids {
+				kind, value, ok := strings.Cut(g, "://")
+				if !ok || value == "" || len(value) > 256 {
+					continue
+				}
+				switch kind {
+				case "tmdb", "imdb", "tvdb":
 					ids[kind] = value
+				case "mbid":
+					ids["mbid"] = strings.ToLower(value)
 				}
 			}
 			items = append(items, inventory.Item{SourceID: SourceID, SourceItemID: m.RatingKey, MediaType: media, Title: m.Title, Year: m.Year, ExternalIDs: ids})
