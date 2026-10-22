@@ -19,16 +19,10 @@ type Item struct {
 	LastSeenAt   time.Time
 }
 
-type ChangeSet struct {
-	Added       []Item
-	Updated     []Item
-	Removed     []Item
-	CompletedAt time.Time
-}
-
 // Snapshot describes one source's complete inventory view. Complete must only
-// be true when the source successfully enumerated every configured item; partial
-// results are useful for positive evidence but never for removals.
+// be true when the source successfully enumerated every configured item; an
+// empty library is a Complete snapshot with no items, which is different from a
+// failed enumeration (an error).
 type Snapshot struct {
 	SourceID   string
 	Items      []Item
@@ -36,10 +30,27 @@ type Snapshot struct {
 	ObservedAt time.Time
 }
 
-// Source is authoritative for availability only for media types enabled in its configuration.
-type Source interface {
-	Name() string
-	Sync(context.Context, Cursor) (ChangeSet, Cursor, error)
+// Descriptor is what a Source declares about itself. The Source is
+// authoritative for availability only for MediaTypes; Items carry ExternalIDs
+// only of IdentifierKinds, named after the catalog provider they match
+// (for example "tmdb").
+type Descriptor struct {
+	ID              string // stable per configured Source
+	Kind            string // adapter kind: "plex", "jellyfin", ...
+	Name            string // display name
+	MediaTypes      []domain.MediaType
+	IdentifierKinds []string
 }
 
-type Cursor struct{ Value string }
+// Source is the one narrow interface every library adapter implements
+// (D015, D019). The shared contract suite in package inventorytest holds an
+// adapter to it.
+type Source interface {
+	Descriptor() Descriptor
+	// Snapshot enumerates the Source's inventory for its declared MediaTypes.
+	// On success it returns a Complete snapshot; on any failure (transport,
+	// authentication, malformed or truncated responses, a later page failing)
+	// it returns an error and no items. It never returns partial inventory as
+	// if it were complete, and its errors never contain secrets.
+	Snapshot(context.Context) (Snapshot, error)
+}

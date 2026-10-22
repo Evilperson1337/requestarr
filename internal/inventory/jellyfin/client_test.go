@@ -114,3 +114,14 @@ func TestNewRejectsUnsafeBaseURL(t *testing.T) {
 		}
 	}
 }
+
+func TestDescriptorDeclaresMovieAndTVWithTMDBIdentifiers(t *testing.T) {
+	c, err := NewWithHTTPClient("http://jellyfin.local:8096", "secret", "source-id", http.DefaultClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := c.Descriptor()
+	if d.ID != "source-id" || d.Kind != "jellyfin" || len(d.MediaTypes) != 2 || len(d.IdentifierKinds) != 1 || d.IdentifierKinds[0] != "tmdb" {
+		t.Fatalf("descriptor=%+v", d)
+	}
+}

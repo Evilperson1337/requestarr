@@ -13,6 +13,25 @@ Album requests target release groups; song requests target recordings. Configure
 
 ## Availability sources
 
+### Plex (movies and TV)
+
+Set both `REQUESTARR_PLEX_URL` and `REQUESTARR_PLEX_TOKEN` to enable it. The URL
+is an origin with the same rules as Jellyfin's (no credentials, path, query or
+fragment; HTTPS outside development) and is trusted operator configuration with
+the same private-network caveat. The token is sent only in the `X-Plex-Token`
+header, never in a URL, and never appears in errors, logs or run history.
+
+Every movie and TV library visible to the token is read (music and photo
+libraries are ignored) through the job runner on the same schedule and Sync now
+action as Jellyfin. Items are matched to the catalog by TMDB id from Plex's
+`Guid` entries; IMDb and TVDB ids are kept as inventory but match nothing yet.
+A token that sees no movie or TV library is an error, not an empty library, and
+every failure (HTTP error, bad token, malformed or truncated page, a later
+library failing) discards the whole run: it records health only and removes
+nothing. Availability rules are shared with every Source (see Jellyfin below).
+
+Known limit: evidence is only expired by that Source's own successful syncs. If a Source is removed from configuration its existing evidence is not expired yet, so items only it held stay available until evidence expiry for removed or disabled Sources is built.
+
 ### Jellyfin (operational V1 slice)
 
 Set both `REQUESTARR_JELLYFIN_URL` and `REQUESTARR_JELLYFIN_API_KEY` to enable
@@ -23,7 +42,8 @@ an operator can direct it to private HTTP networks, and the integration does not
 prevent requests to loopback, link-local, or other internal addresses. Treat this
 as a private-network request risk; do not make the URL user-configurable or
 accept it from untrusted tenants. Sync runs
-once during startup in a background goroutine and every 15 minutes thereafter.
+through the job runner (D018) once during startup and every 15 minutes
+thereafter, and on demand from Settings.
 It imports movie/series TMDB identifiers and records exact catalog availability.
 Only a fully successful paginated snapshot is persisted. Failures and incomplete
 runs update health only and preserve absence evidence. Exact TMDB movie/TV
@@ -31,10 +51,11 @@ matches begin an absence streak on the first qualifying complete snapshot; a
 second distinct complete absence at least 24 hours later can mark a previously
 available catalog item missing. Empty snapshots are excluded from negative
 evidence by default; enabling them requires an explicit persisted operator
-acknowledgement in `jellyfin_reconciliation_settings.allow_empty_snapshots`.
+acknowledgement in `source_reconciliation_settings.allow_empty_snapshots` (one row per Source).
 When an item returns, its streak is cleared and positive evidence restores
-availability. Enabled authoritative evidence from another source prevents a
-negative Jellyfin result from changing aggregate availability. Availability
+availability. Absence is tracked per Source: an item stays available until
+every enabled Source covering its media type has completed a sync without it
+(D015), so Jellyfin dropping an item never hides it while Plex still has it. Availability
 events and notifications are committed atomically with the transition, and
 request lifecycle status is never changed. The administrator-only `GET /api/v1/admin/sources/jellyfin/status`
 endpoint reports source configuration/enabled state, sync timestamps, and a

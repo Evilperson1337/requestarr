@@ -50,7 +50,7 @@ Requestarr is a network service; AGPL-3.0 keeps hosted forks open. The Go module
 When a Source sync makes a catalog item available, open Requests for it move to `available` in the same transaction, with a version bump and an audit event, and the `RequestAvailable` event is emitted from that path. The unused `internal/reconcile` package was removed; availability matching lives in `internal/store/postgres/inventory.go` until the adapter interface (ticket 11) is designed.
 
 ## D015 — Availability is "present in at least one Source"
-An item becomes missing only after every covering Source completes a successful sync without it. Failed syncs never produce removals.
+An item becomes missing only after every covering Source completes a successful sync without it. Failed syncs never produce removals. Absence is tracked per (Source, item) in `source_absence_state`: a Source drops its own evidence after two complete syncs a day apart without the item, and the item turns missing only when no enabled Source covering its media type still has evidence. Every adapter implements `inventory.Source` and must pass `internal/inventory/inventorytest`.
 
 ## D016 — Cancellation of shared Requests
 A Requester cancelling leaves the Request open if other Subscribers remain; it becomes `cancelled` only when the last Subscriber leaves or an admin cancels it. Admins can set `viewer` as well as `requester`/`admin`, and the last admin cannot be demoted. Leaving is idempotent by state and takes no operation key; a leave that would cancel the Request must be confirmed explicitly (`confirmCancel=true`), so the last-subscriber warning is decided by the server, not a stale page. Admin cancel uses the existing transition `expectedVersion`/`operationId`.

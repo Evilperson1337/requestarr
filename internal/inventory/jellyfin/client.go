@@ -55,14 +55,11 @@ func NewWithHTTPClient(baseURL, apiKey, sourceID string, hc *http.Client) (*Clie
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, sourceID: sourceID, http: hc}, nil
 }
 
-func (c *Client) Name() string { return "jellyfin" }
-
-func (c *Client) Sync(ctx context.Context, _ inventory.Cursor) (inventory.ChangeSet, inventory.Cursor, error) {
-	items, err := c.Snapshot(ctx)
-	if err != nil {
-		return inventory.ChangeSet{}, inventory.Cursor{}, err
-	}
-	return inventory.ChangeSet{Added: items, CompletedAt: time.Now().UTC()}, inventory.Cursor{}, nil
+// Descriptor declares what this Source covers. Jellyfin's native move onto
+// inventory.Source (Snapshot returning inventory.Snapshot) is ticket 14; until
+// then the app adapts Snapshot.
+func (c *Client) Descriptor() inventory.Descriptor {
+	return inventory.Descriptor{ID: c.sourceID, Kind: "jellyfin", Name: "Jellyfin", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV}, IdentifierKinds: []string{"tmdb"}}
 }
 
 func (c *Client) Snapshot(ctx context.Context) ([]inventory.Item, error) {

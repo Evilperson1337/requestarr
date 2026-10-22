@@ -198,3 +198,45 @@ func TestAppriseConfigurationMustBePairedAndSecure(t *testing.T) {
 		t.Fatalf("Validate()=%v, want HTTPS enforcement", err)
 	}
 }
+
+func validBase() Config {
+	return Config{Environment: "development", HTTPAddr: ":8080", LogLevelRaw: "info", DatabaseURL: "postgres://x", OIDCIssuer: "https://id.example.test", OIDCClientID: "c", OIDCClientSecret: "s", SessionHMACSecret: strings.Repeat("x", 32), PublicURL: "http://localhost:8080"}
+}
+
+func TestPlexConfigurationMustBeCompleteAndSafe(t *testing.T) {
+	t.Setenv("REQUESTARR_PLEX_URL", "http://plex.local:32400")
+	t.Setenv("REQUESTARR_PLEX_TOKEN", "tok")
+	got := FromEnv()
+	if got.PlexURL != "http://plex.local:32400" || got.PlexToken != "tok" {
+		t.Fatalf("FromEnv plex = %q %q", got.PlexURL, got.PlexToken)
+	}
+	for name, tc := range map[string]struct {
+		env      string
+		url, tok string
+		wantErr  string
+	}{
+		"unset":              {"development", "", "", ""},
+		"complete":           {"development", "http://plex.local:32400", "tok", ""},
+		"token only":         {"development", "", "tok", "REQUESTARR_PLEX_URL and REQUESTARR_PLEX_TOKEN must be configured together"},
+		"url only":           {"development", "http://plex.local:32400", "", "REQUESTARR_PLEX_URL and REQUESTARR_PLEX_TOKEN must be configured together"},
+		"credentials in url": {"development", "http://u:p@plex.local:32400", "tok", "REQUESTARR_PLEX_URL must be an absolute http(s) origin"},
+		"path in url":        {"development", "http://plex.local:32400/web", "tok", "REQUESTARR_PLEX_URL must be an absolute http(s) origin"},
+		"http in production": {"production", "http://plex.local:32400", "tok", "REQUESTARR_PLEX_URL must use https outside development"},
+		"https production":   {"production", "https://plex.example", "tok", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := validBase()
+			c.Environment, c.PlexURL, c.PlexToken = tc.env, tc.url, tc.tok
+			if tc.env == "production" {
+				c.PublicURL = "https://requests.example.test"
+			}
+			err := c.Validate()
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("error %v does not contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}

@@ -171,14 +171,14 @@ func TestJellyfinSnapshotIsPositiveIdempotentEvidence(t *testing.T) {
 	const source = "5efcc577-5236-4ce3-b2c0-b9d58c64a718"
 	snap := inventory.Snapshot{SourceID: source, Complete: true, ObservedAt: time.Now().UTC(), Items: []inventory.Item{{SourceID: source, SourceItemID: "jf-" + id, MediaType: domain.MediaMovie, Title: "Jellyfin integration", ExternalIDs: map[string]string{"tmdb": id}}}}
 	for i := 0; i < 2; i++ {
-		if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", snap); err != nil {
+		if err := s.PersistSnapshot(ctx, jellyfinDescriptor, "http://jellyfin.example", snap); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, err := s.pool.Exec(ctx, `UPDATE catalog_items SET availability='missing' WHERE id=$1`, id); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", snap); err != nil {
+	if err := s.PersistSnapshot(ctx, jellyfinDescriptor, "http://jellyfin.example", snap); err != nil {
 		t.Fatal(err)
 	}
 	var avail string
@@ -191,7 +191,7 @@ func TestJellyfinSnapshotIsPositiveIdempotentEvidence(t *testing.T) {
 	if avail != "available" || evidence != 1 || events != 2 {
 		t.Fatalf("availability=%s evidence=%d events=%d", avail, evidence, events)
 	}
-	if err := s.RecordJellyfinFailure(ctx, time.Now().UTC(), "safe failure"); err != nil {
+	if err := s.RecordSyncFailure(ctx, jellyfinDescriptor, time.Now().UTC(), "safe failure"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.pool.QueryRow(ctx, `SELECT availability FROM catalog_items WHERE id=$1`, id).Scan(&avail); err != nil || avail != "available" {
@@ -216,7 +216,7 @@ func TestJellyfinRequiresTwoCompleteAbsencesBeforeMarkingMissing(t *testing.T) {
 	const source = "5efcc577-5236-4ce3-b2c0-b9d58c64a718"
 	base := time.Now().UTC().Truncate(time.Second)
 	present := inventory.Snapshot{SourceID: source, Complete: true, ObservedAt: base, Items: []inventory.Item{{SourceID: source, SourceItemID: "jf-" + id, MediaType: domain.MediaMovie, Title: "Negative integration", ExternalIDs: map[string]string{"tmdb": id}}}}
-	if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", present); err != nil {
+	if err := s.PersistSnapshot(ctx, jellyfinDescriptor, "http://jellyfin.example", present); err != nil {
 		t.Fatal(err)
 	}
 	// Distinct successful runs are tracked; same-time duplicate observations do
@@ -228,7 +228,7 @@ func TestJellyfinRequiresTwoCompleteAbsencesBeforeMarkingMissing(t *testing.T) {
 	for _, at := range []time.Time{base.Add(25 * time.Hour), base.Add(50 * time.Hour)} {
 		// Non-empty: empty snapshots never count as absence evidence without opt-in.
 		other := inventory.Item{SourceID: source, SourceItemID: "other-" + id, MediaType: domain.MediaMovie, Title: "Unrelated"}
-		if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", inventory.Snapshot{SourceID: source, Complete: true, ObservedAt: at, Items: []inventory.Item{other}}); err != nil {
+		if err := s.PersistSnapshot(ctx, jellyfinDescriptor, "http://jellyfin.example", inventory.Snapshot{SourceID: source, Complete: true, ObservedAt: at, Items: []inventory.Item{other}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -264,7 +264,7 @@ func TestJellyfinEmptySnapshotsRequirePersistedOptIn(t *testing.T) {
 	}
 	base := time.Now().UTC().Truncate(time.Second)
 	for _, at := range []time.Time{base, base.Add(25 * time.Hour)} {
-		if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", inventory.Snapshot{SourceID: source, Complete: true, ObservedAt: at}); err != nil {
+		if err := s.PersistSnapshot(ctx, jellyfinDescriptor, "http://jellyfin.example", inventory.Snapshot{SourceID: source, Complete: true, ObservedAt: at}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -606,6 +606,8 @@ func TestAdminCanDemoteToViewerButNotTheLastAdmin(t *testing.T) {
 	}
 }
 
+var jellyfinDescriptor = inventory.Descriptor{ID: jellyfinSourceID, Kind: "jellyfin", Name: "Jellyfin", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV}, IdentifierKinds: []string{"tmdb"}}
+
 func jellyfinSnapshotFor(catalogID string, complete bool) inventory.Snapshot {
 	return inventory.Snapshot{SourceID: jellyfinSourceID, Complete: complete, ObservedAt: time.Now().UTC(), Items: []inventory.Item{{SourceID: jellyfinSourceID, SourceItemID: "jf-" + catalogID, MediaType: domain.MediaMovie, Title: "Availability integration", ExternalIDs: map[string]string{"tmdb": catalogID}}}}
 }
@@ -675,7 +677,7 @@ func TestJellyfinEvidenceMovesOpenRequestsToAvailableOnce(t *testing.T) {
 			before := readRequestEvidence(t, ctx, s, catalogID, requestID)
 			snap := jellyfinSnapshotFor(catalogID, true)
 			for run := 1; run <= 2; run++ {
-				if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", snap); err != nil {
+				if err := s.PersistSnapshot(ctx, jellyfinDescriptor, "http://jellyfin.example", snap); err != nil {
 					t.Fatal(err)
 				}
 				got := readRequestEvidence(t, ctx, s, catalogID, requestID)
@@ -698,7 +700,7 @@ func TestJellyfinSnapshotLeavesClosedAndUnmatchedRequestsAndFailedSyncsAlone(t *
 	defer s.Close()
 
 	deniedCatalog, deniedRequest, _ := newMovieWithRequest(t, ctx, s, domain.RequestDenied)
-	if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", jellyfinSnapshotFor(deniedCatalog, true)); err != nil {
+	if err := s.PersistSnapshot(ctx, jellyfinDescriptor, "http://jellyfin.example", jellyfinSnapshotFor(deniedCatalog, true)); err != nil {
 		t.Fatal(err)
 	}
 	if got := readRequestEvidence(t, ctx, s, deniedCatalog, deniedRequest); got.status != "denied" || got.auditEvents != 0 || got.inApp != 0 || got.apprise != 0 {
@@ -707,10 +709,10 @@ func TestJellyfinSnapshotLeavesClosedAndUnmatchedRequestsAndFailedSyncsAlone(t *
 
 	openCatalog, openRequest, _ := newMovieWithRequest(t, ctx, s, domain.RequestRequested)
 	before := readRequestEvidence(t, ctx, s, openCatalog, openRequest)
-	if err := s.PersistJellyfinSnapshot(ctx, "http://jellyfin.example", jellyfinSnapshotFor(openCatalog, false)); err == nil {
+	if err := s.PersistSnapshot(ctx, jellyfinDescriptor, "http://jellyfin.example", jellyfinSnapshotFor(openCatalog, false)); err == nil {
 		t.Fatal("incomplete snapshot was accepted")
 	}
-	if err := s.RecordJellyfinFailure(ctx, time.Now().UTC(), "safe failure"); err != nil {
+	if err := s.RecordSyncFailure(ctx, jellyfinDescriptor, time.Now().UTC(), "safe failure"); err != nil {
 		t.Fatal(err)
 	}
 	if after := readRequestEvidence(t, ctx, s, openCatalog, openRequest); after != before {

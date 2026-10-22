@@ -163,7 +163,7 @@ paths:
         - in: path
           name: source
           required: true
-          description: Source slug, currently only jellyfin
+          description: Source slug, jellyfin or plex (whichever are configured)
           schema: { type: string }
         - in: header
           name: X-CSRF-Token

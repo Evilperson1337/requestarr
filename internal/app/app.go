@@ -17,6 +17,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/httpapi"
 	"github.com/evilperson1337/requestarr/internal/inventory"
 	"github.com/evilperson1337/requestarr/internal/inventory/jellyfin"
+	"github.com/evilperson1337/requestarr/internal/inventory/plex"
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/notifications/apprise"
@@ -30,8 +31,8 @@ import (
 const startupTimeout = 30 * time.Second
 const jellyfinSourceID = "5efcc577-5236-4ce3-b2c0-b9d58c64a718"
 
-// jellyfinSyncInterval is also the retry interval: a failed run waits for the next tick.
-const jellyfinSyncInterval = 15 * time.Minute
+// sourceSyncInterval is how often each Source syncs. It is also the retry interval: a failed run waits for the next tick.
+const sourceSyncInterval = 15 * time.Minute
 
 func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buildinfo.Info) error {
 	startupCtx, cancel := context.WithTimeout(ctx, startupTimeout)
@@ -64,18 +65,29 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	runner := jobs.NewRunner(store)
 	runner.Logger = logger
 	syncSources := map[string]syncSource{}
+	addSource := func(slug string, src inventory.Source, baseURL string) {
+		job := sourceSyncJob(logger, store, src, baseURL)
+		id := src.Descriptor().ID
+		syncSources[slug] = syncSource{id: id, job: job}
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			runner.Schedule(workerCtx, sourceSyncInterval, id, job)
+		}()
+	}
 	if cfg.JellyfinURL != "" {
 		client, err := jellyfin.New(cfg.JellyfinURL, cfg.JellyfinAPIKey, jellyfinSourceID)
 		if err != nil {
 			return fmt.Errorf("initialize Jellyfin integration: %w", err)
 		}
-		job := jellyfinSyncJob(logger, store, client, cfg.JellyfinURL)
-		syncSources["jellyfin"] = syncSource{id: jellyfinSourceID, job: job}
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			runner.Schedule(workerCtx, jellyfinSyncInterval, jellyfinSourceID, job)
-		}()
+		addSource("jellyfin", jellyfinSource{client}, cfg.JellyfinURL)
+	}
+	if cfg.PlexURL != "" {
+		client, err := plex.New(cfg.PlexURL, cfg.PlexToken)
+		if err != nil {
+			return fmt.Errorf("initialize Plex integration: %w", err)
+		}
+		addSource("plex", client, cfg.PlexURL)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
 
@@ -107,34 +119,34 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	}
 }
 
-type jellyfinSyncStore interface {
-	PersistJellyfinSnapshot(context.Context, string, inventory.Snapshot) error
-	RecordJellyfinFailure(context.Context, time.Time, string) error
+type sourceSyncStore interface {
+	PersistSnapshot(context.Context, inventory.Descriptor, string, inventory.Snapshot) error
+	RecordSyncFailure(context.Context, inventory.Descriptor, time.Time, string) error
 }
 
-type jellyfinSnapshotter interface {
-	Snapshot(context.Context) ([]inventory.Item, error)
-}
-
-// jellyfinSyncJob is one Jellyfin sync as a runner job. Errors it returns are
-// stored in job_runs and shown to administrators, so they are fixed strings:
-// provider and database errors can carry URLs, keys or connection strings.
-func jellyfinSyncJob(logger *slog.Logger, db jellyfinSyncStore, client jellyfinSnapshotter, baseURL string) func(context.Context) error {
+// sourceSyncJob is one sync of any Source as a runner job. Errors it returns
+// are stored in job_runs and shown to administrators, so they are fixed
+// strings: provider and database errors can carry URLs, keys or connection
+// strings. A failed or incomplete enumeration records health only; it never
+// adds or removes inventory (D015).
+func sourceSyncJob(logger *slog.Logger, db sourceSyncStore, src inventory.Source, baseURL string) func(context.Context) error {
 	return func(ctx context.Context) error {
+		d := src.Descriptor()
 		started := time.Now().UTC()
-		items, err := client.Snapshot(ctx)
+		snap, err := src.Snapshot(ctx)
+		if err == nil && !snap.Complete {
+			err = errInventoryRequest
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			// A failed sync records health only; it never touches inventory.
-			if e := db.RecordJellyfinFailure(ctx, started, errInventoryRequest.Error()); e != nil {
-				logger.Warn("record Jellyfin sync health failed")
+			if e := db.RecordSyncFailure(ctx, d, started, errInventoryRequest.Error()); e != nil {
+				logger.Warn("record sync health failed", "source", d.Kind)
 			}
 			return errInventoryRequest
 		}
-		snap := inventory.Snapshot{SourceID: jellyfinSourceID, Items: items, Complete: true, ObservedAt: time.Now().UTC()}
-		if err := db.PersistJellyfinSnapshot(ctx, baseURL, snap); err != nil {
+		if err := db.PersistSnapshot(ctx, d, baseURL, snap); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -142,6 +154,18 @@ func jellyfinSyncJob(logger *slog.Logger, db jellyfinSyncStore, client jellyfinS
 		}
 		return nil
 	}
+}
+
+// jellyfinSource adapts the Jellyfin client, whose Snapshot still returns bare
+// items, to inventory.Source until it moves onto the interface natively.
+type jellyfinSource struct{ *jellyfin.Client }
+
+func (j jellyfinSource) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
+	items, err := j.Client.Snapshot(ctx)
+	if err != nil {
+		return inventory.Snapshot{}, err
+	}
+	return inventory.Snapshot{SourceID: j.Descriptor().ID, Items: items, Complete: true, ObservedAt: time.Now().UTC()}, nil
 }
 
 var (

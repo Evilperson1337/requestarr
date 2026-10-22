@@ -25,6 +25,8 @@ type Config struct {
 	IGDBClientSecret  string
 	JellyfinURL       string
 	JellyfinAPIKey    string
+	PlexURL           string
+	PlexToken         string
 	AppriseURL        string
 	AppriseConfigKey  string
 }
@@ -45,9 +47,24 @@ func FromEnv() Config {
 		IGDBClientSecret:  os.Getenv("REQUESTARR_IGDB_CLIENT_SECRET"),
 		JellyfinURL:       os.Getenv("REQUESTARR_JELLYFIN_URL"),
 		JellyfinAPIKey:    os.Getenv("REQUESTARR_JELLYFIN_API_KEY"),
+		PlexURL:           os.Getenv("REQUESTARR_PLEX_URL"),
+		PlexToken:         os.Getenv("REQUESTARR_PLEX_TOKEN"),
 		AppriseURL:        os.Getenv("REQUESTARR_APPRISE_URL"),
 		AppriseConfigKey:  os.Getenv("REQUESTARR_APPRISE_CONFIG_KEY"),
 	}
+}
+
+// sourceURLProblems validates an operator-configured library Source URL: an
+// origin without credentials, path, query or fragment, over https outside development.
+func (c Config) sourceURLProblems(name, raw string) []string {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return []string{name + " must be an absolute http(s) origin without credentials, path, query, or fragment"}
+	}
+	if c.Environment != "" && c.Environment != "development" && u.Scheme != "https" {
+		return []string{name + " must use https outside development"}
+	}
+	return nil
 }
 
 func (c Config) Validate() error {
@@ -59,12 +76,12 @@ func (c Config) Validate() error {
 	if (c.JellyfinURL == "") != (c.JellyfinAPIKey == "") {
 		problems = append(problems, "REQUESTARR_JELLYFIN_URL and REQUESTARR_JELLYFIN_API_KEY must be configured together")
 	} else if c.JellyfinURL != "" {
-		u, err := url.Parse(c.JellyfinURL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-			problems = append(problems, "REQUESTARR_JELLYFIN_URL must be an absolute http(s) origin without credentials, path, query, or fragment")
-		} else if c.Environment != "" && c.Environment != "development" && u.Scheme != "https" {
-			problems = append(problems, "REQUESTARR_JELLYFIN_URL must use https outside development")
-		}
+		problems = append(problems, c.sourceURLProblems("REQUESTARR_JELLYFIN_URL", c.JellyfinURL)...)
+	}
+	if (c.PlexURL == "") != (c.PlexToken == "") {
+		problems = append(problems, "REQUESTARR_PLEX_URL and REQUESTARR_PLEX_TOKEN must be configured together")
+	} else if c.PlexURL != "" {
+		problems = append(problems, c.sourceURLProblems("REQUESTARR_PLEX_URL", c.PlexURL)...)
 	}
 	if (c.AppriseURL == "") != (c.AppriseConfigKey == "") {
 		problems = append(problems, "REQUESTARR_APPRISE_URL and REQUESTARR_APPRISE_CONFIG_KEY must be configured together")

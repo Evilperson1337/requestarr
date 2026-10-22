@@ -1,0 +1,4 @@
+{"MediaContainer":{"size":3,"allowSync":false,"title1":"Plex Library","Directory":[
+ {"allowSync":true,"key":"1","type":"movie","title":"Movies","agent":"tv.plex.agents.movie","scanner":"Plex Movie"},
+ {"allowSync":true,"key":"2","type":"show","title":"TV Shows","agent":"tv.plex.agents.series","scanner":"Plex TV Series"},
+ {"allowSync":true,"key":"3","type":"artist","title":"Music","agent":"tv.plex.agents.music","scanner":"Plex Music"}]}}
