@@ -93,6 +93,8 @@ make web-dev
 The shared request-list API supports combined title/status/media filters,
 subscription-based My Requests, sorting, and stable cursor pagination. See the
 [request queue API guide](docs/REQUESTS_API.md) for parameters and snapshot limits.
+The [Requests page guide](docs/REQUESTS_UI.md) covers bookmarkable controls,
+paging, Notify Me, leaving, and administrator cancellation.
 
 ```bash
 make build

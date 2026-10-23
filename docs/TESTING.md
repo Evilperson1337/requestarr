@@ -35,3 +35,28 @@ Cover setup wizard, OIDC sign-in, create request, duplicate resolution, Notify M
 - no external API call on ordinary Requests page rendering;
 - resolution UI progressively shows cached data when possible;
 - library sync memory use must be bounded/paginated.
+# Focused Requests browser tests
+
+The Requests page has a Playwright suite with a deterministic mocked API. It
+does not require PostgreSQL, a live identity provider, or library credentials.
+Playwright is a development-only dependency; no browser framework is shipped
+with the app. Broader page smoke coverage and CI integration remain V1 ticket #24.
+
+```sh
+make web-install
+cd web && npx playwright install chromium && cd ..
+make web-check
+make web-test
+```
+
+On a minimal Linux host, Playwright may also require its documented browser OS
+dependencies. The suite starts its own loopback-only Vite server on port 4173;
+keep that port free. It never reuses an unrelated running server.
+
+Tests cover bookmarked controls/reloads, URL paging and Back/Forward, cursor
+expiry recovery, role-based actions, CSRF, last-subscriber confirmation, pending
+action guards, error retention, stale response cancellation, keyboard controls,
+and phone-width artwork/overflow. Test source/config are included in web-check.
+Screenshots/traces are saved under `web/test-results/` on failure and ignored by
+Git; a phone-layout screenshot is also produced on a successful layout test.
+For a focused rerun: `cd web && npm test -- --grep 'phone layout'`.

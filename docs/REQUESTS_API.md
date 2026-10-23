@@ -1,8 +1,8 @@
 # Request queue API
 
 `GET /api/v1/requests` lists the shared queue for any authenticated user,
-including viewers. It reads local PostgreSQL state only. Browser search/filter/
-pagination controls are a separate follow-up (V1 ticket #18).
+including viewers. It reads local PostgreSQL state only. The shared Requests
+page exposes these controls; see the [page guide](REQUESTS_UI.md).
 
 The complete contract is in [OpenAPI](../api/openapi.yaml).
 

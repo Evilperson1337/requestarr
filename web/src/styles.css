@@ -19,6 +19,7 @@ body {
 
 button,
 input,
+select,
 textarea {
     font: inherit
 }
@@ -31,6 +32,7 @@ a {
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible {
     outline: 3px solid #bb9cff;
     outline-offset: 3px
@@ -125,7 +127,25 @@ p {
     background: none;
     color: #c8cee0;
     cursor: pointer;
-    padding: 10px
+    padding: 10px;
+    text-decoration: none
+}
+
+.navlink[aria-current="page"] {
+    color: #fff;
+    background: #251c40;
+    border-radius: 8px;
+}
+
+.topbar nav {
+    flex-wrap: wrap;
+    max-width: 100%;
+}
+
+.account {
+    min-width: 0;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
 }
 
 .button {
@@ -271,6 +291,156 @@ p {
 .requester {
     color: #aab4c9;
     font-size: .9rem
+}
+
+.requestsPage,
+.requestsPage .card {
+    min-width: 0;
+}
+
+.requestSearch {
+    display: grid;
+    gap: 8px;
+    margin: 24px 0 16px;
+}
+
+.requestSearch>div {
+    display: flex;
+    min-width: 0;
+    gap: 10px;
+}
+
+.requestSearch input {
+    min-width: 0;
+    width: 100%;
+    flex: 1;
+}
+
+.requestSearch input,
+.requestFilters select {
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid #46536b;
+    border-radius: 9px;
+    background: #090e18;
+    color: #fff;
+}
+
+.statusFilters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 16px 0;
+}
+
+.statusFilters [aria-pressed="true"] {
+    background: #472b80;
+    border-color: #b092ff;
+}
+
+.requestFilters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    align-items: end;
+    gap: 12px;
+}
+
+.requestFilters label {
+    display: grid;
+    gap: 7px;
+    min-width: 0;
+}
+
+.requestFilters select {
+    width: 100%;
+}
+
+.requestsPage .requestRow {
+    display: grid;
+    grid-template-columns: 74px minmax(0, 1fr) 140px;
+    align-items: start;
+}
+
+.requestsPage .requestRow>.art {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    justify-self: center;
+}
+
+.requestsPage .requestInfo {
+    grid-column: 2;
+    overflow-wrap: anywhere;
+}
+
+.requestMeta {
+    grid-column: 3;
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+}
+
+.requestMeta .badge {
+    justify-self: start;
+}
+
+.requestActions {
+    grid-column: 2 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.requestPaging {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+.requestPaging p {
+    flex: 1;
+}
+
+.paginationHint {
+    font-size: .9rem;
+}
+
+.requestsPage .errorBox {
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+    .requestSearch>div {
+        flex-direction: column;
+    }
+
+    .requestFilters {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .requestsPage .requestRow {
+        grid-template-columns: 74px minmax(0, 1fr);
+        gap: 14px;
+    }
+
+    .requestMeta {
+        grid-column: 2;
+    }
+
+    .requestActions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+    }
+
+    .requestActions .button {
+        flex: 1;
+    }
+
+    .requestPaging p {
+        flex-basis: 100%;
+    }
 }
 
 .overlay {

@@ -5,7 +5,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: help fmt test test-integration vet build run clean web-install web-dev web-build web-check dev-up dev-down migrate-up snapshot release-check references
+.PHONY: help fmt test test-integration vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down migrate-up snapshot release-check references
 
 # Load .env into the recipe's environment when present, without requiring it
 # to be sourced into the caller's shell first.
@@ -24,6 +24,7 @@ help:
 	  'make web-dev        Run Vite development server' \
 	  'make web-build      Build React UI' \
 	  'make web-check      Typecheck/lint frontend' \
+	  'make web-test       Run focused Requests browser tests (Chromium required)' \
 	  'make dev-up         Start dev dependencies with Docker Compose' \
 	  'make dev-down       Stop dev dependencies' \
 	  'make snapshot       Build GoReleaser snapshot' \
@@ -84,6 +85,9 @@ web-build:
 
 web-check:
 	cd web && npm run check
+
+web-test:
+	cd web && npm test
 
 dev-up:
 	docker compose -f compose.dev.yaml up -d

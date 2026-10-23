@@ -60,3 +60,5 @@ references/mockups/archive/
 # Tool caches
 .cache/
 .golangci-lint-cache/
+web/test-results/
+web/playwright-report/
