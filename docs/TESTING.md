@@ -60,3 +60,52 @@ and phone-width artwork/overflow. Test source/config are included in web-check.
 Screenshots/traces are saved under `web/test-results/` on failure and ignored by
 Git; a phone-layout screenshot is also produced on a successful layout test.
 For a focused rerun: `cd web && npm test -- --grep 'phone layout'`.
+# Mutating-endpoint role matrix
+
+`internal/httpapi/role_matrix_test.go` runs the complete HTTP router against
+unauthenticated, viewer, requester, and admin callers for every mutating route.
+It uses valid bodies, sessions, and CSRF so permission failures are not masked
+by malformed input or an unavailable backend. Denied requests must not invoke
+the intended mutation; permitted requests must reach exactly that mutation with
+the expected actor. Tests use local fakes, not a live OIDC provider or database.
+
+| Mutation | Viewer | Requester | Admin |
+| --- | --- | --- | --- |
+| Create request | Forbidden | Allowed | Allowed |
+| Resolve metadata | Allowed | Allowed | Allowed |
+| Subscribe / leave | Allowed | Allowed | Allowed |
+| Mark own notification read | Allowed | Allowed | Allowed |
+| Approve / deny / cancel | Forbidden | Forbidden | Allowed |
+| Source sync, user-role change, match accept/dismiss | Forbidden | Forbidden | Allowed |
+| Logout | Allowed | Allowed | Allowed |
+| Initial-admin claim | Matching identity + one-time token | Matching identity + one-time token | Matching identity + one-time token |
+
+Every mutation rejects an unauthenticated caller. All authenticated roles are
+also checked with missing/invalid CSRF and missing/untrusted Origin, including
+endpoints the caller could not use even with valid CSRF. Bootstrap negative
+cases cover a mismatched issuer/subject and invalid token; real single-use and
+database concurrency guarantees remain covered by bootstrap integration tests.
+
+`internal/httpapi/role_coverage_test.go` scans production Go registrations under
+`internal/` and compares mutating method/path patterns to the same matrix table.
+It expands literal method/action loops, flags unresolved dynamic expressions,
+and rejects new methodless leaf registrations. Only the existing API-prefix
+and SPA delegates are exempt from explicit methods. GET/HEAD/OPTIONS are not
+part of this mutation inventory; OIDC's GET login/callback protocol retains its
+separate authentication tests. New route-registration forms or a different
+router must extend this guard rather than bypass it.
+
+When adding a mutation, add a valid executable case to `mutationCases()` and
+implement its deterministic fake. The four-role and CSRF loops automatically
+exercise the new row. Additional action variants may share one route pattern,
+as approve/deny/cancel do. The guard fails for both uncovered production routes
+and stale matrix rows. Fixtures prove discovery of a new route, loop expansion,
+and failure on unsupported or methodless registrations.
+
+```sh
+go test ./internal/httpapi -run 'Test(MutatingEndpoint|EveryMutating|RouteCoverageGuard|BootstrapClaimRequires)' -count=1
+go test -race ./internal/httpapi
+```
+
+These tests run with `make test`; there is no new dependency or production
+authorization-policy change.
