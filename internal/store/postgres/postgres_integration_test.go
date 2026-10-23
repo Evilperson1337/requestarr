@@ -59,7 +59,7 @@ func TestOpenAppliesMigrations(t *testing.T) {
 		t.Fatalf("rows error: %v", err)
 	}
 
-	for _, want := range []string{"users", "oidc_identities", "auth_sessions", "oidc_transactions", "catalog_items", "requests", "request_subscriptions", "request_events", "library_sources", "inventory_items", "notification_deliveries", "notification_preferences", "setup_state", "admin_user_audit_events", "job_runs", "match_suggestions", "match_suggestion_events", "request_list_snapshots"} {
+	for _, want := range []string{"users", "oidc_identities", "auth_sessions", "oidc_transactions", "catalog_items", "requests", "request_subscriptions", "request_events", "library_sources", "inventory_items", "notification_deliveries", "notification_preferences", "setup_state", "setup_draft_events", "admin_user_audit_events", "job_runs", "match_suggestions", "match_suggestion_events", "request_list_snapshots"} {
 		found := false
 		for _, got := range tables {
 			if got == want {

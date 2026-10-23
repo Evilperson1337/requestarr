@@ -88,8 +88,8 @@ Issues and specs are local markdown files under `.scratch/<feature>/`. See `docs
 
 ### Triage labels
 
-Default five-role vocabulary, recorded as a `Status:` line in each issue file. See `docs/agents/triage-labels.md`.
+Use the default five-role vocabulary, recorded as a `Status:` line in each issue file. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context: `GLOSSARY.md` at the root. Architecture and product decisions are in `docs/DECISIONS.md` (D001+), not `docs/adr/`. See `docs/agents/domain.md`.
+Single-context: read the root `GLOSSARY.md` and relevant architecture/product decisions in `docs/DECISIONS.md` (D001+), not `docs/adr/`. See `docs/agents/domain.md`.
