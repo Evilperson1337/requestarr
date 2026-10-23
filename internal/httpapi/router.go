@@ -284,6 +284,7 @@ func NewWithSync(logger *slog.Logger, build buildinfo.Info, readiness ReadinessC
 		}
 	})
 	api.HandleFunc("GET /requests", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		if requestService == nil {
 			apierror.Write(w, r, 503, "requests_unavailable", "requests unavailable")
 			return
@@ -293,25 +294,22 @@ func NewWithSync(logger *slog.Logger, build buildinfo.Info, readiness ReadinessC
 			apierror.Write(w, r, 401, "authentication_required", "authentication required")
 			return
 		}
-		mine := false
-		if value := r.URL.Query().Get("mine"); value != "" {
-			if value != "true" && value != "false" {
-				apierror.Write(w, r, http.StatusBadRequest, "invalid_query", "mine must be true or false")
-				return
-			}
-			mine = value == "true"
-		}
-		items, err := requestService.List(r.Context(), requests.Actor{ID: user.ID, Role: user.Role}, mine)
+		query, err := parseRequestListQuery(r.URL.RawQuery)
 		if err != nil {
-			apierror.Write(w, r, 500, "requests_list_failed", "could not list requests")
+			writeRequestListError(w, r, err)
+			return
+		}
+		page, err := requestService.List(r.Context(), requests.Actor{ID: user.ID, Role: user.Role}, query)
+		if err != nil {
+			writeRequestListError(w, r, err)
 			return
 		}
 		type queueItem struct {
 			domain.Request
 			CatalogPlatforms []domain.Platform
 		}
-		out := make([]queueItem, 0, len(items))
-		for _, item := range items {
+		out := make([]queueItem, 0, len(page.Items))
+		for _, item := range page.Items {
 			platforms, platformErr := requestService.CatalogPlatforms(r.Context(), item.CatalogItemID)
 			if platformErr != nil {
 				apierror.Write(w, r, 500, "request_metadata_failed", "could not load request metadata")
@@ -319,7 +317,7 @@ func NewWithSync(logger *slog.Logger, build buildinfo.Info, readiness ReadinessC
 			}
 			out = append(out, queueItem{Request: item, CatalogPlatforms: platforms})
 		}
-		writeJSON(w, 200, map[string]any{"items": out})
+		writeJSON(w, 200, map[string]any{"items": out, "nextCursor": page.NextCursor})
 	})
 	api.HandleFunc("POST /requests/{requestID}/transition", func(w http.ResponseWriter, r *http.Request) {
 		if requestService == nil {

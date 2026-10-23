@@ -56,7 +56,7 @@ type TransitionResult struct {
 // returns the existing request without subscribing the losing caller.
 type Repository interface {
 	CreateOrGet(context.Context, domain.Request, domain.RequestSubscription) (domain.Request, bool, error)
-	List(context.Context, string, bool) ([]domain.Request, error)
+	List(context.Context, string, ListQuery) (Page, error)
 	CatalogMediaType(context.Context, string) (domain.MediaType, error)
 	ValidatePlatforms(context.Context, string, domain.PlatformSelection) error
 	CatalogPlatforms(context.Context, string) ([]domain.Platform, error)
@@ -82,11 +82,15 @@ func (s *Service) Transition(ctx context.Context, in TransitionInput) (Transitio
 	return TransitionResult{Request: req, Changed: changed}, nil
 }
 
-func (s *Service) List(ctx context.Context, actor Actor, mine bool) ([]domain.Request, error) {
+func (s *Service) List(ctx context.Context, actor Actor, query ListQuery) (Page, error) {
 	if actor.ID == "" {
-		return nil, ErrForbidden
+		return Page{}, ErrForbidden
 	}
-	return s.repo.List(ctx, actor.ID, mine)
+	query, err := query.Normalize()
+	if err != nil {
+		return Page{}, err
+	}
+	return s.repo.List(ctx, actor.ID, query)
 }
 
 func (s *Service) Subscribe(ctx context.Context, actor Actor, requestID string) (bool, error) {

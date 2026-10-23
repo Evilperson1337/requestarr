@@ -34,8 +34,8 @@ func (f *fakeRepository) CreateOrGet(_ context.Context, r domain.Request, s doma
 	return r, f.created, nil
 }
 
-func (f *fakeRepository) List(context.Context, string, bool) ([]domain.Request, error) {
-	return nil, nil
+func (f *fakeRepository) List(context.Context, string, ListQuery) (Page, error) {
+	return Page{}, nil
 }
 
 func (f *fakeRepository) ValidatePlatforms(context.Context, string, domain.PlatformSelection) error {

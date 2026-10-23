@@ -37,6 +37,23 @@ Source sync -> normalized changes -> inventory transaction -> InventoryChanged e
 
 A source that is unreachable must fail its sync without generating removals. True removal detection occurs only after a successful authoritative enumeration/delta cycle.
 
+## Shared queue pagination
+
+Request listing uses local state only. Query validation lives in the requests
+use-case package; HTTP only parses parameters and maps errors. A first-page
+query captures at most 10,000 matching request IDs in deterministic order. When
+more than one page is needed, PostgreSQL retains that ordered ID array for
+15 minutes, with at most five snapshots per user. Snapshot keys sign opaque
+cursors and persist alongside the ID array; no process-local mutable state or
+long-lived database transaction is needed.
+
+Pages read current request details, never reapply mutable filters to snapshot
+members. This avoids skips/repeats when status sort, title search, or My Requests
+membership changes. New/moved requests appear when a view is refreshed without
+a cursor. Expiry and capacity errors are explicit. Snapshot creation serializes
+per-user retention and performs bounded opportunistic expiry cleanup. See the
+[request queue API guide](REQUESTS_API.md) for the public semantics and limits.
+
 ## Matching hierarchy
 
 Prefer stable external IDs over title matching.

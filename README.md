@@ -90,6 +90,10 @@ make web-dev
 
 ## Build and release
 
+The shared request-list API supports combined title/status/media filters,
+subscription-based My Requests, sorting, and stable cursor pagination. See the
+[request queue API guide](docs/REQUESTS_API.md) for parameters and snapshot limits.
+
 ```bash
 make build
 make snapshot

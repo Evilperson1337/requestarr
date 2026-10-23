@@ -143,14 +143,67 @@ paths:
   /requests:
     get:
       operationId: listRequests
-        summary: List the shared request queue; mine filters by the current user's subscriptions
+      summary: Search, filter, sort, and page the shared request queue
+      description: >-
+        Available to every authenticated role. Filters combine with AND. Title search
+        is a case-insensitive literal substring, not a wildcard pattern. My Requests
+        means the current user's subscriptions, not just requests they created.
+        The first page freezes matching IDs and order for 15 minutes (at most 10000
+        IDs); later pages return current request details without reapplying filters.
+        New requests and changes to title, status, or subscriptions do not move rows
+        between pages. Restart without a cursor to refresh membership/order.
+        Cursors are opaque, scoped to the user and normalized query including limit,
+        and survive process restarts. Each user retains five active snapshots;
+        starting a sixth expires the oldest. No upstream service calls are made.
       parameters:
+        - in: query
+          name: q
+          description: Title substring; trimmed; at most 200 Unicode characters
+          schema: { type: string, maxLength: 200 }
+        - in: query
+          name: status
+          schema: { type: string, enum: [requested, approved, available, denied, cancelled] }
+        - in: query
+          name: mediaType
+          schema: { type: string, enum: [movie, tv, album, song, game] }
         - in: query
           name: mine
           schema: { type: boolean, default: false }
+        - in: query
+          name: sort
+          description: >-
+            Newest/oldest use request creation time; status uses requested, approved,
+            available, denied, cancelled, then newest. Every order uses ID as a final
+            ascending tie-breaker.
+          schema: { type: string, enum: [newest, oldest, status], default: newest }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+        - in: query
+          name: cursor
+          description: Opaque nextCursor from the previous page; repeat the same filters, sort, and limit
+          schema: { type: string, minLength: 1, maxLength: 512 }
       responses:
-        '200': { description: Shared queue for all authenticated users; items include catalog availability and latest positive observation time }
+        '200':
+          description: Current request details in stable snapshot order; nextCursor is null on the final page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    description: Existing request objects, including availability, subscription state, and CatalogPlatforms
+                    items: { type: object }
+                  nextCursor: { type: [string, 'null'] }
+        '400': { description: invalid_query for unknown, repeated, malformed, or out-of-range parameters; invalid_cursor for malformed, tampered, cross-user, or query-mismatched cursors }
         '401': { description: Authentication required }
+        '410': { description: cursor_expired; snapshot expired, was evicted, or no longer exists; restart without cursor }
+        '422': { description: query_too_large; more than 10000 matching requests; narrow the filters }
+        '500': { description: requests_list_failed; safe generic error }
+        '503': { description: requests_unavailable }
   /admin/sources/{source}/sync:
     post:
       operationId: syncSourceNow

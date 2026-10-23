@@ -151,42 +151,6 @@ func (j *jsonScanner) Scan(src any) error {
 	return json.Unmarshal(b, &j.target.Platforms)
 }
 
-func (s *Store) List(ctx context.Context, userID string, mine bool) ([]domain.Request, error) {
-	query := `SELECT r.id::text,r.catalog_item_id::text,c.title,c.media_type,COALESCE(c.artwork_url,''),c.artwork_kind,r.status,r.version,r.requested_by::text,COALESCE(r.requester_note,''),r.acceptable_platforms,r.requested_at,r.updated_at,r.available_at,c.availability,(SELECT MAX(e.observed_at) FROM availability_evidence e WHERE e.catalog_item_id=c.id),
-		COALESCE((SELECT source FROM request_subscriptions s WHERE s.request_id=r.id AND s.user_id=$1),''),
-		COALESCE((SELECT array_agg(p.name ORDER BY p.name) FROM catalog_item_platforms p WHERE p.catalog_item_id=r.catalog_item_id AND (r.acceptable_platforms->>'any'='true' OR p.platform_key IN (SELECT jsonb_array_elements_text(r.acceptable_platforms->'platformKeys')))), ARRAY[]::text[])
-		FROM requests r JOIN catalog_items c ON c.id=r.catalog_item_id`
-	if mine {
-		// My Requests is a subscription filter, not a creator filter: shared
-		// requests can be followed by other authenticated users.
-		query += ` WHERE EXISTS (SELECT 1 FROM request_subscriptions s WHERE s.request_id=r.id AND s.user_id=$1)`
-	}
-	query += ` ORDER BY r.requested_at DESC,r.id LIMIT 100`
-	var rows pgx.Rows
-	var err error
-	rows, err = s.pool.Query(ctx, query, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var result []domain.Request
-	for rows.Next() {
-		var r domain.Request
-		var platformNames pgtype.FlatArray[string]
-		err = rows.Scan(&r.ID, &r.CatalogItemID, &r.Title, &r.MediaType, &r.ArtworkURL, &r.ArtworkKind, &r.Status, &r.Version, &r.RequestedBy, &r.Note, requestJSON(&r), &r.CreatedAt, &r.UpdatedAt, &r.AvailableAt, &r.Availability, &r.AvailabilityObservedAt, &r.SubscriptionSource, &platformNames)
-		if err != nil {
-			return nil, err
-		}
-		r.PlatformNames = []string(platformNames)
-		r.Subscribed = r.SubscriptionSource != ""
-		result = append(result, r)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
 func (s *Store) Subscribe(ctx context.Context, requestID, userID string) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
