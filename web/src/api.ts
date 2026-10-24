@@ -69,4 +69,9 @@ export async function claimSetupAdmin(input: { issuer: string; subject: string; 
 }
 
 export type JobRun = { id: string; sourceId: string; trigger: 'schedule' | 'manual'; status: 'running' | 'succeeded' | 'failed'; startedAt: string; finishedAt: string | null; error?: string }
+export type OperationalStatus = {
+    providers: { key: string; name: string; configured: boolean }[]
+    sources: { slug: string; name: string; configured: boolean; lastRun: JobRun | null; lastSuccessAt: string | null; lastError: string }[]
+    recentErrors: { source: string; run: JobRun }[]
+}
 export type SourceRuns = { sourceId: string; name: string; runs: JobRun[] }

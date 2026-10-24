@@ -24,6 +24,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/notifications/apprise"
+	"github.com/evilperson1337/requestarr/internal/opstatus"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/igdb"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/musicbrainz"
@@ -115,6 +116,17 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		addSource("navidrome", client, cfg.NavidromeURL, nil)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
+	ops := opstatus.New(
+		[]opstatus.Provider{
+			{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != ""},
+			{Key: "musicbrainz", Name: "MusicBrainz", Configured: true},
+			{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != ""},
+			{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != ""},
+		},
+		[]opstatus.SourceRef{
+			{Slug: "jellyfin", Name: "Jellyfin", ID: syncSources["jellyfin"].id}, {Slug: "plex", Name: "Plex", ID: syncSources["plex"].id},
+			{Slug: "romm", Name: "RomM", ID: syncSources["romm"].id}, {Slug: "navidrome", Name: "Navidrome", ID: syncSources["navidrome"].id},
+		}, store)
 	setupRuntime := setup.Runtime{PublicURL: cfg.PublicURL, OIDCIssuer: cfg.OIDCIssuer, OIDCClientID: cfg.OIDCClientID, IGDBClientID: cfg.IGDBClientID,
 		OIDCSecretConfigured: cfg.OIDCClientSecret != "", TMDBTokenConfigured: cfg.TMDBReadToken != "", IGDBSecretConfigured: cfg.IGDBClientSecret != "", AppriseURL: cfg.AppriseURL, AppriseKeyConfigured: cfg.AppriseConfigKey != "", Development: cfg.Environment == "development",
 		LibrarySecrets: map[string]bool{"jellyfin": cfg.JellyfinAPIKey != "", "plex": cfg.PlexToken != "", "romm": cfg.RommToken != "", "navidromeUsername": cfg.NavidromeUsername != "", "navidromePassword": cfg.NavidromePassword != ""}}
@@ -124,7 +136,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewWithSetup(logger, build, store, metadataService, syncer, setupService, authHandler),
+		Handler:           httpapi.NewWithSetup(logger, build, statusStore{Store: store, ops: ops}, metadataService, syncer, setupService, authHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -191,6 +203,16 @@ var (
 	errInventoryRequest    = errors.New("inventory request failed")
 	errSnapshotPersistence = errors.New("snapshot persistence failed")
 )
+
+// statusStore adds the operational status overview to the PostgreSQL store.
+type statusStore struct {
+	*postgres.Store
+	ops *opstatus.Service
+}
+
+func (s statusStore) OperationalStatus(ctx context.Context) (opstatus.Overview, error) {
+	return s.ops.Overview(ctx)
+}
 
 // syncSource is one Source's sync job and its stable ID.
 type syncSource struct {

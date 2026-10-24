@@ -238,6 +238,57 @@ paths:
         '404': { description: Source is not configured (code source_not_configured) }
         '409': { description: A sync for this source is already running (code sync_in_progress) }
         '503': { description: Sync unavailable }
+  /admin/status:
+    get:
+      operationId: getOperationalStatus
+      summary: Provider and library Source status (administrator only)
+      description: >-
+        Local state only; never calls an external service. Every library Source kind is listed with
+        whether it is configured, its latest run, last successful sync and last error (drawn from
+        its 10 newest runs). Providers report configuration only. recentErrors lists up to 10 newest
+        failed runs across Sources. Errors are fixed, admin-safe strings. Responses are no-store.
+      responses:
+        '200':
+          description: Operational overview
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [providers, sources, recentErrors]
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, name, configured]
+                      properties:
+                        key: { type: string }
+                        name: { type: string }
+                        configured: { type: boolean }
+                  sources:
+                    type: array
+                    items:
+                      type: object
+                      required: [slug, name, configured, lastRun, lastSuccessAt, lastError]
+                      properties:
+                        slug: { type: string }
+                        name: { type: string }
+                        configured: { type: boolean }
+                        lastRun: { oneOf: [{ $ref: '#/components/schemas/JobRun' }, { type: 'null' }] }
+                        lastSuccessAt: { type: [string, 'null'], format: date-time }
+                        lastError: { type: string }
+                  recentErrors:
+                    type: array
+                    items:
+                      type: object
+                      required: [source, run]
+                      properties:
+                        source: { type: string }
+                        run: { $ref: '#/components/schemas/JobRun' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '500': { description: status_failed }
+        '503': { description: status_unavailable }
   /admin/job-runs:
     get:
       operationId: listJobRuns

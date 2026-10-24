@@ -17,6 +17,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
+	"github.com/evilperson1337/requestarr/internal/opstatus"
 	"github.com/evilperson1337/requestarr/internal/requests"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
 	"github.com/evilperson1337/requestarr/internal/webui"
@@ -219,6 +220,31 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 			groups = []jobs.SourceRuns{}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"sources": groups})
+	})
+	api.HandleFunc("GET /admin/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		user, err := authHandler.CurrentSession(r)
+		if err != nil {
+			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
+			return
+		}
+		if user.Role != "admin" {
+			apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
+			return
+		}
+		ops, ok := readiness.(interface {
+			OperationalStatus(context.Context) (opstatus.Overview, error)
+		})
+		if !ok {
+			apierror.Write(w, r, http.StatusServiceUnavailable, "status_unavailable", "operational status unavailable")
+			return
+		}
+		overview, err := ops.OperationalStatus(r.Context())
+		if err != nil {
+			apierror.Write(w, r, http.StatusInternalServerError, "status_failed", "could not load operational status")
+			return
+		}
+		writeJSON(w, http.StatusOK, overview)
 	})
 	api.HandleFunc("GET /admin/users", func(w http.ResponseWriter, r *http.Request) {
 		user, err := authHandler.CurrentSession(r)
