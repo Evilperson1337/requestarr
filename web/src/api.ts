@@ -1,6 +1,18 @@
 export type User = { id: string; role: string; email: string; displayName: string }
 export type Session = { user: User; csrfToken: string }
 export type SetupStatus = { complete: boolean; required: boolean }
+export type SetupStep = 'general' | 'authentication' | 'providers' | 'libraries' | 'notifications' | 'policy' | 'review'
+export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb'
+export type SetupSettings = {
+    general: { instanceName: string; timezone: string; publicUrl: string }
+    authentication: { issuer: string; clientId: string; clientSecretEnv: string }
+    providers: { tmdbEnabled: boolean; tmdbTokenEnv: string; musicBrainzEnabled: boolean; musicBrainzContact: string; igdbEnabled: boolean; igdbClientId: string; igdbClientSecretEnv: string }
+}
+export type SetupDraft = {
+    revision: number; currentStep: SetupStep; settings: SetupSettings; updatedAt: string; inactive: boolean
+    validations: { target: SetupTarget; revision: number; valid: boolean; code: string; message: string; checkedAt: string; expiresAt: string }[] | null
+    environment: { name: string; secret: boolean; configured: boolean; needsRestart: boolean; desiredValue?: string }[] | null
+}
 export type CatalogItem = { ID: string; MediaType: string; Provider: string; Title: string; Year: number; ArtworkURL: string; ArtworkKind: string; ExternalURL: string }
 export type Platform = { providerId: string; key: string; name: string }
 export type ResolvedItem = { Item: CatalogItem; Platforms: Platform[] }

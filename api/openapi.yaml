@@ -303,6 +303,104 @@ paths:
         '403': { description: Administrator role required }
         '404': { description: User not found }
         '409': { description: Cannot change your own role, or cannot demote the last administrator; nothing is changed }
+  /admin/setup/draft:
+    get:
+      operationId: getSetupDraft
+      summary: Load or initialize the shared inactive setup draft (administrator only)
+      description: >-
+        Resumes the saved step and revision across sessions. Loads local state only;
+        performs no connection checks. Initial creation is idempotent and audited.
+        Bootstrap authorization remains separate; this draft neither activates
+        settings nor completes setup. Responses use Cache-Control no-store.
+      responses:
+        '200':
+          description: Typed non-secret draft and computed environment/restart panel
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupDraft' }
+        '401': { description: "Authentication required" }
+        '403': { description: "Administrator role required" }
+        '500': { description: "Safe generic setup failure" }
+        '503': { description: "Setup draft unavailable" }
+    put:
+      operationId: saveSetupDraft
+      summary: Save non-secret draft settings and resume position (administrator only)
+      description: >-
+        Optimistic revision check; a successful save increments revision and clears
+        previous connection results. Save is permitted despite failed connection
+        checks. Unknown fields, including secret-valued fields, are rejected and
+        never reflected. Only the listed fixed secret environment-variable names
+        are accepted. Does not activate configuration or mark setup complete.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedRevision, currentStep, settings]
+              properties:
+                expectedRevision: { type: integer, minimum: 1 }
+                currentStep: { type: string, enum: [general, authentication, providers, libraries] }
+                settings: { $ref: '#/components/schemas/SetupSettings' }
+      responses:
+        '200':
+          description: Saved draft and updated environment panel
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupDraft' }
+        '400': { description: "invalid_setup_input; unknown fields, malformed JSON, or oversized body (32 KiB cap)" }
+        '401': { description: "Authentication required" }
+        '403': { description: "Administrator role or CSRF/Origin failure" }
+        '409': { description: "setup_revision_conflict; reload saved draft before retrying" }
+        '422': { description: "invalid_setup_settings; invalid non-secret fields, URLs, timezone, or secret-reference names" }
+        '500': { description: "Safe generic setup failure" }
+        '503': { description: "Setup draft unavailable" }
+  /admin/setup/validate:
+    post:
+      operationId: validateSetupDraftConnection
+      summary: Explicitly check one saved draft target (administrator only)
+      description: >-
+        Runs a context-cancellable connection probe outside database transactions,
+        bounded to 10 seconds with a 1 MiB JSON response limit and no redirects.
+        Checks only the saved revision and refuses to record a stale result after
+        a concurrent save. Connection failures are safe persisted validation results,
+        not destructive draft edits. Discovery does not prove interactive OIDC login.
+        Results expire after ten minutes and never activate settings or finish setup.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedRevision, target]
+              properties:
+                expectedRevision: { type: integer, minimum: 1 }
+                target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb] }
+      responses:
+        '200':
+          description: Draft with a revision-bound safe validation result; valid may be false
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupDraft' }
+        '400': { description: "invalid_setup_input; malformed, unknown, or oversized input" }
+        '401': { description: "Authentication required" }
+        '403': { description: "Administrator role or CSRF/Origin failure" }
+        '409': { description: "setup_revision_conflict; saved settings changed before/during the check" }
+        '422': { description: "invalid_setup_settings; invalid revision or target" }
+        '500': { description: "Safe generic setup failure" }
+        '503': { description: "Setup draft unavailable" }
   /admin/match-suggestions:
     get:
       operationId: listMatchSuggestions
@@ -423,6 +521,72 @@ components:
         request_id. Client-supplied values are ignored. Quote it when reporting problems.
       schema: { type: string }
   schemas:
+    SetupSettings:
+      type: object
+      additionalProperties: false
+      required: [general, authentication, providers]
+      properties:
+        general:
+          type: object
+          additionalProperties: false
+          required: [instanceName, timezone, publicUrl]
+          properties:
+            instanceName: { type: string, maxLength: 120 }
+            timezone: { type: string, maxLength: 128, description: "Empty while drafting or a valid IANA timezone" }
+            publicUrl: { type: string, maxLength: 2048, description: "Empty while drafting or HTTPS URL without credentials/query/fragment; HTTP allowed only in development" }
+        authentication:
+          type: object
+          additionalProperties: false
+          required: [issuer, clientId, clientSecretEnv]
+          properties:
+            issuer: { type: string, maxLength: 2048, description: "OIDC discovery issuer; same URL safety rules as publicUrl" }
+            clientId: { type: string, maxLength: 256 }
+            clientSecretEnv: { type: string, enum: [REQUESTARR_OIDC_CLIENT_SECRET] }
+        providers:
+          type: object
+          additionalProperties: false
+          required: [tmdbEnabled, tmdbTokenEnv, musicBrainzEnabled, musicBrainzContact, igdbEnabled, igdbClientId, igdbClientSecretEnv]
+          properties:
+            tmdbEnabled: { type: boolean }
+            tmdbTokenEnv: { type: string, enum: [REQUESTARR_TMDB_READ_TOKEN] }
+            musicBrainzEnabled: { type: boolean }
+            musicBrainzContact: { type: string, maxLength: 254, description: "Empty while drafting or a contact email for the explicit check user-agent" }
+            igdbEnabled: { type: boolean }
+            igdbClientId: { type: string, maxLength: 256 }
+            igdbClientSecretEnv: { type: string, enum: [REQUESTARR_IGDB_CLIENT_SECRET] }
+    SetupDraft:
+      type: object
+      required: [revision, currentStep, settings, validations, updatedAt, inactive, environment]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        currentStep: { type: string, enum: [general, authentication, providers, libraries] }
+        settings: { $ref: '#/components/schemas/SetupSettings' }
+        updatedAt: { type: string, format: date-time }
+        inactive: { type: boolean, const: true }
+        validations:
+          type: array
+          items:
+            type: object
+            required: [target, revision, valid, code, message, checkedAt, expiresAt]
+            properties:
+              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb] }
+              revision: { type: integer }
+              valid: { type: boolean }
+              code: { type: string, enum: [connected, connection_failed, environment_required, incomplete_settings, disabled] }
+              message: { type: string, description: "Fixed safe result; never raw upstream errors or payloads" }
+              checkedAt: { type: string, format: date-time }
+              expiresAt: { type: string, format: date-time }
+        environment:
+          type: array
+          items:
+            type: object
+            required: [name, secret, configured, needsRestart]
+            properties:
+              name: { type: string }
+              secret: { type: boolean }
+              configured: { type: boolean, description: "Presence only, not proof credentials work" }
+              needsRestart: { type: boolean }
+              desiredValue: { type: string, description: "Non-secret values only; absent for every secret reference" }
     MatchSuggestion:
       type: object
       required: [id, catalogItemId, catalogTitle, catalogYear, inventoryTitle, inventoryYear, mediaType, platformKey, sourceName, sourceItemId, confidence, reason, observedAt]

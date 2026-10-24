@@ -119,8 +119,13 @@ type SaveInput struct {
 }
 
 func (s Settings) Validate(development bool) error {
-	for value, limit := range map[string]int{s.General.InstanceName: 120, s.General.Timezone: 128, s.Authentication.ClientID: 256, s.Providers.IGDBClientID: 256, s.Providers.MusicBrainzContact: 254} {
-		if !utf8.ValidString(value) || utf8.RuneCountInString(value) > limit || strings.ContainsAny(value, "\x00\r\n") {
+	for _, field := range []struct {
+		value string
+		limit int
+	}{
+		{s.General.InstanceName, 120}, {s.General.Timezone, 128}, {s.Authentication.ClientID, 256}, {s.Providers.IGDBClientID, 256}, {s.Providers.MusicBrainzContact, 254},
+	} {
+		if !utf8.ValidString(field.value) || utf8.RuneCountInString(field.value) > field.limit || strings.ContainsAny(field.value, "\x00\r\n") {
 			return ErrInvalid
 		}
 	}

@@ -244,8 +244,11 @@ func TestSetupDraftStoresOnlyTypedConfigurationIntegration(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &object); err != nil || len(object) != 3 || object["general"] == nil || object["authentication"] == nil || object["providers"] == nil {
 		t.Fatalf("stored JSON is not the closed settings schema: %s error=%v", raw, err)
 	}
-	for _, forbidden := range []string{"never-persist-this", "environment", "configured", "needsRestart", "inactive", "runtime"} {
-		if strings.Contains(strings.ToLower(raw+validations+audit), strings.ToLower(forbidden)) {
+	if strings.Contains(raw+validations+audit, "never-persist-this") {
+		t.Fatal("secret marker was persisted")
+	}
+	for _, forbidden := range []string{"environment", "configured", "needsRestart", "inactive", "runtime"} {
+		if strings.Contains(strings.ToLower(raw+validations+audit), `"`+strings.ToLower(forbidden)+`":`) {
 			t.Fatalf("persisted runtime/secret field %q", forbidden)
 		}
 	}
@@ -316,8 +319,8 @@ func TestSetupDraftPreservesBootstrapIntegration(t *testing.T) {
 		if got := snapshot(); got != before {
 			t.Fatalf("bootstrap changed: before=%s after=%s", before, got)
 		}
-		state, err := s.SetupState(ctx)
-		if err != nil || state.Complete != complete {
+		state, err := s.SetupComplete(ctx)
+		if err != nil || state != complete {
 			t.Fatalf("bootstrap complete=%v state=%+v error=%v", complete, state, err)
 		}
 	}

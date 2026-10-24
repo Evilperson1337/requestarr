@@ -68,6 +68,12 @@ func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness Readin
 func NewWithSync(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, resolverService interface {
 	ResolveAndUpsert(context.Context, string) (domain.ResolvedItem, error)
 }, syncer SourceSyncer, authHandlers ...*auth.Handler) http.Handler {
+	return NewWithSetup(logger, build, readiness, resolverService, syncer, nil, authHandlers...)
+}
+
+func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, resolverService interface {
+	ResolveAndUpsert(context.Context, string) (domain.ResolvedItem, error)
+}, syncer SourceSyncer, wizard SetupService, authHandlers ...*auth.Handler) http.Handler {
 	var authHandler *auth.Handler
 	if len(authHandlers) > 0 {
 		authHandler = authHandlers[0]
@@ -135,6 +141,7 @@ func NewWithSync(logger *slog.Logger, build buildinfo.Info, readiness ReadinessC
 	}
 	api.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, build) })
 	registerMatchReviewRoutes(api, readiness, authHandler)
+	registerSetupRoutes(api, wizard, authHandler)
 	api.HandleFunc("GET /setup/status", func(w http.ResponseWriter, r *http.Request) { writeSetupStatus(w, r, readiness) })
 	api.HandleFunc("GET /admin/sources/jellyfin/status", func(w http.ResponseWriter, r *http.Request) {
 		user, err := authHandler.CurrentSession(r)
@@ -547,6 +554,9 @@ func validUUID(value string) bool {
 }
 
 func protectedMutation(method, path string) bool {
+	if strings.HasPrefix(path, "/admin/setup/") && (method == http.MethodPut || method == http.MethodPost) {
+		return true
+	}
 	if method == http.MethodPost && strings.HasPrefix(path, "/admin/match-suggestions/") {
 		return true
 	}

@@ -24,7 +24,7 @@ help:
 	  'make web-dev        Run Vite development server' \
 	  'make web-build      Build React UI' \
 	  'make web-check      Typecheck/lint frontend' \
-	  'make web-test       Run focused Requests browser tests (Chromium required)' \
+	  'make web-test       Run focused browser tests (Chromium required)' \
 	  'make dev-up         Start dev dependencies with Docker Compose' \
 	  'make dev-down       Stop dev dependencies' \
 	  'make snapshot       Build GoReleaser snapshot' \

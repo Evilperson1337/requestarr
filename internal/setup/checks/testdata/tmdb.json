@@ -1,0 +1,9 @@
+{
+    "images": {
+        "secure_base_url": "https://image.tmdb.org/t/p/",
+        "poster_sizes": [
+            "w500",
+            "original"
+        ]
+    }
+}

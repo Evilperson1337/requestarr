@@ -81,6 +81,11 @@ Before starting the stack, configure valid OIDC issuer/client values and a rando
 
 For initial administrator provisioning, see [`docs/OIDC_AUTH.md`](docs/OIDC_AUTH.md): operators run `requestarr setup-token --issuer <issuer> --subject <subject>`, then the matching authenticated OIDC user claims it once.
 
+After claiming admin, use **Setup** for the resumable General, Authentication,
+and Metadata Providers draft and explicit connection checks. Settings remain
+inactive, secrets stay in the environment, and later wizard steps/Finish are
+not yet available. See the [setup guide](docs/SETUP_WIZARD.md).
+
 The frontend lives under `web/`:
 
 ```bash

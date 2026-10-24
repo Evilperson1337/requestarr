@@ -17,6 +17,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/requests"
+	"github.com/evilperson1337/requestarr/internal/setup"
 )
 
 const matrixUserID = "11111111-1111-4111-8111-111111111111"
@@ -51,6 +52,8 @@ func mutationCases() []mutationCase {
 		// token, not a pre-existing admin role. Its real repository is tested
 		// independently for single-use and last-admin serialization.
 		{"claim initial admin", "POST /setup/claim-admin", "/setup/claim-admin", `{"issuer":"https://issuer.example","subject":"subject-1","token":"` + matrixToken + `"}`, "authenticated", 204, "bootstrap.claim"},
+		{"save setup draft", "PUT /admin/setup/draft", "/admin/setup/draft", `{"expectedRevision":1,"currentStep":"general","settings":{"general":{"instanceName":"","timezone":"","publicUrl":""},"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"}}}`, "admin", 200, "setup.save"},
+		{"validate setup", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"general"}`, "admin", 200, "setup.validate"},
 	}
 }
 
@@ -167,9 +170,21 @@ func (r matrixAuthRepo) ClaimAdmin(_ context.Context, userID, issuer, subject st
 	return nil
 }
 
+func (b *matrixBackend) Load(context.Context, setup.Actor) (setup.Draft, error) {
+	return setup.Draft{Revision: 1, CurrentStep: setup.StepGeneral, Inactive: true}, nil
+}
+func (b *matrixBackend) Save(_ context.Context, actor setup.Actor, _ setup.SaveInput) (setup.Draft, error) {
+	b.record("setup.save", actor.ID)
+	return setup.Draft{Revision: 2, Inactive: true}, nil
+}
+func (b *matrixBackend) Validate(_ context.Context, actor setup.Actor, _ int64, _ setup.Target) (setup.Draft, error) {
+	b.record("setup.validate", actor.ID)
+	return setup.Draft{Revision: 1, Inactive: true}, nil
+}
+
 func matrixRequest(backend *matrixBackend, tc mutationCase, role, csrf, origin string) *httptest.ResponseRecorder {
 	repo := matrixAuthRepo{csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: role, Issuer: "https://issuer.example", Subject: "subject-1"}}}, backend}
-	h := NewWithSync(testLogger(), buildinfo.Info{}, backend, backend, backend, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
+	h := NewWithSetup(testLogger(), buildinfo.Info{}, backend, backend, backend, backend, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
 	method, _, _ := strings.Cut(tc.pattern, " ")
 	r := httptest.NewRequest(method, "/api/v1"+tc.path, strings.NewReader(tc.body))
 	if role != "unauthenticated" {

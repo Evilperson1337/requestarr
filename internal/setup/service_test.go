@@ -3,6 +3,7 @@ package setup
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -73,5 +74,54 @@ func TestDraftResumesAcrossServicesAndConnectionFailureKeepsSettings(t *testing.
 	}
 	if checked.Settings != resumed.Settings || checked.CurrentStep != StepAuthentication {
 		t.Fatal("failed validation discarded or advanced the draft")
+	}
+}
+
+func TestSetupServiceRejectsNonAdminsAndUnsafeDraftFields(t *testing.T) {
+	ctx := context.Background()
+	repo := &memoryDrafts{}
+	service := NewService(repo, fakeChecker{}, Runtime{PublicURL: "https://requestarr.example", OIDCIssuer: "https://issuer.example", OIDCClientID: "requestarr"})
+	for _, actor := range []Actor{{}, {ID: "viewer-1", Role: "viewer"}, {ID: "requester-1", Role: "requester"}} {
+		if _, err := service.Load(ctx, actor); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("load allowed %+v: %v", actor, err)
+		}
+		if _, err := service.Save(ctx, actor, SaveInput{}); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("save allowed %+v: %v", actor, err)
+		}
+		if _, err := service.Validate(ctx, actor, 1, TargetGeneral); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("validate allowed %+v: %v", actor, err)
+		}
+	}
+	if repo.reads != 0 {
+		t.Fatal("non-admin reached draft storage")
+	}
+	actor := Actor{ID: "admin-1", Role: "admin"}
+	draft, err := service.Load(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		change func(*Settings)
+	}{
+		{"secret instead of environment name", func(s *Settings) { s.Authentication.ClientSecretEnv = "actual-secret-value" }},
+		{"unknown environment variable", func(s *Settings) { s.Providers.TMDBTokenEnv = "DATABASE_PASSWORD" }},
+		{"credential URL", func(s *Settings) { s.General.PublicURL = "https://user:secret@example.test" }},
+		{"secret in issuer query", func(s *Settings) { s.Authentication.Issuer = "https://issuer.example?client_secret=secret" }},
+		{"duplicate-valued fields retain individual bounds", func(s *Settings) {
+			s.General.InstanceName = strings.Repeat("x", 200)
+			s.Authentication.ClientID = s.General.InstanceName
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := draft.Settings
+			tc.change(&settings)
+			if _, err := service.Save(ctx, actor, SaveInput{ExpectedRevision: 1, CurrentStep: StepGeneral, Settings: settings}); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("unsafe draft accepted: %v", err)
+			}
+			if repo.draft.Revision != 1 || repo.draft.Settings != draft.Settings {
+				t.Fatal("rejected settings reached storage")
+			}
+		})
 	}
 }

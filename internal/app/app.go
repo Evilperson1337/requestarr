@@ -28,6 +28,8 @@ import (
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/igdb"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/musicbrainz"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/tmdb"
+	"github.com/evilperson1337/requestarr/internal/setup"
+	"github.com/evilperson1337/requestarr/internal/setup/checks"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
 )
 
@@ -113,10 +115,13 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		addSource("navidrome", client, cfg.NavidromeURL, nil)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
+	setupRuntime := setup.Runtime{PublicURL: cfg.PublicURL, OIDCIssuer: cfg.OIDCIssuer, OIDCClientID: cfg.OIDCClientID, IGDBClientID: cfg.IGDBClientID,
+		OIDCSecretConfigured: cfg.OIDCClientSecret != "", TMDBTokenConfigured: cfg.TMDBReadToken != "", IGDBSecretConfigured: cfg.IGDBClientSecret != "", Development: cfg.Environment == "development"}
+	setupService := setup.NewService(store, checks.New(checks.Config{Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, TMDBReadToken: cfg.TMDBReadToken, IGDBClientSecret: cfg.IGDBClientSecret}), setupRuntime)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewWithSync(logger, build, store, metadataService, syncer, authHandler),
+		Handler:           httpapi.NewWithSetup(logger, build, store, metadataService, syncer, setupService, authHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

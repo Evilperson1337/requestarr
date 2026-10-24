@@ -109,3 +109,25 @@ go test -race ./internal/httpapi
 
 These tests run with `make test`; there is no new dependency or production
 authorization-policy change.
+# Setup draft tests
+
+The first setup steps have tests at the agreed service, outbound-client,
+PostgreSQL, full-router, and browser seams:
+
+- `go test -race ./internal/setup/... ./internal/httpapi` checks resumability,
+  safe validation failures, closed secret-reference fields, admin permissions,
+  CSRF/Origin, revision conflicts, and bounded HTTP/network policy using fixtures.
+- PostgreSQL integration tests cover atomic initialization, cross-store resume,
+  stale/concurrent saves, validation revision binding, audit rollback, typed
+  non-secret storage, migration round trips, and bootstrap-state preservation.
+- `make web-test` now also runs the wizard's mocked browser tests, including
+  resume, save-before-check, connection failure, conflict recovery, role gating,
+  secret-reference-only forms, stale requests, and phone/keyboard use.
+
+For repeated full integration runs, use a fresh dedicated disposable database
+through `REQUESTARR_TEST_DATABASE_URL`. The existing reused test database can
+accumulate open music fixtures and starve a globally limited alias lookup; do
+not delete application data to work around that pre-existing test-isolation gap.
+New setup tests never contact live OIDC/TMDB/MusicBrainz/IGDB services. Live
+interactive sign-in proof and final configuration activation are outside this
+first-step slice.
