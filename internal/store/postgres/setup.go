@@ -16,8 +16,8 @@ var _ setup.Repository = (*Store)(nil)
 func lockedSetupDraft(ctx context.Context, tx pgx.Tx) (setup.Draft, error) {
 	d := setup.Draft{Validations: []setup.Validation{}, Inactive: true}
 	var settings, validations []byte
-	err := tx.QueryRow(ctx, `SELECT draft_revision,current_step,draft,draft_validations,updated_at FROM setup_state WHERE singleton FOR UPDATE`).Scan(
-		&d.Revision, &d.CurrentStep, &settings, &validations, &d.UpdatedAt)
+	err := tx.QueryRow(ctx, `SELECT draft_revision,current_step,draft,draft_validations,updated_at,wizard_completed_at FROM setup_state WHERE singleton FOR UPDATE`).Scan(
+		&d.Revision, &d.CurrentStep, &settings, &validations, &d.UpdatedAt, &d.CompletedAt)
 	if err != nil {
 		return setup.Draft{}, fmt.Errorf("lock setup draft: %w", err)
 	}
@@ -80,6 +80,9 @@ func (s *Store) SaveSetupDraft(ctx context.Context, actor string, expected int64
 	if err != nil {
 		return setup.Draft{}, err
 	}
+	if d.CompletedAt != nil {
+		return setup.Draft{}, setup.ErrCompleted
+	}
 	if expected < 1 || d.Revision != expected {
 		return setup.Draft{}, setup.ErrConflict
 	}
@@ -111,6 +114,9 @@ func (s *Store) RecordSetupValidation(ctx context.Context, actor string, expecte
 	d, err := lockedSetupDraft(ctx, tx)
 	if err != nil {
 		return setup.Draft{}, err
+	}
+	if d.CompletedAt != nil {
+		return setup.Draft{}, setup.ErrCompleted
 	}
 	if expected < 1 || d.Revision != expected || result.Revision != expected {
 		return setup.Draft{}, setup.ErrConflict
@@ -144,4 +150,41 @@ func (s *Store) RecordSetupValidation(ctx context.Context, actor string, expecte
 		return setup.Draft{}, err
 	}
 	return d, nil
+}
+
+// CompleteSetupDraft marks the locked revision finished and audits it atomically.
+func (s *Store) CompleteSetupDraft(ctx context.Context, actor string, expected int64) (setup.Draft, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return setup.Draft{}, err
+	}
+	defer tx.Rollback(ctx)
+	d, err := lockedSetupDraft(ctx, tx)
+	if err != nil {
+		return setup.Draft{}, err
+	}
+	if d.CompletedAt != nil {
+		return d, nil
+	}
+	if expected < 1 || d.Revision != expected {
+		return setup.Draft{}, setup.ErrConflict
+	}
+	err = tx.QueryRow(ctx, `UPDATE setup_state SET wizard_completed_at=now(),wizard_completed_by=$1,updated_at=now() WHERE singleton RETURNING wizard_completed_at,updated_at`, actor).Scan(&d.CompletedAt, &d.UpdatedAt)
+	if err != nil {
+		return setup.Draft{}, fmt.Errorf("complete setup draft: %w", err)
+	}
+	if err := auditSetupDraft(ctx, tx, actor, d.Revision, "completed", string(setup.StepFinish)); err != nil {
+		return setup.Draft{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return setup.Draft{}, err
+	}
+	return d, nil
+}
+
+// SetupWizardComplete reports whether an administrator finished the setup wizard.
+func (s *Store) SetupWizardComplete(ctx context.Context) (bool, error) {
+	var complete bool
+	err := s.pool.QueryRow(ctx, `SELECT wizard_completed_at IS NOT NULL FROM setup_state WHERE singleton`).Scan(&complete)
+	return complete, err
 }

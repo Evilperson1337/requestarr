@@ -575,7 +575,14 @@ func writeSetupStatus(w http.ResponseWriter, r *http.Request, readiness Readines
 			writeJSON(w, http.StatusServiceUnavailable, map[string]bool{"complete": false, "required": true})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]bool{"complete": complete, "required": !complete})
+		wizardComplete := false
+		if wizard, ok := readiness.(interface {
+			SetupWizardComplete(context.Context) (bool, error)
+		}); ok && complete {
+			// A lookup failure reads as "not finished"; the wizard stays reachable.
+			wizardComplete, _ = wizard.SetupWizardComplete(r.Context())
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"complete": complete, "required": !complete, "wizardComplete": wizardComplete})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"complete": false, "required": true})

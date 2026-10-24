@@ -54,6 +54,7 @@ func mutationCases() []mutationCase {
 		{"claim initial admin", "POST /setup/claim-admin", "/setup/claim-admin", `{"issuer":"https://issuer.example","subject":"subject-1","token":"` + matrixToken + `"}`, "authenticated", 204, "bootstrap.claim"},
 		{"save setup draft", "PUT /admin/setup/draft", "/admin/setup/draft", validSetupDraftBody(), "admin", 200, "setup.save"},
 		{"validate setup", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"general"}`, "admin", 200, "setup.validate"},
+		{"finish setup", "POST /admin/setup/finish", "/admin/setup/finish", `{"expectedRevision":1}`, "admin", 200, "setup.finish"},
 		{"validate library", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"library:plex"}`, "admin", 200, "setup.validate"},
 	}
 }
@@ -177,6 +178,10 @@ func (b *matrixBackend) Load(context.Context, setup.Actor) (setup.Draft, error) 
 func (b *matrixBackend) Save(_ context.Context, actor setup.Actor, _ setup.SaveInput) (setup.Draft, error) {
 	b.record("setup.save", actor.ID)
 	return setup.Draft{Revision: 2, Inactive: true}, nil
+}
+func (b *matrixBackend) Finish(_ context.Context, actor setup.Actor, _ int64) (setup.Draft, error) {
+	b.record("setup.finish", actor.ID)
+	return setup.Draft{Revision: 1, Inactive: true}, nil
 }
 func (b *matrixBackend) Validate(_ context.Context, actor setup.Actor, _ int64, _ setup.Target) (setup.Draft, error) {
 	b.record("setup.validate", actor.ID)

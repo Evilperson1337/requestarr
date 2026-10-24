@@ -12,6 +12,10 @@ type Repository interface {
 	LoadSetupDraft(context.Context, Draft, string) (Draft, error)
 	SaveSetupDraft(context.Context, string, int64, Step, Settings) (Draft, error)
 	RecordSetupValidation(context.Context, string, int64, Validation) (Draft, error)
+	// CompleteSetupDraft marks the exact revision finished; it returns ErrConflict
+	// for a stale revision and the completed draft unchanged if already finished.
+	// SaveSetupDraft and RecordSetupValidation return ErrCompleted afterwards.
+	CompleteSetupDraft(context.Context, string, int64) (Draft, error)
 }
 
 type Checker interface {
@@ -34,12 +38,24 @@ func (s *Service) initial() Draft {
 		Authentication: AuthenticationSettings{Issuer: s.runtime.OIDCIssuer, ClientID: s.runtime.OIDCClientID, ClientSecretEnv: OIDCSecretEnv},
 		Providers:      ProviderSettings{TMDBEnabled: true, TMDBTokenEnv: TMDBTokenEnv, MusicBrainzEnabled: true, IGDBEnabled: true, IGDBClientID: s.runtime.IGDBClientID, IGDBClientSecretEnv: IGDBSecretEnv},
 		Libraries:      defaultLibraries(s.runtime),
+		Notifications:  defaultNotifications(s.runtime),
+		Policy:         PolicySettings{AutoApproveMediaTypes: []domain.MediaType{}},
 	}}
 }
 
 func (s *Service) decorate(d Draft) Draft {
 	d.Inactive = true
 	d.Settings.Libraries = normalizeLibraries(d.Settings.Libraries, s.runtime)
+	if d.Settings.Notifications == (NotificationSettings{}) {
+		d.Settings.Notifications = defaultNotifications(s.runtime)
+	}
+	if d.Settings.Policy.AutoApproveMediaTypes == nil {
+		d.Settings.Policy.AutoApproveMediaTypes = []domain.MediaType{}
+	}
+	d.Blockers = []Blocker{}
+	if d.CompletedAt == nil {
+		d.Blockers = d.pendingBlockers(time.Now())
+	}
 	if d.Validations == nil {
 		d.Validations = []Validation{}
 	}
@@ -56,6 +72,11 @@ func (s *Service) decorate(d Draft) Draft {
 		d.Environment = append(d.Environment,
 			EnvironmentItem{Name: "REQUESTARR_IGDB_CLIENT_ID", Configured: s.runtime.IGDBClientID != "", NeedsRestart: d.Settings.Providers.IGDBClientID != s.runtime.IGDBClientID, DesiredValue: d.Settings.Providers.IGDBClientID},
 			EnvironmentItem{Name: IGDBSecretEnv, Secret: true, Configured: s.runtime.IGDBSecretConfigured, NeedsRestart: !s.runtime.IGDBSecretConfigured || d.Settings.Providers.IGDBClientID != s.runtime.IGDBClientID})
+	}
+	if n := d.Settings.Notifications; n.AppriseEnabled || s.runtime.AppriseURL != "" {
+		d.Environment = append(d.Environment,
+			EnvironmentItem{Name: "REQUESTARR_APPRISE_URL", Configured: s.runtime.AppriseURL != "", NeedsRestart: n.AppriseURL != s.runtime.AppriseURL, DesiredValue: n.AppriseURL},
+			EnvironmentItem{Name: AppriseConfigKeyEnv, Secret: true, Configured: s.runtime.AppriseKeyConfigured, NeedsRestart: n.AppriseEnabled && !s.runtime.AppriseKeyConfigured})
 	}
 	for _, entry := range []struct {
 		kind   string
@@ -87,6 +108,10 @@ func (s *Service) decorate(d Draft) Draft {
 		}
 	}
 	return d
+}
+
+func defaultNotifications(runtime Runtime) NotificationSettings {
+	return NotificationSettings{AppriseEnabled: runtime.AppriseURL != "", AppriseURL: runtime.AppriseURL, AppriseConfigKeyEnv: AppriseConfigKeyEnv}
 }
 
 func defaultLibraries(runtime Runtime) LibrariesSettings {
@@ -189,10 +214,13 @@ func (s *Service) Save(ctx context.Context, actor Actor, input SaveInput) (Draft
 	if err := requireAdmin(actor); err != nil {
 		return Draft{}, err
 	}
-	if input.ExpectedRevision < 1 || (input.CurrentStep != StepGeneral && input.CurrentStep != StepAuthentication && input.CurrentStep != StepProviders && input.CurrentStep != StepLibraries) {
+	if input.ExpectedRevision < 1 || (input.CurrentStep != StepGeneral && input.CurrentStep != StepAuthentication && input.CurrentStep != StepProviders && input.CurrentStep != StepLibraries && input.CurrentStep != StepNotifications && input.CurrentStep != StepPolicy && input.CurrentStep != StepReview) {
 		return Draft{}, ErrInvalid
 	}
 	if err := input.Settings.Validate(s.runtime.Development); err != nil {
+		return Draft{}, err
+	}
+	if err := s.rejectCompleted(ctx, actor); err != nil {
 		return Draft{}, err
 	}
 	d, err := s.repo.SaveSetupDraft(ctx, actor.ID, input.ExpectedRevision, input.CurrentStep, input.Settings)
@@ -212,6 +240,9 @@ func (s *Service) Validate(ctx context.Context, actor Actor, revision int64, tar
 	d, err := s.Load(ctx, actor)
 	if err != nil {
 		return Draft{}, err
+	}
+	if d.CompletedAt != nil {
+		return Draft{}, ErrCompleted
 	}
 	if d.Revision != revision {
 		return Draft{}, ErrConflict
@@ -241,6 +272,46 @@ func (s *Service) Validate(ctx context.Context, actor Actor, revision int64, tar
 	d, err = s.repo.RecordSetupValidation(ctx, actor.ID, revision, result)
 	if err != nil {
 		return Draft{}, fmt.Errorf("record setup validation: %w", err)
+	}
+	return s.decorate(d), nil
+}
+
+func (s *Service) rejectCompleted(ctx context.Context, actor Actor) error {
+	d, err := s.Load(ctx, actor)
+	if err != nil {
+		return err
+	}
+	if d.CompletedAt != nil {
+		return ErrCompleted
+	}
+	return nil
+}
+
+// Finish marks setup complete for the exact reviewed revision. It refuses while
+// any required check is missing, failed or expired, and is idempotent once done.
+func (s *Service) Finish(ctx context.Context, actor Actor, revision int64) (Draft, error) {
+	if err := requireAdmin(actor); err != nil {
+		return Draft{}, err
+	}
+	if revision < 1 {
+		return Draft{}, ErrInvalid
+	}
+	d, err := s.Load(ctx, actor)
+	if err != nil {
+		return Draft{}, err
+	}
+	if d.CompletedAt != nil {
+		return d, nil
+	}
+	if d.Revision != revision {
+		return Draft{}, ErrConflict
+	}
+	if len(d.Blockers) > 0 {
+		return d, ErrNotReady
+	}
+	d, err = s.repo.CompleteSetupDraft(ctx, actor.ID, revision)
+	if err != nil {
+		return Draft{}, fmt.Errorf("complete setup: %w", err)
 	}
 	return s.decorate(d), nil
 }

@@ -31,6 +31,10 @@ func (f *fakeSetup) Validate(ctx context.Context, actor setup.Actor, revision in
 	return f.Load(ctx, actor)
 }
 
+func (f *fakeSetup) Finish(ctx context.Context, actor setup.Actor, _ int64) (setup.Draft, error) {
+	return f.Load(ctx, actor)
+}
+
 func setupHTTP(service *fakeSetup, role, method, path, body string, csrf bool) *httptest.ResponseRecorder {
 	h := NewWithSetup(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, service,
 		&auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: role}}}, Secret: "test-secret", PublicURL: "http://example.test"})
@@ -49,7 +53,7 @@ func setupHTTP(service *fakeSetup, role, method, path, body string, csrf bool) *
 }
 
 func validSetupDraftBody() string {
-	return `{"expectedRevision":1,"currentStep":"general","settings":{"general":{"instanceName":"","timezone":"","publicUrl":""},"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"},"libraries":{"jellyfin":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_JELLYFIN_API_KEY","usernameEnv":"","passwordEnv":""},"plex":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_PLEX_TOKEN","usernameEnv":"","passwordEnv":""},"romm":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_ROMM_TOKEN","usernameEnv":"","passwordEnv":""},"navidrome":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"","usernameEnv":"REQUESTARR_NAVIDROME_USERNAME","passwordEnv":"REQUESTARR_NAVIDROME_PASSWORD"}}}}`
+	return `{"expectedRevision":1,"currentStep":"general","settings":{"general":{"instanceName":"","timezone":"","publicUrl":""},"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"},"notifications":{"appriseEnabled":false,"appriseUrl":"","appriseConfigKeyEnv":"REQUESTARR_APPRISE_CONFIG_KEY"},"policy":{"autoApproveMediaTypes":[]},"libraries":{"jellyfin":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_JELLYFIN_API_KEY","usernameEnv":"","passwordEnv":""},"plex":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_PLEX_TOKEN","usernameEnv":"","passwordEnv":""},"romm":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_ROMM_TOKEN","usernameEnv":"","passwordEnv":""},"navidrome":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"","usernameEnv":"REQUESTARR_NAVIDROME_USERNAME","passwordEnv":"REQUESTARR_NAVIDROME_PASSWORD"}}}}`
 }
 
 func TestSetupDraftEndpointsRequireAdminAndProtectSecrets(t *testing.T) {
@@ -57,6 +61,7 @@ func TestSetupDraftEndpointsRequireAdminAndProtectSecrets(t *testing.T) {
 		{"GET", "draft", ""},
 		{"PUT", "draft", validSetupDraftBody()},
 		{"POST", "validate", `{"expectedRevision":1,"target":"general"}`},
+		{"POST", "finish", `{"expectedRevision":1}`},
 	} {
 		for _, role := range []string{"", "viewer", "requester", "admin"} {
 			t.Run(endpoint.method+endpoint.path+role, func(t *testing.T) {
@@ -82,7 +87,7 @@ func TestSetupDraftEndpointsRequireAdminAndProtectSecrets(t *testing.T) {
 	if service.calls != 0 || strings.Contains(w.Body.String(), "never-store-this") {
 		t.Fatal("secret payload accepted or reflected")
 	}
-	for _, tc := range []struct{ method, path, body string }{{"PUT", "draft", `{"expectedRevision":1}`}, {"POST", "validate", `{"expectedRevision":1,"target":"general"}`}} {
+	for _, tc := range []struct{ method, path, body string }{{"PUT", "draft", `{"expectedRevision":1}`}, {"POST", "validate", `{"expectedRevision":1,"target":"general"}`}, {"POST", "finish", `{"expectedRevision":1}`}} {
 		assertErrorEnvelope(t, setupHTTP(&fakeSetup{}, "admin", tc.method, tc.path, tc.body, false), 403, "csrf_invalid")
 	}
 	w = setupHTTP(&fakeSetup{}, "admin", "GET", "draft", "", true)
@@ -107,6 +112,8 @@ func TestSetupDraftRejectsMissingOrNullRequiredFields(t *testing.T) {
 		"providers omitted":      strings.Replace(valid, `,"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"}`, "", 1),
 		"providers null":         strings.Replace(valid, `"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"}`, `"providers":null`, 1),
 	}
+	cases["notifications omitted"] = editSetupSection(valid, "notifications", false)
+	cases["policy null"] = editSetupSection(valid, "policy", true)
 	cases["libraries omitted"] = editSetupSection(valid, "libraries", false)
 	cases["libraries null"] = editSetupSection(valid, "libraries", true)
 	for _, source := range []string{"jellyfin", "plex", "romm", "navidrome"} {
@@ -213,4 +220,20 @@ func editLibrarySection(body, key string, setNull bool) string {
 		panic(err)
 	}
 	return string(encoded)
+}
+
+func TestSetupFinishMapsServiceOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{setup.ErrNotReady, 422, "setup_not_ready"},
+		{setup.ErrCompleted, 409, "setup_already_complete"},
+		{setup.ErrConflict, 409, "setup_revision_conflict"},
+	} {
+		w := setupHTTP(&fakeSetup{err: tc.err}, "admin", "POST", "finish", `{"expectedRevision":1}`, true)
+		assertErrorEnvelope(t, w, tc.status, tc.code)
+	}
+	assertErrorEnvelope(t, setupHTTP(&fakeSetup{}, "admin", "POST", "finish", `{"expectedRevision":1,"complete":true}`, true), 400, "invalid_setup_input")
 }

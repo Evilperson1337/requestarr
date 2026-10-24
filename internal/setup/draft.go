@@ -15,6 +15,10 @@ var (
 	ErrForbidden = errors.New("administrator role required")
 	ErrInvalid   = errors.New("invalid setup draft")
 	ErrConflict  = errors.New("setup draft revision conflict")
+	// ErrCompleted is returned for edits after Finish; the wizard no longer accepts changes.
+	ErrCompleted = errors.New("setup already completed")
+	// ErrNotReady is returned by Finish while required checks are missing, failed or expired.
+	ErrNotReady = errors.New("setup checks are not passing")
 )
 
 const (
@@ -26,6 +30,7 @@ const (
 	RommTokenEnv         = "REQUESTARR_ROMM_TOKEN"
 	NavidromeUsernameEnv = "REQUESTARR_NAVIDROME_USERNAME"
 	NavidromePasswordEnv = "REQUESTARR_NAVIDROME_PASSWORD"
+	AppriseConfigKeyEnv  = "REQUESTARR_APPRISE_CONFIG_KEY"
 )
 
 type Actor struct{ ID, Role string }
@@ -37,6 +42,22 @@ type Settings struct {
 	Authentication AuthenticationSettings `json:"authentication"`
 	Providers      ProviderSettings       `json:"providers"`
 	Libraries      LibrariesSettings      `json:"libraries"`
+	Notifications  NotificationSettings   `json:"notifications"`
+	Policy         PolicySettings         `json:"policy"`
+}
+
+// NotificationSettings drafts the global Apprise route. Authentication stays
+// OIDC-only; there is deliberately no credential field here.
+type NotificationSettings struct {
+	AppriseEnabled      bool   `json:"appriseEnabled"`
+	AppriseURL          string `json:"appriseUrl"`
+	AppriseConfigKeyEnv string `json:"appriseConfigKeyEnv"`
+}
+
+// PolicySettings drafts request policy. Media types listed here skip
+// administrator approval; an empty list means every request awaits approval.
+type PolicySettings struct {
+	AutoApproveMediaTypes []domain.MediaType `json:"autoApproveMediaTypes"`
 }
 
 type LibrariesSettings struct {
@@ -90,10 +111,11 @@ const (
 	TargetPlex           Target = "library:plex"
 	TargetRomm           Target = "library:romm"
 	TargetNavidrome      Target = "library:navidrome"
+	TargetNotifications  Target = "notifications"
 )
 
 func (t Target) Valid() bool {
-	return t == TargetGeneral || t == TargetAuthentication || t == TargetTMDB || t == TargetMusicBrainz || t == TargetIGDB || t == TargetJellyfin || t == TargetPlex || t == TargetRomm || t == TargetNavidrome
+	return t == TargetGeneral || t == TargetAuthentication || t == TargetTMDB || t == TargetMusicBrainz || t == TargetIGDB || t == TargetJellyfin || t == TargetPlex || t == TargetRomm || t == TargetNavidrome || t == TargetNotifications
 }
 
 func LibrarySource(t Target) (string, bool) {
@@ -139,6 +161,14 @@ type Draft struct {
 	UpdatedAt   time.Time         `json:"updatedAt"`
 	Inactive    bool              `json:"inactive"`
 	Environment []EnvironmentItem `json:"environment"`
+	// Blockers lists required checks that are missing, failed or expired for this revision.
+	Blockers    []Blocker  `json:"blockers"`
+	CompletedAt *time.Time `json:"completedAt"`
+}
+
+type Blocker struct {
+	Target Target `json:"target"`
+	Reason string `json:"reason"`
 }
 
 type EnvironmentItem struct {
@@ -155,6 +185,8 @@ type Runtime struct {
 	OIDCSecretConfigured, TMDBTokenConfigured, IGDBSecretConfigured bool
 	LibrarySecrets                                                  map[string]bool
 	LibraryURLs                                                     map[string]string
+	AppriseURL                                                      string
+	AppriseKeyConfigured                                            bool
 	Development                                                     bool
 }
 
@@ -193,6 +225,16 @@ func (s Settings) Validate(development bool) error {
 		if err != nil || address.Address != s.Providers.MusicBrainzContact {
 			return ErrInvalid
 		}
+	}
+	if n := s.Notifications; n.AppriseConfigKeyEnv != AppriseConfigKeyEnv || n.AppriseURL != "" && !ValidServiceURL(n.AppriseURL, development) {
+		return ErrInvalid
+	}
+	seenAuto := map[domain.MediaType]bool{}
+	for _, media := range s.Policy.AutoApproveMediaTypes {
+		if !validMedia(media) || seenAuto[media] {
+			return ErrInvalid
+		}
+		seenAuto[media] = true
 	}
 	for kind, source := range map[string]SourceSettings{"jellyfin": s.Libraries.Jellyfin, "plex": s.Libraries.Plex, "romm": s.Libraries.Romm, "navidrome": s.Libraries.Navidrome} {
 		if source.URL != "" && !ValidSourceURL(source.URL, development) {
@@ -245,4 +287,64 @@ func ValidSourceURL(raw string, development bool) bool {
 	}
 	u, err := url.Parse(raw)
 	return err == nil && (u.Path == "" || u.Path == "/")
+}
+
+// RequiredTargets lists every check that must pass before setup can finish.
+func (s Settings) RequiredTargets() []Target {
+	targets := []Target{TargetGeneral, TargetAuthentication}
+	if s.Providers.TMDBEnabled {
+		targets = append(targets, TargetTMDB)
+	}
+	if s.Providers.MusicBrainzEnabled {
+		targets = append(targets, TargetMusicBrainz)
+	}
+	if s.Providers.IGDBEnabled {
+		targets = append(targets, TargetIGDB)
+	}
+	for _, entry := range []struct {
+		target  Target
+		enabled bool
+	}{
+		{TargetJellyfin, s.Libraries.Jellyfin.Enabled}, {TargetPlex, s.Libraries.Plex.Enabled},
+		{TargetRomm, s.Libraries.Romm.Enabled}, {TargetNavidrome, s.Libraries.Navidrome.Enabled},
+		{TargetNotifications, s.Notifications.AppriseEnabled},
+	} {
+		if entry.enabled {
+			targets = append(targets, entry.target)
+		}
+	}
+	return targets
+}
+
+// pendingBlockers reports required targets without a passing, unexpired check for the draft revision.
+func (d Draft) pendingBlockers(now time.Time) []Blocker {
+	blockers := []Blocker{}
+	for _, target := range d.Settings.RequiredTargets() {
+		reason := "not_checked"
+		for _, v := range d.Validations {
+			if v.Target != target || v.Revision != d.Revision {
+				continue
+			}
+			switch {
+			case !v.Valid:
+				reason = "failed"
+			case !v.ExpiresAt.After(now):
+				reason = "expired"
+			default:
+				reason = ""
+			}
+		}
+		if reason != "" {
+			blockers = append(blockers, Blocker{Target: target, Reason: reason})
+		}
+	}
+	return blockers
+}
+
+func validMedia(media domain.MediaType) bool {
+	switch media {
+	case domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong, domain.MediaGame:
+		return true
+	}
+	return false
 }

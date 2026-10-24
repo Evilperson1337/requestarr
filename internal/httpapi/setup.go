@@ -17,6 +17,7 @@ type SetupService interface {
 	Load(context.Context, setup.Actor) (setup.Draft, error)
 	Save(context.Context, setup.Actor, setup.SaveInput) (setup.Draft, error)
 	Validate(context.Context, setup.Actor, int64, setup.Target) (setup.Draft, error)
+	Finish(context.Context, setup.Actor, int64) (setup.Draft, error)
 }
 
 func registerSetupRoutes(api *http.ServeMux, service SetupService, authHandler *auth.Handler) {
@@ -45,6 +46,10 @@ func registerSetupRoutes(api *http.ServeMux, service SetupService, authHandler *
 			apierror.Write(w, r, 403, "forbidden", "administrator role required")
 		case errors.Is(err, setup.ErrInvalid):
 			apierror.Write(w, r, 422, "invalid_setup_settings", "check the non-secret fields, URLs, timezone, and permitted environment-variable names")
+		case errors.Is(err, setup.ErrCompleted):
+			apierror.Write(w, r, 409, "setup_already_complete", "setup is already complete; the wizard no longer accepts changes")
+		case errors.Is(err, setup.ErrNotReady):
+			apierror.Write(w, r, 422, "setup_not_ready", "every required connection check must pass for the saved revision before finishing")
 		case errors.Is(err, setup.ErrConflict):
 			apierror.Write(w, r, 409, "setup_revision_conflict", "setup draft changed; reload the saved draft before retrying")
 		case err != nil:
@@ -93,6 +98,16 @@ func registerSetupRoutes(api *http.ServeMux, service SetupService, authHandler *
 		draft, err := service.Validate(r.Context(), actor, input.ExpectedRevision, input.Target)
 		respond(w, r, draft, err)
 	}))
+	api.HandleFunc("POST /admin/setup/finish", admin(func(w http.ResponseWriter, r *http.Request, actor setup.Actor) {
+		var input struct {
+			ExpectedRevision int64 `json:"expectedRevision"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		draft, err := service.Finish(r.Context(), actor, input.ExpectedRevision)
+		respond(w, r, draft, err)
+	}))
 }
 
 func hasRequiredDraftFields(body []byte) bool {
@@ -108,6 +123,21 @@ func hasRequiredDraftFields(body []byte) bool {
 		"general":        {"instanceName", "timezone", "publicUrl"},
 		"authentication": {"issuer", "clientId", "clientSecretEnv"},
 		"providers":      {"tmdbEnabled", "tmdbTokenEnv", "musicBrainzEnabled", "musicBrainzContact", "igdbEnabled", "igdbClientId", "igdbClientSecretEnv"},
+	} {
+		sectionFields, ok := objectFields(settings[section])
+		if !ok {
+			return false
+		}
+		for _, key := range required {
+			value, exists := sectionFields[key]
+			if !exists || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+				return false
+			}
+		}
+	}
+	for section, required := range map[string][]string{
+		"notifications": {"appriseEnabled", "appriseUrl", "appriseConfigKeyEnv"},
+		"policy":        {"autoApproveMediaTypes"},
 	} {
 		sectionFields, ok := objectFields(settings[section])
 		if !ok {

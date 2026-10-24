@@ -25,7 +25,7 @@ func setupDraftStore(t *testing.T) (context.Context, *Store, string) {
 	}
 	t.Cleanup(s.Close)
 	// These tests run serially against the dedicated integration database.
-	if _, err := s.pool.Exec(ctx, `UPDATE setup_state SET draft='{}',current_step='welcome',draft_revision=0,draft_validations='[]' WHERE singleton`); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE setup_state SET draft='{}',current_step='welcome',draft_revision=0,draft_validations='[]',wizard_completed_at=NULL,wizard_completed_by=NULL WHERE singleton`); err != nil {
 		t.Fatal(err)
 	}
 	return ctx, s, integrationUser(t, ctx, s)
@@ -241,7 +241,7 @@ func TestSetupDraftStoresOnlyTypedConfigurationIntegration(t *testing.T) {
 		t.Fatalf("stored settings=%+v error=%v", stored, err)
 	}
 	var object map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(raw), &object); err != nil || len(object) != 4 || object["general"] == nil || object["authentication"] == nil || object["providers"] == nil || object["libraries"] == nil {
+	if err := json.Unmarshal([]byte(raw), &object); err != nil || len(object) != 6 || object["general"] == nil || object["authentication"] == nil || object["providers"] == nil || object["libraries"] == nil || object["notifications"] == nil || object["policy"] == nil {
 		t.Fatalf("stored JSON is not the closed settings schema: %s error=%v", raw, err)
 	}
 	if strings.Contains(raw+validations+audit, "never-persist-this") {
@@ -371,5 +371,39 @@ func TestSetupDraftMigrationRoundTripIntegration(t *testing.T) {
 		if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT invalid_setup`); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestSetupDraftCompletionIsAuditedAndFreezesDraftIntegration(t *testing.T) {
+	ctx, s, actor := setupDraftStore(t)
+	draft, err := s.LoadSetupDraft(ctx, initialSetupDraft(), actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompleteSetupDraft(ctx, actor, draft.Revision+1); !errors.Is(err, setup.ErrConflict) {
+		t.Fatalf("stale completion = %v", err)
+	}
+	if done, err := s.SetupWizardComplete(ctx); err != nil || done {
+		t.Fatalf("complete before finish = %v, %v", done, err)
+	}
+	done, err := s.CompleteSetupDraft(ctx, actor, draft.Revision)
+	if err != nil || done.CompletedAt == nil {
+		t.Fatalf("complete = %+v, %v", done, err)
+	}
+	if again, err := s.CompleteSetupDraft(ctx, actor, draft.Revision); err != nil || again.CompletedAt == nil {
+		t.Fatalf("repeat completion = %+v, %v", again, err)
+	}
+	if _, err := s.SaveSetupDraft(ctx, actor, draft.Revision, setup.StepGeneral, draft.Settings); !errors.Is(err, setup.ErrCompleted) {
+		t.Fatalf("save after completion = %v", err)
+	}
+	if _, err := s.RecordSetupValidation(ctx, actor, draft.Revision, setup.Validation{Target: setup.TargetGeneral, Revision: draft.Revision}); !errors.Is(err, setup.ErrCompleted) {
+		t.Fatalf("validation after completion = %v", err)
+	}
+	var events int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM setup_draft_events WHERE event_type='completed'`).Scan(&events); err != nil || events < 1 {
+		t.Fatalf("completion audit events = %d, %v", events, err)
+	}
+	if finished, err := s.SetupWizardComplete(ctx); err != nil || !finished {
+		t.Fatalf("complete after finish = %v, %v", finished, err)
 	}
 }

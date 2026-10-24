@@ -82,6 +82,9 @@ func (c *Checker) Check(ctx context.Context, target setup.Target, settings setup
 	if target == setup.TargetIGDB {
 		return c.igdb(ctx, settings.Providers)
 	}
+	if target == setup.TargetNotifications {
+		return c.apprise(ctx, settings.Notifications)
+	}
 	if kind, ok := setup.LibrarySource(target); ok {
 		return c.library(ctx, kind, settings.Libraries)
 	}
@@ -102,6 +105,41 @@ func (c *Checker) Check(ctx context.Context, target setup.Target, settings setup
 		Status string `json:"status"`
 	}
 	if err := c.request(ctx, http.MethodGet, strings.TrimRight(s.PublicURL, "/")+"/healthz", nil, nil, &result); err != nil || result.Status != "ok" {
+		return setup.CheckUnavailable, errCheck
+	}
+	return setup.CheckOK, nil
+}
+
+// apprise probes the status endpoint of the operator-configured Apprise API.
+// Only the exact REQUESTARR_APPRISE_URL is probed (with the private-address
+// exception), so a draft cannot aim the check at an arbitrary internal host.
+func (c *Checker) apprise(ctx context.Context, n setup.NotificationSettings) (setup.CheckCode, error) {
+	if !n.AppriseEnabled {
+		return setup.CheckDisabled, nil
+	}
+	if n.AppriseURL == "" {
+		return setup.CheckIncomplete, nil
+	}
+	runtime := c.config.Runtime
+	if n.AppriseConfigKeyEnv != setup.AppriseConfigKeyEnv || n.AppriseURL != runtime.AppriseURL || !runtime.AppriseKeyConfigured {
+		return setup.CheckEnvironment, nil
+	}
+	if !setup.ValidServiceURL(n.AppriseURL, runtime.Development) {
+		return setup.CheckIncomplete, nil
+	}
+	ctx = context.WithValue(ctx, trustedDialKey{}, true)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(n.AppriseURL, "/")+"/status", nil)
+	if err != nil {
+		return setup.CheckUnavailable, errCheck
+	}
+	req.Header.Set("User-Agent", "Requestarr/setup-check")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return setup.CheckUnavailable, errCheck
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return setup.CheckUnavailable, errCheck
 	}
 	return setup.CheckOK, nil

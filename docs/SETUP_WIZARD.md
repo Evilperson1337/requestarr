@@ -10,12 +10,31 @@ The server checks the verified session identity, CSRF, and CLI-bound token.
 Successful claims now open the admin-only **Setup** draft at `/setup`.
 
 Existing admins can open Setup from navigation. The wizard handles
-**General → Authentication → Metadata Providers → Libraries**. The Libraries
+**General → Authentication → Metadata Providers → Libraries → Notifications →
+Request Policy → Review**. The Libraries
 step offers one fixed card for each supported adapter kind (Jellyfin, Plex,
 RomM, Navidrome). Draft settings are **inactive**: saving or passing a check never
-changes runtime configuration, hot-swaps OIDC, or marks the configuration wizard
-finished. Notifications, request policy, and final completion remain follow-up work (ticket #22).
-There is deliberately no Finish button in this slice.
+changes runtime configuration or hot-swaps OIDC. Only **Finish** on the Review
+step marks the wizard complete.
+
+- **Notifications:** enable the global Apprise route and record its API URL. The
+  configuration key is the fixed server reference `REQUESTARR_APPRISE_CONFIG_KEY`.
+  The check probes `/status` of the exact `REQUESTARR_APPRISE_URL` only; a
+  different draft URL reports an environment item instead of being probed.
+  In-app notifications are always on.
+- **Request Policy:** choose which media types skip administrator approval.
+  Empty means every request awaits approval. Like the rest of the draft, this is
+  recorded but inactive until the server applies it.
+- **Review:** shows the whole draft, the environment items still outstanding, and
+  any required check that is not checked, failed or expired for the saved
+  revision (General, Authentication, and every enabled provider, library and
+  Apprise). **Run required checks** re-runs them.
+- **Finish:** succeeds only with no outstanding checks, for the exact reviewed
+  revision (`POST /api/v1/admin/setup/finish`), and is audited. Afterwards the
+  draft is read-only (`setup_already_complete`), the Setup navigation link is
+  hidden, and `/setup` shows a completion notice. Public `/setup/status` reports
+  this as `wizardComplete`, separate from first-admin bootstrap `complete`.
+  Finish adds no local-password path; sign-in stays OIDC-only.
 
 The page does not receive identity fields or the setup token from the backend. It does not save the token to browser storage. The token field is cleared as soon as submission begins and after the request finishes. Failed claims use a generic message.
 
@@ -105,14 +124,14 @@ remains inactive even after an environment restart.
 
 Do not expose setup-token output or the token file to untrusted users. Prefer limiting network access to the instance during bootstrap. The UI intentionally does not echo server error bodies on claim failure. The backend never returns the token or verified issuer/subject as setup status.
 
-The draft does not activate settings, edit environment variables, provide a
-temporary/local-password sign-in, or implement Notifications/Apprise,
-Request Policy, Review, or Finish. OIDC must work before the claim UI is usable.
+The draft does not activate settings, edit environment variables, or provide a
+temporary/local-password sign-in. OIDC must work before the claim UI is usable.
 Changing the active issuer still requires operator configuration and restart;
 the existing session is never treated as proof of a new issuer's login flow.
 
 The admin draft API is documented in `api/openapi.yaml`: GET/PUT
-`/api/v1/admin/setup/draft` and POST `/api/v1/admin/setup/validate`. Writes require
+`/api/v1/admin/setup/draft`, POST `/api/v1/admin/setup/validate` and POST
+`/api/v1/admin/setup/finish`. Writes require
 CSRF and Origin checks. Saves and validation results emit value-free audit events
 in the same transaction as their state change. Bootstrap token state remains
 separate and is not changed by draft operations.

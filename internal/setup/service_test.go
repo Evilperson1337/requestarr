@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 )
@@ -21,6 +22,15 @@ func (r *memoryDrafts) LoadSetupDraft(_ context.Context, initial Draft, _ string
 	if r.draft.Revision == 0 {
 		r.draft = initial
 	}
+	return r.draft, nil
+}
+
+func (r *memoryDrafts) CompleteSetupDraft(_ context.Context, _ string, expected int64) (Draft, error) {
+	if expected != r.draft.Revision {
+		return Draft{}, ErrConflict
+	}
+	now := time.Now()
+	r.draft.CompletedAt = &now
 	return r.draft, nil
 }
 

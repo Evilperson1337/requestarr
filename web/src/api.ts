@@ -1,19 +1,23 @@
 export type User = { id: string; role: string; email: string; displayName: string }
 export type Session = { user: User; csrfToken: string }
-export type SetupStatus = { complete: boolean; required: boolean }
+export type SetupStatus = { complete: boolean; required: boolean; wizardComplete?: boolean }
 export type SetupStep = 'general' | 'authentication' | 'providers' | 'libraries' | 'notifications' | 'policy' | 'review'
-export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome'
+export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome' | 'notifications'
 export type SetupSource = { enabled: boolean; url: string; mediaTypes: ('movie' | 'tv' | 'album' | 'song' | 'game')[]; tokenEnv: string; usernameEnv: string; passwordEnv: string }
 export type SetupSettings = {
     general: { instanceName: string; timezone: string; publicUrl: string }
     authentication: { issuer: string; clientId: string; clientSecretEnv: string }
     providers: { tmdbEnabled: boolean; tmdbTokenEnv: string; musicBrainzEnabled: boolean; musicBrainzContact: string; igdbEnabled: boolean; igdbClientId: string; igdbClientSecretEnv: string }
     libraries: { jellyfin: SetupSource; plex: SetupSource; romm: SetupSource; navidrome: SetupSource }
+    notifications: { appriseEnabled: boolean; appriseUrl: string; appriseConfigKeyEnv: string }
+    policy: { autoApproveMediaTypes: SetupSource['mediaTypes'] }
 }
 export type SetupDraft = {
     revision: number; currentStep: SetupStep; settings: SetupSettings; updatedAt: string; inactive: boolean
     validations: { target: SetupTarget; revision: number; valid: boolean; code: string; message: string; checkedAt: string; expiresAt: string }[] | null
     environment: { name: string; secret: boolean; configured: boolean; needsRestart: boolean; desiredValue?: string }[] | null
+    blockers: { target: SetupTarget; reason: 'not_checked' | 'failed' | 'expired' }[] | null
+    completedAt: string | null
 }
 export type CatalogItem = { ID: string; MediaType: string; Provider: string; Title: string; Year: number; ArtworkURL: string; ArtworkKind: string; ExternalURL: string }
 export type Platform = { providerId: string; key: string; name: string }

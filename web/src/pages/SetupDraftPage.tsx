@@ -7,7 +7,10 @@ const steps: { key: SetupStep; label: string }[] = [
     { key: 'notifications', label: 'Notifications' }, { key: 'policy', label: 'Request Policy' }, { key: 'review', label: 'Review' },
 ]
 
-export function SetupDraftPage({ session }: { session: Session }) {
+const blockerReason = { not_checked: 'not checked yet', failed: 'last check failed', expired: 'check expired' } as const
+const mediaLabels = ['movie', 'tv', 'album', 'song', 'game'] as const
+
+export function SetupDraftPage({ session, onFinished }: { session: Session; onFinished?: () => void }) {
     const [draft, setDraft] = useState<SetupDraft | null>(null)
     const [settings, setSettings] = useState<SetupSettings | null>(null)
     const [busy, setBusy] = useState(true)
@@ -68,6 +71,26 @@ export function SetupDraftPage({ session }: { session: Session }) {
             if (!controller.signal.aborted && active.current === controller) setBusy(false)
         }
     }
+    async function finish() {
+        if (!draft || busy) return
+        const controller = begin()
+        try {
+            const result = await api<SetupDraft>('/admin/setup/finish', {
+                method: 'POST', signal: controller.signal, body: JSON.stringify({ expectedRevision: draft.revision }),
+            }, session.csrfToken)
+            if (controller.signal.aborted || active.current !== controller) return
+            accept(result); onFinished?.()
+            requestAnimationFrame(() => heading.current?.focus())
+        } catch (e) {
+            if (!controller.signal.aborted && active.current === controller) {
+                setConflict(e instanceof ApiError && e.code === 'setup_revision_conflict')
+                setError(e instanceof ApiError ? e.message : 'Could not finish setup. Your draft is unchanged; try again.')
+                void api<SetupDraft>('/admin/setup/draft', { cache: 'no-store' }).then(result => { if (active.current === controller) setDraft(result) }, () => undefined)
+            }
+        } finally {
+            if (!controller.signal.aborted && active.current === controller) setBusy(false)
+        }
+    }
     function submit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault()
         const intent = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('value')
@@ -82,10 +105,15 @@ export function SetupDraftPage({ session }: { session: Session }) {
                 if (settings.providers.igdbEnabled) targets.push('igdb')
             }
         }
+        if (intent === 'check') {
+            if (next === 'notifications' && settings?.notifications.appriseEnabled) targets.push('notifications')
+        }
+        if (intent === 'check-all' && draft) targets.push(...draft.blockers?.map(item => item.target) ?? [])
         if (intent === 'check-library') {
             const target = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('data-target')
             if (target?.startsWith('library:')) targets.push(target as SetupTarget)
         }
+        if (intent === 'check-all') { void save('review', targets); return }
         if (next) void save(next, targets)
     }
     function general(key: keyof SetupSettings['general'], value: string) {
@@ -100,12 +128,20 @@ export function SetupDraftPage({ session }: { session: Session }) {
     function source(kind: keyof SetupSettings['libraries'], patch: Partial<SetupSource>) {
         setSettings(current => current && ({ ...current, libraries: { ...current.libraries, [kind]: { ...current.libraries[kind], ...patch } } }))
     }
+    function notifications<K extends keyof SetupSettings['notifications']>(key: K, value: SetupSettings['notifications'][K]) {
+        setSettings(current => current && ({ ...current, notifications: { ...current.notifications, [key]: value } }))
+    }
+    function autoApprove(type: SetupSource['mediaTypes'][number], on: boolean) {
+        setSettings(current => current && ({ ...current, policy: { autoApproveMediaTypes: on ? [...current.policy.autoApproveMediaTypes, type] : current.policy.autoApproveMediaTypes.filter(value => value !== type) } }))
+    }
     const step = draft?.currentStep
-    const editable = step === 'general' || step === 'authentication' || step === 'providers' || step === 'libraries'
+    const completed = !!draft?.completedAt
+    const editable = !completed && (step === 'general' || step === 'authentication' || step === 'providers' || step === 'libraries' || step === 'notifications' || step === 'policy')
+    const blockers = draft?.blockers ?? []
     return <main className="shell draftWizard"><section className="card">
         <p className="eyebrow">Administrator · Shared setup draft</p>
         <h1>Setup · Inactive draft</h1>
-        <p>Saving does not activate or apply configuration and does not complete setup. Server environment changes require an operator restart. Notifications, request policy, and final review are follow-up work.</p>
+        <p>Saving a draft does not activate or apply configuration. Server environment changes require an operator restart. Setup completes only when you finish the Review step with every required check passing.</p>
         {busy && !draft && <p role="status">Loading saved draft…</p>}
         {busy && draft && <p role="status">Updating shared draft… Please wait for saving and any requested checks.</p>}
         {error && <div role="alert" className="errorBox"><p>{error}</p>{!draft && <button className="button secondary" disabled={busy} onClick={() => void load()}>Retry loading draft</button>}</div>}
@@ -113,9 +149,10 @@ export function SetupDraftPage({ session }: { session: Session }) {
         {notice && !busy && <p role="status">{notice}</p>}
         {draft && settings && <>
             <p>Revision {draft.revision} · Saved <time dateTime={draft.updatedAt}>{draft.updatedAt}</time></p>
-            <ol className="draftSteps" aria-label="Setup steps">{steps.map(item => <li key={item.key} aria-current={step === item.key ? 'step' : undefined}>{item.label}{!['general', 'authentication', 'providers', 'libraries'].includes(item.key) && ' · Pending'}</li>)}</ol>
-            <h2 ref={heading} tabIndex={-1}>{steps.find(item => item.key === step)?.label || 'Pending handoff'}</h2>
-            <form className="setupForm" onSubmit={submit} aria-busy={busy}>
+            <ol className="draftSteps" aria-label="Setup steps">{steps.map(item => <li key={item.key} aria-current={step === item.key ? 'step' : undefined}>{item.label}</li>)}</ol>
+            <h2 ref={heading} tabIndex={-1}>{completed ? 'Setup complete' : steps.find(item => item.key === step)?.label || 'Pending handoff'}</h2>
+            {completed && <div role="status" className="setupNotice"><p>An administrator finished setup on <time dateTime={draft.completedAt!}>{draft.completedAt}</time>. The wizard no longer accepts changes. Sign-in remains OIDC-only. Runtime configuration still comes from the server environment.</p></div>}
+            {!completed && <form className="setupForm" onSubmit={submit} aria-busy={busy}>
                 <fieldset disabled={busy} className="draftFields">
                     <legend className="sr-only">{steps.find(item => item.key === step)?.label} settings</legend>
                     {step === 'general' && <>
@@ -161,17 +198,46 @@ export function SetupDraftPage({ session }: { session: Session }) {
                             </div>
                         })}
                     </>}
-                    {!editable && <p>Pending handoff: this step is not implemented yet. The shared draft is saved, but setup is not complete. General, Authentication, Providers, and Libraries remain editable.</p>}
+                    {step === 'notifications' && <>
+                        <p>Global notifications go through an Apprise API. In-app notifications are always on.</p>
+                        <div className="draftProvider"><h3>Apprise</h3>
+                            <label className="draftToggle"><input type="checkbox" checked={settings.notifications.appriseEnabled} onChange={e => notifications('appriseEnabled', e.target.checked)} />Enable Apprise</label>
+                            <label>Apprise API URL<input type="url" maxLength={2048} value={settings.notifications.appriseUrl} onChange={e => notifications('appriseUrl', e.target.value)} /></label>
+                            <p>Configuration key environment reference (read-only): <code>{settings.notifications.appriseConfigKeyEnv}</code>. The URL must match <code>REQUESTARR_APPRISE_URL</code> on the server for the check to pass.</p>
+                        </div>
+                    </>}
+                    {step === 'policy' && <>
+                        <fieldset><legend>Skip administrator approval for</legend>
+                            <p>Requests for media types left unchecked wait for an administrator to approve them.</p>
+                            {mediaLabels.map(type => <label className="draftToggle" key={type}><input type="checkbox" checked={settings.policy.autoApproveMediaTypes.includes(type)} onChange={e => autoApprove(type, e.target.checked)} />{type}</label>)}
+                        </fieldset>
+                    </>}
+                    {step === 'review' && <>
+                        <p>Review the whole draft. Finish is available once every required check has passed for revision {draft.revision}.</p>
+                        <section aria-label="Draft summary"><dl className="draftEnvironment">
+                            <div><dt>General</dt><dd>{settings.general.instanceName} · {settings.general.timezone} · {settings.general.publicUrl}</dd></div>
+                            <div><dt>Authentication</dt><dd>OIDC only · {settings.authentication.issuer} · client {settings.authentication.clientId}</dd></div>
+                            <div><dt>Providers</dt><dd>TMDb {settings.providers.tmdbEnabled ? 'on' : 'off'} · MusicBrainz {settings.providers.musicBrainzEnabled ? 'on' : 'off'} · IGDB {settings.providers.igdbEnabled ? 'on' : 'off'}</dd></div>
+                            {(['jellyfin', 'plex', 'romm', 'navidrome'] as const).map(kind => <div key={kind}><dt>{kind}</dt><dd>{settings.libraries[kind].enabled ? `${settings.libraries[kind].url} · ${settings.libraries[kind].mediaTypes.join(', ') || 'no media types'}` : 'Disabled'}</dd></div>)}
+                            <div><dt>Notifications</dt><dd>In-app · Apprise {settings.notifications.appriseEnabled ? settings.notifications.appriseUrl : 'off'}</dd></div>
+                            <div><dt>Request policy</dt><dd>Auto-approve: {settings.policy.autoApproveMediaTypes.join(', ') || 'none (administrator approval for all)'}</dd></div>
+                        </dl></section>
+                        {blockers.length > 0 ? <div role="alert" className="errorBox"><h3>Cannot finish yet</h3><ul>{blockers.map(item => <li key={item.target}>{item.target}: {blockerReason[item.reason]}</li>)}</ul></div> : <p role="status">All required checks have passed.</p>}
+                    </>}
+                    {!editable && !completed && step !== 'review' && <p>This step is unavailable. Return to General to continue.</p>}
                     <div className="draftActions">
                         {step !== 'general' && <button className="button secondary" type="submit" value="back">Save and back</button>}
                         {editable && <button className="button" type="submit" value="save">Save draft</button>}
                         {(step === 'general' || step === 'authentication') && <button className="button secondary" type="submit" value="check">Check connection</button>}
+                        {step === 'notifications' && <button className="button secondary" type="submit" value="check" disabled={!settings.notifications.appriseEnabled}>Check Apprise connection</button>}
+                        {step === 'review' && <button className="button secondary" type="submit" value="check-all" disabled={blockers.length === 0}>Run required checks</button>}
+                        {step === 'review' && <button className="button" type="button" disabled={busy || blockers.length > 0} onClick={() => void finish()}>Finish setup</button>}
                         {step === 'providers' && <button className="button secondary" type="submit" value="check" disabled={!settings.providers.tmdbEnabled && !settings.providers.musicBrainzEnabled && !settings.providers.igdbEnabled}>Check enabled providers</button>}
                         {editable && <button className="button secondary" type="submit" value="next">Save and next</button>}
-                        {!editable && <button className="button secondary" type="button" onClick={() => void save('general')}>Return to General</button>}
+                        {!editable && step !== 'review' && <button className="button secondary" type="button" onClick={() => void save('general')}>Return to General</button>}
                     </div>
                 </fieldset>
-            </form>
+            </form>}
             <section aria-label="Connection check results">
                 <p>Connection results apply only to saved revision {draft.revision}, not unsaved edits. Expired checks must be run again before relying on them.</p>
                 {(draft.validations || []).filter(check => check.revision === draft.revision).map(check => <div key={check.target} role={check.valid ? 'status' : 'alert'} className={check.valid ? 'setupNotice' : 'errorBox'}>

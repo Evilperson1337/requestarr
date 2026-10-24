@@ -13,7 +13,11 @@ function draft() {
                 romm: { enabled: false, url: '', mediaTypes: [], tokenEnv: 'REQUESTARR_ROMM_TOKEN', usernameEnv: '', passwordEnv: '' },
                 navidrome: { enabled: false, url: '', mediaTypes: [], tokenEnv: '', usernameEnv: 'REQUESTARR_NAVIDROME_USERNAME', passwordEnv: 'REQUESTARR_NAVIDROME_PASSWORD' },
             },
+            notifications: { appriseEnabled: false, appriseUrl: '', appriseConfigKeyEnv: 'REQUESTARR_APPRISE_CONFIG_KEY' },
+            policy: { autoApproveMediaTypes: [] as string[] },
         },
+        blockers: [] as { target: string; reason: string }[],
+        completedAt: null as string | null,
         validations: [] as { target: string; revision: number; valid: boolean; code: string; message: string; checkedAt: string; expiresAt: string }[],
         environment: [
             { name: 'REQUESTARR_OIDC_CLIENT_SECRET', secret: true, configured: true, needsRestart: false },
@@ -46,6 +50,12 @@ async function mockSetup(page: Page, role = 'admin') {
             expect(request.headers()['x-csrf-token']).toBe('csrf-token')
             expect(body.expectedRevision).toBe(state.saved.revision)
             state.saved.validations.push({ target: body.target, revision: state.saved.revision, valid: false, code: 'connection_failed', message: 'The service could not be reached.', checkedAt: '2026-10-01T12:00:00Z', expiresAt: '2026-10-01T12:15:00Z' })
+            return route.fulfill({ json: state.saved })
+        }
+        if (path.endsWith('/admin/setup/finish')) {
+            expect(request.headers()['x-csrf-token']).toBe('csrf-token')
+            if (state.saved.blockers.length) return route.fulfill({ status: 422, json: { error: { code: 'setup_not_ready', message: 'Every required connection check must pass before finishing.' } } })
+            state.saved = { ...state.saved, completedAt: '2026-10-01T12:30:00Z' }
             return route.fulfill({ json: state.saved })
         }
         return route.fulfill({ json: { items: [], nextCursor: null } })
@@ -292,4 +302,38 @@ test('invalid settings keep edits and do not run connection checks until saving 
     await page.getByRole('button', { name: 'Save draft', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('Draft saved')
     expect(state.saved.settings.general.timezone).toBe('America/New_York')
+})
+
+test('review lists blockers, finish is disabled until checks pass, then setup completes and the wizard disappears', async ({ page }) => {
+    const state = await mockSetup(page)
+    state.saved = { ...state.saved, currentStep: 'review', blockers: [{ target: 'general', reason: 'not_checked' }, { target: 'tmdb', reason: 'failed' }] }
+    await page.route('**/api/v1/setup/status', route => route.fulfill({ json: { complete: true, required: false, wizardComplete: !!state.saved.completedAt } }))
+    await page.goto('/setup')
+    await expect(page.getByRole('heading', { name: 'Review', exact: true })).toBeVisible()
+    await expect(page.getByLabel('Draft summary')).toContainText('OIDC only')
+    await expect(page.getByRole('alert')).toContainText('tmdb: last check failed')
+    await expect(page.getByRole('button', { name: 'Finish setup' })).toBeDisabled()
+    expect(state.calls.filter(call => call.path.endsWith('/finish'))).toHaveLength(0)
+    state.saved = { ...state.saved, blockers: [] }
+    await page.reload()
+    await expect(page.getByRole('button', { name: 'Finish setup' })).toBeEnabled()
+    await page.getByRole('button', { name: 'Finish setup' }).click()
+    await expect(page.getByRole('heading', { name: 'Setup complete' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Finish setup' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Setup', exact: true })).toHaveCount(0)
+})
+
+test('notifications and request policy steps save their non-secret fields', async ({ page }) => {
+    const state = await mockSetup(page)
+    state.saved = { ...state.saved, currentStep: 'notifications' }
+    await page.goto('/setup')
+    await page.getByLabel('Enable Apprise').check()
+    await page.getByLabel('Apprise API URL').fill('https://apprise.example.test')
+    await page.getByRole('button', { name: 'Save and next' }).click()
+    await expect(page.getByRole('heading', { name: 'Request Policy', exact: true })).toBeVisible()
+    await page.getByLabel('movie').check()
+    await page.getByRole('button', { name: 'Save and next' }).click()
+    await expect(page.getByRole('heading', { name: 'Review', exact: true })).toBeVisible()
+    expect(state.saved.settings.notifications.appriseUrl).toBe('https://apprise.example.test')
+    expect(state.saved.settings.policy.autoApproveMediaTypes).toEqual(['movie'])
 })

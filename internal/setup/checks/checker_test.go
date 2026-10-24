@@ -214,3 +214,41 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 		})
 	}
 }
+
+func TestAppriseCheckProbesOnlyTheConfiguredServiceAndNeverSendsTheKey(t *testing.T) {
+	var path string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.RequestURI()
+		if r.Method != http.MethodGet || strings.Contains(r.URL.String(), "secret-key") || r.Header.Get("Authorization") != "" {
+			t.Errorf("unsafe Apprise probe: %s %s", r.Method, r.URL)
+		}
+		_, _ = w.Write([]byte("OK"))
+	}))
+	defer server.Close()
+	runtime := setup.Runtime{AppriseURL: server.URL, AppriseKeyConfigured: true, Development: true}
+	checker := checks.New(checks.Config{Runtime: runtime, Client: server.Client()})
+	notify := func(n setup.NotificationSettings) setup.CheckCode {
+		code, err := checker.Check(context.Background(), setup.TargetNotifications, setup.Settings{Notifications: n})
+		if code == setup.CheckOK && err != nil {
+			t.Fatal(err)
+		}
+		return code
+	}
+	enabled := setup.NotificationSettings{AppriseEnabled: true, AppriseURL: server.URL, AppriseConfigKeyEnv: setup.AppriseConfigKeyEnv}
+	if code := notify(enabled); code != setup.CheckOK || path != "/status" {
+		t.Fatalf("configured Apprise = %q path %q", code, path)
+	}
+	if code := notify(setup.NotificationSettings{AppriseConfigKeyEnv: setup.AppriseConfigKeyEnv}); code != setup.CheckDisabled {
+		t.Fatalf("disabled = %q", code)
+	}
+	other := enabled
+	other.AppriseURL = "http://169.254.169.254"
+	if code := notify(other); code != setup.CheckEnvironment {
+		t.Fatalf("unconfigured URL probed: %q", code)
+	}
+	missing := enabled
+	missing.AppriseURL = ""
+	if code := notify(missing); code != setup.CheckIncomplete {
+		t.Fatalf("incomplete = %q", code)
+	}
+}
