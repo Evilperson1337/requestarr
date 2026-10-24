@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
 type Repository interface {
@@ -31,11 +33,13 @@ func (s *Service) initial() Draft {
 		General:        GeneralSettings{InstanceName: "Requestarr", Timezone: "UTC", PublicURL: s.runtime.PublicURL},
 		Authentication: AuthenticationSettings{Issuer: s.runtime.OIDCIssuer, ClientID: s.runtime.OIDCClientID, ClientSecretEnv: OIDCSecretEnv},
 		Providers:      ProviderSettings{TMDBEnabled: true, TMDBTokenEnv: TMDBTokenEnv, MusicBrainzEnabled: true, IGDBEnabled: true, IGDBClientID: s.runtime.IGDBClientID, IGDBClientSecretEnv: IGDBSecretEnv},
+		Libraries:      defaultLibraries(s.runtime),
 	}}
 }
 
 func (s *Service) decorate(d Draft) Draft {
 	d.Inactive = true
+	d.Settings.Libraries = normalizeLibraries(d.Settings.Libraries, s.runtime)
 	if d.Validations == nil {
 		d.Validations = []Validation{}
 	}
@@ -53,7 +57,114 @@ func (s *Service) decorate(d Draft) Draft {
 			EnvironmentItem{Name: "REQUESTARR_IGDB_CLIENT_ID", Configured: s.runtime.IGDBClientID != "", NeedsRestart: d.Settings.Providers.IGDBClientID != s.runtime.IGDBClientID, DesiredValue: d.Settings.Providers.IGDBClientID},
 			EnvironmentItem{Name: IGDBSecretEnv, Secret: true, Configured: s.runtime.IGDBSecretConfigured, NeedsRestart: !s.runtime.IGDBSecretConfigured || d.Settings.Providers.IGDBClientID != s.runtime.IGDBClientID})
 	}
+	for _, entry := range []struct {
+		kind   string
+		source SourceSettings
+	}{
+		{"jellyfin", d.Settings.Libraries.Jellyfin}, {"plex", d.Settings.Libraries.Plex},
+		{"romm", d.Settings.Libraries.Romm}, {"navidrome", d.Settings.Libraries.Navidrome},
+	} {
+		kind, source := entry.kind, entry.source
+		var url, secretEnv string
+		switch kind {
+		case "jellyfin":
+			url, secretEnv = "REQUESTARR_JELLYFIN_URL", source.TokenEnv
+		case "plex":
+			url, secretEnv = "REQUESTARR_PLEX_URL", source.TokenEnv
+		case "romm":
+			url, secretEnv = "REQUESTARR_ROMM_URL", source.TokenEnv
+		case "navidrome":
+			url, secretEnv = "REQUESTARR_NAVIDROME_URL", source.PasswordEnv
+		}
+		activeURL := s.runtime.LibraryURLs[kind]
+		activeTypes := defaultSourceMediaTypes(kind)
+		needsRestart := source.URL != activeURL || source.Enabled != (activeURL != "") || source.Enabled && !sameMediaTypes(source.MediaTypes, activeTypes)
+		d.Environment = append(d.Environment, EnvironmentItem{Name: url, Configured: activeURL != "", NeedsRestart: needsRestart, DesiredValue: source.URL})
+		if kind == "navidrome" {
+			d.Environment = append(d.Environment, EnvironmentItem{Name: source.UsernameEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind+"Username"], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind+"Username"]}, EnvironmentItem{Name: secretEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind+"Password"], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind+"Password"]})
+		} else {
+			d.Environment = append(d.Environment, EnvironmentItem{Name: secretEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind]})
+		}
+	}
 	return d
+}
+
+func defaultLibraries(runtime Runtime) LibrariesSettings {
+	return LibrariesSettings{
+		Jellyfin:  SourceSettings{Enabled: runtime.LibraryURLs["jellyfin"] != "", URL: runtime.LibraryURLs["jellyfin"], MediaTypes: defaultSourceMediaTypes("jellyfin"), TokenEnv: JellyfinAPIKeyEnv},
+		Plex:      SourceSettings{Enabled: runtime.LibraryURLs["plex"] != "", URL: runtime.LibraryURLs["plex"], MediaTypes: defaultSourceMediaTypes("plex"), TokenEnv: PlexTokenEnv},
+		Romm:      SourceSettings{Enabled: runtime.LibraryURLs["romm"] != "", URL: runtime.LibraryURLs["romm"], MediaTypes: defaultSourceMediaTypes("romm"), TokenEnv: RommTokenEnv},
+		Navidrome: SourceSettings{Enabled: runtime.LibraryURLs["navidrome"] != "", URL: runtime.LibraryURLs["navidrome"], MediaTypes: defaultSourceMediaTypes("navidrome"), UsernameEnv: NavidromeUsernameEnv, PasswordEnv: NavidromePasswordEnv},
+	}
+}
+
+func normalizeLibraries(l LibrariesSettings, runtime Runtime) LibrariesSettings {
+	if emptySource(l.Jellyfin) && emptySource(l.Plex) && emptySource(l.Romm) && emptySource(l.Navidrome) {
+		return defaultLibraries(runtime)
+	}
+	defaults := map[string]*SourceSettings{"jellyfin": &l.Jellyfin, "plex": &l.Plex, "romm": &l.Romm, "navidrome": &l.Navidrome}
+	for kind, source := range defaults {
+		if source.MediaTypes == nil {
+			source.MediaTypes = []domain.MediaType{}
+		}
+		switch kind {
+		case "jellyfin":
+			if source.TokenEnv == "" {
+				source.TokenEnv = JellyfinAPIKeyEnv
+			}
+		case "plex":
+			if source.TokenEnv == "" {
+				source.TokenEnv = PlexTokenEnv
+			}
+		case "romm":
+			if source.TokenEnv == "" {
+				source.TokenEnv = RommTokenEnv
+			}
+		case "navidrome":
+			if source.UsernameEnv == "" {
+				source.UsernameEnv = NavidromeUsernameEnv
+			}
+			if source.PasswordEnv == "" {
+				source.PasswordEnv = NavidromePasswordEnv
+			}
+		}
+	}
+	return l
+}
+
+func emptySource(s SourceSettings) bool {
+	return !s.Enabled && s.URL == "" && len(s.MediaTypes) == 0 && s.TokenEnv == "" && s.UsernameEnv == "" && s.PasswordEnv == ""
+}
+
+func defaultSourceMediaTypes(kind string) []domain.MediaType {
+	switch kind {
+	case "jellyfin":
+		return []domain.MediaType{domain.MediaMovie, domain.MediaTV}
+	case "plex":
+		return []domain.MediaType{domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong}
+	case "romm":
+		return []domain.MediaType{domain.MediaGame}
+	case "navidrome":
+		return []domain.MediaType{domain.MediaAlbum, domain.MediaSong}
+	default:
+		return nil
+	}
+}
+
+func sameMediaTypes(a, b []domain.MediaType) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[domain.MediaType]bool, len(a))
+	for _, media := range a {
+		set[media] = true
+	}
+	for _, media := range b {
+		if !set[media] {
+			return false
+		}
+	}
+	return true
 }
 
 func requireAdmin(actor Actor) error {

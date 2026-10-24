@@ -52,8 +52,9 @@ func mutationCases() []mutationCase {
 		// token, not a pre-existing admin role. Its real repository is tested
 		// independently for single-use and last-admin serialization.
 		{"claim initial admin", "POST /setup/claim-admin", "/setup/claim-admin", `{"issuer":"https://issuer.example","subject":"subject-1","token":"` + matrixToken + `"}`, "authenticated", 204, "bootstrap.claim"},
-		{"save setup draft", "PUT /admin/setup/draft", "/admin/setup/draft", `{"expectedRevision":1,"currentStep":"general","settings":{"general":{"instanceName":"","timezone":"","publicUrl":""},"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"}}}`, "admin", 200, "setup.save"},
+		{"save setup draft", "PUT /admin/setup/draft", "/admin/setup/draft", validSetupDraftBody(), "admin", 200, "setup.save"},
 		{"validate setup", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"general"}`, "admin", 200, "setup.validate"},
+		{"validate library", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"library:plex"}`, "admin", 200, "setup.validate"},
 	}
 }
 

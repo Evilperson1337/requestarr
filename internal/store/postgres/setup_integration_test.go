@@ -121,7 +121,7 @@ func TestSetupDraftValidationIsRevisionBoundIntegration(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	failed := setup.Validation{Target: setup.TargetTMDB, Revision: draft.Revision, Code: setup.CheckUnavailable, Message: "Connection failed.", CheckedAt: now, ExpiresAt: now.Add(10 * time.Minute)}
 	checked, err := s.RecordSetupValidation(ctx, actor, 1, failed)
-	if err != nil || len(checked.Validations) != 1 || checked.Validations[0] != failed || checked.Revision != 1 || checked.CurrentStep != draft.CurrentStep || checked.Settings != draft.Settings {
+	if err != nil || len(checked.Validations) != 1 || checked.Validations[0] != failed || checked.Revision != 1 || checked.CurrentStep != draft.CurrentStep || !reflect.DeepEqual(checked.Settings, draft.Settings) {
 		t.Fatalf("failed validation = %+v, error = %v", checked, err)
 	}
 	resumed, err := s.LoadSetupDraft(ctx, initialSetupDraft(), actor)
@@ -237,11 +237,11 @@ func TestSetupDraftStoresOnlyTypedConfigurationIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stored setup.Settings
-	if err := json.Unmarshal([]byte(raw), &stored); err != nil || stored != input.Settings {
+	if err := json.Unmarshal([]byte(raw), &stored); err != nil || !reflect.DeepEqual(stored, input.Settings) {
 		t.Fatalf("stored settings=%+v error=%v", stored, err)
 	}
 	var object map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(raw), &object); err != nil || len(object) != 3 || object["general"] == nil || object["authentication"] == nil || object["providers"] == nil {
+	if err := json.Unmarshal([]byte(raw), &object); err != nil || len(object) != 4 || object["general"] == nil || object["authentication"] == nil || object["providers"] == nil || object["libraries"] == nil {
 		t.Fatalf("stored JSON is not the closed settings schema: %s error=%v", raw, err)
 	}
 	if strings.Contains(raw+validations+audit, "never-persist-this") {
@@ -252,7 +252,7 @@ func TestSetupDraftStoresOnlyTypedConfigurationIntegration(t *testing.T) {
 			t.Fatalf("persisted runtime/secret field %q", forbidden)
 		}
 	}
-	for _, env := range []string{setup.OIDCSecretEnv, setup.TMDBTokenEnv, setup.IGDBSecretEnv} {
+	for _, env := range []string{setup.OIDCSecretEnv, setup.TMDBTokenEnv, setup.IGDBSecretEnv, setup.JellyfinAPIKeyEnv, setup.PlexTokenEnv, setup.RommTokenEnv, setup.NavidromeUsernameEnv, setup.NavidromePasswordEnv} {
 		if !strings.Contains(raw, env) {
 			t.Errorf("missing environment reference %q", env)
 		}

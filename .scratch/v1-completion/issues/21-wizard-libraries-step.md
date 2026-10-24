@@ -4,9 +4,9 @@
 
 **Blocked by:** 20 Wizard draft and first steps, 12 Plex music, 13 RomM games, 14 Jellyfin onto the adapter interface, 15 Navidrome
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each Source can be added, validated and given its media types
-- [ ] A Source authoritative only for configured media types is enforced
-- [ ] Invalid connections give actionable errors and do not block saving the draft
-- [ ] Tests cover each Source's validation path with fakes
+- [x] Each Source can be added, validated and given its media types
+- [x] A Source authoritative only for configured media types is enforced
+- [x] Invalid connections give actionable errors and do not block saving the draft
+- [x] Tests cover each Source's validation path with fakes

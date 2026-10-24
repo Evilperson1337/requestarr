@@ -9,11 +9,12 @@ offers OIDC sign-in and collects the exact issuer/subject and one-time token.
 The server checks the verified session identity, CSRF, and CLI-bound token.
 Successful claims now open the admin-only **Setup** draft at `/setup`.
 
-Existing admins can open Setup from navigation. The first wizard slice handles
-**General → Authentication → Metadata Providers**, with a saved handoff to
-Libraries. Draft settings are **inactive**: saving or passing a check never
+Existing admins can open Setup from navigation. The wizard handles
+**General → Authentication → Metadata Providers → Libraries**. The Libraries
+step offers one fixed card for each supported adapter kind (Jellyfin, Plex,
+RomM, Navidrome). Draft settings are **inactive**: saving or passing a check never
 changes runtime configuration, hot-swaps OIDC, or marks the configuration wizard
-finished. Libraries and final completion remain follow-up work (tickets #21/#22).
+finished. Notifications, request policy, and final completion remain follow-up work (ticket #22).
 There is deliberately no Finish button in this slice.
 
 The page does not receive identity fields or the setup token from the backend. It does not save the token to browser storage. The token field is cleared as soon as submission begins and after the request finishes. Failed claims use a generic message.
@@ -33,13 +34,19 @@ The page does not receive identity fields or the setup token from the backend. I
 ## Saving and resuming
 
 The shared PostgreSQL draft stores instance name, IANA timezone, public URL,
-OIDC issuer/client ID, provider enablement/contact/client ID, and fixed secret
+OIDC issuer/client ID, provider enablement/contact/client ID, library Source URLs,
+enabled flags and supported authoritative media types, and fixed secret
 environment-variable names. It does not store secret values or runtime secret
 presence flags. No secret-valued form fields are offered. Secret references are:
 
 - `REQUESTARR_OIDC_CLIENT_SECRET`
 - `REQUESTARR_TMDB_READ_TOKEN`
 - `REQUESTARR_IGDB_CLIENT_SECRET`
+- `REQUESTARR_JELLYFIN_API_KEY`
+- `REQUESTARR_PLEX_TOKEN`
+- `REQUESTARR_ROMM_TOKEN`
+- `REQUESTARR_NAVIDROME_USERNAME`
+- `REQUESTARR_NAVIDROME_PASSWORD`
 
 Use **Save draft** or the step navigation controls to persist edits and the
 resume position. Saves use optimistic revisions; a concurrent change returns a
@@ -70,12 +77,18 @@ fixed safe message, never a raw service error or credential-bearing payload.
   and the draft's contact email; no secret is required.
 - **IGDB:** checks fixed Twitch client-credentials and IGDB platform endpoints
   using the configured client ID and server-side secret.
+- **Libraries:** each enabled Source has an explicit, bounded connection check
+  using server-side credentials. A passed check proves connectivity only; it is
+  not an inventory sync. Selected media types are limited to adapter capabilities
+  and define that Source's intended authority in this inactive draft.
 
 Checks have context cancellation, a ten-second deadline, a 1 MiB JSON response
 limit, and disabled redirects. Arbitrary private/link-local/loopback destinations
 are blocked at a DNS-validated, pinned dial boundary. The exact configured OIDC
 issuer and configured public origin are operator-trusted exceptions for internal
-deployments; changing a private candidate or its port does not gain that trust.
+deployments. Each library probe is an explicit administrator action against its
+validated operator-entered origin; redirects are disabled and DNS is pinned for
+that probe. Changing another private candidate does not gain trust.
 An explicit check can fail behind deployment firewalls/proxies even when local
 configuration is syntactically valid; it never changes known library availability.
 
@@ -93,7 +106,7 @@ remains inactive even after an environment restart.
 Do not expose setup-token output or the token file to untrusted users. Prefer limiting network access to the instance during bootstrap. The UI intentionally does not echo server error bodies on claim failure. The backend never returns the token or verified issuer/subject as setup status.
 
 The draft does not activate settings, edit environment variables, provide a
-temporary/local-password sign-in, or implement Libraries, Notifications/Apprise,
+temporary/local-password sign-in, or implement Notifications/Apprise,
 Request Policy, Review, or Finish. OIDC must work before the claim UI is usable.
 Changing the active issuer still requires operator configuration and restart;
 the existing session is never treated as proof of a new issuer's login flow.

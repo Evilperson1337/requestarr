@@ -7,6 +7,12 @@ function draft() {
             general: { instanceName: 'Requestarr', timezone: 'UTC', publicUrl: 'https://requests.example.test' },
             authentication: { issuer: 'https://identity.example.test', clientId: 'requestarr', clientSecretEnv: 'REQUESTARR_OIDC_CLIENT_SECRET' },
             providers: { tmdbEnabled: true, tmdbTokenEnv: 'REQUESTARR_TMDB_READ_TOKEN', musicBrainzEnabled: true, musicBrainzContact: '', igdbEnabled: false, igdbClientId: '', igdbClientSecretEnv: 'REQUESTARR_IGDB_CLIENT_SECRET' },
+            libraries: {
+                jellyfin: { enabled: false, url: '', mediaTypes: [], tokenEnv: 'REQUESTARR_JELLYFIN_API_KEY', usernameEnv: '', passwordEnv: '' },
+                plex: { enabled: false, url: '', mediaTypes: [], tokenEnv: 'REQUESTARR_PLEX_TOKEN', usernameEnv: '', passwordEnv: '' },
+                romm: { enabled: false, url: '', mediaTypes: [], tokenEnv: 'REQUESTARR_ROMM_TOKEN', usernameEnv: '', passwordEnv: '' },
+                navidrome: { enabled: false, url: '', mediaTypes: [], tokenEnv: '', usernameEnv: 'REQUESTARR_NAVIDROME_USERNAME', passwordEnv: 'REQUESTARR_NAVIDROME_PASSWORD' },
+            },
         },
         validations: [] as { target: string; revision: number; valid: boolean; code: string; message: string; checkedAt: string; expiresAt: string }[],
         environment: [
@@ -87,7 +93,7 @@ test('explicit connection check saves first; a failed check leaves settings save
     expect(state.saved.validations).toEqual([])
 })
 
-test('providers save only non-secret settings, check enabled providers, and hand off to pending Libraries', async ({ page }) => {
+test('providers save only non-secret settings, check enabled providers, and configure a Source in Libraries', async ({ page }) => {
     const state = await mockSetup(page)
     state.saved.currentStep = 'providers'
     await page.goto('/setup')
@@ -114,9 +120,20 @@ test('providers save only non-secret settings, check enabled providers, and hand
     expect(await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))).toEqual({ local: {}, session: {} })
     await page.getByRole('button', { name: 'Save and next' }).click()
     await expect(page.getByRole('heading', { name: 'Libraries', exact: true })).toBeVisible()
-    await expect(page.getByText('Pending handoff:', { exact: false })).toBeVisible()
+    await expect(page.getByText('REQUESTARR_PLEX_TOKEN', { exact: true })).toBeVisible()
+    await expect(page.getByText('REQUESTARR_NAVIDROME_USERNAME', { exact: true })).toBeVisible()
+    await expect(page.getByText('REQUESTARR_NAVIDROME_PASSWORD', { exact: true })).toBeVisible()
+    await expect(page.locator('input[type=password]')).toHaveCount(0)
+    await page.getByLabel('Enable Plex').check()
+    await page.getByLabel('Plex URL').fill('https://plex.example.test')
+    await page.getByRole('checkbox', { name: 'movie', exact: true }).nth(1).check()
+    await page.getByRole('button', { name: 'Check Plex connection' }).click()
+    await expect(page.getByRole('alert')).toContainText('connection_failed')
+    expect(state.calls.filter(call => call.method !== 'GET').slice(-2).map(call => [call.method, call.body.target])).toEqual([['PUT', undefined], ['POST', 'library:plex']])
+    expect(state.saved.settings.libraries.plex).toMatchObject({ enabled: true, url: 'https://plex.example.test', mediaTypes: ['movie'], tokenEnv: 'REQUESTARR_PLEX_TOKEN' })
     await page.reload()
     await expect(page.getByRole('heading', { name: 'Libraries', exact: true })).toBeVisible()
+    await expect(page.getByLabel('Plex URL')).toHaveValue('https://plex.example.test')
     await page.getByRole('button', { name: 'Save and back' }).click()
     await expect(page.getByLabel('IGDB client ID')).toHaveValue('public-client-id')
 })

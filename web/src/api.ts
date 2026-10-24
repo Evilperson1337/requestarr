@@ -2,11 +2,13 @@ export type User = { id: string; role: string; email: string; displayName: strin
 export type Session = { user: User; csrfToken: string }
 export type SetupStatus = { complete: boolean; required: boolean }
 export type SetupStep = 'general' | 'authentication' | 'providers' | 'libraries' | 'notifications' | 'policy' | 'review'
-export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb'
+export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome'
+export type SetupSource = { enabled: boolean; url: string; mediaTypes: ('movie' | 'tv' | 'album' | 'song' | 'game')[]; tokenEnv: string; usernameEnv: string; passwordEnv: string }
 export type SetupSettings = {
     general: { instanceName: string; timezone: string; publicUrl: string }
     authentication: { issuer: string; clientId: string; clientSecretEnv: string }
     providers: { tmdbEnabled: boolean; tmdbTokenEnv: string; musicBrainzEnabled: boolean; musicBrainzContact: string; igdbEnabled: boolean; igdbClientId: string; igdbClientSecretEnv: string }
+    libraries: { jellyfin: SetupSource; plex: SetupSource; romm: SetupSource; navidrome: SetupSource }
 }
 export type SetupDraft = {
     revision: number; currentStep: SetupStep; settings: SetupSettings; updatedAt: string; inactive: boolean

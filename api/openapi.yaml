@@ -387,7 +387,7 @@ paths:
               required: [expectedRevision, target]
               properties:
                 expectedRevision: { type: integer, minimum: 1 }
-                target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb] }
+                target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome] }
       responses:
         '200':
           description: Draft with a revision-bound safe validation result; valid may be false
@@ -524,7 +524,7 @@ components:
     SetupSettings:
       type: object
       additionalProperties: false
-      required: [general, authentication, providers]
+      required: [general, authentication, providers, libraries]
       properties:
         general:
           type: object
@@ -554,6 +554,26 @@ components:
             igdbEnabled: { type: boolean }
             igdbClientId: { type: string, maxLength: 256 }
             igdbClientSecretEnv: { type: string, enum: [REQUESTARR_IGDB_CLIENT_SECRET] }
+        libraries:
+          type: object
+          additionalProperties: false
+          required: [jellyfin, plex, romm, navidrome]
+          properties:
+            jellyfin: { $ref: '#/components/schemas/SetupSource' }
+            plex: { $ref: '#/components/schemas/SetupSource' }
+            romm: { $ref: '#/components/schemas/SetupSource' }
+            navidrome: { $ref: '#/components/schemas/SetupSource' }
+    SetupSource:
+      type: object
+      additionalProperties: false
+      required: [enabled, url, mediaTypes, tokenEnv, usernameEnv, passwordEnv]
+      properties:
+        enabled: { type: boolean }
+        url: { type: string, maxLength: 2048, description: "Empty while drafting or an absolute origin" }
+        mediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game] } }
+        tokenEnv: { type: string, enum: ["", REQUESTARR_JELLYFIN_API_KEY, REQUESTARR_PLEX_TOKEN, REQUESTARR_ROMM_TOKEN] }
+        usernameEnv: { type: string, enum: ["", REQUESTARR_NAVIDROME_USERNAME] }
+        passwordEnv: { type: string, enum: ["", REQUESTARR_NAVIDROME_PASSWORD] }
     SetupDraft:
       type: object
       required: [revision, currentStep, settings, validations, updatedAt, inactive, environment]
@@ -569,7 +589,7 @@ components:
             type: object
             required: [target, revision, valid, code, message, checkedAt, expiresAt]
             properties:
-              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb] }
+              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome] }
               revision: { type: integer }
               valid: { type: boolean }
               code: { type: string, enum: [connected, connection_failed, environment_required, incomplete_settings, disabled] }

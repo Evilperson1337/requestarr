@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, ApiError, type Session, type SetupDraft, type SetupSettings, type SetupStep, type SetupTarget } from '../api'
+import { api, ApiError, type Session, type SetupDraft, type SetupSettings, type SetupStep, type SetupTarget, type SetupSource } from '../api'
 
 const steps: { key: SetupStep; label: string }[] = [
     { key: 'general', label: 'General' }, { key: 'authentication', label: 'Authentication' },
@@ -82,6 +82,10 @@ export function SetupDraftPage({ session }: { session: Session }) {
                 if (settings.providers.igdbEnabled) targets.push('igdb')
             }
         }
+        if (intent === 'check-library') {
+            const target = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('data-target')
+            if (target?.startsWith('library:')) targets.push(target as SetupTarget)
+        }
         if (next) void save(next, targets)
     }
     function general(key: keyof SetupSettings['general'], value: string) {
@@ -93,12 +97,15 @@ export function SetupDraftPage({ session }: { session: Session }) {
     function provider<K extends keyof SetupSettings['providers']>(key: K, value: SetupSettings['providers'][K]) {
         setSettings(current => current && ({ ...current, providers: { ...current.providers, [key]: value } }))
     }
+    function source(kind: keyof SetupSettings['libraries'], patch: Partial<SetupSource>) {
+        setSettings(current => current && ({ ...current, libraries: { ...current.libraries, [kind]: { ...current.libraries[kind], ...patch } } }))
+    }
     const step = draft?.currentStep
-    const editable = step === 'general' || step === 'authentication' || step === 'providers'
+    const editable = step === 'general' || step === 'authentication' || step === 'providers' || step === 'libraries'
     return <main className="shell draftWizard"><section className="card">
         <p className="eyebrow">Administrator · Shared setup draft</p>
         <h1>Setup · Inactive draft</h1>
-        <p>Saving does not activate or apply configuration and does not complete setup. Server environment changes require an operator restart. Libraries, notifications, policy, and final review are follow-up work, not complete.</p>
+        <p>Saving does not activate or apply configuration and does not complete setup. Server environment changes require an operator restart. Notifications, request policy, and final review are follow-up work.</p>
         {busy && !draft && <p role="status">Loading saved draft…</p>}
         {busy && draft && <p role="status">Updating shared draft… Please wait for saving and any requested checks.</p>}
         {error && <div role="alert" className="errorBox"><p>{error}</p>{!draft && <button className="button secondary" disabled={busy} onClick={() => void load()}>Retry loading draft</button>}</div>}
@@ -106,7 +113,7 @@ export function SetupDraftPage({ session }: { session: Session }) {
         {notice && !busy && <p role="status">{notice}</p>}
         {draft && settings && <>
             <p>Revision {draft.revision} · Saved <time dateTime={draft.updatedAt}>{draft.updatedAt}</time></p>
-            <ol className="draftSteps" aria-label="Setup steps">{steps.map(item => <li key={item.key} aria-current={step === item.key ? 'step' : undefined}>{item.label}{!['general', 'authentication', 'providers'].includes(item.key) && ' · Pending'}</li>)}</ol>
+            <ol className="draftSteps" aria-label="Setup steps">{steps.map(item => <li key={item.key} aria-current={step === item.key ? 'step' : undefined}>{item.label}{!['general', 'authentication', 'providers', 'libraries'].includes(item.key) && ' · Pending'}</li>)}</ol>
             <h2 ref={heading} tabIndex={-1}>{steps.find(item => item.key === step)?.label || 'Pending handoff'}</h2>
             <form className="setupForm" onSubmit={submit} aria-busy={busy}>
                 <fieldset disabled={busy} className="draftFields">
@@ -138,7 +145,23 @@ export function SetupDraftPage({ session }: { session: Session }) {
                             <p>Client secret environment reference (read-only): <code>REQUESTARR_IGDB_CLIENT_SECRET</code></p>
                         </div>
                     </>}
-                    {!editable && <p>Pending handoff: this step is not implemented yet. The shared draft is saved, but setup is not complete. The first three steps remain editable.</p>}
+                    {step === 'libraries' && <>
+                        <p>Choose which media types each Source is authoritative for. Draft settings remain inactive; checks do not sync inventory or change availability.</p>
+                        {(['jellyfin', 'plex', 'romm', 'navidrome'] as const).map(kind => {
+                            const media = kind === 'jellyfin' ? ['movie', 'tv'] : kind === 'plex' ? ['movie', 'tv', 'album', 'song'] : kind === 'romm' ? ['game'] : ['album', 'song']
+                            const item = settings.libraries[kind]
+                            const title = kind === 'romm' ? 'RomM' : kind[0].toUpperCase() + kind.slice(1)
+                            return <div className="draftProvider" key={kind}>
+                                <h3>{title}</h3>
+                                <label className="draftToggle"><input type="checkbox" checked={item.enabled} onChange={e => source(kind, { enabled: e.target.checked })} />Enable {title}</label>
+                                <label>{title} URL<input type="url" maxLength={2048} value={item.url} onChange={e => source(kind, { url: e.target.value })} /></label>
+                                <fieldset><legend>Authoritative media types</legend>{media.map(type => <label className="draftToggle" key={type}><input type="checkbox" checked={item.mediaTypes.includes(type as SetupSource['mediaTypes'][number])} onChange={e => source(kind, { mediaTypes: e.target.checked ? [...item.mediaTypes, type as SetupSource['mediaTypes'][number]] : item.mediaTypes.filter(value => value !== type) })} />{type}</label>)}</fieldset>
+                                <p>Server-side credential references only: <code>{item.usernameEnv || item.tokenEnv}</code>{item.passwordEnv ? <> and <code>{item.passwordEnv}</code></> : null}.</p>
+                                <button className="button secondary" type="submit" value="check-library" data-target={`library:${kind}`} disabled={!item.enabled}>Check {title} connection</button>
+                            </div>
+                        })}
+                    </>}
+                    {!editable && <p>Pending handoff: this step is not implemented yet. The shared draft is saved, but setup is not complete. General, Authentication, Providers, and Libraries remain editable.</p>}
                     <div className="draftActions">
                         {step !== 'general' && <button className="button secondary" type="submit" value="back">Save and back</button>}
                         {editable && <button className="button" type="submit" value="save">Save draft</button>}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
 var (
@@ -16,9 +18,14 @@ var (
 )
 
 const (
-	OIDCSecretEnv = "REQUESTARR_OIDC_CLIENT_SECRET"
-	TMDBTokenEnv  = "REQUESTARR_TMDB_READ_TOKEN"
-	IGDBSecretEnv = "REQUESTARR_IGDB_CLIENT_SECRET"
+	OIDCSecretEnv        = "REQUESTARR_OIDC_CLIENT_SECRET"
+	TMDBTokenEnv         = "REQUESTARR_TMDB_READ_TOKEN"
+	IGDBSecretEnv        = "REQUESTARR_IGDB_CLIENT_SECRET"
+	JellyfinAPIKeyEnv    = "REQUESTARR_JELLYFIN_API_KEY"
+	PlexTokenEnv         = "REQUESTARR_PLEX_TOKEN"
+	RommTokenEnv         = "REQUESTARR_ROMM_TOKEN"
+	NavidromeUsernameEnv = "REQUESTARR_NAVIDROME_USERNAME"
+	NavidromePasswordEnv = "REQUESTARR_NAVIDROME_PASSWORD"
 )
 
 type Actor struct{ ID, Role string }
@@ -29,6 +36,24 @@ type Settings struct {
 	General        GeneralSettings        `json:"general"`
 	Authentication AuthenticationSettings `json:"authentication"`
 	Providers      ProviderSettings       `json:"providers"`
+	Libraries      LibrariesSettings      `json:"libraries"`
+}
+
+type LibrariesSettings struct {
+	Jellyfin  SourceSettings `json:"jellyfin"`
+	Plex      SourceSettings `json:"plex"`
+	Romm      SourceSettings `json:"romm"`
+	Navidrome SourceSettings `json:"navidrome"`
+}
+
+// SourceSettings contains only safe draft values and fixed environment names.
+type SourceSettings struct {
+	Enabled     bool               `json:"enabled"`
+	URL         string             `json:"url"`
+	MediaTypes  []domain.MediaType `json:"mediaTypes"`
+	TokenEnv    string             `json:"tokenEnv"`
+	UsernameEnv string             `json:"usernameEnv"`
+	PasswordEnv string             `json:"passwordEnv"`
 }
 
 type GeneralSettings struct {
@@ -61,10 +86,29 @@ const (
 	TargetTMDB           Target = "tmdb"
 	TargetMusicBrainz    Target = "musicbrainz"
 	TargetIGDB           Target = "igdb"
+	TargetJellyfin       Target = "library:jellyfin"
+	TargetPlex           Target = "library:plex"
+	TargetRomm           Target = "library:romm"
+	TargetNavidrome      Target = "library:navidrome"
 )
 
 func (t Target) Valid() bool {
-	return t == TargetGeneral || t == TargetAuthentication || t == TargetTMDB || t == TargetMusicBrainz || t == TargetIGDB
+	return t == TargetGeneral || t == TargetAuthentication || t == TargetTMDB || t == TargetMusicBrainz || t == TargetIGDB || t == TargetJellyfin || t == TargetPlex || t == TargetRomm || t == TargetNavidrome
+}
+
+func LibrarySource(t Target) (string, bool) {
+	switch t {
+	case TargetJellyfin:
+		return "jellyfin", true
+	case TargetPlex:
+		return "plex", true
+	case TargetRomm:
+		return "romm", true
+	case TargetNavidrome:
+		return "navidrome", true
+	default:
+		return "", false
+	}
 }
 
 type CheckCode string
@@ -109,6 +153,8 @@ type EnvironmentItem struct {
 type Runtime struct {
 	PublicURL, OIDCIssuer, OIDCClientID, IGDBClientID               string
 	OIDCSecretConfigured, TMDBTokenConfigured, IGDBSecretConfigured bool
+	LibrarySecrets                                                  map[string]bool
+	LibraryURLs                                                     map[string]string
 	Development                                                     bool
 }
 
@@ -148,7 +194,40 @@ func (s Settings) Validate(development bool) error {
 			return ErrInvalid
 		}
 	}
+	for kind, source := range map[string]SourceSettings{"jellyfin": s.Libraries.Jellyfin, "plex": s.Libraries.Plex, "romm": s.Libraries.Romm, "navidrome": s.Libraries.Navidrome} {
+		if source.URL != "" && !ValidSourceURL(source.URL, development) {
+			return ErrInvalid
+		}
+		if !validMediaTypes(kind, source.MediaTypes) {
+			return ErrInvalid
+		}
+		wantToken := map[string]string{"jellyfin": JellyfinAPIKeyEnv, "plex": PlexTokenEnv, "romm": RommTokenEnv}[kind]
+		if kind == "navidrome" {
+			if source.TokenEnv != "" || source.UsernameEnv != NavidromeUsernameEnv || source.PasswordEnv != NavidromePasswordEnv {
+				return ErrInvalid
+			}
+		} else if source.TokenEnv != wantToken || source.UsernameEnv != "" || source.PasswordEnv != "" {
+			return ErrInvalid
+		}
+	}
 	return nil
+}
+
+func validMediaTypes(kind string, types []domain.MediaType) bool {
+	allowed := map[string]map[domain.MediaType]bool{
+		"jellyfin":  {domain.MediaMovie: true, domain.MediaTV: true},
+		"plex":      {domain.MediaMovie: true, domain.MediaTV: true, domain.MediaAlbum: true, domain.MediaSong: true},
+		"romm":      {domain.MediaGame: true},
+		"navidrome": {domain.MediaAlbum: true, domain.MediaSong: true},
+	}[kind]
+	seen := make(map[domain.MediaType]bool, len(types))
+	for _, media := range types {
+		if !allowed[media] || seen[media] {
+			return false
+		}
+		seen[media] = true
+	}
+	return true
 }
 
 func ValidServiceURL(raw string, development bool) bool {
@@ -157,4 +236,13 @@ func ValidServiceURL(raw string, development bool) bool {
 	}
 	u, err := url.Parse(raw)
 	return err == nil && u.IsAbs() && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" && u.Opaque == "" && (u.Scheme == "https" || development && u.Scheme == "http")
+}
+
+// ValidSourceURL restricts library endpoints to an origin; credentials are sent only to that origin.
+func ValidSourceURL(raw string, development bool) bool {
+	if !ValidServiceURL(raw, development) {
+		return false
+	}
+	u, err := url.Parse(raw)
+	return err == nil && (u.Path == "" || u.Path == "/")
 }

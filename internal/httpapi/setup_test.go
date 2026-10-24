@@ -48,10 +48,14 @@ func setupHTTP(service *fakeSetup, role, method, path, body string, csrf bool) *
 	return w
 }
 
+func validSetupDraftBody() string {
+	return `{"expectedRevision":1,"currentStep":"general","settings":{"general":{"instanceName":"","timezone":"","publicUrl":""},"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"},"libraries":{"jellyfin":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_JELLYFIN_API_KEY","usernameEnv":"","passwordEnv":""},"plex":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_PLEX_TOKEN","usernameEnv":"","passwordEnv":""},"romm":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_ROMM_TOKEN","usernameEnv":"","passwordEnv":""},"navidrome":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"","usernameEnv":"REQUESTARR_NAVIDROME_USERNAME","passwordEnv":"REQUESTARR_NAVIDROME_PASSWORD"}}}}`
+}
+
 func TestSetupDraftEndpointsRequireAdminAndProtectSecrets(t *testing.T) {
 	for _, endpoint := range []struct{ method, path, body string }{
 		{"GET", "draft", ""},
-		{"PUT", "draft", `{"expectedRevision":1,"currentStep":"general","settings":{"general":{"instanceName":"","timezone":"","publicUrl":""},"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"}}}`},
+		{"PUT", "draft", validSetupDraftBody()},
 		{"POST", "validate", `{"expectedRevision":1,"target":"general"}`},
 	} {
 		for _, role := range []string{"", "viewer", "requester", "admin"} {
@@ -92,10 +96,10 @@ func TestSetupDraftEndpointsRequireAdminAndProtectSecrets(t *testing.T) {
 }
 
 func TestSetupDraftRejectsMissingOrNullRequiredFields(t *testing.T) {
-	valid := `{"expectedRevision":1,"currentStep":"general","settings":{"general":{"instanceName":"","timezone":"","publicUrl":""},"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"}}}`
+	valid := validSetupDraftBody()
 	cases := map[string]string{
-		"settings omitted":       strings.Replace(valid, `,"settings":{"general":{"instanceName":"","timezone":"","publicUrl":""},"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"}}`, "", 1),
-		"settings null":          strings.Replace(valid, `"settings":{`, `"settings":null`, 1),
+		"settings omitted":       editSetupSection(valid, "settings", false),
+		"settings null":          editSetupSection(valid, "settings", true),
 		"general omitted":        strings.Replace(valid, `"general":{"instanceName":"","timezone":"","publicUrl":""},`, "", 1),
 		"general null":           strings.Replace(valid, `"general":{"instanceName":"","timezone":"","publicUrl":""}`, `"general":null`, 1),
 		"authentication omitted": strings.Replace(valid, `"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},`, "", 1),
@@ -103,7 +107,13 @@ func TestSetupDraftRejectsMissingOrNullRequiredFields(t *testing.T) {
 		"providers omitted":      strings.Replace(valid, `,"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"}`, "", 1),
 		"providers null":         strings.Replace(valid, `"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"}`, `"providers":null`, 1),
 	}
-	for _, field := range []string{`"instanceName":""`, `"timezone":""`, `"publicUrl":""`, `"issuer":""`, `"clientId":""`, `"clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"`, `"tmdbEnabled":false`, `"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN"`, `"musicBrainzEnabled":false`, `"musicBrainzContact":""`, `"igdbEnabled":false`, `"igdbClientId":""`, `"igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"`} {
+	cases["libraries omitted"] = editSetupSection(valid, "libraries", false)
+	cases["libraries null"] = editSetupSection(valid, "libraries", true)
+	for _, source := range []string{"jellyfin", "plex", "romm", "navidrome"} {
+		cases[source+" source omitted"] = editLibrarySection(valid, source, false)
+		cases[source+" source null"] = editLibrarySection(valid, source, true)
+	}
+	for _, field := range []string{`"instanceName":""`, `"timezone":""`, `"publicUrl":""`, `"issuer":""`, `"clientId":""`, `"clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"`, `"tmdbEnabled":false`, `"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN"`, `"musicBrainzEnabled":false`, `"musicBrainzContact":""`, `"igdbEnabled":false`, `"igdbClientId":""`, `"igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"`, `"enabled":false`, `"url":""`, `"mediaTypes":[]`, `"tokenEnv":"REQUESTARR_JELLYFIN_API_KEY"`, `"usernameEnv":"REQUESTARR_NAVIDROME_USERNAME"`, `"passwordEnv":"REQUESTARR_NAVIDROME_PASSWORD"`} {
 		key := strings.Split(strings.Trim(field, `"`), `":`)[0]
 		cases["field omitted "+key] = editSetupJSON(valid, key, false)
 		cases["field null "+key] = editSetupJSON(valid, key, true)
@@ -141,6 +151,62 @@ func editSetupJSON(body, key string, setNull bool) string {
 				delete(fields, key)
 			}
 		}
+	}
+	libraries := settings["libraries"].(map[string]any)
+	for _, kind := range []string{"jellyfin", "plex", "romm", "navidrome"} {
+		fields := libraries[kind].(map[string]any)
+		if _, exists := fields[key]; exists {
+			if setNull {
+				fields[key] = nil
+			} else {
+				delete(fields, key)
+			}
+		}
+	}
+	encoded, err := json.Marshal(root)
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
+}
+
+func editSetupSection(body, key string, setNull bool) string {
+	var root map[string]any
+	if err := json.Unmarshal([]byte(body), &root); err != nil {
+		panic(err)
+	}
+	if key == "settings" {
+		if setNull {
+			root[key] = nil
+		} else {
+			delete(root, key)
+		}
+	} else {
+		settings := root["settings"].(map[string]any)
+		if setNull {
+			settings[key] = nil
+		} else {
+			delete(settings, key)
+		}
+	}
+	encoded, err := json.Marshal(root)
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
+}
+
+func editLibrarySection(body, key string, setNull bool) string {
+	var root map[string]any
+	if err := json.Unmarshal([]byte(body), &root); err != nil {
+		panic(err)
+	}
+	settings := root["settings"].(map[string]any)
+	libraries := settings["libraries"].(map[string]any)
+	if setNull {
+		libraries[key] = nil
+	} else {
+		delete(libraries, key)
 	}
 	encoded, err := json.Marshal(root)
 	if err != nil {

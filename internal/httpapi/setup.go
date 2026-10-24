@@ -120,6 +120,27 @@ func hasRequiredDraftFields(body []byte) bool {
 			}
 		}
 	}
+	libraries, ok := objectFields(settings["libraries"])
+	if !ok {
+		return false
+	}
+	for source, required := range map[string][]string{
+		"jellyfin":  {"enabled", "url", "mediaTypes", "tokenEnv", "usernameEnv", "passwordEnv"},
+		"plex":      {"enabled", "url", "mediaTypes", "tokenEnv", "usernameEnv", "passwordEnv"},
+		"romm":      {"enabled", "url", "mediaTypes", "tokenEnv", "usernameEnv", "passwordEnv"},
+		"navidrome": {"enabled", "url", "mediaTypes", "tokenEnv", "usernameEnv", "passwordEnv"},
+	} {
+		fields, ok := objectFields(libraries[source])
+		if !ok {
+			return false
+		}
+		for _, key := range required {
+			value, exists := fields[key]
+			if !exists || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+				return false
+			}
+		}
+	}
 	return true
 }
 

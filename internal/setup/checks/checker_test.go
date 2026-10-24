@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/setup"
 	"github.com/evilperson1337/requestarr/internal/setup/checks"
 )
@@ -141,5 +142,75 @@ func TestAuthenticationDiscovery(t *testing.T) {
 	code, err := checker.Check(context.Background(), setup.TargetAuthentication, settings)
 	if err != nil || code != setup.CheckOK {
 		t.Fatalf("Check = %q, %v", code, err)
+	}
+}
+
+func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *testing.T) {
+	for _, tc := range []struct {
+		kind, path, body, wantCredential string
+	}{
+		{"jellyfin", "/System/Info", `{"ServerName":"test"}`, "X-Emby-Token"},
+		{"plex", "/library/sections", `<MediaContainer size="1"/>`, "X-Plex-Token"},
+		{"romm", "/api/platforms", `[]`, "Authorization"},
+		{"navidrome", "/rest/ping.view", `{"subsonic-response":{"status":"ok"}}`, "u"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != tc.path {
+					t.Errorf("path=%s want %s", r.URL.Path, tc.path)
+				}
+				switch tc.wantCredential {
+				case "X-Emby-Token":
+					if r.Header.Get(tc.wantCredential) != "jf-token" {
+						t.Error("Jellyfin token absent")
+					}
+				case "X-Plex-Token":
+					if r.Header.Get(tc.wantCredential) != "plex-token" || r.URL.RawQuery != "" {
+						t.Error("Plex token absent")
+					}
+				case "Authorization":
+					if r.Header.Get(tc.wantCredential) != "Bearer romm-token" {
+						t.Error("RomM token absent")
+					}
+				case "u":
+					if r.URL.Query().Get("u") != "music-user" || r.URL.Query().Get("p") != "" || len(r.URL.Query().Get("t")) != 32 || len(r.URL.Query().Get("s")) != 32 {
+						t.Error("Navidrome credentials absent")
+					}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if tc.kind == "plex" {
+					w.Header().Set("Content-Type", "application/xml")
+				}
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer server.Close()
+			libraries := setup.LibrariesSettings{}
+			source := setup.SourceSettings{Enabled: true, URL: "https://library.example", MediaTypes: []domain.MediaType{domain.MediaMovie}}
+			cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, JellyfinAPIKey: "jf-token", PlexToken: "plex-token", RommToken: "romm-token", NavidromeUsername: "music-user", NavidromePassword: "music-pass"}
+			target := setup.TargetJellyfin
+			switch tc.kind {
+			case "jellyfin":
+				source.TokenEnv = setup.JellyfinAPIKeyEnv
+				libraries.Jellyfin = source
+			case "plex":
+				source.TokenEnv = setup.PlexTokenEnv
+				libraries.Plex = source
+				target = setup.TargetPlex
+			case "romm":
+				source.TokenEnv = setup.RommTokenEnv
+				libraries.Romm = source
+				target = setup.TargetRomm
+			case "navidrome":
+				source.MediaTypes = []domain.MediaType{domain.MediaAlbum}
+				source.UsernameEnv = setup.NavidromeUsernameEnv
+				source.PasswordEnv = setup.NavidromePasswordEnv
+				libraries.Navidrome = source
+				target = setup.TargetNavidrome
+			}
+			code, err := checks.New(cfg).Check(context.Background(), target, setup.Settings{Libraries: libraries})
+			if err != nil || code != setup.CheckOK {
+				t.Fatalf("Check=%s err=%v", code, err)
+			}
+		})
 	}
 }

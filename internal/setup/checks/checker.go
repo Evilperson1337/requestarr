@@ -4,7 +4,11 @@ package checks
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"io"
 	"mime"
@@ -25,11 +29,16 @@ var errCheck = errors.New("setup connection check failed")
 // Config holds server-only credentials. Never serialize or log this value.
 // Client is optional; injected transports must enforce their own dial policy.
 type Config struct {
-	Runtime          setup.Runtime
-	OIDCClientSecret string
-	TMDBReadToken    string
-	IGDBClientSecret string
-	Client           *http.Client
+	Runtime           setup.Runtime
+	OIDCClientSecret  string
+	TMDBReadToken     string
+	IGDBClientSecret  string
+	JellyfinAPIKey    string
+	PlexToken         string
+	RommToken         string
+	NavidromeUsername string
+	NavidromePassword string
+	Client            *http.Client
 	// Resolver optionally replaces DNS for the production transport (e.g. local
 	// DNS fixtures). It is ignored when Client supplies its own transport.
 	Resolver *net.Resolver
@@ -73,6 +82,9 @@ func (c *Checker) Check(ctx context.Context, target setup.Target, settings setup
 	if target == setup.TargetIGDB {
 		return c.igdb(ctx, settings.Providers)
 	}
+	if kind, ok := setup.LibrarySource(target); ok {
+		return c.library(ctx, kind, settings.Libraries)
+	}
 	if target != setup.TargetGeneral {
 		return setup.CheckUnavailable, errCheck
 	}
@@ -91,6 +103,102 @@ func (c *Checker) Check(ctx context.Context, target setup.Target, settings setup
 	}
 	if err := c.request(ctx, http.MethodGet, strings.TrimRight(s.PublicURL, "/")+"/healthz", nil, nil, &result); err != nil || result.Status != "ok" {
 		return setup.CheckUnavailable, errCheck
+	}
+	return setup.CheckOK, nil
+}
+
+func (c *Checker) library(ctx context.Context, kind string, libraries setup.LibrariesSettings) (setup.CheckCode, error) {
+	source := map[string]setup.SourceSettings{"jellyfin": libraries.Jellyfin, "plex": libraries.Plex, "romm": libraries.Romm, "navidrome": libraries.Navidrome}[kind]
+	if !source.Enabled {
+		return setup.CheckDisabled, nil
+	}
+	if source.URL == "" || len(source.MediaTypes) == 0 {
+		return setup.CheckIncomplete, nil
+	}
+	var endpoint string
+	headers := map[string]string{}
+	query := ""
+	switch kind {
+	case "jellyfin":
+		if source.TokenEnv != setup.JellyfinAPIKeyEnv || c.config.JellyfinAPIKey == "" {
+			return setup.CheckEnvironment, nil
+		}
+		endpoint = strings.TrimRight(source.URL, "/") + "/System/Info"
+		headers["X-Emby-Token"] = c.config.JellyfinAPIKey
+	case "plex":
+		if source.TokenEnv != setup.PlexTokenEnv || c.config.PlexToken == "" {
+			return setup.CheckEnvironment, nil
+		}
+		endpoint = strings.TrimRight(source.URL, "/") + "/library/sections"
+		headers["X-Plex-Token"] = c.config.PlexToken
+	case "romm":
+		if source.TokenEnv != setup.RommTokenEnv || c.config.RommToken == "" {
+			return setup.CheckEnvironment, nil
+		}
+		endpoint = strings.TrimRight(source.URL, "/") + "/api/platforms"
+		headers["Authorization"] = "Bearer " + c.config.RommToken
+	case "navidrome":
+		if source.UsernameEnv != setup.NavidromeUsernameEnv || source.PasswordEnv != setup.NavidromePasswordEnv || c.config.NavidromeUsername == "" || c.config.NavidromePassword == "" {
+			return setup.CheckEnvironment, nil
+		}
+		saltBytes := make([]byte, 16)
+		if _, err := rand.Read(saltBytes); err != nil {
+			return setup.CheckUnavailable, errCheck
+		}
+		salt := hex.EncodeToString(saltBytes)
+		token := md5.Sum([]byte(c.config.NavidromePassword + salt))
+		q := url.Values{"u": {c.config.NavidromeUsername}, "t": {hex.EncodeToString(token[:])}, "s": {salt}, "v": {"1.16.1"}, "c": {"Requestarr/setup-check"}, "f": {"json"}}
+		endpoint = strings.TrimRight(source.URL, "/") + "/rest/ping.view?" + q.Encode()
+	default:
+		return setup.CheckUnavailable, errCheck
+	}
+	if !setup.ValidSourceURL(source.URL, c.config.Runtime.Development) {
+		return setup.CheckIncomplete, nil
+	}
+	ctx = context.WithValue(ctx, trustedDialKey{}, true) // Explicit admin check of this exact operator-supplied Source.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+query, nil)
+	if err != nil {
+		return setup.CheckUnavailable, errCheck
+	}
+	req.Header.Set("User-Agent", "Requestarr/setup-check")
+	req.Header.Set("Accept", "application/json, application/xml")
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return setup.CheckUnavailable, errCheck
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return setup.CheckUnavailable, errCheck
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, (64<<10)+1))
+	if err != nil || len(data) == 0 || len(data) > 64<<10 {
+		return setup.CheckUnavailable, errCheck
+	}
+	switch kind {
+	case "jellyfin", "romm":
+		var result any
+		if json.Unmarshal(data, &result) != nil || result == nil {
+			return setup.CheckUnavailable, errCheck
+		}
+	case "plex":
+		var result struct {
+			XMLName xml.Name `xml:"MediaContainer"`
+		}
+		if xml.Unmarshal(data, &result) != nil || result.XMLName.Local != "MediaContainer" {
+			return setup.CheckUnavailable, errCheck
+		}
+	case "navidrome":
+		var result struct {
+			Response struct {
+				Status string `json:"status"`
+			} `json:"subsonic-response"`
+		}
+		if json.Unmarshal(data, &result) != nil || result.Response.Status != "ok" {
+			return setup.CheckUnavailable, errCheck
+		}
 	}
 	return setup.CheckOK, nil
 }

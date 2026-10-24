@@ -2,9 +2,13 @@ package setup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
 type memoryDrafts struct {
@@ -72,7 +76,7 @@ func TestDraftResumesAcrossServicesAndConnectionFailureKeepsSettings(t *testing.
 	if checked.Validations[0].Message != "Connection check failed. Verify the service address, network access, and server environment, then retry." {
 		t.Fatalf("unsafe or unclear error: %q", checked.Validations[0].Message)
 	}
-	if checked.Settings != resumed.Settings || checked.CurrentStep != StepAuthentication {
+	if !reflect.DeepEqual(checked.Settings, resumed.Settings) || checked.CurrentStep != StepAuthentication {
 		t.Fatal("failed validation discarded or advanced the draft")
 	}
 }
@@ -100,6 +104,7 @@ func TestSetupServiceRejectsNonAdminsAndUnsafeDraftFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	storedSettings := repo.draft.Settings
 	for _, tc := range []struct {
 		name   string
 		change func(*Settings)
@@ -119,9 +124,58 @@ func TestSetupServiceRejectsNonAdminsAndUnsafeDraftFields(t *testing.T) {
 			if _, err := service.Save(ctx, actor, SaveInput{ExpectedRevision: 1, CurrentStep: StepGeneral, Settings: settings}); !errors.Is(err, ErrInvalid) {
 				t.Fatalf("unsafe draft accepted: %v", err)
 			}
-			if repo.draft.Revision != 1 || repo.draft.Settings != draft.Settings {
+			if repo.draft.Revision != 1 || !reflect.DeepEqual(repo.draft.Settings, storedSettings) {
 				t.Fatal("rejected settings reached storage")
 			}
 		})
+	}
+}
+
+func TestLibraryDraftRestrictsAuthorityToAdapterMediaTypes(t *testing.T) {
+	settings := NewService(&memoryDrafts{}, fakeChecker{}, Runtime{}).initial().Settings
+	settings.Libraries.Plex.Enabled = true
+	settings.Libraries.Plex.URL = "https://plex.example.test"
+	settings.Libraries.Plex.MediaTypes = []domain.MediaType{domain.MediaMovie, domain.MediaAlbum}
+	if err := settings.Validate(false); err != nil {
+		t.Fatalf("valid Plex types rejected: %v", err)
+	}
+	tests := []struct {
+		name   string
+		change func(*SourceSettings)
+	}{
+		{"unsupported type", func(s *SourceSettings) { s.MediaTypes = []domain.MediaType{domain.MediaGame} }},
+		{"duplicate type", func(s *SourceSettings) { s.MediaTypes = []domain.MediaType{domain.MediaMovie, domain.MediaMovie} }},
+		{"credential-bearing URL", func(s *SourceSettings) { s.URL = "https://user:secret@plex.example.test" }},
+		{"path URL", func(s *SourceSettings) { s.URL = "https://plex.example.test/path" }},
+		{"arbitrary credential reference", func(s *SourceSettings) { s.TokenEnv = "DATABASE_PASSWORD" }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bad := settings
+			tc.change(&bad.Libraries.Plex)
+			if err := bad.Validate(false); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("invalid library setting accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestLibraryDraftPrefillsExistingSourcesWithoutReturningSecrets(t *testing.T) {
+	runtime := Runtime{LibraryURLs: map[string]string{"plex": "https://plex.example.test"}, LibrarySecrets: map[string]bool{"plex": true}}
+	repo := &memoryDrafts{draft: Draft{Revision: 1, CurrentStep: StepLibraries, Settings: Settings{Libraries: LibrariesSettings{}}}}
+	service := NewService(repo, fakeChecker{}, runtime)
+	draft, err := service.Load(context.Background(), Actor{ID: "admin-1", Role: "admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !draft.Settings.Libraries.Plex.Enabled || draft.Settings.Libraries.Plex.URL != runtime.LibraryURLs["plex"] || len(draft.Settings.Libraries.Plex.MediaTypes) != 4 {
+		t.Fatalf("existing Plex configuration not represented: %+v", draft.Settings.Libraries.Plex)
+	}
+	encoded, err := json.Marshal(draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "plex-token") || strings.Contains(string(encoded), "secret-value") {
+		t.Fatalf("runtime secret leaked in setup response: %s", encoded)
 	}
 }
