@@ -4,8 +4,8 @@
 
 **Blocked by:** 18 Requests page controls, 22 Wizard Notifications, Request Policy, Review and Finish, 23 Operational status view
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Requests, request modal, notifications, Settings and the wizard each have a smoke test
-- [ ] A frontend test command runs in make web-check or a sibling target and in CI
-- [ ] No third-party runtime dependency is added for the app itself
+- [x] Requests, request modal, notifications, Settings and the wizard each have a smoke test
+- [x] A frontend test command runs in make web-check or a sibling target and in CI
+- [x] No third-party runtime dependency is added for the app itself

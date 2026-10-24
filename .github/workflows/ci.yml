@@ -45,6 +45,15 @@ jobs:
       - name: Install dependencies
         working-directory: web
         run: npm ci --no-audit --no-fund
+      - name: Typecheck (app and tests)
+        working-directory: web
+        run: npm run check
       - name: Typecheck/build
         working-directory: web
         run: npm run build
+      - name: Install Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Browser smoke tests
+        working-directory: web
+        run: npm test

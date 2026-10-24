@@ -40,7 +40,12 @@ Cover setup wizard, OIDC sign-in, create request, duplicate resolution, Notify M
 The Requests page has a Playwright suite with a deterministic mocked API. It
 does not require PostgreSQL, a live identity provider, or library credentials.
 Playwright is a development-only dependency; no browser framework is shipped
-with the app. Broader page smoke coverage and CI integration remain V1 ticket #24.
+with the app. The suite runs in CI (`web` job) after the typecheck/build.
+
+Coverage by spec file: `smoke.spec.ts` (Home resolve, request modal incl. game
+platform rules, Notifications, non-admin navigation), `requests.spec.ts`
+(Requests page), `setup.spec.ts` (wizard through Finish) and `status.spec.ts`
+(Settings operational status).
 
 ```sh
 make web-install
