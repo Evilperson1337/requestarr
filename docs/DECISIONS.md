@@ -72,3 +72,6 @@ Availability evidence and absence streaks carry a platform key (`igdb:<id>`, or 
 
 ## D022 — Development OIDC issuers may use loopback HTTP
 `REQUESTARR_OIDC_ISSUER` stays HTTPS-only, except that with `REQUESTARR_ENV=development` an `http` issuer on `localhost`, `127.0.0.1` or `::1` is accepted so the dev compose Keycloak (plain HTTP) can be used. Production and non-loopback hosts still require HTTPS. OIDC remains the only sign-in path (accepted V1 decision 5). `make check-login` verifies the flow.
+
+## D023 — Supply-chain and container publishing policy (proposed)
+Releases publish a multi-arch container image to GHCR, an SPDX SBOM per archive and image, build-provenance attestations, and a keyless cosign signature on the image; `latest` tracks stable tags only. Details are in `docs/RELEASES.md`. Proposed during ticket 28; it becomes accepted when the maintainer approves it. the workflow implementation is still outstanding.

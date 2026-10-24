@@ -1,122 +1,66 @@
-# Requestarr Project Status Assessment
+# Requestarr project status
 
-Date: 2026-10-21. Method: read-only investigation of this repository (HEAD `696d607`, then on `master`; the default branch is now `main`) plus local command runs. Nothing external was consulted. Live PostgreSQL, Keycloak, TMDB/IGDB/MusicBrainz, Jellyfin and Apprise were NOT exercised; claims about them rest on code and tests only.
+Date: 2026-10-24. Replaces the 2026-10-21 assessment (about 35-40% complete, not releasable), which is in git history. Scope reference: [V1_SCOPE](../V1_SCOPE.md). Work was tracked as tickets 01-28 in `.scratch/v1-completion/`.
 
-## 1. Verdict
+## Verdict
 
-**Not ready for V1 or any release.** The repo is no longer a scaffold (CLAUDE.md is stale on this point), but it is a working vertical-slice prototype. It implements roughly the M1 identity-and-request loop, Jellyfin movie/TV availability, and in-app plus Apprise notifications. Three of the four required library sources, the setup wizard, the settings and ops UI, a real job system, request search/filter/sort, and the release path are missing.
+**Feature-complete for V1 scope against fixtures and mocks; not yet release-ready.** Every V1 "Required" item below is implemented and tested except that settings and operational status lack a log view, but nothing has been run against real third-party services, the release workflow has never run on a tag, and a few quality gaps are open (listed in section 4). Calling this "V1 complete" would overstate what was verified.
 
-**Estimated V1 completeness: about 35-40%.** This is a judgement, not a measurement. Of the 20 required V1 scope bullets in section 4, 3 are done, 8 partial and 9 missing or stub-only. The repo's own `docs/IMPLEMENTATION_PLAN.md` (lines 3-14) says "M1 and V1 are not complete" and "Do not describe this repository as V1-complete."
+## 1. Acceptance run (2026-10-24)
 
-## 2. Commands actually run (2026-10-21)
-
-| Command | Result |
+| Check | Result |
 |---|---|
-| `make fmt` | Ran, and `git status --short` was clean afterwards (no formatting drift). |
-| `make test` | PASS. Every package with tests reports `ok`. Packages with `[no test files]`: `app`, `buildinfo`, `inventory`, `jobs`, `igdb`, `tmdb`, `setup`, `store`, `db/migrations`. |
-| PostgreSQL integration tests | **Not run.** `internal/store/postgres/postgres_integration_test.go:1` has `//go:build integration` and skips without `REQUESTARR_TEST_DATABASE_URL` (lines 29, 19, 82). The default `make test` therefore exercises none of the SQL, migrations or transactions. I had no database, so the repo's claim that the integration suite passed (`docs/IMPLEMENTATION_PLAN.md`) is unverified by me. |
-| `make vet` | PASS, no output. |
-| `make web-check` | PASS (`tsc -b`, `web/node_modules` present). |
-| `make build` | PASS. It runs `web-build`, copies the output to `internal/webui/dist`, and builds `bin/requestarr`. `git status` stayed clean because the build outputs are gitignored. |
-| `make snapshot`, `make release-check`, Docker build, `make dev-up`, running the binary | **Not run.** `docker` and `goreleaser` are on PATH, but I did not run them. |
+| `make fmt test vet web-check` | PASS |
+| `make test-integration` (PostgreSQL 17, compose) | PASS, run twice. The earlier Plex music failure was test pollution (a cleanup that ignored a foreign-key error left open music requests that crowded the test's 50-item work list); fixed in `aliases_integration_test.go` |
+| `make check-login` (scripted Keycloak login) | PASS against Keycloak 26.3 |
+| Frontend tests (`npm test`, Playwright, 59 tests incl. axe audit) | PASS |
+| `goreleaser check`, `goreleaser release --snapshot`, Docker build, `make check-container` | PASS (recorded in [RELEASES](../RELEASES.md)) |
 
-## 3. What is actually true now vs. the docs
+Ran with `REQUESTARR_POSTGRES_PORT=5433` because port 5432 was in use on the test machine.
 
-- **CLAUDE.md is stale.** It says "most `internal/` packages are single-file stubs". About 6,200 lines of Go exist under `internal/` and `cmd/`. `STATUS.md` at the repo root ("Scaffold Validation Status", 2026-08-12) is also stale. `docs/IMPLEMENTATION_PLAN.md` (2026-10-20) is the accurate self-assessment.
-- **Real, tested code:**
-  - OIDC login, session and CSRF: `internal/auth/handler.go` (275 lines), `internal/auth/oidc/provider.go`.
-  - One-time admin bootstrap: the `requestarr setup-token` CLI in `cmd/requestarr/main.go`, plus `POST /setup/claim-admin`.
-  - Resolvers: `internal/providers/metadata/{tmdb,musicbrainz,igdb}/resolver.go`.
-  - Requests service, subscriptions, transitions, audit: `internal/requests/service.go`, `internal/store/postgres/store.go`.
-  - Jellyfin sync: `internal/inventory/jellyfin/client.go`, `internal/app/app.go` (`syncJellyfin`, 15-minute ticker).
-  - Notifications: durable outbox plus worker (`internal/notifications/worker.go`) and the Apprise client (`internal/notifications/apprise/client.go`).
-  - Admin user and role management in `internal/httpapi/router.go`.
-  - 13 migrations in `db/migrations/`.
-- **Still stubs or absent:**
-  - `internal/inventory/plex`, `navidrome`, `romm` each contain only a README.md (no Go).
-  - `internal/jobs/scheduler.go` is a 14-line interface.
-  - `internal/setup/state.go` is a 20-line step enum, unused by any wizard logic.
-  - `internal/store/store.go` is 5 lines.
-- **Frontend:** `web/src` is only 689 lines in total. It is embedded into the Go binary via `internal/webui` (embed.go, handler.go) and the Dockerfile builds it. CLAUDE.md saying it is "not yet wired into the Go binary" is stale.
+## 2. V1 scope status
 
-## 4. Per-scope-item status (docs/V1_SCOPE.md "Required")
-
-| V1 scope item | Status | Evidence |
+| V1 required item | Status | Notes |
 |---|---|---|
-| Go service + React/TS UI + PostgreSQL | **Partial** | The stack exists and builds end to end (`make build` passed). The UI is a thin prototype. |
-| First-run wizard with resumable draft config | **Stub / missing** | `web/src/pages/SetupWizardPage.tsx` is only an admin-claim form. Its text says "This page does not configure OIDC or edit server settings". All configuration is environment-only (`internal/config/config.go`). `internal/setup/state.go` is an unused enum. No draft persistence and no connection validation. |
-| OIDC-only auth, Keycloak tested and documented | **Partial** | Auth code and `internal/auth/handler_test.go` exist; `compose.dev.yaml` runs Keycloak; `docs/OIDC_AUTH.md` is 43 lines. No live Keycloak run is claimed (`docs/IMPLEMENTATION_PLAN.md`). Group-to-role mapping appears only in `config/requestarr.example.yaml`; the plan says new users default to viewer and the config file is not consumed. |
-| Roles (viewer/requester/admin) | **Partial** | Admin role change in `router.go:167`, and the UI toggles only requester/admin (`SettingsPage.tsx`). The viewer role exists as a default but the UI never assigns it, and the "viewer cannot create requests" enforcement was not verified. |
-| URL resolver registry: TMDB movie and TV | **Done (unit-level)** | `tmdb/resolver.go`, `metadata/metadata_test.go`. The `tmdb` package has no test files of its own. |
-| URL resolver: MusicBrainz release-group and recording | **Done (unit-level)** | `musicbrainz/resolver.go`, `resolver_test.go`. |
-| URL resolver: IGDB games | **Partial** | `igdb/resolver.go` has no test file and was not exercised live; platform parsing is at lines 57-79. |
-| Universal resolved-item modal | **Done** | `web/src/components/RequestModal.tsx` (25 lines; its UI is untested). |
-| One request row per canonical item | **Partial** | Migrations 000002/000005 and `postgres_integration_test.go` target this; not verified here because integration tests were not run. |
-| Shared Requests page with search/filter/sort and My Requests | **Partial** | `RequestsPage.tsx` has a shared list and a bookmarkable `?mine=true` filter. There is **no search, status filter, sort or pagination**. `GET /requests` accepts only `mine` (`router.go:213-232`), and the plan admits pagination is absent. |
-| Requester auto-subscribed | **Done (by design)** | `subscriptionSource` 'requester' (`api.ts`, `RequestsPage.tsx`). Not verified live. |
-| Notify Me / unsubscribe | **Done** | `router.go:293` (PUT/DELETE subscription), button in `RequestsPage.tsx`. |
-| Game platform selection from IGDB (Any first, OR) | **Partial** | The UI has Any plus checkboxes (`RequestModal.tsx`). `ValidatePlatformSelection` is in `domain/request.go`. Platforms come from the resolved item (IGDB). However the RomM-side game matching does not exist, so OR semantics are never exercised against a library. |
-| Request states (requested, approved, denied, available, cancelled) | **Partial** | The enum is in `domain/request.go:6-12`. Admin approve/deny exists (`router.go:251`, UI). **No UI or endpoint for cancel**; the `available` transition is not wired to inventory as far as I could find (see reconciliation row below). |
-| Manual admin state actions with audit events | **Partial** | `POST /requests/{id}/transition` with expectedVersion and operationId (idempotent), migration 000008. The UI offers only Approve/Deny on `requested` items. |
-| Metadata cache / local catalog | **Partial** | Catalog records are persisted (migration 000005, `store.go`). No TTL or refresh logic was seen. |
-| Library sources: Plex, Jellyfin, Navidrome, RomM | **Partial: 1 of 4** | Jellyfin only (`internal/inventory/jellyfin/client.go`, 155 lines). Plex, Navidrome and RomM are READMEs only. Jellyfin is configured via environment variables (`app.go`), and matching is TMDB IDs for movie/TV only (`reconcile/service.go:exactExternalID`). Music and games cannot match. |
-| Background source sync into normalized inventory | **Partial** | `app.go syncJellyfin` is an ad hoc goroutine on a 15-minute ticker. There is no persistent job model, overlap prevention or manual "sync now" (`internal/jobs/scheduler.go` is an interface only). Prompt 01 required a persistent job-run model. |
-| Automatic reconciliation and availability notification | **Partial** | `reconcile.MatchSnapshot` is positive-only matching. Migrations 000006, 000009 and 000013 (Jellyfin absence) exist, and `RequestsPage` shows an availability observation. Only Jellyfin TMDB IDs are covered. Title/year matches are only "Suggested", with no review UI. Whether positive evidence flips the request status to `available` was not verified here; the UI shows a separate `availability` field. |
-| In-app notifications and Apprise | **Partial** | Durable notifications (migration 000010, `store/postgres/notifications.go`, `NotificationsPage.tsx`) and a global Apprise outbox/worker (000011, `notifications/worker.go`, `apprise/client.go`). The plan states delivery is at-least-once and may duplicate. Per-user preferences are deprecated (D006). Apprise needs environment configuration. |
-| Settings and operational status (providers/libraries/jobs/logs) | **Stub** | `SettingsPage.tsx` shows Jellyfin sync times and the user/role table only. There is no provider, job or log status, and no settings editing. |
-| Preserve artwork shape by media type | **Done** | `ArtworkKind` (`domain/media.go`), `className ... square` in `RequestsPage.tsx` and `RequestModal.tsx`. |
+| Go service, React/TS UI, PostgreSQL | Done | Single binary embeds the UI; built in every release path |
+| First-run wizard, resumable draft | Done, with a caveat | General through Finish, shared draft, connection checks, Finish gated on passing checks. The draft is **inactive**: applying configuration is still environment edit plus restart |
+| OIDC-only auth, Keycloak tested | Done | Scripted login passes; dev-only HTTP loopback issuer (D022) |
+| Viewer / requester / admin roles | Done | Role matrix tests cover every mutating route |
+| TMDB, MusicBrainz, IGDB resolvers | Done (fixtures) | Never run against the live services |
+| Resolved-item modal | Done | Keyboard operable (focus trap, Escape) |
+| One request per canonical item | Done | Integration-tested |
+| Requests page: search, filter, sort, My Requests, pagination | Done | URL-bookmarkable |
+| Auto-subscribe requester; Notify Me | Done | |
+| IGDB game platforms, Any / OR semantics | Done | Per-platform availability (D021) |
+| Request states incl. cancel; admin actions with audit | Done | |
+| Metadata cache / local catalog | Done (cache TTL/refresh not re-verified) | No TTL/refresh behaviour was re-verified in this pass |
+| Plex, Jellyfin, Navidrome, RomM sources | Done (fixtures) | One adapter contract suite; none run against a real server |
+| Background sync into normalized inventory | Done | Persistent runner, no-overlap lease, retry, Sync now |
+| Automatic reconciliation and availability notification | Done | Failed syncs never create absence; suggested-matches review |
+| In-app notifications and Apprise | Done | Apprise delivery is at-least-once (duplicates possible) |
+| Settings and operational status | Mostly done | Providers, Sources, jobs and recent errors shown; **no log viewer** |
+| Artwork shape per media type | Done | |
 
-## 5. Per-phase status (prompts 00-10)
+## 3. What changed since the last assessment
 
-Note: each `prompts/*.md` file is only 3-5 lines long. They are directional, not detailed specs.
+Tickets 01-28 delivered: documentation refresh, branch rename, AGPL licence and module path, role/last-admin guards, consistent error shape, availability evidence, request cancel and leave, the persistent job runner and Sync now, the shared adapter contract suite and the Plex, RomM, Jellyfin and Navidrome adapters, suggested matches, request search/pagination and its page controls, role-matrix tests, the setup wizard (all steps and Finish), the operational status view, frontend smoke and accessibility tests, the scripted Keycloak check, the release pipeline fixes, and upgrade/backup and supply-chain documentation. Real bugs found along the way include first sign-in failing with HTTP 500 (non-UUID user id), a wrong dev-realm callback URL, and a stale committed UI bundle that releases would have embedded.
 
-| Phase | Status | Evidence |
-|---|---|---|
-| 00 Master context | n/a | Instructions only. |
-| 01 Foundation | **Mostly done, one gap** | Config validation (`internal/config`, 200-line test), secret redaction (`store/postgres/redact.go`), graceful shutdown (`app.go`), PG pool and embedded migrations (`store/postgres/migrate.go`), `/healthz` and `/readyz` (`router.go:57-60`). **Missing: the persistent job-run model** that the prompt names. Request IDs and centralized error responses are inconsistent: handlers mix `http.Error` and JSON error bodies (`router.go:213-232`). |
-| 02 Setup + OIDC | **Partial** | OIDC login and admin bootstrap are done. The configuration wizard (General to Finish, docs/DECISIONS.md D012) is **not built**. |
-| 03 Metadata resolution | **Mostly done** | The three resolvers and `metadata.NewService` are wired in `app.go`. IGDB and TMDB have no dedicated tests. |
-| 04 Requests | **Mostly done** | `internal/requests/service.go` and tests, subscriptions, transitions. Missing: search/sort/pagination, cancel. |
-| 05 Game platforms | **Partial** | UI and domain validation are done. No library-side platform matching. |
-| 06 Library sync | **Partial (1/4)** | Jellyfin only; no job system. |
-| 07 Reconciliation | **Partial** | Positive-only movie/TV matching; no music/game keys, and no targeted reconcile pipeline beyond the snapshot persistence path. |
-| 08 Notifications + Apprise | **Mostly done** | See the notification row above. The global-route model deviates from the original design and is recorded in D006. |
-| 09 UI polish | **Not started / early** | Total frontend is 689 lines, with inline-style-dense one-line components. There are no frontend tests, no search/filter UI and no wizard. Accessibility was not audited (some roles and labels exist). |
-| 10 Harden / release | **Not started** | See section 6. |
+## 4. Remaining gaps (explicit)
 
-## 6. Blockers to V1 / release
+1. **No live acceptance.** TMDB, IGDB, MusicBrainz, Jellyfin, Plex, RomM, Navidrome and Apprise have only been exercised against fixtures/mocks. Real-service runs may surface contract drift.
+2. **Wizard settings are not applied.** Saved drafts and Finish do not change runtime configuration; the operator still edits the environment and restarts.
+3. **Request policy has no effect.** The wizard records which media types skip approval, but nothing reads it; every request still awaits approval.
+4. **Release not finished.** `release.yml` has never run on a tag. The container image, SBOM, provenance and signing from D023 are proposed but not implemented, so no image is published.
+5. **Accessibility not fully closed** (ticket 26 is `ready-for-human`): no manual screen-reader pass, keyboard walk-through only for the request dialog, only two widths tested, and the Requests page and dialog were not compared with the mockups. Known mockup gaps: Home panels, per-library settings cards with Test Connection, notification badge, activity page. See [the audit](../ACCESSIBILITY_AUDIT.md).
+6. **No log viewer** in operational status (V1 scope names "logs").
+7. **Apprise duplicates** are possible after an ambiguous upstream acceptance.
+8. **No security review** was performed, and frontend tests are end-to-end with a mocked API only (no component tests).
+9. **Frontend mocks can drift** from `api/openapi.yaml`; nothing checks them against it.
 
-1. **Library adapters missing:** Plex, Navidrome/OpenSubsonic and RomM do not exist. Music and game availability cannot be established at all. Jellyfin matches TMDB movie/TV IDs only.
-2. **No setup wizard or configuration UI.** This is a V1 requirement (D012). Configuration is environment-only and the "wizard" is an admin-claim form.
-3. **No job system.** Sync is an unmanaged goroutine in `app.go` with no persistence, retries, manual trigger or ops visibility. Settings and operational status is therefore missing.
-4. **Requests page lacks search, filter, sort and pagination** (scope requirement). There is no cancel action.
-5. **License resolved.** AGPL-3.0 is in `LICENSE.md` and the module path is `github.com/evilperson1337/requestarr` (ticket 04).
-6. **No end-to-end acceptance.** There is no live Keycloak, provider, library or Apprise run (the plan says so), no browser/E2E tests and no frontend tests.
-7. **Release pipeline unverified.** `docs/RELEASES.md` still lists as open: frontend embedding strategy, SBOM/provenance/container policy, and the migration/backup/upgrade doc. The Dockerfile does build the web app and embed it, but the plan notes Docker was last verified before admin management was added. The `.goreleaser.yaml` build config has no step that builds the web assets, so a bare `goreleaser` run depends on `internal/webui/dist` already existing; I did not run it.
+## 5. Suggested next steps
 
-## 7. Risks
-
-- **CI misconfiguration (resolved by renaming `master` to `main`, ticket 03):** `.github/workflows/ci.yml` triggers `push` on branch `main`, but the repo's branch was `master`, so only pull-request runs fired. The `.github/workflows/release.yml` and docs also assume `main`. The CI `go` job also runs `gofmt -w ... && git diff --exit-code` (fine), and runs integration tests with `-tags=integration` against Postgres 17, so CI is the only place SQL is exercised.
-- **Default tests do not cover the database layer.** A green `make test` is misleading: `store/postgres` integration tests (about 700 lines) need the build tag and a DB.
-- **Doc drift:** CLAUDE.md, `STATUS.md`, `docs/MANUAL_TESTING.md` ("what is currently implemented: config validation, PostgreSQL startup..., and the frontend build") and `docs/DECISIONS.md` (the D006 paragraph is duplicated; the "Migration 000007 edited in place" entry sits oddly with the append-only rule) disagree with reality. Future agents are likely to misjudge the state.
-- **At-least-once Apprise delivery** can send duplicates (admitted in the plan).
-- **Dependency pinning:** `web/package.json` pins React 19.3.0, Vite 8.3.0 and TypeScript 7.0.2 exactly, which is good, but the CI uses Node 22 while the Dockerfile uses `node:26`. Go 1.27.1 is required.
-- **Secret handling:** env-only secrets (OIDC, Jellyfin API key, Apprise key) are acceptable for V1 per AGENTS.md, but there is no rotation or UI. Security review was not done by me.
-- **Thin UI code quality:** dense single-line components, no component tests, and no pagination means large queues will degrade.
-- **Single source of truth for Jellyfin** is hardcoded (`jellyfinSourceID` in `app.go`), so multi-source support needs a model change.
-
-## 8. Prioritized next steps
-
-1. **Fix baseline hygiene (small).** Rename the branch to `main` (done, ticket 03). Run the integration suite locally against the compose Postgres and record the result. Refresh CLAUDE.md, `STATUS.md` and `docs/MANUAL_TESTING.md` to reflect current state.
-2. **Build the persistent job runner** (prompt 01 leftover): job-run table, no-overlap guard, manual trigger, status endpoint. Move `syncJellyfin` onto it.
-3. **Requests page completeness:** server-side search, status/media-type filters, sort, pagination (URL-bookmarkable per AGENTS.md); add the cancel action; show the viewer role correctly.
-4. **Library adapters:** RomM (game platform OR-matching), then Plex, then Navidrome/OpenSubsonic. Each needs fixtures and failure-path tests, and they must keep the "failed sync never removes" invariant. Extend `reconcile` to music and game identifiers beyond TMDB.
-5. **Verify status transition to `available`** end to end, and add a test that proves `RequestAvailable` triggers notifications.
-6. **Setup wizard and settings:** persist draft configuration (resumable), validate external connections, and add provider/library/job/log status pages. This is the largest UI item.
-7. **Test coverage gaps:** tests for the tmdb and igdb packages, auth role matrix (unauthorized, viewer, requester, admin), frontend component tests, and a Keycloak E2E smoke test via `compose.dev.yaml`.
-8. **Release readiness:** choose a license, rename the module path, wire the web build into GoReleaser (or document the dependency), run `make release-check`, `make snapshot` and a Docker build, and add upgrade/backup docs, SBOM and a container publishing policy.
-9. **Accessibility and responsive audit** against `references/mockups/final/` and `docs/UI_UX.md`; refactor the one-line components.
-
-## 9. Not verified
-
-Live OIDC against Keycloak; any call to TMDB, IGDB, MusicBrainz, Jellyfin or Apprise; PostgreSQL integration tests and migrations against a real database; Docker image build and run; `make snapshot` and `make release-check`; accessibility; whether `available` status transitions are driven by reconciliation (only the supporting code and migrations were located, not traced end to end).
+1. Run the stack against real Jellyfin/Plex/RomM/Navidrome/TMDB/IGDB/Apprise instances and fix what breaks.
+2. Implement D023 in `release.yml` and cut a pre-release tag to prove the pipeline.
+3. Decide whether request policy and wizard activation are V1 or post-V1; either enforce them or narrow the scope text.
+4. Finish the accessibility pass by hand and add the log view or drop "logs" from the scope.
+5. Security review of auth, setup checks (outbound request handling) and the admin routes.

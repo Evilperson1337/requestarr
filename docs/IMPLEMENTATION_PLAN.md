@@ -1,21 +1,21 @@
 # Implementation plan: scaffold to usable Requestarr
 
-Date: 2026-10-20. Status: partial implementation delivered; M1 and V1 are not complete.
+Date: 2026-10-24. Status: V1 scope is implemented and tested against fixtures and mocks; V1 is **not yet release-ready** (live acceptance, release workflow and some quality gaps remain). The authoritative current assessment, acceptance results and gap list are in [PROJECT_STATUS](research/PROJECT_STATUS.md); upgrade and backup notes are in [UPGRADE_AND_BACKUP](UPGRADE_AND_BACKUP.md); release policy is in [RELEASES](RELEASES.md).
 
-### Current delivered status (2026-10-20)
+### Current delivered status (2026-10-24)
 
-The implementation has moved well beyond the scaffold baseline below, but it does not yet satisfy the full M1 acceptance demonstration or complete V1. This snapshot describes shipped repository behavior, not the historical target architecture or future work in later sections.
+This snapshot describes shipped repository behavior, not the historical target architecture or future work in later sections.
 
 | Milestone area | Delivered status |
 | --- | --- |
-| M1 — identity and request loop | OIDC authorization-code login/session handling and one-time admin bootstrap are implemented. TMDB, MusicBrainz, and IGDB canonical resolution feed request creation and the shared request API/UI; authenticated users can subscribe, and admins can approve/deny requests. These are useful working slices, not the complete secure configuration wizard and real-browser OIDC acceptance described below. |
-| M2 — availability | Embedded SPA serving and a Jellyfin movie/TV sync path with positive-only matching and admin-visible sync status exist. Availability is not inferred from missing inventory; incomplete or failed syncs do not establish absence. RomM, Navidrome, Plex, and other library adapters are absent. |
-| M3 — notifications | Durable in-app notifications and a global Apprise outbox/worker are implemented. Global Apprise delivery is at-least-once and can duplicate after an ambiguous upstream acceptance. |
-| M4 / V1 hardening | Not complete. Setup UI is bootstrap-aware but does not edit configuration. Admin user listing and role changes, transactional role audit, last-admin protection shared with `ClaimAdmin`, and session revocation on role changes are implemented. New OIDC users default to viewer; repeat logins preserve existing roles without backfilling/changing them. Notification preferences, request/inbox pagination and filtering remain deficient or absent. Broader operational, accessibility, security, and acceptance work remains. |
+| M1 — identity and request loop | OIDC login and one-time admin bootstrap (scripted Keycloak login check passes), TMDB/MusicBrainz/IGDB resolution, shared requests with subscriptions, search/filter/sort/cursor pagination, cancel and leave, admin approve/deny with audit, role matrix tests, and the full setup wizard (General through Finish). Wizard drafts are inactive: configuration is applied by editing the environment and restarting. |
+| M2 — availability | Persistent job runner with no-overlap lease and Sync now; Jellyfin, Plex (movies, TV, music), RomM (per-platform games) and Navidrome adapters behind one contract suite; positive-evidence availability, targeted reconciliation, suggested matches. Failed syncs never create absence. |
+| M3 — notifications | Durable in-app notifications and a global Apprise outbox/worker. Apprise delivery is at-least-once and can duplicate. |
+| M4 / V1 hardening | Operational status view, frontend smoke and accessibility tests, upgrade/backup notes, release pipeline that builds the UI in every path. Supply-chain policy proposed (D023) but not implemented. |
 
-**Remaining acceptance gaps:** general configuration and setup are environment-only; the browser setup page is a bootstrap/admin-claim flow, not a wizard for editing server configuration. Only the Jellyfin source and positive-only availability matching exist; missing availability is not inferred. RomM, Navidrome, Plex, and other adapters remain absent. Global Apprise is at-least-once. Notification preferences and request/inbox pagination/filtering remain deficient or absent. No live Keycloak, metadata-provider, library, or Apprise acceptance run is claimed, and no UI component testing is in place.
+**Remaining gaps:** see section 4 of [PROJECT_STATUS](research/PROJECT_STATUS.md): no live-service acceptance, wizard settings and request policy not applied at runtime, release workflow and image publishing unverified, accessibility pass incomplete, no log viewer, no security review.
 
-**Verified checks (2026-10-20):** migrations through `000012` are present; the full integration suite was reported passing against live PostgreSQL 17, but a 2026-10-21 rerun fails two Jellyfin tests (see [integration baseline](research/INTEGRATION_BASELINE.md)). `make fmt`, `make test`, `make vet`, `make web-check`, `make build`, and `git diff --check` passed. A Docker build succeeded with the prior full code snapshot before admin management was added; it has not been rerun for the latest code, so do not treat it as current-image verification. This evidence does not establish live Keycloak, metadata-provider, library, or Apprise acceptance. Real OIDC browser integration and end-to-end tests remain outstanding. Do not describe this repository as V1-complete.
+**Verified checks (2026-10-24):** `make fmt test vet web-check`, the PostgreSQL integration suite, the scripted Keycloak login, 59 frontend tests, `goreleaser check`/snapshot, Docker build and the container check all pass; see [PROJECT_STATUS](research/PROJECT_STATUS.md) and [RELEASES](RELEASES.md).
 
 ### Historical scaffold baseline (2026-10-15)
 

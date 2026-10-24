@@ -21,7 +21,15 @@ func newMusicRequest(t *testing.T, ctx context.Context, s *Store, media domain.M
 	if _, err := s.pool.Exec(ctx, `INSERT INTO catalog_items(id,media_type,provider,provider_id,title,artwork_kind,external_url,metadata,created_at,updated_at) VALUES($1,$2,'musicbrainz',$3,'Music integration','square','https://example.test','{}',now(),now())`, catalogID, media, catalogID); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = s.pool.Exec(context.Background(), `DELETE FROM catalog_items WHERE id=$1`, catalogID) })
+	// Requests reference the catalog item, so remove them first; leftovers would
+	// accumulate in the persistent test database and crowd later runs' work lists.
+	t.Cleanup(func() {
+		for _, statement := range []string{`DELETE FROM requests WHERE catalog_item_id=$1`, `DELETE FROM catalog_items WHERE id=$1`} {
+			if _, err := s.pool.Exec(context.Background(), statement, catalogID); err != nil {
+				t.Errorf("clean up music catalog item: %v", err)
+			}
+		}
+	})
 	user := integrationUser(t, ctx, s)
 	req, _, err := s.CreateOrGet(ctx, domain.Request{CatalogItemID: catalogID, Status: domain.RequestRequested, RequestedBy: user}, domain.RequestSubscription{UserID: user, Source: domain.SubscriptionRequester})
 	if err != nil {

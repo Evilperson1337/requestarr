@@ -83,7 +83,7 @@ For initial administrator provisioning, see [`docs/OIDC_AUTH.md`](docs/OIDC_AUTH
 
 After claiming admin, use **Setup** for the resumable draft (General through Review) with explicit
 connection checks. Settings remain inactive and secrets stay in the
-environment; **Finish** completes the wizard once every required check passes. See the [setup guide](docs/SETUP_WIZARD.md).
+environment; **Finish** completes the wizard once every required check passes. See the [setup guide](docs/SETUP_WIZARD.md), [upgrade and backup notes](docs/UPGRADE_AND_BACKUP.md) and [project status](docs/research/PROJECT_STATUS.md).
 
 The frontend lives under `web/`:
 
