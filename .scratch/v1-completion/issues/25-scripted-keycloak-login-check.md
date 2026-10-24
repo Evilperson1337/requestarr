@@ -4,8 +4,8 @@
 
 **Blocked by:** 02 Integration test target
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A script starts from the dev compose environment and completes a login
-- [ ] It fails clearly on error and is documented in docs/TESTING.md
-- [ ] Its result is recorded
+- [x] A script starts from the dev compose environment and completes a login
+- [x] It fails clearly on error and is documented in docs/TESTING.md
+- [x] Its result is recorded

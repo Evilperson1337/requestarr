@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 type authRepoFake struct {
 	preauth  string
 	consumed bool
+	loginUID string
 }
 
 func (f *authRepoFake) SaveTransaction(_ context.Context, _, _, _, preauth string, _ time.Time) error {
@@ -28,8 +30,9 @@ func (f *authRepoFake) ConsumeTransaction(_ context.Context, _, preauth string, 
 	f.consumed = true
 	return "n", "v", nil
 }
-func (*authRepoFake) Login(context.Context, string, string, string, string, string, time.Time) (User, error) {
-	return User{}, nil
+func (f *authRepoFake) Login(_ context.Context, _, _, _, _, uid string, _ time.Time) (User, error) {
+	f.loginUID = uid
+	return User{ID: uid}, nil
 }
 func (*authRepoFake) CreateSession(context.Context, string, []byte, []byte, time.Time) error {
 	return nil
@@ -38,6 +41,12 @@ func (*authRepoFake) GetSession(context.Context, []byte, time.Time) (User, []byt
 	return User{}, nil, time.Time{}, errors.New("missing")
 }
 func (*authRepoFake) RevokeSession(context.Context, []byte, time.Time) error { return nil }
+
+type identityProviderFake struct{ authProviderFake }
+
+func (identityProviderFake) Exchange(context.Context, string, string, string) (*oidc.Identity, error) {
+	return &oidc.Identity{Subject: "sub-1", Email: "a@example.test", DisplayName: "A"}, nil
+}
 
 type authProviderFake struct{}
 
@@ -110,3 +119,32 @@ func TestCSRFMiddlewareRejectsMissingOrInvalidSession(t *testing.T) {
 		}
 	}
 }
+
+// users.id is a UUID column, so first sign-in must hand the repository a UUID.
+func TestCallbackProvisionsUserWithUUID(t *testing.T) {
+	repo := &authRepoFake{}
+	h := &Handler{Repo: repo, Provider: identityProviderFake{}, Secret: "secret", PublicURL: "https://app.example"}
+	loginRec := httptest.NewRecorder()
+	h.login(loginRec, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	state := ""
+	cookies := loginRec.Result().Cookies()
+	for _, c := range cookies {
+		if c.Name == "requestarr_oidc_state" {
+			state = c.Value
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=c&state="+state, nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	h.callback(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("callback status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !uuidPattern.MatchString(repo.loginUID) {
+		t.Fatalf("user ID %q is not a UUID", repo.loginUID)
+	}
+}
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)

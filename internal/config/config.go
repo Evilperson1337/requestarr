@@ -131,8 +131,8 @@ func (c Config) Validate() error {
 	{
 		if c.OIDCIssuer != "" {
 			u, err := url.Parse(c.OIDCIssuer)
-			if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-				problems = append(problems, "REQUESTARR_OIDC_ISSUER must be an absolute https URL without credentials, query, or fragment")
+			if err != nil || !(u.Scheme == "https" || (c.Environment == "development" && u.Scheme == "http" && isLoopbackHost(u.Hostname()))) || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+				problems = append(problems, "REQUESTARR_OIDC_ISSUER must be an absolute https URL (http only for localhost in development) without credentials, query, or fragment")
 			}
 		}
 		if c.OIDCIssuer == "" || c.OIDCClientID == "" || c.OIDCClientSecret == "" {
@@ -185,4 +185,10 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// isLoopbackHost reports names that only reach the local machine; plain HTTP is
+// tolerated for them in development.
+func isLoopbackHost(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }

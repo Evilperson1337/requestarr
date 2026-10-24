@@ -69,3 +69,6 @@ An album Request's canonical identity is a MusicBrainz release group and a song'
 
 ## D021 — Game availability is per platform
 Availability evidence and absence streaks carry a platform key (`igdb:<id>`, or `''` for non-game media and platforms a Source cannot map to IGDB). A game Request is moved to `available` only when the evidence satisfies its selection (`domain.PlatformSelection.SatisfiedBy`, D009): any selected platform for an explicit selection, any platform at all for Any. Evidence with an unknown platform satisfies Any but never an explicit selection. A game is available as a catalog item whenever any platform holds it; each platform's evidence expires on its own.
+
+## D022 — Development OIDC issuers may use loopback HTTP
+`REQUESTARR_OIDC_ISSUER` stays HTTPS-only, except that with `REQUESTARR_ENV=development` an `http` issuer on `localhost`, `127.0.0.1` or `::1` is accepted so the dev compose Keycloak (plain HTTP) can be used. Production and non-loopback hosts still require HTTPS. OIDC remains the only sign-in path (accepted V1 decision 5). `make check-login` verifies the flow.

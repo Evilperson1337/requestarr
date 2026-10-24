@@ -317,3 +317,22 @@ func TestRommConfigurationMustBeCompleteAndSafe(t *testing.T) {
 		})
 	}
 }
+
+func TestOIDCIssuerMayUseLoopbackHTTPOnlyInDevelopment(t *testing.T) {
+	for _, tc := range []struct {
+		env, issuer string
+		ok          bool
+	}{
+		{"development", "http://localhost:8081/realms/requestarr", true},
+		{"development", "http://127.0.0.1:8081/realms/requestarr", true},
+		{"development", "http://id.example.test/realms/requestarr", false},
+		{"production", "http://localhost:8081/realms/requestarr", false},
+		{"development", "https://id.example.test", true},
+	} {
+		cfg := validBase()
+		cfg.Environment, cfg.OIDCIssuer = tc.env, tc.issuer
+		if err := cfg.Validate(); (err == nil) != tc.ok {
+			t.Errorf("%s %s: Validate()=%v, want ok=%v", tc.env, tc.issuer, err, tc.ok)
+		}
+	}
+}

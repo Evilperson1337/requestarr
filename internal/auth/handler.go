@@ -128,7 +128,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 401, "sign_in_failed", "sign-in failed")
 		return
 	}
-	uid, err := oidc.RandomValue()
+	uid, err := oidc.RandomUUID()
 	if err != nil {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return

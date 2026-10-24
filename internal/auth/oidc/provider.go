@@ -100,6 +100,19 @@ func RandomValue() (string, error) {
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
+
+// RandomUUID returns a random version 4 UUID in canonical text form, for
+// primary keys that PostgreSQL stores as UUID.
+func RandomUUID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
+}
+
 func PKCEChallenge(verifier string) string {
 	h := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(h[:])

@@ -41,3 +41,7 @@ only: authorization uses the verified identity attached to the server session.
 Consumption, role promotion, setup completion, and audit event commit atomically.
 Failures are intentionally generic. Claim traffic should additionally be
 rate-limited at the reverse proxy; the endpoint does not expose token validity.
+
+## Development issuer over HTTP
+
+`REQUESTARR_OIDC_ISSUER` must be HTTPS, except that with `REQUESTARR_ENV=development` a plain-HTTP issuer on `localhost`, `127.0.0.1` or `::1` is accepted so the dev compose Keycloak works. Run `make check-login` to verify login against it. The dev realm registers `http://localhost:8080/api/v1/auth/callback` and `http://localhost:18080/api/v1/auth/callback`.

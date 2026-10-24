@@ -5,7 +5,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: help fmt test test-integration vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down migrate-up snapshot release-check references
+.PHONY: help fmt test test-integration check-login vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down migrate-up snapshot release-check references
 
 # Load .env into the recipe's environment when present, without requiring it
 # to be sourced into the caller's shell first.
@@ -16,6 +16,7 @@ help:
 	  'make fmt            Format Go code' \
 	  'make test           Run Go tests' \
 	  'make test-integration  Run PostgreSQL integration tests against the dev compose database' \
+	  'make check-login       Prove OIDC login against the dev compose Keycloak' \
 	  'make vet            Run go vet' \
 	  'make build          Build Requestarr' \
 	  'make run            Run Requestarr API scaffold (requires a reachable PostgreSQL, see make dev-up)' \
@@ -54,6 +55,9 @@ test-integration:
 	    || docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -c 'create database requestarr_test'; \
 	fi; \
 	REQUESTARR_TEST_DATABASE_URL="$${REQUESTARR_TEST_DATABASE_URL:-$(TEST_DB_URL)}" go test -tags integration -count=1 ./internal/store/postgres/...
+
+check-login:
+	scripts/check-keycloak-login.sh
 
 vet:
 	go vet ./...

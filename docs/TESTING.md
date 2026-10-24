@@ -35,6 +35,28 @@ Cover setup wizard, OIDC sign-in, create request, duplicate resolution, Notify M
 - no external API call on ordinary Requests page rendering;
 - resolution UI progressively shows cached data when possible;
 - library sync memory use must be bounded/paginated.
+# Scripted Keycloak login check
+
+`make check-login` (`scripts/check-keycloak-login.sh`) proves OIDC login works
+end to end against the dev compose Keycloak. It starts Postgres and Keycloak
+(recreating Keycloak so the realm import is current), builds and runs Requestarr
+on the host (not in compose) against a throwaway `requestarr_login_check` database, then uses
+curl to start login, submit the realm's dev user credentials, complete the
+callback, and confirm `/api/v1/auth/me` returns the signed-in user. It prints
+`PASS: ...` and exits 0, or prints `FAIL: <step>` and exits non-zero. Requires
+docker, curl and go.
+
+- Honors `REQUESTARR_POSTGRES_PORT` (use it when 5432 is taken, as for
+  `make test-integration`), `REQUESTARR_LOGIN_CHECK_PORT` (default 18080) and
+  `REQUESTARR_KEYCLOAK_URL` (default `http://localhost:8081`).
+- It needs the development-only allowance for a plain-HTTP loopback issuer; any
+  other issuer must be HTTPS.
+
+Last recorded result: 2026-10-24, PASS against Keycloak 26.3
+(`REQUESTARR_POSTGRES_PORT=5433 make check-login`). The first run exposed that
+first sign-in failed with HTTP 500 because the callback used a non-UUID user ID;
+that is fixed and covered by `TestCallbackProvisionsUserWithUUID`.
+
 # Focused Requests browser tests
 
 The Requests page has a Playwright suite with a deterministic mocked API. It
