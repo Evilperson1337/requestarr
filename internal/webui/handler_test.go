@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"regexp"
 	"testing"
 )
@@ -15,7 +16,12 @@ func TestHandlerServesBuiltIndexAndReferencedAssets(t *testing.T) {
 	}
 	index, err := fs.ReadFile(root, "index.html")
 	if err != nil {
-		t.Fatalf("read embedded index: %v", err)
+		// dist is built by `make web-build`, not committed. CI always builds it, so
+		// a missing build there is a failure rather than a skip.
+		if os.Getenv("CI") != "" {
+			t.Fatalf("embedded UI not built before tests: %v", err)
+		}
+		t.Skipf("embedded UI not built (run make web-build): %v", err)
 	}
 	asset := regexp.MustCompile(`(?:src|href)="(/assets/[^\"]+)"`).FindSubmatch(index)
 	if len(asset) < 2 {

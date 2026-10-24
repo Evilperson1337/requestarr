@@ -9,7 +9,6 @@ cd "$(dirname "$0")/.."
 compose=(docker compose -f compose.dev.yaml)
 port="${REQUESTARR_LOGIN_CHECK_PORT:-18080}"
 kc="${REQUESTARR_KEYCLOAK_URL:-http://localhost:8081}"
-case "$kc" in http://localhost:*|http://127.0.0.1:*) ;; *) fail "REQUESTARR_KEYCLOAK_URL must be a local http://localhost or http://127.0.0.1 URL (dev credentials are sent to it)";; esac
 issuer="$kc/realms/requestarr"
 base="http://localhost:$port"
 database=requestarr_login_check
@@ -23,6 +22,8 @@ cleanup() {
   rm -rf "$work"
 }
 trap cleanup EXIT
+
+case "$kc" in http://localhost:*|http://127.0.0.1:*) ;; *) fail "REQUESTARR_KEYCLOAK_URL must be a local http://localhost or http://127.0.0.1 URL (dev credentials are sent to it)";; esac
 
 for tool in docker curl go; do command -v "$tool" >/dev/null || fail "$tool is required"; done
 if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then fail "port $port is in use; set REQUESTARR_LOGIN_CHECK_PORT"; fi

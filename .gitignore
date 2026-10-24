@@ -62,3 +62,7 @@ references/mockups/archive/
 .golangci-lint-cache/
 web/test-results/
 web/playwright-report/
+
+# Built UI is produced by `make web-build` (Dockerfile, CI and GoReleaser run it); never commit it.
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep

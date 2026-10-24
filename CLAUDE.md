@@ -74,7 +74,7 @@ Database migrations under `db/migrations/` are append-only once merged — never
 
 ## Frontend
 
-`web/` is a React 19 + TypeScript + Vite app (`web/src/App.tsx`, `web/src/pages`, `web/src/components`). `make build` builds it and embeds it in the Go binary via `internal/webui`; the Dockerfile does the same. GoReleaser does not yet build the web assets. `references/mockups/final/` holds the authoritative UI decision mockups — follow them for behavior/decisions, but accessibility and responsive layout take precedence over pixel-perfect matching (per `AGENTS.md`).
+`web/` is a React 19 + TypeScript + Vite app (`web/src/App.tsx`, `web/src/pages`, `web/src/components`). `make build` builds it and embeds it in the Go binary via `internal/webui`; the Dockerfile does the same. GoReleaser builds them in its `before` hooks; `internal/webui/dist` is build output and is not committed (see `docs/RELEASES.md`). `references/mockups/final/` holds the authoritative UI decision mockups — follow them for behavior/decisions, but accessibility and responsive layout take precedence over pixel-perfect matching (per `AGENTS.md`).
 
 ## Working with reference material
 

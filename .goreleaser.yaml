@@ -5,6 +5,9 @@ project_name: requestarr
 before:
   hooks:
     - go mod tidy
+    # The binary embeds the UI (internal/webui), which is not committed: build it first.
+    - npm --prefix web ci --no-audit --no-fund
+    - make web-build
     - go test ./...
 
 builds:

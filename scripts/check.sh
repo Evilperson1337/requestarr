@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+scripts/check-node-version.sh
 make fmt
 make test
 make vet
