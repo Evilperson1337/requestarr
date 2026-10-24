@@ -67,7 +67,7 @@ with the app. The suite runs in CI (`web` job) after the typecheck/build.
 Coverage by spec file: `smoke.spec.ts` (Home resolve, request modal incl. game
 platform rules, Notifications, non-admin navigation), `requests.spec.ts`
 (Requests page), `setup.spec.ts` (wizard through Finish) and `status.spec.ts`
-(Settings operational status).
+(Settings operational status), `a11y.spec.ts` (axe and no-horizontal-scroll audit of every main page at desktop and phone widths, plus the dialog keyboard test; see [the audit](ACCESSIBILITY_AUDIT.md)).
 
 ```sh
 make web-install

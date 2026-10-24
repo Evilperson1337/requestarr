@@ -46,6 +46,14 @@ textarea:focus-visible {
     gap: 24px
 }
 
+.shell>* {
+    min-width: 0
+}
+
+.table-wrap {
+    overflow-x: auto
+}
+
 .card {
     border: 1px solid #263047;
     border-radius: 18px;
@@ -164,7 +172,7 @@ p {
 }
 
 .button:hover {
-    background: #8d65ff
+    background: #6a3de8
 }
 
 .button:disabled {
