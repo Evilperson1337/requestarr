@@ -89,3 +89,11 @@ Partly supersedes D017. An admin may enter the TMDB token, IGDB client secret, J
 - **Navidrome:** the username becomes an ordinary draft field; only the password is a secret.
 - **Rotation and backup:** key rotation tooling is deferred; a changed key means re-entering secrets. Docs must say the master key is backed up separately from the database.
 
+Implementation notes (ticket 02-07):
+
+- **Master key format:** 64 hex characters, or base64 decoding to 32 bytes. Ciphertext is bound to the secret name as AES-GCM additional data, so a row moved to another name does not open.
+- **Audit:** value-free set/clear events go to a separate `secret_audit_events` table, written in the same transaction as the change.
+- **Delete without a key:** `DELETE /admin/secrets/{name}` works without a master key so an unreadable secret can be discarded.
+- **Unreadable at boot:** an unreadable stored secret whose Source or Apprise URL comes from the environment blanks that URL (for Navidrome also the username) so the integration stays off as a unit instead of failing the pairing rule.
+- **Navidrome username:** seeded from `REQUESTARR_NAVIDROME_USERNAME` when the draft's username is empty.
+

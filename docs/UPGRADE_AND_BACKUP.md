@@ -1,10 +1,13 @@
 # Upgrade and backup
 
-Requestarr keeps all of its state in one PostgreSQL database. Secrets (OIDC client
-secret, provider tokens, library credentials, the Apprise key and the session HMAC
-secret) live only in the server environment and are never stored in the database,
-so a database backup contains no credentials (only hashed session and setup tokens and secret references). Back up your environment file or
-secret store separately.
+Requestarr keeps all of its state in one PostgreSQL database. The OIDC client
+secret, the session HMAC secret and the master key (`REQUESTARR_SECRETS_KEY`) live
+only in the server environment. Provider tokens, library credentials, the Apprise
+key and the Navidrome password may be set in the environment or saved through
+Setup (D024); saved values are stored in the database **encrypted** under the
+master key. A database backup therefore contains no plaintext credentials (only
+hashed session and setup tokens, secret references and ciphertext), but it is
+also not enough to restore saved secrets: you need the master key too.
 
 ## What to back up
 
@@ -14,6 +17,15 @@ secret store separately.
 2. Your environment configuration (`.env`, compose file or secret manager),
    including `REQUESTARR_SESSION_HMAC_SECRET`. Changing that secret signs everyone
    out; it does not corrupt data.
+3. `REQUESTARR_SECRETS_KEY`, **backed up separately from the database**. Keep it
+   in a different store than the dump (a password manager or secret store), so
+   that no single leaked backup holds both the ciphertext and its key. If the key
+   is lost or changed, stored secrets become unreadable: the server still boots,
+   each affected integration stays off and reports "stored secret unreadable", and
+   you must re-enter the secrets in Setup (or set them in the environment). Key
+   rotation tooling is deferred. An unreadable secret can be cleared without the
+   key. An environment value always wins over a stored one, and a saved secret
+   applies on the next restart.
 
 Nothing else on the application host needs backing up. The binary and container
 image are replaceable.
@@ -43,7 +55,7 @@ history exist only in your backup.
   migrations are never edited (a new migration is added instead).
 - **Downgrading the binary after a migration has run is unsupported.** Roll back
   by restoring the backup you took before upgrading.
-- The schema version at the time of writing is 22 (`000022_setup_wizard_completion`);
+- The schema version at the time of writing is 23 (`000023_stored_secrets`);
   the highest migration in the release you install is the target. A
   database from a pre-release prototype should be recreated rather than upgraded:
   early migrations were corrected in place before they shipped (see D-notes in
@@ -76,6 +88,7 @@ backup, keep the previous version running, and report the migration error.
 | 000016-000019 | Multi-source inventory, catalog item aliases, platform-aware evidence, match suggestions |
 | 000020 | Request list snapshots (pagination) |
 | 000021-000022 | Setup wizard drafts, wizard completion |
+| 000023 | Encrypted stored secrets and their value-free audit events |
 
 ## Operational notes
 

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02, 03, 04, 05, 06
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Docs match D024
-- [ ] make fmt test vet web-check pass
+- [x] Docs match D024
+- [x] make fmt test vet web-check pass

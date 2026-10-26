@@ -53,25 +53,54 @@ The page does not receive identity fields or the setup token from the backend. I
 ## Saving and resuming
 
 The shared PostgreSQL draft stores instance name, IANA timezone, public URL,
-OIDC issuer/client ID, provider enablement/contact/client ID, library Source URLs, the Navidrome username (an ordinary draft
-field; the old usernameEnv reference in earlier drafts is ignored),
-enabled flags and supported authoritative media types, and fixed secret
-environment-variable names. It does not store secret values or runtime secret
-presence flags. Secret values never enter the draft. Since D024 the TMDB read
-token and the Navidrome password (so far; other integrations follow) has a separate write-only field that
-stores it encrypted under `REQUESTARR_SECRETS_KEY` (32 bytes as 64 hex characters
-or base64). Without that key the field is disabled. An environment value always
-wins, a saved value applies on restart, and a connection check uses the value the
-next restart would use and names its source. Back up the master key separately
-from the database. Secret references are:
+OIDC issuer/client ID, provider enablement/contact/client ID, library Source
+URLs, the Navidrome username, enabled flags and supported authoritative media
+types, and fixed secret environment-variable names. The Navidrome username is
+plain draft data (not a secret); when the draft's username is empty it is seeded
+from `REQUESTARR_NAVIDROME_USERNAME`, and the old `usernameEnv` reference in
+earlier drafts is ignored. The draft never holds secret values or runtime secret
+presence flags.
 
-- `REQUESTARR_OIDC_CLIENT_SECRET`
+Secret values are write-only fields that are not part of the draft (D024). The
+Notifications, Metadata Providers and Libraries steps show one such field for
+each stored-capable secret. A saved value is stored in PostgreSQL encrypted under
+the master key `REQUESTARR_SECRETS_KEY` (32 bytes as 64 hex characters, or base64
+that decodes to 32 bytes; for example `openssl rand -hex 32`). Without that key
+the fields are disabled and the environment path keeps working. Rules:
+
+- An environment value always wins over a saved one. Each secret reports its
+  source: `environment`, `stored`, or `stored (shadowed by environment)`; Review
+  warns about shadowed values and never deletes them automatically.
+- A saved secret applies on restart, like the rest of the inactive draft; Review
+  lists it as "saved, pending restart". A connection check uses the value the
+  next restart would use and names its source.
+- Values are never returned, logged or audited; only presence and source are
+  shown. Replacing or clearing a secret stays available after **Finish**.
+- If a stored secret cannot be read (wrong or missing master key) the server
+  still boots, the integration stays off and reports "stored secret unreadable".
+  For a library Source or Apprise the URL is ignored for that boot (and for
+  Navidrome the username as well) so the integration stays off as a unit. Restore
+  the key, or re-enter or clear the secret. Clearing works without a master key,
+  so an unreadable secret can always be discarded.
+- Changing the master key makes existing stored secrets unreadable; re-enter
+  them. Key rotation tooling is deferred.
+- Back up the master key separately from the database (see
+  [upgrade and backup](UPGRADE_AND_BACKUP.md)).
+
+Stored-capable secrets (the registry in `internal/secrets`), with the
+environment variable that overrides each:
+
 - `REQUESTARR_TMDB_READ_TOKEN`
 - `REQUESTARR_IGDB_CLIENT_SECRET`
+- `REQUESTARR_APPRISE_CONFIG_KEY`
+- `REQUESTARR_NAVIDROME_PASSWORD`
 - `REQUESTARR_JELLYFIN_API_KEY`
 - `REQUESTARR_PLEX_TOKEN`
 - `REQUESTARR_ROMM_TOKEN`
-- `REQUESTARR_NAVIDROME_PASSWORD`
+
+`REQUESTARR_OIDC_CLIENT_SECRET`, `REQUESTARR_SESSION_HMAC_SECRET` and
+`REQUESTARR_SECRETS_KEY` stay environment-only: sign-in must work before Setup is
+reachable. Library and Apprise URLs also stay environment-only.
 
 Use **Save draft** or the step navigation controls to persist edits and the
 resume position. Saves use optimistic revisions; a concurrent change returns a
@@ -96,8 +125,8 @@ fixed safe message, never a raw service error or credential-bearing payload.
   does not verify arbitrary new client credentials. Issuer/client changes and
   missing server credentials remain environment/restart items. No secret is sent
   to a draft issuer.
-- **TMDB:** checks the fixed configuration API with the token from the server
-  environment.
+- **TMDB:** checks the fixed configuration API with the token the next restart
+  would use (environment, otherwise saved).
 - **MusicBrainz:** checks a fixed public endpoint with an identifying user-agent
   and the draft's contact email; no secret is required.
 - **IGDB:** checks fixed Twitch client-credentials and IGDB platform endpoints
