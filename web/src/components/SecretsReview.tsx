@@ -38,7 +38,7 @@ export function SecretsReview({ csrfToken }: { csrfToken: string }) {
     return <section aria-label="Stored secrets review">
         <h3>Stored secrets</h3>
         {error && <p role="alert" className="error">{error}</p>}
-        {shadowed.map(s => <div key={s.name} role="alert" className="errorBox">
+        {shadowed.map(s => <div key={s.name} role="status" className="errorBox">
             <p>{s.label}: the stored value is shadowed by the environment variable <code>{s.envVar}</code> and is not used. If that variable is removed, the stored value takes effect after a restart.</p>
             <button className="button secondary" type="button" disabled={busy} aria-label={`Clear stored ${s.label}`} onClick={() => void clear(s.name, s.label)}>Clear stored value</button>
         </div>)}

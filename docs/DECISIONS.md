@@ -97,3 +97,5 @@ Implementation notes (ticket 02-07):
 - **Unreadable at boot:** an unreadable stored secret whose Source or Apprise URL comes from the environment blanks that URL (for Navidrome also the username) so the integration stays off as a unit instead of failing the pairing rule.
 - **Navidrome username:** seeded from `REQUESTARR_NAVIDROME_USERNAME` when the draft's username is empty.
 
+- **Draft field rename:** the Navidrome draft field `usernameEnv` became `username`. Old drafts still load. A stale client that sends `usernameEnv` gets a 400 until it reloads.
+- **Value limits:** a secret value is 1-4096 characters, with no leading or trailing whitespace and no control characters.

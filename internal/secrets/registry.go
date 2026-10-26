@@ -1,7 +1,10 @@
 package secrets
 
-// Name identifies one stored-capable secret. Later integrations add entries to
-// the registry; nothing else in this package knows about a specific provider.
+// Name identifies one stored-capable secret. Adding one takes a constant and a
+// registry entry here, plus: a resolver call where the integration reads it,
+// the setup check mapping (internal/setup), and a field in the web UI
+// (web/src/storedSecrets.ts and the wizard step). This package itself knows
+// nothing about a specific provider.
 type Name string
 
 const (

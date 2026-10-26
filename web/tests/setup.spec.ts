@@ -452,11 +452,11 @@ test('review warns about shadowed and pending-restart secrets, and clears when t
     state.saved.currentStep = 'review'
     await page.goto('/setup')
     const review = page.getByRole('region', { name: 'Stored secrets review' })
-    await expect(review.getByRole('alert')).toContainText('shadowed by the environment variable REQUESTARR_TMDB_READ_TOKEN')
+    await expect(review.getByRole('status')).toContainText('shadowed by the environment variable REQUESTARR_TMDB_READ_TOKEN')
     await expect(review.getByRole('list', { name: 'Saved, pending restart' })).toContainText('TMDB read token')
 
     await review.getByRole('button', { name: 'Clear stored TMDB read token' }).click()
-    await expect(review.getByRole('alert')).toHaveCount(0)
+    await expect(review.getByRole('status')).toHaveCount(0)
     await expect(review.getByRole('list', { name: 'Saved, pending restart' })).toHaveCount(0)
 })
 

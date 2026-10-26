@@ -58,11 +58,16 @@ var checkedSecrets = map[Target]struct {
 // knows which value was verified. It never includes the value.
 func (s *Service) secretNote(ctx context.Context, target Target, code CheckCode) string {
 	checked, ok := checkedSecrets[target]
-	if s.secrets == nil || !ok || code == CheckDisabled || code == CheckIncomplete {
+	if s.secrets == nil || !ok {
 		return ""
 	}
 	r, err := s.secrets.Resolve(ctx, checked.name)
 	if err != nil {
+		return ""
+	}
+	// An unreadable stored secret is always worth reporting. The other notes
+	// claim a value was checked, which is untrue when nothing was attempted.
+	if (code == CheckDisabled || code == CheckIncomplete) && r.Source != secrets.SourceUnreadable {
 		return ""
 	}
 	switch r.Source {

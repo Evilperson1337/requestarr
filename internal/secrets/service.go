@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,6 +56,17 @@ type Resolved struct {
 	// without keeping a second copy of it.
 	fingerprint string
 }
+
+// Resolved and Service hold plaintext, so formatting or logging them prints a
+// placeholder instead of the values.
+func (r Resolved) String() string {
+	return "secrets.Resolved{source:" + string(r.Source) + ", value:[redacted]}"
+}
+func (r Resolved) GoString() string     { return r.String() }
+func (r Resolved) LogValue() slog.Value { return slog.StringValue(r.String()) }
+func (s *Service) String() string       { return "secrets.Service{[redacted]}" }
+func (s *Service) GoString() string     { return s.String() }
+func (s *Service) LogValue() slog.Value { return slog.StringValue(s.String()) }
 
 // Status is the write-only view of a secret: presence and source, never the value.
 type Status struct {

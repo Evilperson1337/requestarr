@@ -147,6 +147,37 @@ func TestClearSecret(t *testing.T) {
 	assertErrorEnvelope(t, secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodDelete, "/admin/secrets/nope", ""), 404, "unknown_secret")
 }
 
+// PUT and DELETE on stored secrets enforce the same CSRF token and Origin
+// checks as the other admin writes.
+func TestSecretsWritesRequireCSRFAndSameOrigin(t *testing.T) {
+	for _, method := range []string{http.MethodPut, http.MethodDelete} {
+		for _, c := range []struct{ name, origin, token, code string }{
+			{"missing csrf header", "http://example.test", "", "csrf_invalid"},
+			{"wrong csrf header", "http://example.test", "other", "csrf_invalid"},
+			{"foreign origin", "http://evil.test", "csrf-token", "origin_rejected"},
+			{"missing origin", "", "csrf-token", "origin_rejected"},
+		} {
+			svc := &fakeSecrets{}
+			h := NewWithSetup(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), buildinfo.Info{}, fakeReadiness{}, nil, nil, svc,
+				&auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "admin"}}}, Secret: "test-secret", PublicURL: "http://example.test"})
+			r := httptest.NewRequest(method, "/api/v1/admin/secrets/tmdb_read_token", strings.NewReader(`{"value":"x"}`))
+			r.AddCookie(&http.Cookie{Name: "requestarr_session", Value: "valid"})
+			r.AddCookie(&http.Cookie{Name: "requestarr_csrf", Value: "csrf-token"})
+			if c.origin != "" {
+				r.Header.Set("Origin", c.origin)
+			}
+			if c.token != "" {
+				r.Header.Set("X-CSRF-Token", c.token)
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != 403 || !strings.Contains(w.Body.String(), c.code) || len(svc.set)+len(svc.cleared) != 0 {
+				t.Errorf("%s %s: status %d body %s writes %v %v", method, c.name, w.Code, w.Body, svc.set, svc.cleared)
+			}
+		}
+	}
+}
+
 func TestSecretsStayWritableAfterSetupFinishWhileDraftIsFrozen(t *testing.T) {
 	svc := &fakeSecrets{fakeSetup: fakeSetup{err: setup.ErrCompleted}}
 	if w := secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodPut, "/admin/secrets/tmdb_read_token", `{"value":"`+probeValue+`"}`); w.Code != 204 {
