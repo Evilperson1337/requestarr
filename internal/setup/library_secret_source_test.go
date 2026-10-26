@@ -28,18 +28,3 @@ func TestLibraryCheckMessageNamesTheSecretSourceWithoutTheValue(t *testing.T) {
 		}
 	}
 }
-
-func TestNavidromeCheckMessageIsUnchangedUntilItsTicket(t *testing.T) {
-	repo := &memoryDrafts{}
-	svc := NewService(repo, codeChecker{CheckOK}, Runtime{})
-	svc.UseSecrets(stubSecrets{secrets.Resolved{Value: "v", Source: secrets.SourceStored}})
-	actor := Actor{ID: "admin-1", Role: "admin"}
-	draft, _ := svc.Load(context.Background(), actor)
-	draft, err := svc.Validate(context.Background(), actor, draft.Revision, TargetNavidrome)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := draft.Validations[0].Message; strings.Contains(got, "stored") {
-		t.Fatalf("message %q", got)
-	}
-}

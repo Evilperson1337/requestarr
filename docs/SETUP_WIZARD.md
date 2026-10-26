@@ -53,11 +53,12 @@ The page does not receive identity fields or the setup token from the backend. I
 ## Saving and resuming
 
 The shared PostgreSQL draft stores instance name, IANA timezone, public URL,
-OIDC issuer/client ID, provider enablement/contact/client ID, library Source URLs,
+OIDC issuer/client ID, provider enablement/contact/client ID, library Source URLs, the Navidrome username (an ordinary draft
+field; the old usernameEnv reference in earlier drafts is ignored),
 enabled flags and supported authoritative media types, and fixed secret
 environment-variable names. It does not store secret values or runtime secret
 presence flags. Secret values never enter the draft. Since D024 the TMDB read
-token (so far; other integrations follow) has a separate write-only field that
+token and the Navidrome password (so far; other integrations follow) has a separate write-only field that
 stores it encrypted under `REQUESTARR_SECRETS_KEY` (32 bytes as 64 hex characters
 or base64). Without that key the field is disabled. An environment value always
 wins, a saved value applies on restart, and a connection check uses the value the
@@ -70,7 +71,6 @@ from the database. Secret references are:
 - `REQUESTARR_JELLYFIN_API_KEY`
 - `REQUESTARR_PLEX_TOKEN`
 - `REQUESTARR_ROMM_TOKEN`
-- `REQUESTARR_NAVIDROME_USERNAME`
 - `REQUESTARR_NAVIDROME_PASSWORD`
 
 Use **Save draft** or the step navigation controls to persist edits and the

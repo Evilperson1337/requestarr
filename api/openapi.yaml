@@ -387,7 +387,7 @@ paths:
       - in: path
         name: name
         required: true
-        schema: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, jellyfin_api_key, plex_token, romm_token] }
+        schema: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token] }
     put:
       operationId: setStoredSecret
       summary: Save or replace a stored secret (administrator only)
@@ -756,7 +756,7 @@ components:
       type: object
       required: [name, label, envVar, configured, source, unreadable, pendingRestart]
       properties:
-        name: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, jellyfin_api_key, plex_token, romm_token] }
+        name: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token] }
         label: { type: string }
         envVar: { type: string, description: "Environment variable that sets this secret; it always wins over a stored value" }
         configured: { type: boolean, description: "An effective value exists. False for an unreadable stored secret, which is not the same as unconfigured" }
@@ -766,13 +766,13 @@ components:
     SetupSource:
       type: object
       additionalProperties: false
-      required: [enabled, url, mediaTypes, tokenEnv, usernameEnv, passwordEnv]
+      required: [enabled, url, mediaTypes, tokenEnv, username, passwordEnv]
       properties:
         enabled: { type: boolean }
         url: { type: string, maxLength: 2048, description: "Empty while drafting or an absolute origin" }
         mediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game] } }
         tokenEnv: { type: string, enum: ["", REQUESTARR_JELLYFIN_API_KEY, REQUESTARR_PLEX_TOKEN, REQUESTARR_ROMM_TOKEN] }
-        usernameEnv: { type: string, enum: ["", REQUESTARR_NAVIDROME_USERNAME] }
+        username: { type: string, maxLength: 256, description: "Navidrome account name, an ordinary non-secret draft field; must be empty for other Sources. Drafts saved with the retired usernameEnv still load, and an empty value takes the environment-configured username" }
         passwordEnv: { type: string, enum: ["", REQUESTARR_NAVIDROME_PASSWORD] }
     SetupDraft:
       type: object

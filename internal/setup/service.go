@@ -40,7 +40,7 @@ type Service struct {
 func (s *Service) UseSecrets(sources SecretSources) { s.secrets = sources }
 
 // checkedSecrets maps a check target to the secret it verifies and the noun
-// used for it in messages. Navidrome joins in its own ticket.
+// used for it in messages.
 var checkedSecrets = map[Target]struct {
 	name secrets.Name
 	noun string
@@ -49,6 +49,7 @@ var checkedSecrets = map[Target]struct {
 	TargetJellyfin:      {secrets.JellyfinAPIKey, "API key"},
 	TargetPlex:          {secrets.PlexToken, "token"},
 	TargetRomm:          {secrets.RommToken, "token"},
+	TargetNavidrome:     {secrets.NavidromePassword, "password"},
 	TargetIGDB:          {secrets.IGDBClientSecret, "client secret"},
 	TargetNotifications: {secrets.AppriseConfigKey, "configuration key"},
 }
@@ -151,7 +152,7 @@ func (s *Service) decorate(d Draft) Draft {
 		needsRestart := source.URL != activeURL || source.Enabled != (activeURL != "") || source.Enabled && !sameMediaTypes(source.MediaTypes, activeTypes)
 		d.Environment = append(d.Environment, EnvironmentItem{Name: url, Configured: activeURL != "", NeedsRestart: needsRestart, DesiredValue: source.URL})
 		if kind == "navidrome" {
-			d.Environment = append(d.Environment, EnvironmentItem{Name: source.UsernameEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind+"Username"], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind+"Username"]}, EnvironmentItem{Name: secretEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind+"Password"], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind+"Password"]})
+			d.Environment = append(d.Environment, EnvironmentItem{Name: NavidromeUsernameEnv, Configured: s.runtime.NavidromeUsername != "", NeedsRestart: source.Enabled && source.Username != s.runtime.NavidromeUsername, DesiredValue: source.Username}, EnvironmentItem{Name: secretEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind+"Password"], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind+"Password"]})
 		} else {
 			d.Environment = append(d.Environment, EnvironmentItem{Name: secretEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind]})
 		}
@@ -168,7 +169,7 @@ func defaultLibraries(runtime Runtime) LibrariesSettings {
 		Jellyfin:  SourceSettings{Enabled: runtime.LibraryURLs["jellyfin"] != "", URL: runtime.LibraryURLs["jellyfin"], MediaTypes: defaultSourceMediaTypes("jellyfin"), TokenEnv: JellyfinAPIKeyEnv},
 		Plex:      SourceSettings{Enabled: runtime.LibraryURLs["plex"] != "", URL: runtime.LibraryURLs["plex"], MediaTypes: defaultSourceMediaTypes("plex"), TokenEnv: PlexTokenEnv},
 		Romm:      SourceSettings{Enabled: runtime.LibraryURLs["romm"] != "", URL: runtime.LibraryURLs["romm"], MediaTypes: defaultSourceMediaTypes("romm"), TokenEnv: RommTokenEnv},
-		Navidrome: SourceSettings{Enabled: runtime.LibraryURLs["navidrome"] != "", URL: runtime.LibraryURLs["navidrome"], MediaTypes: defaultSourceMediaTypes("navidrome"), UsernameEnv: NavidromeUsernameEnv, PasswordEnv: NavidromePasswordEnv},
+		Navidrome: SourceSettings{Enabled: runtime.LibraryURLs["navidrome"] != "", URL: runtime.LibraryURLs["navidrome"], MediaTypes: defaultSourceMediaTypes("navidrome"), Username: runtime.NavidromeUsername, PasswordEnv: NavidromePasswordEnv},
 	}
 }
 
@@ -195,8 +196,8 @@ func normalizeLibraries(l LibrariesSettings, runtime Runtime) LibrariesSettings 
 				source.TokenEnv = RommTokenEnv
 			}
 		case "navidrome":
-			if source.UsernameEnv == "" {
-				source.UsernameEnv = NavidromeUsernameEnv
+			if source.Username == "" {
+				source.Username = runtime.NavidromeUsername
 			}
 			if source.PasswordEnv == "" {
 				source.PasswordEnv = NavidromePasswordEnv
@@ -207,7 +208,7 @@ func normalizeLibraries(l LibrariesSettings, runtime Runtime) LibrariesSettings 
 }
 
 func emptySource(s SourceSettings) bool {
-	return !s.Enabled && s.URL == "" && len(s.MediaTypes) == 0 && s.TokenEnv == "" && s.UsernameEnv == "" && s.PasswordEnv == ""
+	return !s.Enabled && s.URL == "" && len(s.MediaTypes) == 0 && s.TokenEnv == "" && s.Username == "" && s.PasswordEnv == ""
 }
 
 func defaultSourceMediaTypes(kind string) []domain.MediaType {

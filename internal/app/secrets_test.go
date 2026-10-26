@@ -71,3 +71,38 @@ func TestStartupSurvivesWrongOrMissingKeyAndReportsUnreadableWithoutLeaking(t *t
 		}
 	}
 }
+
+func storedNavidrome(t *testing.T, hexKey, value string) fakeSecretRepo {
+	t.Helper()
+	key, _ := secrets.ParseMasterKey(hexKey)
+	sealer, _ := secrets.NewAESGCM(key)
+	sealed, err := sealer.Seal(secrets.NavidromePassword, []byte(value))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fakeSecretRepo{rows: []secrets.Stored{{Name: secrets.NavidromePassword, Sealed: sealed}}}
+}
+
+func TestStoredNavidromePasswordCompletesTheUrlUsernamePasswordGroup(t *testing.T) {
+	cfg := config.Config{SecretsKey: hexKeyA, NavidromeURL: "https://music.example.test", NavidromeUsername: "requestarr"}
+	got, _ := resolve(t, cfg, storedNavidrome(t, hexKeyA, "stored-pass"))
+	if got.NavidromePassword != "stored-pass" || got.NavidromeUsername != "requestarr" {
+		t.Fatal("stored password not applied")
+	}
+	env := cfg
+	env.NavidromePassword = "env-pass"
+	if got, _ := resolve(t, env, storedNavidrome(t, hexKeyA, "stored-pass")); got.NavidromePassword != "env-pass" {
+		t.Fatal("environment must win")
+	}
+}
+
+func TestUnreadableNavidromePasswordLeavesNavidromeOffInsteadOfFailingValidation(t *testing.T) {
+	cfg := config.Config{SecretsKey: hexKeyB, NavidromeURL: "https://music.example.test", NavidromeUsername: "requestarr"}
+	got, logs := resolve(t, cfg, storedNavidrome(t, hexKeyA, "stored-pass"))
+	if got.NavidromeURL != "" || got.NavidromeUsername != "" || got.NavidromePassword != "" {
+		t.Fatalf("Navidrome must be left unconfigured as a unit: %+v", got)
+	}
+	if strings.Contains(logs, "stored-pass") || !strings.Contains(logs, "stored secret unreadable") {
+		t.Fatalf("logs %q", logs)
+	}
+}

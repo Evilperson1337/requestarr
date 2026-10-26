@@ -186,7 +186,7 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 			defer server.Close()
 			libraries := setup.LibrariesSettings{}
 			source := setup.SourceSettings{Enabled: true, URL: "https://library.example", MediaTypes: []domain.MediaType{domain.MediaMovie}}
-			cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, JellyfinAPIKey: "jf-token", PlexToken: "plex-token", RommToken: "romm-token", NavidromeUsername: "music-user", NavidromePassword: "music-pass"}
+			cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, JellyfinAPIKey: "jf-token", PlexToken: "plex-token", RommToken: "romm-token", NavidromePassword: "music-pass"}
 			target := setup.TargetJellyfin
 			switch tc.kind {
 			case "jellyfin":
@@ -202,7 +202,7 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 				target = setup.TargetRomm
 			case "navidrome":
 				source.MediaTypes = []domain.MediaType{domain.MediaAlbum}
-				source.UsernameEnv = setup.NavidromeUsernameEnv
+				source.Username = "music-user"
 				source.PasswordEnv = setup.NavidromePasswordEnv
 				libraries.Navidrome = source
 				target = setup.TargetNavidrome

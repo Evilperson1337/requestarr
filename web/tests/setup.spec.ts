@@ -8,10 +8,10 @@ function draft() {
             authentication: { issuer: 'https://identity.example.test', clientId: 'requestarr', clientSecretEnv: 'REQUESTARR_OIDC_CLIENT_SECRET' },
             providers: { tmdbEnabled: true, tmdbTokenEnv: 'REQUESTARR_TMDB_READ_TOKEN', musicBrainzEnabled: true, musicBrainzContact: '', igdbEnabled: false, igdbClientId: '', igdbClientSecretEnv: 'REQUESTARR_IGDB_CLIENT_SECRET' },
             libraries: {
-                jellyfin: { enabled: false, url: '', mediaTypes: [], tokenEnv: 'REQUESTARR_JELLYFIN_API_KEY', usernameEnv: '', passwordEnv: '' },
-                plex: { enabled: false, url: '', mediaTypes: [], tokenEnv: 'REQUESTARR_PLEX_TOKEN', usernameEnv: '', passwordEnv: '' },
-                romm: { enabled: false, url: '', mediaTypes: [], tokenEnv: 'REQUESTARR_ROMM_TOKEN', usernameEnv: '', passwordEnv: '' },
-                navidrome: { enabled: false, url: '', mediaTypes: [], tokenEnv: '', usernameEnv: 'REQUESTARR_NAVIDROME_USERNAME', passwordEnv: 'REQUESTARR_NAVIDROME_PASSWORD' },
+                jellyfin: { enabled: false, url: '', mediaTypes: [], tokenEnv: 'REQUESTARR_JELLYFIN_API_KEY', username: '', passwordEnv: '' },
+                plex: { enabled: false, url: '', mediaTypes: [], tokenEnv: 'REQUESTARR_PLEX_TOKEN', username: '', passwordEnv: '' },
+                romm: { enabled: false, url: '', mediaTypes: [], tokenEnv: 'REQUESTARR_ROMM_TOKEN', username: '', passwordEnv: '' },
+                navidrome: { enabled: false, url: '', mediaTypes: [], tokenEnv: '', username: '', passwordEnv: 'REQUESTARR_NAVIDROME_PASSWORD' },
             },
             notifications: { appriseEnabled: false, appriseUrl: '', appriseConfigKeyEnv: 'REQUESTARR_APPRISE_CONFIG_KEY' },
             policy: { autoApproveMediaTypes: [] as string[] },
@@ -33,7 +33,8 @@ async function mockSetup(page: Page, role = 'admin') {
         saved: draft(), calls: [] as { method: string; path: string; body: any }[], conflict: false,
         secrets: { enabled: true, secrets: [{ name: 'tmdb_read_token', label: 'TMDB read token', envVar: 'REQUESTARR_TMDB_READ_TOKEN', configured: false, source: 'none', unreadable: false, pendingRestart: false },
             { name: 'igdb_client_secret', label: 'IGDB client secret', envVar: 'REQUESTARR_IGDB_CLIENT_SECRET', configured: false, source: 'none', unreadable: false, pendingRestart: false },
-            { name: 'apprise_config_key', label: 'Apprise configuration key', envVar: 'REQUESTARR_APPRISE_CONFIG_KEY', configured: false, source: 'none', unreadable: false, pendingRestart: false }] } as any,
+            { name: 'apprise_config_key', label: 'Apprise configuration key', envVar: 'REQUESTARR_APPRISE_CONFIG_KEY', configured: false, source: 'none', unreadable: false, pendingRestart: false },
+            { name: 'navidrome_password', label: 'Navidrome password', envVar: 'REQUESTARR_NAVIDROME_PASSWORD', configured: false, source: 'none', unreadable: false, pendingRestart: false }] } as any,
     }
     await page.route('**/api/v1/**', async route => {
         const request = route.request()
@@ -148,7 +149,15 @@ test('providers save only non-secret settings, check enabled providers, and conf
     await expect(page.getByText('REQUESTARR_PLEX_TOKEN', { exact: true })).toBeVisible()
     await expect(page.getByText('REQUESTARR_NAVIDROME_USERNAME', { exact: true })).toBeVisible()
     await expect(page.getByText('REQUESTARR_NAVIDROME_PASSWORD', { exact: true })).toBeVisible()
-    await expect(page.locator('input[type=password]')).toHaveCount(3) // only the write-only stored-secret fields (Jellyfin, Plex, RomM); Navidrome is env-only until its ticket
+    // Navidrome: the username is plain draft data; only the password is a write-only stored secret.
+    await expect(page.getByLabel('Navidrome username')).toHaveAttribute('type', 'text')
+    await expect(page.locator('input[type=password]')).toHaveCount(4) // Jellyfin, Plex, RomM and Navidrome write-only fields
+    await page.getByLabel('Navidrome username').fill('requestarr')
+    await page.getByLabel('Navidrome password').fill('music-pass-123')
+    await page.getByRole('button', { name: /save navidrome password/i }).click()
+    await expect(page.getByLabel('Navidrome password')).toHaveValue('')
+    const passwordPut = state.calls.find(call => call.method === 'PUT' && call.path.endsWith('/admin/secrets/navidrome_password'))!
+    expect(passwordPut.body).toEqual({ value: 'music-pass-123' })
     await page.getByLabel('Enable Plex').check()
     await page.getByLabel('Plex URL').fill('https://plex.example.test')
     await page.getByRole('checkbox', { name: 'movie', exact: true }).nth(1).check()
@@ -156,6 +165,8 @@ test('providers save only non-secret settings, check enabled providers, and conf
     await expect(page.getByRole('alert')).toContainText('connection_failed')
     expect(state.calls.filter(call => call.method !== 'GET').slice(-2).map(call => [call.method, call.body.target])).toEqual([['PUT', undefined], ['POST', 'library:plex']])
     expect(state.saved.settings.libraries.plex).toMatchObject({ enabled: true, url: 'https://plex.example.test', mediaTypes: ['movie'], tokenEnv: 'REQUESTARR_PLEX_TOKEN' })
+    expect(state.saved.settings.libraries.navidrome.username).toBe('requestarr')
+    expect(JSON.stringify(state.saved)).not.toContain('music-pass-123')
     await page.reload()
     await expect(page.getByRole('heading', { name: 'Libraries', exact: true })).toBeVisible()
     await expect(page.getByLabel('Plex URL')).toHaveValue('https://plex.example.test')
@@ -405,7 +416,6 @@ test('Libraries step offers stored library credentials that save write-only per 
     await page.goto('/setup')
     await expect(page.getByLabel('Jellyfin API key')).toBeEnabled()
     await expect(page.getByLabel('RomM token')).toBeEnabled()
-    await expect(page.getByLabel('Navidrome password')).toHaveCount(0)
     const field = page.getByLabel('Plex token')
     await expect(field).toHaveAttribute('type', 'password')
     await field.fill('plex-probe-value')

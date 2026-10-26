@@ -155,10 +155,10 @@ func hasRequiredDraftFields(body []byte) bool {
 		return false
 	}
 	for source, required := range map[string][]string{
-		"jellyfin":  {"enabled", "url", "mediaTypes", "tokenEnv", "usernameEnv", "passwordEnv"},
-		"plex":      {"enabled", "url", "mediaTypes", "tokenEnv", "usernameEnv", "passwordEnv"},
-		"romm":      {"enabled", "url", "mediaTypes", "tokenEnv", "usernameEnv", "passwordEnv"},
-		"navidrome": {"enabled", "url", "mediaTypes", "tokenEnv", "usernameEnv", "passwordEnv"},
+		"jellyfin":  {"enabled", "url", "mediaTypes", "tokenEnv", "username", "passwordEnv"},
+		"plex":      {"enabled", "url", "mediaTypes", "tokenEnv", "username", "passwordEnv"},
+		"romm":      {"enabled", "url", "mediaTypes", "tokenEnv", "username", "passwordEnv"},
+		"navidrome": {"enabled", "url", "mediaTypes", "tokenEnv", "username", "passwordEnv"},
 	} {
 		fields, ok := objectFields(libraries[source])
 		if !ok {

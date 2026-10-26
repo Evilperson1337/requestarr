@@ -18,12 +18,13 @@ const unreadableNote = "stored secret unreadable"
 // integrations add a line here and a registry entry; nothing else changes.
 func secretFields(cfg *config.Config) map[secrets.Name]*string {
 	return map[secrets.Name]*string{
-		secrets.TMDBReadToken:    &cfg.TMDBReadToken,
-		secrets.IGDBClientSecret: &cfg.IGDBClientSecret,
-		secrets.AppriseConfigKey: &cfg.AppriseConfigKey,
-		secrets.JellyfinAPIKey:   &cfg.JellyfinAPIKey,
-		secrets.PlexToken:        &cfg.PlexToken,
-		secrets.RommToken:        &cfg.RommToken,
+		secrets.TMDBReadToken:     &cfg.TMDBReadToken,
+		secrets.IGDBClientSecret:  &cfg.IGDBClientSecret,
+		secrets.AppriseConfigKey:  &cfg.AppriseConfigKey,
+		secrets.JellyfinAPIKey:    &cfg.JellyfinAPIKey,
+		secrets.PlexToken:         &cfg.PlexToken,
+		secrets.RommToken:         &cfg.RommToken,
+		secrets.NavidromePassword: &cfg.NavidromePassword,
 	}
 }
 
@@ -75,6 +76,11 @@ func resolveSecrets(ctx context.Context, cfg config.Config, repo secrets.Reposit
 		if st.Unreadable {
 			if url, ok := secretSourceURLs(&cfg)[st.Name]; ok {
 				*url = ""
+			}
+			if st.Name == secrets.NavidromePassword && cfg.NavidromePassword == "" {
+				// Navidrome's URL, username and password must be configured together;
+				// leave the whole Source off rather than failing boot or guessing.
+				cfg.NavidromeURL, cfg.NavidromeUsername = "", ""
 			}
 			logger.Warn("stored secret unreadable; the integration is not configured until the secret is re-entered or REQUESTARR_SECRETS_KEY is restored", "secret", string(st.Name))
 			if st.Name == secrets.AppriseConfigKey && cfg.AppriseConfigKey == "" {
