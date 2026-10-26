@@ -31,7 +31,9 @@ function draft() {
 async function mockSetup(page: Page, role = 'admin') {
     const state = {
         saved: draft(), calls: [] as { method: string; path: string; body: any }[], conflict: false,
-        secrets: { enabled: true, secrets: [{ name: 'tmdb_read_token', label: 'TMDB read token', envVar: 'REQUESTARR_TMDB_READ_TOKEN', configured: false, source: 'none', unreadable: false, pendingRestart: false }] } as any,
+        secrets: { enabled: true, secrets: [{ name: 'tmdb_read_token', label: 'TMDB read token', envVar: 'REQUESTARR_TMDB_READ_TOKEN', configured: false, source: 'none', unreadable: false, pendingRestart: false },
+            { name: 'igdb_client_secret', label: 'IGDB client secret', envVar: 'REQUESTARR_IGDB_CLIENT_SECRET', configured: false, source: 'none', unreadable: false, pendingRestart: false },
+            { name: 'apprise_config_key', label: 'Apprise configuration key', envVar: 'REQUESTARR_APPRISE_CONFIG_KEY', configured: false, source: 'none', unreadable: false, pendingRestart: false }] } as any,
     }
     await page.route('**/api/v1/**', async route => {
         const request = route.request()
@@ -42,10 +44,12 @@ async function mockSetup(page: Page, role = 'admin') {
         const body = request.postDataJSON()
         state.calls.push({ method, path, body })
         if (path.endsWith('/admin/secrets')) return route.fulfill({ json: state.secrets })
-        if (path.endsWith('/admin/secrets/tmdb_read_token')) {
+        const secretRoute = path.match(/\/admin\/secrets\/([a-z_]+)$/)
+        if (secretRoute) {
             expect(request.headers()['x-csrf-token']).toBe('csrf-token')
-            if (method === 'PUT') Object.assign(state.secrets.secrets[0], { configured: true, source: 'stored', pendingRestart: true })
-            if (method === 'DELETE') Object.assign(state.secrets.secrets[0], { configured: false, source: 'none', pendingRestart: false })
+            const entry = state.secrets.secrets.find((item: any) => item.name === secretRoute[1])
+            if (method === 'PUT') Object.assign(entry, { configured: true, source: 'stored', pendingRestart: true })
+            if (method === 'DELETE') Object.assign(entry, { configured: false, source: 'none', pendingRestart: false })
             return route.fulfill({ status: 204 })
         }
         if (path.endsWith('/admin/setup/draft')) {
@@ -118,8 +122,8 @@ test('providers save only non-secret settings, check enabled providers, and conf
     state.saved.currentStep = 'providers'
     await page.goto('/setup')
     await expect(page.getByRole('heading', { name: 'Providers', exact: true })).toBeVisible()
-    // Only the write-only stored-secret field (D024); it is never part of the draft.
-    await expect(page.locator('input[type=password]')).toHaveCount(1)
+    // Only the write-only stored-secret fields, TMDb and IGDB (D024); it is never part of the draft.
+    await expect(page.locator('input[type=password]')).toHaveCount(2)
     await expect(page.getByLabel('MusicBrainz contact email')).toHaveValue('')
     await expect(page.getByRole('region', { name: 'Server environment' })).toContainText('REQUESTARR_OIDC_CLIENT_SECRET')
     await expect(page.getByRole('region', { name: 'Server environment' })).toContainText('REQUESTARR_TMDB_READ_TOKEN')
@@ -376,7 +380,7 @@ test('stored secret field is disabled with guidance when no master key exists, a
     state.saved.currentStep = 'providers'
     await page.goto('/setup')
     await expect(page.getByLabel('TMDb read token')).toBeDisabled()
-    await expect(page.getByText('Saving secrets here is turned off.', { exact: false })).toContainText('REQUESTARR_SECRETS_KEY')
+    await expect(page.getByText('Saving secrets here is turned off.', { exact: false }).first()).toContainText('REQUESTARR_SECRETS_KEY')
 })
 
 test('an unreadable stored secret is reported as unreadable, not unconfigured', async ({ page }) => {
@@ -385,4 +389,23 @@ test('an unreadable stored secret is reported as unreadable, not unconfigured', 
     state.saved.currentStep = 'providers'
     await page.goto('/setup')
     await expect(page.getByText('stored secret unreadable. Enter it again', { exact: false })).toBeVisible()
+})
+
+test('IGDB client secret and Apprise key are stored through write-only fields on their steps', async ({ page }) => {
+    const state = await mockSetup(page)
+    for (const [step, label, name] of [['providers', 'IGDB client secret', 'igdb_client_secret'], ['notifications', 'Apprise configuration key', 'apprise_config_key']]) {
+        state.saved.currentStep = step
+        await page.goto('/setup')
+        const field = page.getByLabel(label)
+        await expect(field).toHaveAttribute('type', 'password')
+        await field.fill(`probe-${name}`)
+        await page.getByRole('button', { name: `Save ${label}` }).click()
+        await expect(page.getByText('Source: stored · Saved, pending restart')).toBeVisible()
+        await expect(field).toHaveValue('')
+        const put = state.calls.find(call => call.method === 'PUT' && call.path.endsWith(`/admin/secrets/${name}`))!
+        expect(put.body).toEqual({ value: `probe-${name}` })
+        await page.getByRole('button', { name: 'Clear stored value' }).click()
+        await expect(page.getByText('Source: none')).toBeVisible()
+    }
+    expect(state.calls.filter(call => call.path.endsWith('/admin/setup/draft') && call.method === 'PUT')).toHaveLength(0)
 })

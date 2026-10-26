@@ -181,7 +181,8 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                         <div className="draftProvider"><h3>IGDB</h3>
                             <label className="draftToggle"><input type="checkbox" checked={settings.providers.igdbEnabled} onChange={e => provider('igdbEnabled', e.target.checked)} />Enable IGDB</label>
                             <label>IGDB client ID<input maxLength={256} value={settings.providers.igdbClientId} onChange={e => provider('igdbClientId', e.target.value)} /></label>
-                            <p>Client secret environment reference (read-only): <code>REQUESTARR_IGDB_CLIENT_SECRET</code></p>
+                            <SecretField name="igdb_client_secret" label="IGDB client secret" csrfToken={session.csrfToken} />
+                            <p>Environment reference: <code>REQUESTARR_IGDB_CLIENT_SECRET</code></p>
                         </div>
                     </>}
                     {step === 'libraries' && <>
@@ -205,7 +206,8 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                         <div className="draftProvider"><h3>Apprise</h3>
                             <label className="draftToggle"><input type="checkbox" checked={settings.notifications.appriseEnabled} onChange={e => notifications('appriseEnabled', e.target.checked)} />Enable Apprise</label>
                             <label>Apprise API URL<input type="url" maxLength={2048} value={settings.notifications.appriseUrl} onChange={e => notifications('appriseUrl', e.target.value)} /></label>
-                            <p>Configuration key environment reference (read-only): <code>{settings.notifications.appriseConfigKeyEnv}</code>. The URL must match <code>REQUESTARR_APPRISE_URL</code> on the server for the check to pass.</p>
+                            <SecretField name="apprise_config_key" label="Apprise configuration key" csrfToken={session.csrfToken} />
+                            <p>Configuration key environment reference: <code>{settings.notifications.appriseConfigKeyEnv}</code>. The URL must match <code>REQUESTARR_APPRISE_URL</code> on the server for the check to pass.</p>
                         </div>
                     </>}
                     {step === 'policy' && <>

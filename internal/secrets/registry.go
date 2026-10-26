@@ -4,7 +4,11 @@ package secrets
 // the registry; nothing else in this package knows about a specific provider.
 type Name string
 
-const TMDBReadToken Name = "tmdb_read_token"
+const (
+	TMDBReadToken    Name = "tmdb_read_token"
+	IGDBClientSecret Name = "igdb_client_secret"
+	AppriseConfigKey Name = "apprise_config_key"
+)
 
 // Spec describes a registered secret.
 type Spec struct {
@@ -15,6 +19,8 @@ type Spec struct {
 
 var registry = []Spec{
 	{Name: TMDBReadToken, EnvVar: "REQUESTARR_TMDB_READ_TOKEN", Label: "TMDB read token"},
+	{Name: IGDBClientSecret, EnvVar: "REQUESTARR_IGDB_CLIENT_SECRET", Label: "IGDB client secret"},
+	{Name: AppriseConfigKey, EnvVar: "REQUESTARR_APPRISE_CONFIG_KEY", Label: "Apprise configuration key"},
 }
 
 // All returns the registered secrets in a stable order.

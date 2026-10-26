@@ -6,6 +6,6 @@
 
 **Status:** ready-for-agent
 
-- [ ] Both secrets can be set, replaced, cleared and checked
-- [ ] Validate accepts env URL plus stored Apprise key
-- [ ] Apprise worker starts after restart using the stored key
+- [x] Both secrets can be set, replaced, cleared and checked (registry, checks, Playwright; no live check against Twitch/Apprise)
+- [x] Validate accepts env URL plus stored Apprise key (unit test of resolution then Validate)
+- [x] Apprise worker starts after restart using the stored key (by construction: app.go builds the worker from the resolved config; no live boot)

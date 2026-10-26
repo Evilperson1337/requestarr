@@ -125,20 +125,20 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		addSource("navidrome", client, cfg.NavidromeURL, nil)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
-	tmdbNote := ""
+	unreadable := map[secrets.Name]string{}
 	if statuses, _, err := secretsService.Status(ctx); err == nil {
 		for _, st := range statuses {
-			if st.Name == secrets.TMDBReadToken && st.Unreadable {
-				tmdbNote = unreadableNote
+			if st.Unreadable {
+				unreadable[st.Name] = unreadableNote
 			}
 		}
 	}
 	ops := opstatus.New(
 		[]opstatus.Provider{
-			{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: tmdbNote},
+			{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: unreadable[secrets.TMDBReadToken]},
 			{Key: "musicbrainz", Name: "MusicBrainz", Configured: true},
-			{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != ""},
-			{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != ""},
+			{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "", Note: unreadable[secrets.IGDBClientSecret]},
+			{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != "", Note: unreadable[secrets.AppriseConfigKey]},
 		},
 		[]opstatus.SourceRef{
 			{Slug: "jellyfin", Name: "Jellyfin", ID: syncSources["jellyfin"].id}, {Slug: "plex", Name: "Plex", ID: syncSources["plex"].id},

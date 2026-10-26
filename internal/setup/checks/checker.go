@@ -33,7 +33,7 @@ type Config struct {
 	Runtime          setup.Runtime
 	OIDCClientSecret string
 	TMDBReadToken    string
-	// Secrets, when set, supplies the TMDB token (environment, else stored)
+	// Secrets, when set, supplies the TMDB token, IGDB client secret and Apprise key (environment, else stored)
 	// that the next restart would use; TMDBReadToken and the runtime flag are
 	// then ignored for that check.
 	Secrets           setup.SecretSources
@@ -126,7 +126,11 @@ func (c *Checker) apprise(ctx context.Context, n setup.NotificationSettings) (se
 		return setup.CheckIncomplete, nil
 	}
 	runtime := c.config.Runtime
-	if n.AppriseConfigKeyEnv != setup.AppriseConfigKeyEnv || n.AppriseURL != runtime.AppriseURL || !runtime.AppriseKeyConfigured {
+	_, keyConfigured, err := c.secret(ctx, secrets.AppriseConfigKey, "", runtime.AppriseKeyConfigured)
+	if err != nil {
+		return setup.CheckUnavailable, errCheck
+	}
+	if n.AppriseConfigKeyEnv != setup.AppriseConfigKeyEnv || n.AppriseURL != runtime.AppriseURL || !keyConfigured {
 		return setup.CheckEnvironment, nil
 	}
 	if !setup.ValidServiceURL(n.AppriseURL, runtime.Development) {
@@ -246,6 +250,20 @@ func (c *Checker) library(ctx context.Context, kind string, libraries setup.Libr
 	return setup.CheckOK, nil
 }
 
+// secret returns the value the next restart would use for name. When a
+// resolver is wired it is authoritative (environment, else stored); otherwise
+// the boot value and flag apply.
+func (c *Checker) secret(ctx context.Context, name secrets.Name, boot string, bootConfigured bool) (string, bool, error) {
+	if c.config.Secrets == nil {
+		return boot, bootConfigured, nil
+	}
+	r, err := c.config.Secrets.Resolve(ctx, name)
+	if err != nil {
+		return "", false, err
+	}
+	return r.Value, r.Value != "", nil
+}
+
 func (c *Checker) igdb(ctx context.Context, s setup.ProviderSettings) (setup.CheckCode, error) {
 	if !s.IGDBEnabled {
 		return setup.CheckDisabled, nil
@@ -253,10 +271,14 @@ func (c *Checker) igdb(ctx context.Context, s setup.ProviderSettings) (setup.Che
 	if strings.TrimSpace(s.IGDBClientID) == "" {
 		return setup.CheckIncomplete, nil
 	}
-	if s.IGDBClientSecretEnv != setup.IGDBSecretEnv || s.IGDBClientID != c.config.Runtime.IGDBClientID || !c.config.Runtime.IGDBSecretConfigured || c.config.IGDBClientSecret == "" {
+	secret, configured, err := c.secret(ctx, secrets.IGDBClientSecret, c.config.IGDBClientSecret, c.config.Runtime.IGDBSecretConfigured)
+	if err != nil {
+		return setup.CheckUnavailable, errCheck
+	}
+	if s.IGDBClientSecretEnv != setup.IGDBSecretEnv || s.IGDBClientID != c.config.Runtime.IGDBClientID || !configured || secret == "" {
 		return setup.CheckEnvironment, nil
 	}
-	form := url.Values{"client_id": {s.IGDBClientID}, "client_secret": {c.config.IGDBClientSecret}, "grant_type": {"client_credentials"}}
+	form := url.Values{"client_id": {s.IGDBClientID}, "client_secret": {secret}, "grant_type": {"client_credentials"}}
 	var token struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int64  `json:"expires_in"`
