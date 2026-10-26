@@ -386,3 +386,25 @@ test('an unreadable stored secret is reported as unreadable, not unconfigured', 
     await page.goto('/setup')
     await expect(page.getByText('stored secret unreadable. Enter it again', { exact: false })).toBeVisible()
 })
+
+test('review warns about shadowed and pending-restart secrets, and clears when the stored value is cleared', async ({ page }) => {
+    const state = await mockSetup(page)
+    Object.assign(state.secrets.secrets[0], { configured: true, source: 'stored (shadowed by environment)', pendingRestart: true })
+    state.saved.currentStep = 'review'
+    await page.goto('/setup')
+    const review = page.getByRole('region', { name: 'Stored secrets review' })
+    await expect(review.getByRole('alert')).toContainText('shadowed by the environment variable REQUESTARR_TMDB_READ_TOKEN')
+    await expect(review.getByRole('list', { name: 'Saved, pending restart' })).toContainText('TMDB read token')
+
+    await review.getByRole('button', { name: 'Clear stored TMDB read token' }).click()
+    await expect(review.getByRole('alert')).toHaveCount(0)
+    await expect(review.getByRole('list', { name: 'Saved, pending restart' })).toHaveCount(0)
+})
+
+test('review shows a stored secret as unreadable', async ({ page }) => {
+    const state = await mockSetup(page)
+    Object.assign(state.secrets.secrets[0], { source: 'stored secret unreadable', unreadable: true, configured: false })
+    state.saved.currentStep = 'review'
+    await page.goto('/setup')
+    await expect(page.getByRole('region', { name: 'Stored secrets review' }).getByRole('alert')).toContainText('stored secret unreadable')
+})
