@@ -5,6 +5,8 @@ package secrets
 type Name string
 
 const (
+	IGDBClientSecret  Name = "igdb_client_secret"
+	AppriseConfigKey  Name = "apprise_config_key"
 	TMDBReadToken     Name = "tmdb_read_token"
 	NavidromePassword Name = "navidrome_password"
 )
@@ -18,6 +20,8 @@ type Spec struct {
 
 var registry = []Spec{
 	{Name: TMDBReadToken, EnvVar: "REQUESTARR_TMDB_READ_TOKEN", Label: "TMDB read token"},
+	{Name: IGDBClientSecret, EnvVar: "REQUESTARR_IGDB_CLIENT_SECRET", Label: "IGDB client secret"},
+	{Name: AppriseConfigKey, EnvVar: "REQUESTARR_APPRISE_CONFIG_KEY", Label: "Apprise configuration key"},
 	{Name: NavidromePassword, EnvVar: "REQUESTARR_NAVIDROME_PASSWORD", Label: "Navidrome password"},
 }
 

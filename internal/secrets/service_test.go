@@ -124,7 +124,7 @@ func TestSetStoresEncryptedAndNeverReturnsTheValue(t *testing.T) {
 		t.Fatalf("audit %v", repo.audit)
 	}
 	statuses, enabled, err := svc.Status(ctx)
-	if err != nil || !enabled || len(statuses) == 0 {
+	if err != nil || !enabled || len(statuses) != len(secrets.All()) {
 		t.Fatalf("statuses %v enabled %v err %v", statuses, enabled, err)
 	}
 	st := statuses[0]

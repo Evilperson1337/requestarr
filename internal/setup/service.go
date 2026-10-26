@@ -50,6 +50,10 @@ func (s *Service) secretNote(ctx context.Context, target Target, code CheckCode)
 	case TargetTMDB:
 	case TargetNavidrome:
 		name, noun = secrets.NavidromePassword, "password"
+	case TargetIGDB:
+		name, noun = secrets.IGDBClientSecret, "client secret"
+	case TargetNotifications:
+		name, noun = secrets.AppriseConfigKey, "configuration key"
 	default:
 		return ""
 	}

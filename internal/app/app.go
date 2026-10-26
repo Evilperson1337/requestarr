@@ -125,25 +125,22 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		addSource("navidrome", client, cfg.NavidromeURL, nil)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
-	tmdbNote, navidromeNote := "", ""
+	unreadable := map[secrets.Name]string{}
 	if statuses, _, err := secretsService.Status(ctx); err == nil {
 		for _, st := range statuses {
-			if st.Name == secrets.TMDBReadToken && st.Unreadable {
-				tmdbNote = unreadableNote
-			}
-			if st.Name == secrets.NavidromePassword && st.Unreadable && cfg.NavidromePassword == "" {
-				navidromeNote = unreadableNote
+			if st.Unreadable {
+				unreadable[st.Name] = unreadableNote
 			}
 		}
 	}
 	providers := []opstatus.Provider{
-		{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: tmdbNote},
+		{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: unreadable[secrets.TMDBReadToken]},
 		{Key: "musicbrainz", Name: "MusicBrainz", Configured: true},
-		{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != ""},
-		{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != ""},
+		{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "", Note: unreadable[secrets.IGDBClientSecret]},
+		{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != "", Note: unreadable[secrets.AppriseConfigKey]},
 	}
-	if navidromeNote != "" { // Navidrome is held off; say why instead of looking unconfigured.
-		providers = append(providers, opstatus.Provider{Key: "navidrome", Name: "Navidrome", Note: navidromeNote})
+	if note := unreadable[secrets.NavidromePassword]; note != "" && cfg.NavidromePassword == "" { // held off; say why instead of looking unconfigured.
+		providers = append(providers, opstatus.Provider{Key: "navidrome", Name: "Navidrome", Note: note})
 	}
 	ops := opstatus.New(
 		providers,
