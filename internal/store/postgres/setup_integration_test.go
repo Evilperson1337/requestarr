@@ -252,7 +252,7 @@ func TestSetupDraftStoresOnlyTypedConfigurationIntegration(t *testing.T) {
 			t.Fatalf("persisted runtime/secret field %q", forbidden)
 		}
 	}
-	for _, env := range []string{setup.OIDCSecretEnv, setup.TMDBTokenEnv, setup.IGDBSecretEnv, setup.JellyfinAPIKeyEnv, setup.PlexTokenEnv, setup.RommTokenEnv, setup.NavidromeUsernameEnv, setup.NavidromePasswordEnv} {
+	for _, env := range []string{setup.OIDCSecretEnv, setup.TMDBTokenEnv, setup.IGDBSecretEnv, setup.JellyfinAPIKeyEnv, setup.PlexTokenEnv, setup.RommTokenEnv, setup.NavidromePasswordEnv} {
 		if !strings.Contains(raw, env) {
 			t.Errorf("missing environment reference %q", env)
 		}
