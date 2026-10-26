@@ -55,7 +55,7 @@ An item becomes missing only after every covering Source completes a successful 
 ## D016 — Cancellation of shared Requests
 A Requester cancelling leaves the Request open if other Subscribers remain; it becomes `cancelled` only when the last Subscriber leaves or an admin cancels it. Admins can set `viewer` as well as `requester`/`admin`, and the last admin cannot be demoted. Leaving is idempotent by state and takes no operation key; a leave that would cancel the Request must be confirmed explicitly (`confirmCancel=true`), so the last-subscriber warning is decided by the server, not a stale page. Admin cancel uses the existing transition `expectedVersion`/`operationId`.
 
-## D017 — Secrets stay environment-only in V1
+## D017 — Secrets stay environment-only in V1 (partly superseded by D024)
 The setup wizard persists non-secret settings (URLs, library choices) and the names of environment variables holding secrets. Encrypted secrets in PostgreSQL are deferred. The wizard must state clearly what still needs an env edit and restart.
 
 ## D018 — V1 job runner is Postgres-backed and minimal
@@ -75,3 +75,17 @@ Availability evidence and absence streaks carry a platform key (`igdb:<id>`, or 
 
 ## D023 — Supply-chain and container publishing policy (proposed)
 Releases publish a multi-arch container image to GHCR, an SPDX SBOM per archive and image, build-provenance attestations, and a keyless cosign signature on the image; `latest` tracks stable tags only. Details are in `docs/RELEASES.md`. Proposed during ticket 28; it becomes accepted when the maintainer approves it. the workflow implementation is still outstanding.
+
+## D024 — Post-bootstrap integration secrets may be stored encrypted
+Partly supersedes D017. An admin may enter the TMDB token, IGDB client secret, Jellyfin/Plex/RomM credentials, the Navidrome password and the Apprise config key in Setup. They are stored in PostgreSQL encrypted with AES-256-GCM under an operator-supplied master key (`REQUESTARR_SECRETS_KEY`, 32 bytes, validated at startup); each row records its key id. Without the master key the UI refuses secret values and the environment path keeps working.
+
+- **Stays environment-only:** the OIDC client secret and the session HMAC secret (sign-in must work before Setup is reachable) and the master key itself. None is auto-generated into the database.
+- **Precedence:** an environment value wins over a stored one. Each secret reports its source: `environment`, `stored`, or `stored (shadowed by environment)`. Shadowed values warn on Review and are never deleted automatically.
+- **Write-only:** a stored secret is never returned, logged, audited or echoed in errors; only a presence flag and its source are exposed.
+- **Activation:** stored secrets apply on restart, like the rest of the inactive draft; Review lists them as "saved, pending restart". Hot reload is a separate later decision. Startup resolves each secret (environment, then database) before `Validate`, so a stored secret satisfies the URL-plus-secret pairing rules. Library and Apprise URLs stay environment-only.
+- **Fail closed:** a missing or wrong master key does not stop boot; the affected integration reports "stored secret unreadable" and is not treated as unconfigured or guessed.
+- **Checks:** connection checks use the value the next restart would use and say which source it came from.
+- **Change after Finish:** replacing or clearing a secret stays available after Finish through a dedicated admin endpoint (CSRF and Origin protected) with value-free audit events in the same transaction. The rest of the draft stays read-only.
+- **Navidrome:** the username becomes an ordinary draft field; only the password is a secret.
+- **Rotation and backup:** key rotation tooling is deferred; a changed key means re-entering secrets. Docs must say the master key is backed up separately from the database.
+

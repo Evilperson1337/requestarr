@@ -43,3 +43,16 @@ _Avoid_: Delete, withdraw
 **Alias**:
 An alternate identifier recorded for a catalog item so a Source's identifiers can be matched to it. Plex exposes MusicBrainz release and release-track ids, while an album Request is identified by its release group and a song by its recording, so those ids are stored as aliases of the item (D020).
 _Avoid_: Synonym, duplicate ID
+
+**Stored secret**:
+An integration credential an admin entered in Setup and Requestarr keeps encrypted in its database, as opposed to one supplied by the environment. It can be replaced or cleared but never read back.
+_Avoid_: Saved password, vaulted credential
+
+**Secret source**:
+Where the value of a secret in use comes from: the environment, or a Stored secret. The environment wins when both exist, and the Stored secret is then shadowed.
+_Avoid_: Origin, provider
+
+**Master key**:
+The operator-supplied key that encrypts Stored secrets. It lives only in the environment, never in the database.
+_Avoid_: Encryption password, root secret
+
