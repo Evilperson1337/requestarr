@@ -27,7 +27,7 @@ type Provider struct {
 
 // SourceRef names a library Source kind. ID is the job-run source id and is
 // empty when the Source is not configured.
-type SourceRef struct{ Slug, Name, ID string }
+type SourceRef struct{ Slug, Name, ID, Note string }
 
 type SourceStatus struct {
 	Slug          string     `json:"slug"`
@@ -36,6 +36,8 @@ type SourceStatus struct {
 	LastRun       *jobs.Run  `json:"lastRun"`
 	LastSuccessAt *time.Time `json:"lastSuccessAt"`
 	LastError     string     `json:"lastError"`
+	// Note is a short fixed status such as "stored secret unreadable"; empty when there is nothing to add.
+	Note string `json:"note,omitempty"`
 }
 
 type ErrorEntry struct {
@@ -74,7 +76,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	}
 	out := Overview{Providers: append([]Provider{}, s.providers...), Sources: []SourceStatus{}, RecentErrors: []ErrorEntry{}}
 	for _, ref := range s.sources {
-		status := SourceStatus{Slug: ref.Slug, Name: ref.Name, Configured: ref.ID != ""}
+		status := SourceStatus{Slug: ref.Slug, Name: ref.Name, Configured: ref.ID != "", Note: ref.Note}
 		if status.Configured {
 			runs := byID[ref.ID] // newest first
 			if len(runs) > 0 {

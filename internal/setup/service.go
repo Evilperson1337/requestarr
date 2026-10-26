@@ -39,25 +39,38 @@ type Service struct {
 // UseSecrets lets connection-check messages name the secret source.
 func (s *Service) UseSecrets(sources SecretSources) { s.secrets = sources }
 
+// checkedSecrets maps a check target to the secret it verifies and the noun
+// used for it in messages. Navidrome joins in its own ticket.
+var checkedSecrets = map[Target]struct {
+	name secrets.Name
+	noun string
+}{
+	TargetTMDB:     {secrets.TMDBReadToken, "token"},
+	TargetJellyfin: {secrets.JellyfinAPIKey, "API key"},
+	TargetPlex:     {secrets.PlexToken, "token"},
+	TargetRomm:     {secrets.RommToken, "token"},
+}
+
 // secretNote names the source of the secret a check just used, so an admin
 // knows which value was verified. It never includes the value.
 func (s *Service) secretNote(ctx context.Context, target Target, code CheckCode) string {
-	if s.secrets == nil || target != TargetTMDB || code == CheckDisabled || code == CheckIncomplete {
+	checked, ok := checkedSecrets[target]
+	if s.secrets == nil || !ok || code == CheckDisabled || code == CheckIncomplete {
 		return ""
 	}
-	r, err := s.secrets.Resolve(ctx, secrets.TMDBReadToken)
+	r, err := s.secrets.Resolve(ctx, checked.name)
 	if err != nil {
 		return ""
 	}
 	switch r.Source {
 	case secrets.SourceEnvironment:
-		return " Checked the token from the environment."
+		return " Checked the " + checked.noun + " from the environment."
 	case secrets.SourceStored:
-		return " Checked the stored token, which a restart will use."
+		return " Checked the stored " + checked.noun + ", which a restart will use."
 	case secrets.SourceShadowed:
-		return " Checked the token from the environment; the stored token is shadowed by environment and is not used."
+		return " Checked the " + checked.noun + " from the environment; the stored " + checked.noun + " is shadowed by environment and is not used."
 	case secrets.SourceUnreadable:
-		return " The stored token cannot be read with the current REQUESTARR_SECRETS_KEY; enter it again or restore the key."
+		return " The stored " + checked.noun + " cannot be read with the current REQUESTARR_SECRETS_KEY; enter it again or restore the key."
 	}
 	return ""
 }

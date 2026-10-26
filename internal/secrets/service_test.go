@@ -124,10 +124,10 @@ func TestSetStoresEncryptedAndNeverReturnsTheValue(t *testing.T) {
 		t.Fatalf("audit %v", repo.audit)
 	}
 	statuses, enabled, err := svc.Status(ctx)
-	if err != nil || !enabled || len(statuses) != 1 {
+	if err != nil || !enabled || len(statuses) != len(secrets.All()) {
 		t.Fatalf("statuses %v enabled %v err %v", statuses, enabled, err)
 	}
-	st := statuses[0]
+	st := statuses[0] // registry order: TMDB first
 	if !st.Configured || st.Source != secrets.SourceStored || st.Unreadable {
 		t.Fatalf("status %+v", st)
 	}

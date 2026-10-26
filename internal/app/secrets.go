@@ -18,7 +18,22 @@ const unreadableNote = "stored secret unreadable"
 // integrations add a line here and a registry entry; nothing else changes.
 func secretFields(cfg *config.Config) map[secrets.Name]*string {
 	return map[secrets.Name]*string{
-		secrets.TMDBReadToken: &cfg.TMDBReadToken,
+		secrets.TMDBReadToken:  &cfg.TMDBReadToken,
+		secrets.JellyfinAPIKey: &cfg.JellyfinAPIKey,
+		secrets.PlexToken:      &cfg.PlexToken,
+		secrets.RommToken:      &cfg.RommToken,
+	}
+}
+
+// secretSourceURLs maps a library credential to the Config field holding its
+// Source URL. If the credential cannot be read, the URL is cleared so the
+// URL-plus-secret rule does not stop boot; the Source stays unconfigured and
+// is reported as "stored secret unreadable".
+func secretSourceURLs(cfg *config.Config) map[secrets.Name]*string {
+	return map[secrets.Name]*string{
+		secrets.JellyfinAPIKey: &cfg.JellyfinURL,
+		secrets.PlexToken:      &cfg.PlexURL,
+		secrets.RommToken:      &cfg.RommURL,
 	}
 }
 
@@ -56,6 +71,9 @@ func resolveSecrets(ctx context.Context, cfg config.Config, repo secrets.Reposit
 	}
 	for _, st := range statuses {
 		if st.Unreadable {
+			if url, ok := secretSourceURLs(&cfg)[st.Name]; ok {
+				*url = ""
+			}
 			logger.Warn("stored secret unreadable; the integration is not configured until the secret is re-entered or REQUESTARR_SECRETS_KEY is restored", "secret", string(st.Name))
 		}
 	}

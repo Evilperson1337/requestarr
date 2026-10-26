@@ -2,6 +2,13 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { SecretField } from '../components/SecretField'
 import { api, ApiError, type Session, type SetupDraft, type SetupSettings, type SetupStep, type SetupTarget, type SetupSource } from '../api'
 
+// Library credentials that can be stored (D024). Navidrome joins in its own ticket.
+const libraryCredential: Partial<Record<'jellyfin' | 'plex' | 'romm' | 'navidrome', { name: string; label: string }>> = {
+    jellyfin: { name: 'jellyfin_api_key', label: 'Jellyfin API key' },
+    plex: { name: 'plex_token', label: 'Plex token' },
+    romm: { name: 'romm_token', label: 'RomM token' },
+}
+
 const steps: { key: SetupStep; label: string }[] = [
     { key: 'general', label: 'General' }, { key: 'authentication', label: 'Authentication' },
     { key: 'providers', label: 'Providers' }, { key: 'libraries', label: 'Libraries' },
@@ -195,6 +202,7 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                                 <label className="draftToggle"><input type="checkbox" checked={item.enabled} onChange={e => source(kind, { enabled: e.target.checked })} />Enable {title}</label>
                                 <label>{title} URL<input type="url" maxLength={2048} value={item.url} onChange={e => source(kind, { url: e.target.value })} /></label>
                                 <fieldset><legend>Authoritative media types</legend>{media.map(type => <label className="draftToggle" key={type}><input type="checkbox" checked={item.mediaTypes.includes(type as SetupSource['mediaTypes'][number])} onChange={e => source(kind, { mediaTypes: e.target.checked ? [...item.mediaTypes, type as SetupSource['mediaTypes'][number]] : item.mediaTypes.filter(value => value !== type) })} />{type}</label>)}</fieldset>
+                                {libraryCredential[kind] && <SecretField name={libraryCredential[kind]!.name} label={libraryCredential[kind]!.label} csrfToken={session.csrfToken} />}
                                 <p>Server-side credential references only: <code>{item.usernameEnv || item.tokenEnv}</code>{item.passwordEnv ? <> and <code>{item.passwordEnv}</code></> : null}.</p>
                                 <button className="button secondary" type="submit" value="check-library" data-target={`library:${kind}`} disabled={!item.enabled}>Check {title} connection</button>
                             </div>

@@ -144,7 +144,7 @@ test('providers save only non-secret settings, check enabled providers, and conf
     await expect(page.getByText('REQUESTARR_PLEX_TOKEN', { exact: true })).toBeVisible()
     await expect(page.getByText('REQUESTARR_NAVIDROME_USERNAME', { exact: true })).toBeVisible()
     await expect(page.getByText('REQUESTARR_NAVIDROME_PASSWORD', { exact: true })).toBeVisible()
-    await expect(page.locator('input[type=password]')).toHaveCount(0)
+    await expect(page.locator('input[type=password]')).toHaveCount(3) // only the write-only stored-secret fields (Jellyfin, Plex, RomM); Navidrome is env-only until its ticket
     await page.getByLabel('Enable Plex').check()
     await page.getByLabel('Plex URL').fill('https://plex.example.test')
     await page.getByRole('checkbox', { name: 'movie', exact: true }).nth(1).check()
@@ -385,4 +385,30 @@ test('an unreadable stored secret is reported as unreadable, not unconfigured', 
     state.saved.currentStep = 'providers'
     await page.goto('/setup')
     await expect(page.getByText('stored secret unreadable. Enter it again', { exact: false })).toBeVisible()
+})
+
+test('Libraries step offers stored library credentials that save write-only per Source', async ({ page }) => {
+    const state = await mockSetup(page)
+    const entries = [['jellyfin_api_key', 'Jellyfin API key', 'REQUESTARR_JELLYFIN_API_KEY'], ['plex_token', 'Plex token', 'REQUESTARR_PLEX_TOKEN'], ['romm_token', 'RomM token', 'REQUESTARR_ROMM_TOKEN']]
+    for (const [name, label, envVar] of entries) state.secrets.secrets.push({ name, label, envVar, configured: false, source: 'none', unreadable: false, pendingRestart: false })
+    const puts: { path: string; body: any }[] = []
+    await page.route('**/api/v1/admin/secrets/plex_token', async route => {
+        puts.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() })
+        Object.assign(state.secrets.secrets.find((s: any) => s.name === 'plex_token'), { configured: true, source: 'stored', pendingRestart: true })
+        return route.fulfill({ status: 204 })
+    })
+    state.saved.currentStep = 'libraries'
+    await page.goto('/setup')
+    await expect(page.getByLabel('Jellyfin API key')).toBeEnabled()
+    await expect(page.getByLabel('RomM token')).toBeEnabled()
+    await expect(page.getByLabel('Navidrome password')).toHaveCount(0)
+    const field = page.getByLabel('Plex token')
+    await expect(field).toHaveAttribute('type', 'password')
+    await field.fill('plex-probe-value')
+    await page.getByRole('button', { name: 'Save Plex token' }).click()
+    await expect(page.getByText('Source: stored · Saved, pending restart')).toBeVisible()
+    await expect(field).toHaveValue('')
+    await expect(page.getByText('plex-probe-value')).toHaveCount(0)
+    expect(puts).toEqual([{ path: '/api/v1/admin/secrets/plex_token', body: { value: 'plex-probe-value' } }])
+    expect(state.calls.filter(call => call.path.endsWith('/admin/setup/draft') && call.method === 'PUT')).toHaveLength(0)
 })

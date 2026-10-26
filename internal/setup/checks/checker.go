@@ -150,6 +150,19 @@ func (c *Checker) apprise(ctx context.Context, n setup.NotificationSettings) (se
 	return setup.CheckOK, nil
 }
 
+// secret returns the value a restart would use for name when a resolver is
+// wired (environment, else stored); otherwise the boot value from Config.
+func (c *Checker) secret(ctx context.Context, name secrets.Name, boot string) (string, error) {
+	if c.config.Secrets == nil {
+		return boot, nil
+	}
+	resolved, err := c.config.Secrets.Resolve(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	return resolved.Value, nil
+}
+
 func (c *Checker) library(ctx context.Context, kind string, libraries setup.LibrariesSettings) (setup.CheckCode, error) {
 	source := map[string]setup.SourceSettings{"jellyfin": libraries.Jellyfin, "plex": libraries.Plex, "romm": libraries.Romm, "navidrome": libraries.Navidrome}[kind]
 	if !source.Enabled {
@@ -163,23 +176,35 @@ func (c *Checker) library(ctx context.Context, kind string, libraries setup.Libr
 	query := ""
 	switch kind {
 	case "jellyfin":
-		if source.TokenEnv != setup.JellyfinAPIKeyEnv || c.config.JellyfinAPIKey == "" {
+		token, err := c.secret(ctx, secrets.JellyfinAPIKey, c.config.JellyfinAPIKey)
+		if err != nil {
+			return setup.CheckUnavailable, errCheck
+		}
+		if source.TokenEnv != setup.JellyfinAPIKeyEnv || token == "" {
 			return setup.CheckEnvironment, nil
 		}
 		endpoint = strings.TrimRight(source.URL, "/") + "/System/Info"
-		headers["X-Emby-Token"] = c.config.JellyfinAPIKey
+		headers["X-Emby-Token"] = token
 	case "plex":
-		if source.TokenEnv != setup.PlexTokenEnv || c.config.PlexToken == "" {
+		token, err := c.secret(ctx, secrets.PlexToken, c.config.PlexToken)
+		if err != nil {
+			return setup.CheckUnavailable, errCheck
+		}
+		if source.TokenEnv != setup.PlexTokenEnv || token == "" {
 			return setup.CheckEnvironment, nil
 		}
 		endpoint = strings.TrimRight(source.URL, "/") + "/library/sections"
-		headers["X-Plex-Token"] = c.config.PlexToken
+		headers["X-Plex-Token"] = token
 	case "romm":
-		if source.TokenEnv != setup.RommTokenEnv || c.config.RommToken == "" {
+		token, err := c.secret(ctx, secrets.RommToken, c.config.RommToken)
+		if err != nil {
+			return setup.CheckUnavailable, errCheck
+		}
+		if source.TokenEnv != setup.RommTokenEnv || token == "" {
 			return setup.CheckEnvironment, nil
 		}
 		endpoint = strings.TrimRight(source.URL, "/") + "/api/platforms"
-		headers["Authorization"] = "Bearer " + c.config.RommToken
+		headers["Authorization"] = "Bearer " + token
 	case "navidrome":
 		if source.UsernameEnv != setup.NavidromeUsernameEnv || source.PasswordEnv != setup.NavidromePasswordEnv || c.config.NavidromeUsername == "" || c.config.NavidromePassword == "" {
 			return setup.CheckEnvironment, nil
