@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { SecretField } from '../components/SecretField'
+import { SecretsReview } from '../components/SecretsReview'
 import { api, ApiError, type Session, type SetupDraft, type SetupSettings, type SetupStep, type SetupTarget, type SetupSource } from '../api'
 
 const steps: { key: SetupStep; label: string }[] = [
@@ -226,6 +227,7 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                             <div><dt>Notifications</dt><dd>In-app · Apprise {settings.notifications.appriseEnabled ? settings.notifications.appriseUrl : 'off'}</dd></div>
                             <div><dt>Request policy</dt><dd>Auto-approve: {settings.policy.autoApproveMediaTypes.join(', ') || 'none (administrator approval for all)'}</dd></div>
                         </dl></section>
+                        <SecretsReview csrfToken={session.csrfToken} />
                         {blockers.length > 0 ? <div role="alert" className="errorBox"><h3>Cannot finish yet</h3><ul>{blockers.map(item => <li key={item.target}>{item.target}: {blockerReason[item.reason]}</li>)}</ul></div> : <p role="status">All required checks have passed.</p>}
                     </>}
                     {!editable && !completed && step !== 'review' && <p>This step is unavailable. Return to General to continue.</p>}

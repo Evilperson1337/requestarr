@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] Source badge shown for every secret field
-- [ ] Shadowed warning appears on Review and clears when the stored value is cleared
-- [ ] Pending-restart list is accurate
-- [ ] Frontend smoke test covers the states
+- [x] Source badge shown for every secret field
+- [x] Shadowed warning appears on Review and clears when the stored value is cleared
+- [x] Pending-restart list is accurate
+- [x] Frontend smoke test covers the states
