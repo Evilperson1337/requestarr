@@ -33,7 +33,7 @@ type Config struct {
 	Runtime          setup.Runtime
 	OIDCClientSecret string
 	TMDBReadToken    string
-	// Secrets, when set, supplies the TMDB token (environment, else stored)
+	// Secrets, when set, supplies the TMDB token, IGDB client secret and Apprise key (environment, else stored)
 	// that the next restart would use; TMDBReadToken and the runtime flag are
 	// then ignored for that check.
 	Secrets           setup.SecretSources
@@ -126,7 +126,11 @@ func (c *Checker) apprise(ctx context.Context, n setup.NotificationSettings) (se
 		return setup.CheckIncomplete, nil
 	}
 	runtime := c.config.Runtime
-	if n.AppriseConfigKeyEnv != setup.AppriseConfigKeyEnv || n.AppriseURL != runtime.AppriseURL || !runtime.AppriseKeyConfigured {
+	_, keyConfigured, err := c.secret(ctx, secrets.AppriseConfigKey, "", runtime.AppriseKeyConfigured)
+	if err != nil {
+		return setup.CheckUnavailable, errCheck
+	}
+	if n.AppriseConfigKeyEnv != setup.AppriseConfigKeyEnv || n.AppriseURL != runtime.AppriseURL || !keyConfigured {
 		return setup.CheckEnvironment, nil
 	}
 	if !setup.ValidServiceURL(n.AppriseURL, runtime.Development) {
@@ -150,19 +154,6 @@ func (c *Checker) apprise(ctx context.Context, n setup.NotificationSettings) (se
 	return setup.CheckOK, nil
 }
 
-// secret returns the value a restart would use for name when a resolver is
-// wired (environment, else stored); otherwise the boot value from Config.
-func (c *Checker) secret(ctx context.Context, name secrets.Name, boot string) (string, error) {
-	if c.config.Secrets == nil {
-		return boot, nil
-	}
-	resolved, err := c.config.Secrets.Resolve(ctx, name)
-	if err != nil {
-		return "", err
-	}
-	return resolved.Value, nil
-}
-
 func (c *Checker) library(ctx context.Context, kind string, libraries setup.LibrariesSettings) (setup.CheckCode, error) {
 	source := map[string]setup.SourceSettings{"jellyfin": libraries.Jellyfin, "plex": libraries.Plex, "romm": libraries.Romm, "navidrome": libraries.Navidrome}[kind]
 	if !source.Enabled {
@@ -176,7 +167,7 @@ func (c *Checker) library(ctx context.Context, kind string, libraries setup.Libr
 	query := ""
 	switch kind {
 	case "jellyfin":
-		token, err := c.secret(ctx, secrets.JellyfinAPIKey, c.config.JellyfinAPIKey)
+		token, _, err := c.secret(ctx, secrets.JellyfinAPIKey, c.config.JellyfinAPIKey, c.config.JellyfinAPIKey != "")
 		if err != nil {
 			return setup.CheckUnavailable, errCheck
 		}
@@ -186,7 +177,7 @@ func (c *Checker) library(ctx context.Context, kind string, libraries setup.Libr
 		endpoint = strings.TrimRight(source.URL, "/") + "/System/Info"
 		headers["X-Emby-Token"] = token
 	case "plex":
-		token, err := c.secret(ctx, secrets.PlexToken, c.config.PlexToken)
+		token, _, err := c.secret(ctx, secrets.PlexToken, c.config.PlexToken, c.config.PlexToken != "")
 		if err != nil {
 			return setup.CheckUnavailable, errCheck
 		}
@@ -196,7 +187,7 @@ func (c *Checker) library(ctx context.Context, kind string, libraries setup.Libr
 		endpoint = strings.TrimRight(source.URL, "/") + "/library/sections"
 		headers["X-Plex-Token"] = token
 	case "romm":
-		token, err := c.secret(ctx, secrets.RommToken, c.config.RommToken)
+		token, _, err := c.secret(ctx, secrets.RommToken, c.config.RommToken, c.config.RommToken != "")
 		if err != nil {
 			return setup.CheckUnavailable, errCheck
 		}
@@ -271,6 +262,20 @@ func (c *Checker) library(ctx context.Context, kind string, libraries setup.Libr
 	return setup.CheckOK, nil
 }
 
+// secret returns the value the next restart would use for name. When a
+// resolver is wired it is authoritative (environment, else stored); otherwise
+// the boot value and flag apply.
+func (c *Checker) secret(ctx context.Context, name secrets.Name, boot string, bootConfigured bool) (string, bool, error) {
+	if c.config.Secrets == nil {
+		return boot, bootConfigured, nil
+	}
+	r, err := c.config.Secrets.Resolve(ctx, name)
+	if err != nil {
+		return "", false, err
+	}
+	return r.Value, r.Value != "", nil
+}
+
 func (c *Checker) igdb(ctx context.Context, s setup.ProviderSettings) (setup.CheckCode, error) {
 	if !s.IGDBEnabled {
 		return setup.CheckDisabled, nil
@@ -278,10 +283,14 @@ func (c *Checker) igdb(ctx context.Context, s setup.ProviderSettings) (setup.Che
 	if strings.TrimSpace(s.IGDBClientID) == "" {
 		return setup.CheckIncomplete, nil
 	}
-	if s.IGDBClientSecretEnv != setup.IGDBSecretEnv || s.IGDBClientID != c.config.Runtime.IGDBClientID || !c.config.Runtime.IGDBSecretConfigured || c.config.IGDBClientSecret == "" {
+	secret, configured, err := c.secret(ctx, secrets.IGDBClientSecret, c.config.IGDBClientSecret, c.config.Runtime.IGDBSecretConfigured)
+	if err != nil {
+		return setup.CheckUnavailable, errCheck
+	}
+	if s.IGDBClientSecretEnv != setup.IGDBSecretEnv || s.IGDBClientID != c.config.Runtime.IGDBClientID || !configured || secret == "" {
 		return setup.CheckEnvironment, nil
 	}
-	form := url.Values{"client_id": {s.IGDBClientID}, "client_secret": {c.config.IGDBClientSecret}, "grant_type": {"client_credentials"}}
+	form := url.Values{"client_id": {s.IGDBClientID}, "client_secret": {secret}, "grant_type": {"client_credentials"}}
 	var token struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int64  `json:"expires_in"`

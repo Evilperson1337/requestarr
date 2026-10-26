@@ -45,10 +45,12 @@ var checkedSecrets = map[Target]struct {
 	name secrets.Name
 	noun string
 }{
-	TargetTMDB:     {secrets.TMDBReadToken, "token"},
-	TargetJellyfin: {secrets.JellyfinAPIKey, "API key"},
-	TargetPlex:     {secrets.PlexToken, "token"},
-	TargetRomm:     {secrets.RommToken, "token"},
+	TargetTMDB:          {secrets.TMDBReadToken, "token"},
+	TargetJellyfin:      {secrets.JellyfinAPIKey, "API key"},
+	TargetPlex:          {secrets.PlexToken, "token"},
+	TargetRomm:          {secrets.RommToken, "token"},
+	TargetIGDB:          {secrets.IGDBClientSecret, "client secret"},
+	TargetNotifications: {secrets.AppriseConfigKey, "configuration key"},
 }
 
 // secretNote names the source of the secret a check just used, so an admin

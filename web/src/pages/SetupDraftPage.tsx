@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { SecretField } from '../components/SecretField'
+import { SecretsReview } from '../components/SecretsReview'
 import { api, ApiError, type Session, type SetupDraft, type SetupSettings, type SetupStep, type SetupTarget, type SetupSource } from '../api'
 
 // Library credentials that can be stored (D024). Navidrome joins in its own ticket.
@@ -188,7 +189,8 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                         <div className="draftProvider"><h3>IGDB</h3>
                             <label className="draftToggle"><input type="checkbox" checked={settings.providers.igdbEnabled} onChange={e => provider('igdbEnabled', e.target.checked)} />Enable IGDB</label>
                             <label>IGDB client ID<input maxLength={256} value={settings.providers.igdbClientId} onChange={e => provider('igdbClientId', e.target.value)} /></label>
-                            <p>Client secret environment reference (read-only): <code>REQUESTARR_IGDB_CLIENT_SECRET</code></p>
+                            <SecretField name="igdb_client_secret" label="IGDB client secret" csrfToken={session.csrfToken} />
+                            <p>Environment reference: <code>REQUESTARR_IGDB_CLIENT_SECRET</code></p>
                         </div>
                     </>}
                     {step === 'libraries' && <>
@@ -213,7 +215,8 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                         <div className="draftProvider"><h3>Apprise</h3>
                             <label className="draftToggle"><input type="checkbox" checked={settings.notifications.appriseEnabled} onChange={e => notifications('appriseEnabled', e.target.checked)} />Enable Apprise</label>
                             <label>Apprise API URL<input type="url" maxLength={2048} value={settings.notifications.appriseUrl} onChange={e => notifications('appriseUrl', e.target.value)} /></label>
-                            <p>Configuration key environment reference (read-only): <code>{settings.notifications.appriseConfigKeyEnv}</code>. The URL must match <code>REQUESTARR_APPRISE_URL</code> on the server for the check to pass.</p>
+                            <SecretField name="apprise_config_key" label="Apprise configuration key" csrfToken={session.csrfToken} />
+                            <p>Configuration key environment reference: <code>{settings.notifications.appriseConfigKeyEnv}</code>. The URL must match <code>REQUESTARR_APPRISE_URL</code> on the server for the check to pass.</p>
                         </div>
                     </>}
                     {step === 'policy' && <>
@@ -232,6 +235,7 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                             <div><dt>Notifications</dt><dd>In-app · Apprise {settings.notifications.appriseEnabled ? settings.notifications.appriseUrl : 'off'}</dd></div>
                             <div><dt>Request policy</dt><dd>Auto-approve: {settings.policy.autoApproveMediaTypes.join(', ') || 'none (administrator approval for all)'}</dd></div>
                         </dl></section>
+                        <SecretsReview csrfToken={session.csrfToken} />
                         {blockers.length > 0 ? <div role="alert" className="errorBox"><h3>Cannot finish yet</h3><ul>{blockers.map(item => <li key={item.target}>{item.target}: {blockerReason[item.reason]}</li>)}</ul></div> : <p role="status">All required checks have passed.</p>}
                     </>}
                     {!editable && !completed && step !== 'review' && <p>This step is unavailable. Return to General to continue.</p>}

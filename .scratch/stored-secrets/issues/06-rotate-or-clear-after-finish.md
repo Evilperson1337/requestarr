@@ -4,8 +4,8 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Replace and clear work after Finish
-- [ ] Other draft writes still return setup_already_complete
-- [ ] Audit rows are written in the same transaction and hold no value
+- [x] Replace and clear work after Finish
+- [x] Other draft writes still return setup_already_complete
+- [x] Audit rows are written in the same transaction and hold no value

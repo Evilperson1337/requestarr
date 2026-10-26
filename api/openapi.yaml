@@ -387,7 +387,7 @@ paths:
       - in: path
         name: name
         required: true
-        schema: { type: string, enum: [tmdb_read_token, jellyfin_api_key, plex_token, romm_token] }
+        schema: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, jellyfin_api_key, plex_token, romm_token] }
     put:
       operationId: setStoredSecret
       summary: Save or replace a stored secret (administrator only)
@@ -756,7 +756,7 @@ components:
       type: object
       required: [name, label, envVar, configured, source, unreadable, pendingRestart]
       properties:
-        name: { type: string, enum: [tmdb_read_token, jellyfin_api_key, plex_token, romm_token] }
+        name: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, jellyfin_api_key, plex_token, romm_token] }
         label: { type: string }
         envVar: { type: string, description: "Environment variable that sets this secret; it always wins over a stored value" }
         configured: { type: boolean, description: "An effective value exists. False for an unreadable stored secret, which is not the same as unconfigured" }

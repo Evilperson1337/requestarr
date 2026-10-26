@@ -125,28 +125,24 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		addSource("navidrome", client, cfg.NavidromeURL, nil)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
-	tmdbNote := ""
-	sourceNotes := map[secrets.Name]string{}
+	unreadable := map[secrets.Name]string{}
 	if statuses, _, err := secretsService.Status(ctx); err == nil {
 		for _, st := range statuses {
-			if st.Name == secrets.TMDBReadToken && st.Unreadable {
-				tmdbNote = unreadableNote
-			}
 			if st.Unreadable {
-				sourceNotes[st.Name] = unreadableNote
+				unreadable[st.Name] = unreadableNote
 			}
 		}
 	}
 	ops := opstatus.New(
 		[]opstatus.Provider{
-			{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: tmdbNote},
+			{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: unreadable[secrets.TMDBReadToken]},
 			{Key: "musicbrainz", Name: "MusicBrainz", Configured: true},
-			{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != ""},
-			{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != ""},
+			{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "", Note: unreadable[secrets.IGDBClientSecret]},
+			{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != "", Note: unreadable[secrets.AppriseConfigKey]},
 		},
 		[]opstatus.SourceRef{
-			{Slug: "jellyfin", Name: "Jellyfin", ID: syncSources["jellyfin"].id, Note: sourceNotes[secrets.JellyfinAPIKey]}, {Slug: "plex", Name: "Plex", ID: syncSources["plex"].id, Note: sourceNotes[secrets.PlexToken]},
-			{Slug: "romm", Name: "RomM", ID: syncSources["romm"].id, Note: sourceNotes[secrets.RommToken]}, {Slug: "navidrome", Name: "Navidrome", ID: syncSources["navidrome"].id},
+			{Slug: "jellyfin", Name: "Jellyfin", ID: syncSources["jellyfin"].id, Note: unreadable[secrets.JellyfinAPIKey]}, {Slug: "plex", Name: "Plex", ID: syncSources["plex"].id, Note: unreadable[secrets.PlexToken]},
+			{Slug: "romm", Name: "RomM", ID: syncSources["romm"].id, Note: unreadable[secrets.RommToken]}, {Slug: "navidrome", Name: "Navidrome", ID: syncSources["navidrome"].id},
 		}, store)
 	setupRuntime := setup.Runtime{PublicURL: cfg.PublicURL, OIDCIssuer: cfg.OIDCIssuer, OIDCClientID: cfg.OIDCClientID, IGDBClientID: cfg.IGDBClientID,
 		OIDCSecretConfigured: cfg.OIDCClientSecret != "", TMDBTokenConfigured: cfg.TMDBReadToken != "", IGDBSecretConfigured: cfg.IGDBClientSecret != "", AppriseURL: cfg.AppriseURL, AppriseKeyConfigured: cfg.AppriseConfigKey != "", Development: cfg.Environment == "development",

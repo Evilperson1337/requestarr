@@ -18,10 +18,12 @@ const unreadableNote = "stored secret unreadable"
 // integrations add a line here and a registry entry; nothing else changes.
 func secretFields(cfg *config.Config) map[secrets.Name]*string {
 	return map[secrets.Name]*string{
-		secrets.TMDBReadToken:  &cfg.TMDBReadToken,
-		secrets.JellyfinAPIKey: &cfg.JellyfinAPIKey,
-		secrets.PlexToken:      &cfg.PlexToken,
-		secrets.RommToken:      &cfg.RommToken,
+		secrets.TMDBReadToken:    &cfg.TMDBReadToken,
+		secrets.IGDBClientSecret: &cfg.IGDBClientSecret,
+		secrets.AppriseConfigKey: &cfg.AppriseConfigKey,
+		secrets.JellyfinAPIKey:   &cfg.JellyfinAPIKey,
+		secrets.PlexToken:        &cfg.PlexToken,
+		secrets.RommToken:        &cfg.RommToken,
 	}
 }
 
@@ -75,6 +77,11 @@ func resolveSecrets(ctx context.Context, cfg config.Config, repo secrets.Reposit
 				*url = ""
 			}
 			logger.Warn("stored secret unreadable; the integration is not configured until the secret is re-entered or REQUESTARR_SECRETS_KEY is restored", "secret", string(st.Name))
+			if st.Name == secrets.AppriseConfigKey && cfg.AppriseConfigKey == "" {
+				// The URL stays env-only, but a URL without its key would fail
+				// the pairing rule and stop boot; keep Apprise off instead.
+				cfg.AppriseURL = ""
+			}
 		}
 	}
 	return cfg, svc, nil

@@ -14,6 +14,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/secrets"
+	"github.com/evilperson1337/requestarr/internal/setup"
 )
 
 const probeValue = "tmdb-token-PROBE-9f3c1"
@@ -144,4 +145,16 @@ func TestClearSecret(t *testing.T) {
 	}
 	svc = &fakeSecrets{clearErr: secrets.ErrUnknownSecret}
 	assertErrorEnvelope(t, secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodDelete, "/admin/secrets/nope", ""), 404, "unknown_secret")
+}
+
+func TestSecretsStayWritableAfterSetupFinishWhileDraftIsFrozen(t *testing.T) {
+	svc := &fakeSecrets{fakeSetup: fakeSetup{err: setup.ErrCompleted}}
+	if w := secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodPut, "/admin/secrets/tmdb_read_token", `{"value":"`+probeValue+`"}`); w.Code != 204 {
+		t.Fatalf("replace after finish: %d", w.Code)
+	}
+	if w := secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodDelete, "/admin/secrets/tmdb_read_token", ""); w.Code != 204 {
+		t.Fatalf("clear after finish: %d", w.Code)
+	}
+	assertErrorEnvelope(t, secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodPut, "/admin/setup/draft", validSetupDraftBody()), 409, "setup_already_complete")
+	assertErrorEnvelope(t, secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodPost, "/admin/setup/finish", `{"expectedRevision":1}`), 409, "setup_already_complete")
 }
