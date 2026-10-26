@@ -125,28 +125,35 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		addSource("navidrome", client, cfg.NavidromeURL, nil)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
-	tmdbNote := ""
+	tmdbNote, navidromeNote := "", ""
 	if statuses, _, err := secretsService.Status(ctx); err == nil {
 		for _, st := range statuses {
 			if st.Name == secrets.TMDBReadToken && st.Unreadable {
 				tmdbNote = unreadableNote
 			}
+			if st.Name == secrets.NavidromePassword && st.Unreadable && cfg.NavidromePassword == "" {
+				navidromeNote = unreadableNote
+			}
 		}
 	}
+	providers := []opstatus.Provider{
+		{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: tmdbNote},
+		{Key: "musicbrainz", Name: "MusicBrainz", Configured: true},
+		{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != ""},
+		{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != ""},
+	}
+	if navidromeNote != "" { // Navidrome is held off; say why instead of looking unconfigured.
+		providers = append(providers, opstatus.Provider{Key: "navidrome", Name: "Navidrome", Note: navidromeNote})
+	}
 	ops := opstatus.New(
-		[]opstatus.Provider{
-			{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: tmdbNote},
-			{Key: "musicbrainz", Name: "MusicBrainz", Configured: true},
-			{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != ""},
-			{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != ""},
-		},
+		providers,
 		[]opstatus.SourceRef{
 			{Slug: "jellyfin", Name: "Jellyfin", ID: syncSources["jellyfin"].id}, {Slug: "plex", Name: "Plex", ID: syncSources["plex"].id},
 			{Slug: "romm", Name: "RomM", ID: syncSources["romm"].id}, {Slug: "navidrome", Name: "Navidrome", ID: syncSources["navidrome"].id},
 		}, store)
 	setupRuntime := setup.Runtime{PublicURL: cfg.PublicURL, OIDCIssuer: cfg.OIDCIssuer, OIDCClientID: cfg.OIDCClientID, IGDBClientID: cfg.IGDBClientID,
 		OIDCSecretConfigured: cfg.OIDCClientSecret != "", TMDBTokenConfigured: cfg.TMDBReadToken != "", IGDBSecretConfigured: cfg.IGDBClientSecret != "", AppriseURL: cfg.AppriseURL, AppriseKeyConfigured: cfg.AppriseConfigKey != "", Development: cfg.Environment == "development",
-		LibrarySecrets: map[string]bool{"jellyfin": cfg.JellyfinAPIKey != "", "plex": cfg.PlexToken != "", "romm": cfg.RommToken != "", "navidromeUsername": cfg.NavidromeUsername != "", "navidromePassword": cfg.NavidromePassword != ""}}
+		LibrarySecrets: map[string]bool{"jellyfin": cfg.JellyfinAPIKey != "", "plex": cfg.PlexToken != "", "romm": cfg.RommToken != "", "navidromeUsername": cfg.NavidromeUsername != "", "navidromePassword": cfg.NavidromePassword != ""}, NavidromeUsername: cfg.NavidromeUsername}
 	setupRuntime.LibraryURLs = map[string]string{"jellyfin": cfg.JellyfinURL, "plex": cfg.PlexURL, "romm": cfg.RommURL, "navidrome": cfg.NavidromeURL}
 	setupService := setup.NewService(store, checks.New(checks.Config{Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, TMDBReadToken: cfg.TMDBReadToken, Secrets: secretsService, IGDBClientSecret: cfg.IGDBClientSecret,
 		JellyfinAPIKey: cfg.JellyfinAPIKey, PlexToken: cfg.PlexToken, RommToken: cfg.RommToken, NavidromeUsername: cfg.NavidromeUsername, NavidromePassword: cfg.NavidromePassword}), setupRuntime)

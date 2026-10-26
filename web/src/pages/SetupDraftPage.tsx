@@ -195,7 +195,13 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                                 <label className="draftToggle"><input type="checkbox" checked={item.enabled} onChange={e => source(kind, { enabled: e.target.checked })} />Enable {title}</label>
                                 <label>{title} URL<input type="url" maxLength={2048} value={item.url} onChange={e => source(kind, { url: e.target.value })} /></label>
                                 <fieldset><legend>Authoritative media types</legend>{media.map(type => <label className="draftToggle" key={type}><input type="checkbox" checked={item.mediaTypes.includes(type as SetupSource['mediaTypes'][number])} onChange={e => source(kind, { mediaTypes: e.target.checked ? [...item.mediaTypes, type as SetupSource['mediaTypes'][number]] : item.mediaTypes.filter(value => value !== type) })} />{type}</label>)}</fieldset>
-                                <p>Server-side credential references only: <code>{item.usernameEnv || item.tokenEnv}</code>{item.passwordEnv ? <> and <code>{item.passwordEnv}</code></> : null}.</p>
+                                {kind === 'navidrome'
+                                    ? <>
+                                        <label>Navidrome username<input type="text" maxLength={256} autoComplete="off" value={item.username} onChange={e => source(kind, { username: e.target.value })} /></label>
+                                        <SecretField name="navidrome_password" label="Navidrome password" csrfToken={session.csrfToken} />
+                                        <p>Environment reference: <code>REQUESTARR_NAVIDROME_USERNAME</code> and <code>{item.passwordEnv}</code></p>
+                                    </>
+                                    : <p>Server-side credential reference only: <code>{item.tokenEnv}</code>.</p>}
                                 <button className="button secondary" type="submit" value="check-library" data-target={`library:${kind}`} disabled={!item.enabled}>Check {title} connection</button>
                             </div>
                         })}

@@ -42,22 +42,30 @@ func (s *Service) UseSecrets(sources SecretSources) { s.secrets = sources }
 // secretNote names the source of the secret a check just used, so an admin
 // knows which value was verified. It never includes the value.
 func (s *Service) secretNote(ctx context.Context, target Target, code CheckCode) string {
-	if s.secrets == nil || target != TargetTMDB || code == CheckDisabled || code == CheckIncomplete {
+	if s.secrets == nil || code == CheckDisabled || code == CheckIncomplete {
 		return ""
 	}
-	r, err := s.secrets.Resolve(ctx, secrets.TMDBReadToken)
+	name, noun := secrets.TMDBReadToken, "token"
+	switch target {
+	case TargetTMDB:
+	case TargetNavidrome:
+		name, noun = secrets.NavidromePassword, "password"
+	default:
+		return ""
+	}
+	r, err := s.secrets.Resolve(ctx, name)
 	if err != nil {
 		return ""
 	}
 	switch r.Source {
 	case secrets.SourceEnvironment:
-		return " Checked the token from the environment."
+		return " Checked the " + noun + " from the environment."
 	case secrets.SourceStored:
-		return " Checked the stored token, which a restart will use."
+		return " Checked the stored " + noun + ", which a restart will use."
 	case secrets.SourceShadowed:
-		return " Checked the token from the environment; the stored token is shadowed by environment and is not used."
+		return " Checked the " + noun + " from the environment; the stored " + noun + " is shadowed by environment and is not used."
 	case secrets.SourceUnreadable:
-		return " The stored token cannot be read with the current REQUESTARR_SECRETS_KEY; enter it again or restore the key."
+		return " The stored " + noun + " cannot be read with the current REQUESTARR_SECRETS_KEY; enter it again or restore the key."
 	}
 	return ""
 }
@@ -136,7 +144,7 @@ func (s *Service) decorate(d Draft) Draft {
 		needsRestart := source.URL != activeURL || source.Enabled != (activeURL != "") || source.Enabled && !sameMediaTypes(source.MediaTypes, activeTypes)
 		d.Environment = append(d.Environment, EnvironmentItem{Name: url, Configured: activeURL != "", NeedsRestart: needsRestart, DesiredValue: source.URL})
 		if kind == "navidrome" {
-			d.Environment = append(d.Environment, EnvironmentItem{Name: source.UsernameEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind+"Username"], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind+"Username"]}, EnvironmentItem{Name: secretEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind+"Password"], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind+"Password"]})
+			d.Environment = append(d.Environment, EnvironmentItem{Name: NavidromeUsernameEnv, Configured: s.runtime.NavidromeUsername != "", NeedsRestart: source.Enabled && source.Username != s.runtime.NavidromeUsername, DesiredValue: source.Username}, EnvironmentItem{Name: secretEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind+"Password"], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind+"Password"]})
 		} else {
 			d.Environment = append(d.Environment, EnvironmentItem{Name: secretEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind]})
 		}
@@ -153,7 +161,7 @@ func defaultLibraries(runtime Runtime) LibrariesSettings {
 		Jellyfin:  SourceSettings{Enabled: runtime.LibraryURLs["jellyfin"] != "", URL: runtime.LibraryURLs["jellyfin"], MediaTypes: defaultSourceMediaTypes("jellyfin"), TokenEnv: JellyfinAPIKeyEnv},
 		Plex:      SourceSettings{Enabled: runtime.LibraryURLs["plex"] != "", URL: runtime.LibraryURLs["plex"], MediaTypes: defaultSourceMediaTypes("plex"), TokenEnv: PlexTokenEnv},
 		Romm:      SourceSettings{Enabled: runtime.LibraryURLs["romm"] != "", URL: runtime.LibraryURLs["romm"], MediaTypes: defaultSourceMediaTypes("romm"), TokenEnv: RommTokenEnv},
-		Navidrome: SourceSettings{Enabled: runtime.LibraryURLs["navidrome"] != "", URL: runtime.LibraryURLs["navidrome"], MediaTypes: defaultSourceMediaTypes("navidrome"), UsernameEnv: NavidromeUsernameEnv, PasswordEnv: NavidromePasswordEnv},
+		Navidrome: SourceSettings{Enabled: runtime.LibraryURLs["navidrome"] != "", URL: runtime.LibraryURLs["navidrome"], MediaTypes: defaultSourceMediaTypes("navidrome"), Username: runtime.NavidromeUsername, PasswordEnv: NavidromePasswordEnv},
 	}
 }
 
@@ -180,8 +188,8 @@ func normalizeLibraries(l LibrariesSettings, runtime Runtime) LibrariesSettings 
 				source.TokenEnv = RommTokenEnv
 			}
 		case "navidrome":
-			if source.UsernameEnv == "" {
-				source.UsernameEnv = NavidromeUsernameEnv
+			if source.Username == "" {
+				source.Username = runtime.NavidromeUsername
 			}
 			if source.PasswordEnv == "" {
 				source.PasswordEnv = NavidromePasswordEnv
@@ -192,7 +200,7 @@ func normalizeLibraries(l LibrariesSettings, runtime Runtime) LibrariesSettings 
 }
 
 func emptySource(s SourceSettings) bool {
-	return !s.Enabled && s.URL == "" && len(s.MediaTypes) == 0 && s.TokenEnv == "" && s.UsernameEnv == "" && s.PasswordEnv == ""
+	return !s.Enabled && s.URL == "" && len(s.MediaTypes) == 0 && s.TokenEnv == "" && s.Username == "" && s.PasswordEnv == ""
 }
 
 func defaultSourceMediaTypes(kind string) []domain.MediaType {

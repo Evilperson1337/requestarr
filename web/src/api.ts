@@ -3,7 +3,7 @@ export type Session = { user: User; csrfToken: string }
 export type SetupStatus = { complete: boolean; required: boolean; wizardComplete?: boolean }
 export type SetupStep = 'general' | 'authentication' | 'providers' | 'libraries' | 'notifications' | 'policy' | 'review'
 export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome' | 'notifications'
-export type SetupSource = { enabled: boolean; url: string; mediaTypes: ('movie' | 'tv' | 'album' | 'song' | 'game')[]; tokenEnv: string; usernameEnv: string; passwordEnv: string }
+export type SetupSource = { enabled: boolean; url: string; mediaTypes: ('movie' | 'tv' | 'album' | 'song' | 'game')[]; tokenEnv: string; username: string; passwordEnv: string }
 export type SetupSettings = {
     general: { instanceName: string; timezone: string; publicUrl: string }
     authentication: { issuer: string; clientId: string; clientSecretEnv: string }

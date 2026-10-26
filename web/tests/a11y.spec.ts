@@ -14,7 +14,7 @@ const settings = {
     general: { instanceName: 'Requestarr', timezone: 'UTC', publicUrl: 'https://requests.example.test' },
     authentication: { issuer: 'https://id.example.test', clientId: 'requestarr', clientSecretEnv: 'REQUESTARR_OIDC_CLIENT_SECRET' },
     providers: { tmdbEnabled: true, tmdbTokenEnv: 'REQUESTARR_TMDB_READ_TOKEN', musicBrainzEnabled: true, musicBrainzContact: '', igdbEnabled: false, igdbClientId: '', igdbClientSecretEnv: 'REQUESTARR_IGDB_CLIENT_SECRET' },
-    libraries: Object.fromEntries(['jellyfin', 'plex', 'romm', 'navidrome'].map(k => [k, { enabled: false, url: '', mediaTypes: [], tokenEnv: k === 'navidrome' ? '' : 'REQUESTARR_X', usernameEnv: '', passwordEnv: '' }])),
+    libraries: Object.fromEntries(['jellyfin', 'plex', 'romm', 'navidrome'].map(k => [k, { enabled: false, url: '', mediaTypes: [], tokenEnv: k === 'navidrome' ? '' : 'REQUESTARR_X', username: '', passwordEnv: '' }])),
     notifications: { appriseEnabled: false, appriseUrl: '', appriseConfigKeyEnv: 'REQUESTARR_APPRISE_CONFIG_KEY' },
     policy: { autoApproveMediaTypes: [] },
 }

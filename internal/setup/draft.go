@@ -69,12 +69,15 @@ type LibrariesSettings struct {
 
 // SourceSettings contains only safe draft values and fixed environment names.
 type SourceSettings struct {
-	Enabled     bool               `json:"enabled"`
-	URL         string             `json:"url"`
-	MediaTypes  []domain.MediaType `json:"mediaTypes"`
-	TokenEnv    string             `json:"tokenEnv"`
-	UsernameEnv string             `json:"usernameEnv"`
-	PasswordEnv string             `json:"passwordEnv"`
+	Enabled    bool               `json:"enabled"`
+	URL        string             `json:"url"`
+	MediaTypes []domain.MediaType `json:"mediaTypes"`
+	TokenEnv   string             `json:"tokenEnv"`
+	// Username is an ordinary non-secret draft field (Navidrome only). Drafts
+	// saved before it existed carried a usernameEnv reference; that key is
+	// ignored on load and the environment-configured username takes its place.
+	Username    string `json:"username"`
+	PasswordEnv string `json:"passwordEnv"`
 }
 
 type GeneralSettings struct {
@@ -184,6 +187,7 @@ type Runtime struct {
 	PublicURL, OIDCIssuer, OIDCClientID, IGDBClientID               string
 	OIDCSecretConfigured, TMDBTokenConfigured, IGDBSecretConfigured bool
 	LibrarySecrets                                                  map[string]bool
+	NavidromeUsername                                               string
 	LibraryURLs                                                     map[string]string
 	AppriseURL                                                      string
 	AppriseKeyConfigured                                            bool
@@ -245,10 +249,10 @@ func (s Settings) Validate(development bool) error {
 		}
 		wantToken := map[string]string{"jellyfin": JellyfinAPIKeyEnv, "plex": PlexTokenEnv, "romm": RommTokenEnv}[kind]
 		if kind == "navidrome" {
-			if source.TokenEnv != "" || source.UsernameEnv != NavidromeUsernameEnv || source.PasswordEnv != NavidromePasswordEnv {
+			if source.TokenEnv != "" || source.PasswordEnv != NavidromePasswordEnv || !utf8.ValidString(source.Username) || utf8.RuneCountInString(source.Username) > 256 || strings.ContainsAny(source.Username, "\x00\r\n") {
 				return ErrInvalid
 			}
-		} else if source.TokenEnv != wantToken || source.UsernameEnv != "" || source.PasswordEnv != "" {
+		} else if source.TokenEnv != wantToken || source.Username != "" || source.PasswordEnv != "" {
 			return ErrInvalid
 		}
 	}

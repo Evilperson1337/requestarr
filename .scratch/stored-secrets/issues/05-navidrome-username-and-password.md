@@ -4,8 +4,8 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Username is saved and shown as plain draft data
-- [ ] Password is stored, checked and never returned
-- [ ] Existing drafts and env-configured username still load
+- [x] Username is saved and shown as plain draft data
+- [x] Password is stored, checked and never returned
+- [x] Existing drafts and env-configured username still load

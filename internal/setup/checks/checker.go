@@ -181,7 +181,19 @@ func (c *Checker) library(ctx context.Context, kind string, libraries setup.Libr
 		endpoint = strings.TrimRight(source.URL, "/") + "/api/platforms"
 		headers["Authorization"] = "Bearer " + c.config.RommToken
 	case "navidrome":
-		if source.UsernameEnv != setup.NavidromeUsernameEnv || source.PasswordEnv != setup.NavidromePasswordEnv || c.config.NavidromeUsername == "" || c.config.NavidromePassword == "" {
+		username := source.Username
+		if username == "" {
+			username = c.config.NavidromeUsername
+		}
+		password := c.config.NavidromePassword
+		if c.config.Secrets != nil {
+			resolved, err := c.config.Secrets.Resolve(ctx, secrets.NavidromePassword)
+			if err != nil {
+				return setup.CheckUnavailable, errCheck
+			}
+			password = resolved.Value
+		}
+		if source.PasswordEnv != setup.NavidromePasswordEnv || username == "" || password == "" {
 			return setup.CheckEnvironment, nil
 		}
 		saltBytes := make([]byte, 16)
@@ -189,8 +201,8 @@ func (c *Checker) library(ctx context.Context, kind string, libraries setup.Libr
 			return setup.CheckUnavailable, errCheck
 		}
 		salt := hex.EncodeToString(saltBytes)
-		token := md5.Sum([]byte(c.config.NavidromePassword + salt))
-		q := url.Values{"u": {c.config.NavidromeUsername}, "t": {hex.EncodeToString(token[:])}, "s": {salt}, "v": {"1.16.1"}, "c": {"Requestarr/setup-check"}, "f": {"json"}}
+		token := md5.Sum([]byte(password + salt))
+		q := url.Values{"u": {username}, "t": {hex.EncodeToString(token[:])}, "s": {salt}, "v": {"1.16.1"}, "c": {"Requestarr/setup-check"}, "f": {"json"}}
 		endpoint = strings.TrimRight(source.URL, "/") + "/rest/ping.view?" + q.Encode()
 	default:
 		return setup.CheckUnavailable, errCheck
