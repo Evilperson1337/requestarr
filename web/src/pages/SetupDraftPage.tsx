@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { SecretField } from '../components/SecretField'
 import { api, ApiError, type Session, type SetupDraft, type SetupSettings, type SetupStep, type SetupTarget, type SetupSource } from '../api'
 
 const steps: { key: SetupStep; label: string }[] = [
@@ -169,7 +170,8 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                     {step === 'providers' && <>
                         <div className="draftProvider"><h3>TMDb</h3>
                             <label className="draftToggle"><input type="checkbox" checked={settings.providers.tmdbEnabled} onChange={e => provider('tmdbEnabled', e.target.checked)} />Enable TMDb</label>
-                            <p>Read token environment reference (read-only): <code>REQUESTARR_TMDB_READ_TOKEN</code></p>
+                            <SecretField name="tmdb_read_token" label="TMDb read token" csrfToken={session.csrfToken} />
+                            <p>Environment reference: <code>REQUESTARR_TMDB_READ_TOKEN</code></p>
                         </div>
                         <div className="draftProvider"><h3>MusicBrainz</h3>
                             <label className="draftToggle"><input type="checkbox" checked={settings.providers.musicBrainzEnabled} onChange={e => provider('musicBrainzEnabled', e.target.checked)} />Enable MusicBrainz</label>
@@ -248,7 +250,7 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
             </section>
             <section aria-label="Server environment" className="setupNotice">
                 <h2>Server environment</h2>
-                <p>Set secrets only on the server. Secret values are never shown or collected here. Apply environment changes and restart Requestarr separately; this draft remains inactive.</p>
+                <p>Secret values are never shown. Where a secret field is offered above, a saved value is stored encrypted on the server; other secrets are set only in the server environment. Apply changes and restart Requestarr separately; this draft remains inactive.</p>
                 <dl className="draftEnvironment">{(draft.environment || []).map(item => <div key={item.name}>
                     <dt><code>{item.name}</code>{item.secret ? ' · Secret reference only' : ''}</dt>
                     <dd>Configured: {item.configured ? 'Yes' : 'No'} · Restart needed: {item.needsRestart ? 'Yes' : 'No'}

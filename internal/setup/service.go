@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/secrets"
 )
 
 type Repository interface {
@@ -22,10 +23,43 @@ type Checker interface {
 	Check(context.Context, Target, Settings) (CheckCode, error)
 }
 
+// SecretSources resolves the value the next restart would use for a secret and
+// says where it comes from (D024). The value must never leave the server.
+type SecretSources interface {
+	Resolve(context.Context, secrets.Name) (secrets.Resolved, error)
+}
+
 type Service struct {
 	repo    Repository
 	checker Checker
 	runtime Runtime
+	secrets SecretSources
+}
+
+// UseSecrets lets connection-check messages name the secret source.
+func (s *Service) UseSecrets(sources SecretSources) { s.secrets = sources }
+
+// secretNote names the source of the secret a check just used, so an admin
+// knows which value was verified. It never includes the value.
+func (s *Service) secretNote(ctx context.Context, target Target, code CheckCode) string {
+	if s.secrets == nil || target != TargetTMDB || code == CheckDisabled || code == CheckIncomplete {
+		return ""
+	}
+	r, err := s.secrets.Resolve(ctx, secrets.TMDBReadToken)
+	if err != nil {
+		return ""
+	}
+	switch r.Source {
+	case secrets.SourceEnvironment:
+		return " Checked the token from the environment."
+	case secrets.SourceStored:
+		return " Checked the stored token, which a restart will use."
+	case secrets.SourceShadowed:
+		return " Checked the token from the environment; the stored token is shadowed by environment and is not used."
+	case secrets.SourceUnreadable:
+		return " The stored token cannot be read with the current REQUESTARR_SECRETS_KEY; enter it again or restore the key."
+	}
+	return ""
 }
 
 func NewService(repo Repository, checker Checker, runtime Runtime) *Service {
@@ -267,6 +301,7 @@ func (s *Service) Validate(ctx context.Context, actor Actor, revision int64, tar
 	default:
 		code = CheckUnavailable
 	}
+	message += s.secretNote(ctx, target, code)
 	now := time.Now().UTC()
 	result := Validation{Target: target, Revision: revision, Valid: code == CheckOK || code == CheckDisabled, Code: code, Message: message, CheckedAt: now, ExpiresAt: now.Add(10 * time.Minute)}
 	d, err = s.repo.RecordSetupValidation(ctx, actor.ID, revision, result)

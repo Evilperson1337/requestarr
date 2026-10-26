@@ -1,0 +1,98 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/evilperson1337/requestarr/internal/apierror"
+	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/secrets"
+)
+
+// SecretsService manages stored integration secrets (D024). It is write-only:
+// nothing here returns a stored value. The router uses it when the setup
+// service also implements it.
+type SecretsService interface {
+	Status(context.Context) ([]secrets.Status, bool, error)
+	Set(ctx context.Context, actorID string, name secrets.Name, value string) error
+	Clear(ctx context.Context, actorID string, name secrets.Name) error
+}
+
+type secretStatusBody struct {
+	Name           string `json:"name"`
+	Label          string `json:"label"`
+	EnvVar         string `json:"envVar"`
+	Configured     bool   `json:"configured"`
+	Source         string `json:"source"`
+	Unreadable     bool   `json:"unreadable"`
+	PendingRestart bool   `json:"pendingRestart"`
+}
+
+func registerSecretsRoutes(api *http.ServeMux, service SecretsService, authHandler *auth.Handler) {
+	admin := func(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store")
+			user, err := authHandler.CurrentSession(r)
+			if err != nil {
+				apierror.Write(w, r, 401, "authentication_required", "authentication required")
+				return
+			}
+			if user.Role != "admin" {
+				apierror.Write(w, r, 403, "forbidden", "administrator role required")
+				return
+			}
+			next(w, r, user.ID)
+		}
+	}
+	fail := func(w http.ResponseWriter, r *http.Request, err error) {
+		switch {
+		case errors.Is(err, secrets.ErrUnknownSecret):
+			apierror.Write(w, r, 404, "unknown_secret", "unknown secret")
+		case errors.Is(err, secrets.ErrNoMasterKey):
+			apierror.Write(w, r, 409, "secrets_disabled", "REQUESTARR_SECRETS_KEY is not configured, so secret values cannot be saved")
+		case errors.Is(err, secrets.ErrInvalidValue):
+			apierror.Write(w, r, 422, "invalid_secret_value", "the value must be non-empty, at most 4096 characters, without surrounding whitespace or control characters")
+		default:
+			// Storage errors can carry connection details; never echo them.
+			apierror.Write(w, r, 500, "secret_update_failed", "could not update the stored secret")
+		}
+	}
+	api.HandleFunc("GET /admin/secrets", admin(func(w http.ResponseWriter, r *http.Request, _ string) {
+		statuses, enabled, err := service.Status(r.Context())
+		if err != nil {
+			apierror.Write(w, r, 500, "secret_status_failed", "could not load secret status")
+			return
+		}
+		out := make([]secretStatusBody, 0, len(statuses))
+		for _, s := range statuses {
+			out = append(out, secretStatusBody{Name: string(s.Name), Label: s.Label, EnvVar: s.EnvVar, Configured: s.Configured, Source: string(s.Source), Unreadable: s.Unreadable, PendingRestart: s.PendingRestart})
+		}
+		writeJSON(w, 200, map[string]any{"enabled": enabled, "secrets": out})
+	}))
+	api.HandleFunc("PUT /admin/secrets/{name}", admin(func(w http.ResponseWriter, r *http.Request, actorID string) {
+		r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		var input struct {
+			Value string `json:"value"`
+		}
+		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil {
+			apierror.Write(w, r, 400, "invalid_secret_input", "provide one JSON object with a value field")
+			return
+		}
+		if err := service.Set(r.Context(), actorID, secrets.Name(r.PathValue("name")), input.Value); err != nil {
+			fail(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	api.HandleFunc("DELETE /admin/secrets/{name}", admin(func(w http.ResponseWriter, r *http.Request, actorID string) {
+		if err := service.Clear(r.Context(), actorID, secrets.Name(r.PathValue("name"))); err != nil {
+			fail(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+}

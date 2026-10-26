@@ -143,6 +143,9 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 	api.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, build) })
 	registerMatchReviewRoutes(api, readiness, authHandler)
 	registerSetupRoutes(api, wizard, authHandler)
+	if secretsService, ok := wizard.(SecretsService); ok {
+		registerSecretsRoutes(api, secretsService, authHandler)
+	}
 	api.HandleFunc("GET /setup/status", func(w http.ResponseWriter, r *http.Request) { writeSetupStatus(w, r, readiness) })
 	api.HandleFunc("GET /admin/sources/jellyfin/status", func(w http.ResponseWriter, r *http.Request) {
 		user, err := authHandler.CurrentSession(r)
@@ -581,6 +584,9 @@ func validUUID(value string) bool {
 
 func protectedMutation(method, path string) bool {
 	if strings.HasPrefix(path, "/admin/setup/") && (method == http.MethodPut || method == http.MethodPost) {
+		return true
+	}
+	if strings.HasPrefix(path, "/admin/secrets/") && (method == http.MethodPut || method == http.MethodDelete) {
 		return true
 	}
 	if method == http.MethodPost && strings.HasPrefix(path, "/admin/match-suggestions/") {

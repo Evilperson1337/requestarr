@@ -56,7 +56,13 @@ The shared PostgreSQL draft stores instance name, IANA timezone, public URL,
 OIDC issuer/client ID, provider enablement/contact/client ID, library Source URLs,
 enabled flags and supported authoritative media types, and fixed secret
 environment-variable names. It does not store secret values or runtime secret
-presence flags. No secret-valued form fields are offered. Secret references are:
+presence flags. Secret values never enter the draft. Since D024 the TMDB read
+token (so far; other integrations follow) has a separate write-only field that
+stores it encrypted under `REQUESTARR_SECRETS_KEY` (32 bytes as 64 hex characters
+or base64). Without that key the field is disabled. An environment value always
+wins, a saved value applies on restart, and a connection check uses the value the
+next restart would use and names its source. Back up the master key separately
+from the database. Secret references are:
 
 - `REQUESTARR_OIDC_CLIENT_SECRET`
 - `REQUESTARR_TMDB_READ_TOKEN`

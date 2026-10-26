@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/evilperson1337/requestarr/internal/secrets"
 )
 
 type Config struct {
@@ -34,6 +36,8 @@ type Config struct {
 	NavidromePassword string
 	AppriseURL        string
 	AppriseConfigKey  string
+	// SecretsKey is the master key for stored secrets (D024). Optional.
+	SecretsKey string
 }
 
 func FromEnv() Config {
@@ -61,7 +65,33 @@ func FromEnv() Config {
 		NavidromePassword: os.Getenv("REQUESTARR_NAVIDROME_PASSWORD"),
 		AppriseURL:        os.Getenv("REQUESTARR_APPRISE_URL"),
 		AppriseConfigKey:  os.Getenv("REQUESTARR_APPRISE_CONFIG_KEY"),
+		SecretsKey:        os.Getenv(secrets.MasterKeyEnv),
 	}
+}
+
+// ValidateBootstrap checks only what is needed to open the database and read
+// stored secrets. The full Validate runs afterwards, once stored secrets have
+// been resolved into the Config (D024).
+func (c Config) ValidateBootstrap() error {
+	var problems []string
+	if c.DatabaseURL == "" {
+		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
+	}
+	problems = append(problems, c.secretsKeyProblems()...)
+	if len(problems) > 0 {
+		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+func (c Config) secretsKeyProblems() []string {
+	if c.SecretsKey == "" {
+		return nil
+	}
+	if _, err := secrets.ParseMasterKey(c.SecretsKey); err != nil {
+		return []string{err.Error()}
+	}
+	return nil
 }
 
 // sourceURLProblems validates an operator-configured library Source URL: an
@@ -83,6 +113,7 @@ func (c Config) Validate() error {
 	if c.DatabaseURL == "" {
 		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
 	}
+	problems = append(problems, c.secretsKeyProblems()...)
 	if (c.JellyfinURL == "") != (c.JellyfinAPIKey == "") {
 		problems = append(problems, "REQUESTARR_JELLYFIN_URL and REQUESTARR_JELLYFIN_API_KEY must be configured together")
 	} else if c.JellyfinURL != "" {

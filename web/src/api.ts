@@ -68,9 +68,16 @@ export async function claimSetupAdmin(input: { issuer: string; subject: string; 
     if (!response.ok) throw new Error('Admin claim could not be completed. Check the values and setup token, then try again.')
 }
 
+export type SecretStatus = {
+    name: string; label: string; envVar: string; configured: boolean
+    source: 'none' | 'environment' | 'stored' | 'stored (shadowed by environment)' | 'stored secret unreadable'
+    unreadable: boolean; pendingRestart: boolean
+}
+export type SecretsOverview = { enabled: boolean; secrets: SecretStatus[] }
+
 export type JobRun = { id: string; sourceId: string; trigger: 'schedule' | 'manual'; status: 'running' | 'succeeded' | 'failed'; startedAt: string; finishedAt: string | null; error?: string }
 export type OperationalStatus = {
-    providers: { key: string; name: string; configured: boolean }[]
+    providers: { key: string; name: string; configured: boolean; note?: string }[]
     sources: { slug: string; name: string; configured: boolean; lastRun: JobRun | null; lastSuccessAt: string | null; lastError: string }[]
     recentErrors: { source: string; run: JobRun }[]
 }

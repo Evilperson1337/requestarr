@@ -45,7 +45,13 @@ func main() {
 	}
 
 	cfg := config.FromEnv()
-	if err := cfg.Validate(); err != nil {
+	// The server run validates fully inside app.Run, after stored secrets are
+	// resolved (D024); migrate-only has no stored secrets to wait for.
+	validate := cfg.ValidateBootstrap
+	if migrateOnly {
+		validate = cfg.Validate
+	}
+	if err := validate(); err != nil {
 		fmt.Fprintf(os.Stderr, "requestarr: invalid configuration: %v\n", err)
 		os.Exit(1)
 	}

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
 )
 
@@ -29,9 +30,13 @@ var errCheck = errors.New("setup connection check failed")
 // Config holds server-only credentials. Never serialize or log this value.
 // Client is optional; injected transports must enforce their own dial policy.
 type Config struct {
-	Runtime           setup.Runtime
-	OIDCClientSecret  string
-	TMDBReadToken     string
+	Runtime          setup.Runtime
+	OIDCClientSecret string
+	TMDBReadToken    string
+	// Secrets, when set, supplies the TMDB token (environment, else stored)
+	// that the next restart would use; TMDBReadToken and the runtime flag are
+	// then ignored for that check.
+	Secrets           setup.SecretSources
 	IGDBClientSecret  string
 	JellyfinAPIKey    string
 	PlexToken         string
@@ -296,7 +301,16 @@ func (c *Checker) tmdb(ctx context.Context, s setup.ProviderSettings) (setup.Che
 	if !s.TMDBEnabled {
 		return setup.CheckDisabled, nil
 	}
-	if s.TMDBTokenEnv != setup.TMDBTokenEnv || !c.config.Runtime.TMDBTokenConfigured || c.config.TMDBReadToken == "" {
+	token := c.config.TMDBReadToken
+	configured := c.config.Runtime.TMDBTokenConfigured
+	if c.config.Secrets != nil {
+		resolved, err := c.config.Secrets.Resolve(ctx, secrets.TMDBReadToken)
+		if err != nil {
+			return setup.CheckUnavailable, errCheck
+		}
+		token, configured = resolved.Value, resolved.Value != ""
+	}
+	if s.TMDBTokenEnv != setup.TMDBTokenEnv || !configured || token == "" {
 		return setup.CheckEnvironment, nil
 	}
 	var result struct {
@@ -304,7 +318,7 @@ func (c *Checker) tmdb(ctx context.Context, s setup.ProviderSettings) (setup.Che
 			SecureBaseURL string `json:"secure_base_url"`
 		} `json:"images"`
 	}
-	if err := c.request(ctx, http.MethodGet, "https://api.themoviedb.org/3/configuration", nil, map[string]string{"Authorization": "Bearer " + c.config.TMDBReadToken}, &result); err != nil || !setup.ValidServiceURL(result.Images.SecureBaseURL, false) {
+	if err := c.request(ctx, http.MethodGet, "https://api.themoviedb.org/3/configuration", nil, map[string]string{"Authorization": "Bearer " + token}, &result); err != nil || !setup.ValidServiceURL(result.Images.SecureBaseURL, false) {
 		return setup.CheckUnavailable, errCheck
 	}
 	return setup.CheckOK, nil

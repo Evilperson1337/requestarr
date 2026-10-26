@@ -265,6 +265,7 @@ paths:
                         key: { type: string }
                         name: { type: string }
                         configured: { type: boolean }
+                        note: { type: string, description: "Fixed status text, for example 'stored secret unreadable' when a stored secret cannot be opened (D024); absent otherwise" }
                   sources:
                     type: array
                     items:
@@ -355,6 +356,88 @@ paths:
         '403': { description: Administrator role required }
         '404': { description: User not found }
         '409': { description: Cannot change your own role, or cannot demote the last administrator; nothing is changed }
+  /admin/secrets:
+    get:
+      operationId: listStoredSecrets
+      summary: Stored integration secrets, write-only status (administrator only)
+      description: >-
+        D024. Lists each registered secret with whether it is configured, where its effective
+        value comes from, and whether a change waits for a restart. Values and ciphertext are
+        never returned. enabled is false when REQUESTARR_SECRETS_KEY is not set, in which case
+        the UI must refuse secret values. Responses are no-store.
+      responses:
+        '200':
+          description: Secret status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, secrets]
+                properties:
+                  enabled: { type: boolean, description: "A valid master key is configured, so values can be saved" }
+                  secrets:
+                    type: array
+                    items: { $ref: '#/components/schemas/SecretStatus' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '500': { description: "secret_status_failed" }
+  /admin/secrets/{name}:
+    parameters:
+      - in: path
+        name: name
+        required: true
+        schema: { type: string, enum: [tmdb_read_token] }
+    put:
+      operationId: setStoredSecret
+      summary: Save or replace a stored secret (administrator only)
+      description: >-
+        Encrypts the value with the master key (AES-256-GCM) and stores it with the key id.
+        Available before and after setup Finish. The value is never returned, logged, audited or
+        echoed in errors; a value-free audit event is written in the same transaction. The new
+        value applies on the next restart; an environment value still wins. Requires CSRF and a
+        same-origin Origin header. Body is capped at 8 KiB.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [value]
+              properties:
+                value: { type: string, minLength: 1, maxLength: 4096, writeOnly: true, description: "No surrounding whitespace or control characters" }
+      responses:
+        '204': { description: Secret saved }
+        '400': { description: "invalid_secret_input; malformed, unknown-field or oversized body" }
+        '401': { description: Authentication required }
+        '403': { description: "Administrator role or CSRF/Origin failure" }
+        '404': { description: "unknown_secret" }
+        '409': { description: "secrets_disabled; REQUESTARR_SECRETS_KEY is not configured" }
+        '422': { description: "invalid_secret_value" }
+        '500': { description: "secret_update_failed; safe generic message" }
+    delete:
+      operationId: clearStoredSecret
+      summary: Clear a stored secret (administrator only)
+      description: >-
+        Deletes the stored value (also when the master key is missing or wrong). Records a
+        value-free audit event in the same transaction. Clearing an absent secret is a no-op.
+        Requires CSRF and a same-origin Origin header.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Secret cleared }
+        '401': { description: Authentication required }
+        '403': { description: "Administrator role or CSRF/Origin failure" }
+        '404': { description: "unknown_secret" }
+        '500': { description: "secret_update_failed; safe generic message" }
   /admin/setup/draft:
     get:
       operationId: getSetupDraft
@@ -668,6 +751,17 @@ components:
           required: [autoApproveMediaTypes]
           properties:
             autoApproveMediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game] }, description: "Media types that skip administrator approval; empty means all requests await approval" }
+    SecretStatus:
+      type: object
+      required: [name, label, envVar, configured, source, unreadable, pendingRestart]
+      properties:
+        name: { type: string, enum: [tmdb_read_token] }
+        label: { type: string }
+        envVar: { type: string, description: "Environment variable that sets this secret; it always wins over a stored value" }
+        configured: { type: boolean, description: "An effective value exists. False for an unreadable stored secret, which is not the same as unconfigured" }
+        source: { type: string, enum: [none, environment, stored, "stored (shadowed by environment)", "stored secret unreadable"] }
+        unreadable: { type: boolean, description: "A stored row exists but cannot be opened with the current master key" }
+        pendingRestart: { type: boolean, description: "The value a restart would use differs from the one in effect now" }
     SetupSource:
       type: object
       additionalProperties: false
@@ -708,7 +802,7 @@ components:
               revision: { type: integer }
               valid: { type: boolean }
               code: { type: string, enum: [connected, connection_failed, environment_required, incomplete_settings, disabled] }
-              message: { type: string, description: "Fixed safe result; never raw upstream errors or payloads" }
+              message: { type: string, description: "Fixed safe result; never raw upstream errors or payloads. A TMDB check names the secret source it used (D024) and runs against the value the next restart would use" }
               checkedAt: { type: string, format: date-time }
               expiresAt: { type: string, format: date-time }
         environment:

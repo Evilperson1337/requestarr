@@ -21,6 +21,8 @@ type Provider struct {
 	Key        string `json:"key"`
 	Name       string `json:"name"`
 	Configured bool   `json:"configured"`
+	// Note is a short fixed status such as "stored secret unreadable"; empty when there is nothing to add.
+	Note string `json:"note,omitempty"`
 }
 
 // SourceRef names a library Source kind. ID is the job-run source id and is

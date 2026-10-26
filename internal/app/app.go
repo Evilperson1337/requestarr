@@ -29,6 +29,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/igdb"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/musicbrainz"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/tmdb"
+	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
 	"github.com/evilperson1337/requestarr/internal/setup/checks"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
@@ -53,6 +54,14 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	var workers sync.WaitGroup
 	defer func() { cancelWorkers(); workers.Wait() }()
 	logger.Info("database ready")
+	// D024: resolve environment, then stored, secrets before the full validation.
+	cfg, secretsService, err := resolveSecrets(ctx, cfg, store, logger)
+	if err != nil {
+		return fmt.Errorf("secrets startup: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
 	provider, err := oidc.New(ctx, oidc.Config{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret}, cfg.PublicURL+"/api/v1/auth/callback")
 	if err != nil {
 		return fmt.Errorf("initialize OIDC provider: %w", err)
@@ -116,9 +125,17 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		addSource("navidrome", client, cfg.NavidromeURL, nil)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
+	tmdbNote := ""
+	if statuses, _, err := secretsService.Status(ctx); err == nil {
+		for _, st := range statuses {
+			if st.Name == secrets.TMDBReadToken && st.Unreadable {
+				tmdbNote = unreadableNote
+			}
+		}
+	}
 	ops := opstatus.New(
 		[]opstatus.Provider{
-			{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != ""},
+			{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: tmdbNote},
 			{Key: "musicbrainz", Name: "MusicBrainz", Configured: true},
 			{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != ""},
 			{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != ""},
@@ -131,12 +148,13 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		OIDCSecretConfigured: cfg.OIDCClientSecret != "", TMDBTokenConfigured: cfg.TMDBReadToken != "", IGDBSecretConfigured: cfg.IGDBClientSecret != "", AppriseURL: cfg.AppriseURL, AppriseKeyConfigured: cfg.AppriseConfigKey != "", Development: cfg.Environment == "development",
 		LibrarySecrets: map[string]bool{"jellyfin": cfg.JellyfinAPIKey != "", "plex": cfg.PlexToken != "", "romm": cfg.RommToken != "", "navidromeUsername": cfg.NavidromeUsername != "", "navidromePassword": cfg.NavidromePassword != ""}}
 	setupRuntime.LibraryURLs = map[string]string{"jellyfin": cfg.JellyfinURL, "plex": cfg.PlexURL, "romm": cfg.RommURL, "navidrome": cfg.NavidromeURL}
-	setupService := setup.NewService(store, checks.New(checks.Config{Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, TMDBReadToken: cfg.TMDBReadToken, IGDBClientSecret: cfg.IGDBClientSecret,
+	setupService := setup.NewService(store, checks.New(checks.Config{Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, TMDBReadToken: cfg.TMDBReadToken, Secrets: secretsService, IGDBClientSecret: cfg.IGDBClientSecret,
 		JellyfinAPIKey: cfg.JellyfinAPIKey, PlexToken: cfg.PlexToken, RommToken: cfg.RommToken, NavidromeUsername: cfg.NavidromeUsername, NavidromePassword: cfg.NavidromePassword}), setupRuntime)
+	setupService.UseSecrets(secretsService)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewWithSetup(logger, build, statusStore{Store: store, ops: ops}, metadataService, syncer, setupService, authHandler),
+		Handler:           httpapi.NewWithSetup(logger, build, statusStore{Store: store, ops: ops}, metadataService, syncer, setupWithSecrets{setupService, secretsAPI{secretsService}}, authHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

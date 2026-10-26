@@ -29,7 +29,10 @@ function draft() {
 }
 
 async function mockSetup(page: Page, role = 'admin') {
-    const state = { saved: draft(), calls: [] as { method: string; path: string; body: any }[], conflict: false }
+    const state = {
+        saved: draft(), calls: [] as { method: string; path: string; body: any }[], conflict: false,
+        secrets: { enabled: true, secrets: [{ name: 'tmdb_read_token', label: 'TMDB read token', envVar: 'REQUESTARR_TMDB_READ_TOKEN', configured: false, source: 'none', unreadable: false, pendingRestart: false }] } as any,
+    }
     await page.route('**/api/v1/**', async route => {
         const request = route.request()
         const path = new URL(request.url()).pathname
@@ -38,6 +41,13 @@ async function mockSetup(page: Page, role = 'admin') {
         const method = request.method()
         const body = request.postDataJSON()
         state.calls.push({ method, path, body })
+        if (path.endsWith('/admin/secrets')) return route.fulfill({ json: state.secrets })
+        if (path.endsWith('/admin/secrets/tmdb_read_token')) {
+            expect(request.headers()['x-csrf-token']).toBe('csrf-token')
+            if (method === 'PUT') Object.assign(state.secrets.secrets[0], { configured: true, source: 'stored', pendingRestart: true })
+            if (method === 'DELETE') Object.assign(state.secrets.secrets[0], { configured: false, source: 'none', pendingRestart: false })
+            return route.fulfill({ status: 204 })
+        }
         if (path.endsWith('/admin/setup/draft')) {
             if (method === 'GET') return route.fulfill({ json: state.saved })
             expect(request.headers()['x-csrf-token']).toBe('csrf-token')
@@ -108,7 +118,8 @@ test('providers save only non-secret settings, check enabled providers, and conf
     state.saved.currentStep = 'providers'
     await page.goto('/setup')
     await expect(page.getByRole('heading', { name: 'Providers', exact: true })).toBeVisible()
-    await expect(page.locator('input[type=password]')).toHaveCount(0)
+    // Only the write-only stored-secret field (D024); it is never part of the draft.
+    await expect(page.locator('input[type=password]')).toHaveCount(1)
     await expect(page.getByLabel('MusicBrainz contact email')).toHaveValue('')
     await expect(page.getByRole('region', { name: 'Server environment' })).toContainText('REQUESTARR_OIDC_CLIENT_SECRET')
     await expect(page.getByRole('region', { name: 'Server environment' })).toContainText('REQUESTARR_TMDB_READ_TOKEN')
@@ -336,4 +347,42 @@ test('notifications and request policy steps save their non-secret fields', asyn
     await expect(page.getByRole('heading', { name: 'Review', exact: true })).toBeVisible()
     expect(state.saved.settings.notifications.appriseUrl).toBe('https://apprise.example.test')
     expect(state.saved.settings.policy.autoApproveMediaTypes).toEqual(['movie'])
+})
+
+test('stored secret field: saves write-only, clears the input, never reaches storage or the draft', async ({ page }) => {
+    const state = await mockSetup(page)
+    state.saved.currentStep = 'providers'
+    await page.goto('/setup')
+    const field = page.getByLabel('TMDb read token')
+    await expect(field).toBeEnabled()
+    await expect(field).toHaveAttribute('type', 'password')
+    await field.fill('super-secret-probe-value')
+    await page.getByRole('button', { name: 'Save TMDb read token' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'applies after Requestarr restarts' })).toBeVisible()
+    await expect(field).toHaveValue('')
+    await expect(page.getByText('Source: stored · Saved, pending restart')).toBeVisible()
+    await expect(page.getByText('super-secret-probe-value')).toHaveCount(0)
+    const put = state.calls.find(call => call.method === 'PUT' && call.path.endsWith('/admin/secrets/tmdb_read_token'))!
+    expect(put.body).toEqual({ value: 'super-secret-probe-value' })
+    expect(state.calls.filter(call => call.path.endsWith('/admin/setup/draft') && call.method === 'PUT')).toHaveLength(0)
+    expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('super-secret')
+    await page.getByRole('button', { name: 'Clear stored value' }).click()
+    await expect(page.getByText('Source: none')).toBeVisible()
+})
+
+test('stored secret field is disabled with guidance when no master key exists, and keyboard reachable', async ({ page }) => {
+    const state = await mockSetup(page)
+    state.secrets.enabled = false
+    state.saved.currentStep = 'providers'
+    await page.goto('/setup')
+    await expect(page.getByLabel('TMDb read token')).toBeDisabled()
+    await expect(page.getByText('Saving secrets here is turned off.', { exact: false })).toContainText('REQUESTARR_SECRETS_KEY')
+})
+
+test('an unreadable stored secret is reported as unreadable, not unconfigured', async ({ page }) => {
+    const state = await mockSetup(page)
+    Object.assign(state.secrets.secrets[0], { source: 'stored secret unreadable', unreadable: true, configured: false })
+    state.saved.currentStep = 'providers'
+    await page.goto('/setup')
+    await expect(page.getByText('stored secret unreadable. Enter it again', { exact: false })).toBeVisible()
 })

@@ -17,6 +17,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/requests"
+	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
 )
 
@@ -55,6 +56,8 @@ func mutationCases() []mutationCase {
 		{"save setup draft", "PUT /admin/setup/draft", "/admin/setup/draft", validSetupDraftBody(), "admin", 200, "setup.save"},
 		{"validate setup", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"general"}`, "admin", 200, "setup.validate"},
 		{"finish setup", "POST /admin/setup/finish", "/admin/setup/finish", `{"expectedRevision":1}`, "admin", 200, "setup.finish"},
+		{"set stored secret", "PUT /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", `{"value":"matrix-secret-value"}`, "admin", 204, "secret.set"},
+		{"clear stored secret", "DELETE /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", "", "admin", 204, "secret.clear"},
 		{"validate library", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"library:plex"}`, "admin", 200, "setup.validate"},
 	}
 }
@@ -186,6 +189,18 @@ func (b *matrixBackend) Finish(_ context.Context, actor setup.Actor, _ int64) (s
 func (b *matrixBackend) Validate(_ context.Context, actor setup.Actor, _ int64, _ setup.Target) (setup.Draft, error) {
 	b.record("setup.validate", actor.ID)
 	return setup.Draft{Revision: 1, Inactive: true}, nil
+}
+
+func (b *matrixBackend) Status(context.Context) ([]secrets.Status, bool, error) {
+	return nil, true, nil
+}
+func (b *matrixBackend) Set(_ context.Context, actor string, _ secrets.Name, _ string) error {
+	b.record("secret.set", actor)
+	return nil
+}
+func (b *matrixBackend) Clear(_ context.Context, actor string, _ secrets.Name) error {
+	b.record("secret.clear", actor)
+	return nil
 }
 
 func matrixRequest(backend *matrixBackend, tc mutationCase, role, csrf, origin string) *httptest.ResponseRecorder {

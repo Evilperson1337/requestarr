@@ -6,10 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] Malformed master key fails startup; an absent key is allowed and the UI refuses secret values
-- [ ] Round-trip, wrong-key, tampered-ciphertext and key-id tests pass; environment value wins over stored
-- [ ] A wrong or missing key at boot leaves the server running and the TMDB secret reported as unreadable, not unconfigured
-- [ ] The secret never appears in any response, log line, error or audit row (integration test against PostgreSQL)
-- [ ] The TMDB check uses the value the next restart would use and names its source
-- [ ] Secret input is cleared after submit and not kept in browser storage; field is keyboard and screen-reader usable
-- [ ] A new migration is added; applied migrations are untouched
+- [x] Malformed master key fails startup; an absent key is allowed and the UI refuses secret values (config tests; Playwright disabled-field test; startup wiring verified by build, not by a live boot)
+- [x] Round-trip, wrong-key, tampered-ciphertext and key-id tests pass; environment value wins over stored
+- [x] A wrong or missing key at boot leaves the server running and the TMDB secret reported as unreadable, not unconfigured (unit tests of startup resolution, GET /admin/secrets and the UI; the /admin/status note is wired but has no test; no live process boot)
+- [x] The secret never appears in any response, log line, error or audit row (PostgreSQL integration test covers stored and audit rows; HTTP handler tests cover responses, errors and logs with a fake service)
+- [x] The TMDB check uses the value the next restart would use and names its source
+- [x] Secret input is cleared after submit and not kept in browser storage; field is keyboard and screen-reader usable
+- [x] A new migration is added; applied migrations are untouched
