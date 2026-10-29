@@ -23,3 +23,7 @@ Gaps (a grep for the slugs still finds these):
 - `checks.bootCredential` and `setup.Runtime.libraryUsername` / `LibrarySecrets` keys (`<slug>Password`) still name kinds; ticket 03 removes them with the checker's boot secrets.
 - The draft JSON keeps its four fixed `libraries.*` keys and `tokenEnv`/`username`/`passwordEnv` fields so stored drafts and the wire format do not change. Credentials are not a free-form list on the wire.
 - `web/src/storedSecrets.ts` still lists the Source secrets for the Settings page; it goes with ticket 03.
+
+## Follow-up: slug switches (done)
+
+After code review: `checks/messages.go` now takes a Source's secret and noun from the registry (`Credential.Noun` added), so that switch is gone. `config` has one four-case switch (`libraryFields`) instead of two seven-case ones. `app.Build` makes one pass over the registry, and `sources.Lookup` no longer copies every kind. What remains by design: `config.libraryFields`, `setup.LibrariesSettings.Source`, `app.newInventorySource` and `checks.libraryProbes`, because each names a struct field or a provider client. Adding a Source kind touches those four plus the registry and the adapter. Slugs are still plain strings; an unknown slug panics in `config`, which only registry-driven loops reach.

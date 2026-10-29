@@ -3,10 +3,14 @@ package httpapi
 import (
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"github.com/evilperson1337/requestarr/internal/auth"
 )
+
+// roleAdmin is the role that may call accessAdmin routes.
+const roleAdmin = "admin"
 
 // access is who may call a route.
 type access int
@@ -52,16 +56,12 @@ func newRouteTable(mux *http.ServeMux, authHandler *auth.Handler) *routeTable {
 }
 
 func mutating(pattern string) bool {
-	for i := 0; i < len(pattern); i++ {
-		if pattern[i] == ' ' {
-			switch pattern[:i] {
-			case "GET", "HEAD", "OPTIONS":
-				return false
-			}
-			return true
-		}
+	method, _, _ := strings.Cut(pattern, " ")
+	switch method {
+	case "GET", "HEAD", "OPTIONS":
+		return false
 	}
-	return false
+	return true
 }
 
 // handle registers a route with its access rule. The wrapper answers 401 and
@@ -81,7 +81,7 @@ func (t *routeTable) handle(pattern string, a access, fn func(http.ResponseWrite
 				apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 				return
 			}
-			if a == accessAdmin && user.Role != "admin" {
+			if a == accessAdmin && user.Role != roleAdmin {
 				apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
 				return
 			}

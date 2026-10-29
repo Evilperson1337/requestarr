@@ -85,8 +85,14 @@ func Build(b booted, a Adapters) (Runtime, error) {
 	cfg := b.Config
 	var rt Runtime
 	jobs := map[string]syncSource{}
+	setupURLs := map[string]string{}
+	usernames := map[string]string{}
 	for _, kind := range sources.All() {
 		baseURL := *cfg.LibraryURL(kind.Slug)
+		setupURLs[kind.Slug] = baseURL
+		if _, ok := kind.Credential(sources.RoleUsername); ok {
+			usernames[kind.Slug] = *cfg.LibraryCredential(kind.Slug, sources.RoleUsername)
+		}
 		if baseURL == "" {
 			continue
 		}
@@ -117,19 +123,11 @@ func Build(b booted, a Adapters) (Runtime, error) {
 		IGDBClientIDFromEnvironment: b.IGDBClientIDFromEnvironment,
 		OIDCSecretConfigured:        cfg.OIDCClientSecret != "",
 		AppriseURL:                  cfg.AppriseURL, Development: cfg.Environment == "development",
-		LibraryURLs:       map[string]string{},
-		SecretsConfigured: map[secrets.Name]bool{}, LibraryUsernames: map[string]string{},
+		LibraryURLs:       setupURLs,
+		SecretsConfigured: map[secrets.Name]bool{}, LibraryUsernames: usernames,
 	}
 	for name, field := range secretFields(&cfg) {
 		rt.Setup.SecretsConfigured[name] = *field != ""
-	}
-	for _, kind := range sources.All() {
-		if _, ok := kind.Credential(sources.RoleUsername); ok {
-			rt.Setup.LibraryUsernames[kind.Slug] = *cfg.LibraryCredential(kind.Slug, sources.RoleUsername)
-		}
-	}
-	for _, kind := range sources.All() {
-		rt.Setup.LibraryURLs[kind.Slug] = *cfg.LibraryURL(kind.Slug)
 	}
 	return rt, nil
 }

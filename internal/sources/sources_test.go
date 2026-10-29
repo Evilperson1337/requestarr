@@ -94,3 +94,15 @@ func TestIDsAreUniqueAndLookupWorks(t *testing.T) {
 		t.Fatal("unknown slug found")
 	}
 }
+
+// Check messages name a credential by its noun, so every secret-backed
+// credential must have one.
+func TestSecretCredentialsHaveANoun(t *testing.T) {
+	for _, k := range sources.All() {
+		for _, c := range k.Credentials {
+			if (c.Secret != "") != (c.Noun != "") {
+				t.Errorf("%s/%s: secret %q with noun %q", k.Slug, c.Role, c.Secret, c.Noun)
+			}
+		}
+	}
+}

@@ -5,10 +5,11 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
-// checkedSecrets maps a check target to the secret it verifies and the noun
-// used for it in messages.
+// checkedSecret is the secret a check verifies and the noun used for it in
+// messages. Library Sources take both from the Source kind registry.
 func checkedSecret(target setup.Target) (secrets.Name, string, bool) {
 	switch target {
 	case setup.TargetTMDB:
@@ -22,15 +23,11 @@ func checkedSecret(target setup.Target) (secrets.Name, string, bool) {
 	if !ok {
 		return "", "", false
 	}
-	switch slug {
-	case "jellyfin":
-		return secrets.JellyfinAPIKey, "API key", true
-	case "plex":
-		return secrets.PlexToken, "token", true
-	case "romm":
-		return secrets.RommToken, "token", true
-	case "navidrome":
-		return secrets.NavidromePassword, "password", true
+	kind, _ := sources.Lookup(slug)
+	for _, credential := range kind.Credentials {
+		if credential.Secret != "" {
+			return secrets.Name(credential.Secret), credential.Noun, true
+		}
 	}
 	return "", "", false
 }

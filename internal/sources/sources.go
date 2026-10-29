@@ -34,6 +34,8 @@ type Credential struct {
 	Env string
 	// Secret names the stored secret behind the field; empty for a plain field.
 	Secret string
+	// Noun is what the field is called in check messages ("token", "password").
+	Noun string
 }
 
 // Kind describes one Source kind.
@@ -75,18 +77,18 @@ func (k Kind) DefaultMediaTypes() []domain.MediaType {
 var kinds = []Kind{
 	{Slug: "jellyfin", Name: "Jellyfin", ID: JellyfinID, URLEnv: "REQUESTARR_JELLYFIN_URL",
 		MediaTypes:  []domain.MediaType{domain.MediaMovie, domain.MediaTV},
-		Credentials: []Credential{{Role: RoleToken, Env: "REQUESTARR_JELLYFIN_API_KEY", Secret: "jellyfin_api_key"}}},
+		Credentials: []Credential{{Role: RoleToken, Env: "REQUESTARR_JELLYFIN_API_KEY", Secret: "jellyfin_api_key", Noun: "API key"}}},
 	{Slug: "plex", Name: "Plex", ID: PlexID, URLEnv: "REQUESTARR_PLEX_URL",
 		MediaTypes:  []domain.MediaType{domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong},
-		Credentials: []Credential{{Role: RoleToken, Env: "REQUESTARR_PLEX_TOKEN", Secret: "plex_token"}}},
+		Credentials: []Credential{{Role: RoleToken, Env: "REQUESTARR_PLEX_TOKEN", Secret: "plex_token", Noun: "token"}}},
 	{Slug: "romm", Name: "RomM", ID: RommID, URLEnv: "REQUESTARR_ROMM_URL",
 		MediaTypes:  []domain.MediaType{domain.MediaGame},
-		Credentials: []Credential{{Role: RoleToken, Env: "REQUESTARR_ROMM_TOKEN", Secret: "romm_token"}}},
+		Credentials: []Credential{{Role: RoleToken, Env: "REQUESTARR_ROMM_TOKEN", Secret: "romm_token", Noun: "token"}}},
 	{Slug: "navidrome", Name: "Navidrome", ID: NavidromeID, URLEnv: "REQUESTARR_NAVIDROME_URL",
 		MediaTypes: []domain.MediaType{domain.MediaAlbum, domain.MediaSong},
 		Credentials: []Credential{
 			{Role: RoleUsername, Env: "REQUESTARR_NAVIDROME_USERNAME"},
-			{Role: RolePassword, Env: "REQUESTARR_NAVIDROME_PASSWORD", Secret: "navidrome_password"},
+			{Role: RolePassword, Env: "REQUESTARR_NAVIDROME_PASSWORD", Secret: "navidrome_password", Noun: "password"},
 		}},
 }
 
@@ -94,21 +96,25 @@ var kinds = []Kind{
 func All() []Kind {
 	out := make([]Kind, len(kinds))
 	for i, k := range kinds {
-		out[i] = k
-		out[i].MediaTypes = k.DefaultMediaTypes()
-		out[i].Credentials = append([]Credential(nil), k.Credentials...)
+		out[i] = copyOf(k)
 	}
 	return out
 }
 
 // Lookup returns the kind for a slug.
 func Lookup(slug string) (Kind, bool) {
-	for _, k := range All() {
+	for _, k := range kinds {
 		if k.Slug == slug {
-			return k, true
+			return copyOf(k), true
 		}
 	}
 	return Kind{}, false
+}
+
+func copyOf(k Kind) Kind {
+	k.MediaTypes = k.DefaultMediaTypes()
+	k.Credentials = append([]Credential(nil), k.Credentials...)
+	return k
 }
 
 // MustLookup is Lookup for a slug known at compile time.

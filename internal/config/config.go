@@ -73,37 +73,46 @@ func FromEnv() Config {
 	return c
 }
 
-// LibraryURL returns the configured URL field of a Source kind. Like
-// LibraryCredential it is the one place the per-kind Config fields are named.
-func (c *Config) LibraryURL(slug string) *string {
+// libraryRefs points at one Source kind's Config fields. A nil field means the
+// kind has no such credential.
+type libraryRefs struct{ URL, Token, Username, Password *string }
+
+// libraryFields is the one place the per-kind Config fields are named.
+func (c *Config) libraryFields(slug string) libraryRefs {
 	switch slug {
 	case "jellyfin":
-		return &c.JellyfinURL
+		return libraryRefs{URL: &c.JellyfinURL, Token: &c.JellyfinAPIKey}
 	case "plex":
-		return &c.PlexURL
+		return libraryRefs{URL: &c.PlexURL, Token: &c.PlexToken}
 	case "romm":
-		return &c.RommURL
+		return libraryRefs{URL: &c.RommURL, Token: &c.RommToken}
 	case "navidrome":
-		return &c.NavidromeURL
+		return libraryRefs{URL: &c.NavidromeURL, Username: &c.NavidromeUsername, Password: &c.NavidromePassword}
 	}
 	panic("config: unknown Source kind " + slug)
 }
 
-// LibraryCredential returns the configured value of a Source kind's credential field.
+// LibraryURL returns the configured URL field of a Source kind. It panics on a
+// slug that is not in the sources registry, which is a programming error.
+func (c *Config) LibraryURL(slug string) *string { return c.libraryFields(slug).URL }
+
+// LibraryCredential returns the configured value of a Source kind's credential
+// field. It panics when the kind has no such field.
 func (c *Config) LibraryCredential(slug string, role sources.Role) *string {
-	switch {
-	case slug == "jellyfin" && role == sources.RoleToken:
-		return &c.JellyfinAPIKey
-	case slug == "plex" && role == sources.RoleToken:
-		return &c.PlexToken
-	case slug == "romm" && role == sources.RoleToken:
-		return &c.RommToken
-	case slug == "navidrome" && role == sources.RoleUsername:
-		return &c.NavidromeUsername
-	case slug == "navidrome" && role == sources.RolePassword:
-		return &c.NavidromePassword
+	refs := c.libraryFields(slug)
+	var field *string
+	switch role {
+	case sources.RoleToken:
+		field = refs.Token
+	case sources.RoleUsername:
+		field = refs.Username
+	case sources.RolePassword:
+		field = refs.Password
 	}
-	panic("config: unknown Source credential " + slug + "/" + string(role))
+	if field == nil {
+		panic("config: " + slug + " has no " + string(role) + " credential")
+	}
+	return field
 }
 
 // librarySourceProblems enforces that a Source's URL and every Credential field

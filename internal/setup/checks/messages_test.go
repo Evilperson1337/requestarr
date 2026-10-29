@@ -7,6 +7,7 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
 type fixedSource struct{ resolved secrets.Resolved }
@@ -89,5 +90,15 @@ func TestDescribeWordingPerCode(t *testing.T) {
 	}
 	if generic := c.Describe(ctx, setup.TargetPlex, setup.CheckEnvironment); !strings.Contains(generic, "environment variables") {
 		t.Fatalf("generic environment message: %q", generic)
+	}
+}
+
+// Every registered Source kind gets a secret note, whatever its credentials.
+func TestDescribeCoversEveryRegisteredSourceKind(t *testing.T) {
+	for _, kind := range sources.All() {
+		msg := describing(secrets.SourceStored, "v").Describe(context.Background(), setup.LibraryTarget(kind.Slug), setup.CheckOK)
+		if !strings.Contains(msg, "Checked the stored ") {
+			t.Errorf("%s: %q has no secret note", kind.Slug, msg)
+		}
 	}
 }
