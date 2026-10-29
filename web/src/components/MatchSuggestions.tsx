@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError, type MatchSuggestion } from '../api'
 
-export function MatchSuggestions({ csrfToken }: { csrfToken: string }) {
+export function MatchSuggestions({ csrfToken, onRequestError }: { csrfToken: string; onRequestError?: (error: unknown) => void }) {
     const [items, setItems] = useState<MatchSuggestion[]>([])
     const [loading, setLoading] = useState(true)
     const [reviewing, setReviewing] = useState('')
@@ -13,11 +13,11 @@ export function MatchSuggestions({ csrfToken }: { csrfToken: string }) {
             const result = await api<{ items: MatchSuggestion[] }>('/admin/match-suggestions', { signal })
             setItems(result.items)
         } catch (e) {
-            if (!signal?.aborted) setError(e instanceof Error ? e.message : 'Could not load suggested matches')
+            if (!signal?.aborted) { onRequestError?.(e); setError(e instanceof Error ? e.message : 'Could not load suggested matches') }
         } finally {
             if (!signal?.aborted) setLoading(false)
         }
-    }, [])
+    }, [onRequestError])
     useEffect(() => {
         const controller = new AbortController()
         void load(controller.signal)
@@ -32,6 +32,7 @@ export function MatchSuggestions({ csrfToken }: { csrfToken: string }) {
             setNotice(decision === 'accept' ? `Accepted the library match for ${item.catalogTitle}. Availability has been reconciled.` : `Dismissed the library match for ${item.catalogTitle}. Availability is unchanged.`)
             await load()
         } catch (e) {
+            onRequestError?.(e)
             setError(e instanceof Error ? e.message : 'Could not review suggested match')
             if (e instanceof ApiError && (e.code === 'suggestion_stale' || e.code === 'suggestion_already_reviewed' || e.code === 'suggestion_not_found')) await load()
         } finally { setReviewing('') }

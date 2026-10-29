@@ -237,3 +237,32 @@ func TestSetupFinishMapsServiceOutcomes(t *testing.T) {
 	}
 	assertErrorEnvelope(t, setupHTTP(&fakeSetup{}, "admin", "POST", "finish", `{"expectedRevision":1,"complete":true}`, true), 400, "invalid_setup_input")
 }
+
+func TestSourceKindsAreServedToAdministratorsOnly(t *testing.T) {
+	for _, role := range []string{"", "viewer", "requester"} {
+		if rec := setupHTTP(&fakeSetup{}, role, http.MethodGet, "source-kinds", "", false); rec.Code != http.StatusUnauthorized && rec.Code != http.StatusForbidden {
+			t.Fatalf("%q status = %d, want 401 or 403", role, rec.Code)
+		}
+	}
+	rec := setupHTTP(&fakeSetup{}, "admin", http.MethodGet, "source-kinds", "", false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Kinds []struct {
+			Slug        string
+			MediaTypes  []string
+			Credentials []struct{ Role, Env, Secret string }
+		}
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || len(body.Kinds) != 4 {
+		t.Fatalf("body = %s (%v)", rec.Body.String(), err)
+	}
+	nd := body.Kinds[3]
+	if nd.Slug != "navidrome" || len(nd.Credentials) != 2 || nd.Credentials[0].Role != "username" || nd.Credentials[0].Secret != "" || nd.Credentials[1].Secret != "navidrome_password" {
+		t.Fatalf("navidrome = %+v", nd)
+	}
+	if strings.Contains(rec.Body.String(), "secret-value") {
+		t.Fatal("registry must carry names only")
+	}
+}

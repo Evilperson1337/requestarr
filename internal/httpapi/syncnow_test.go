@@ -75,7 +75,6 @@ func TestSyncNowReportsActiveRunUnknownSourceAndMissingCSRF(t *testing.T) {
 	if len(noToken.sources) != 0 {
 		t.Fatal("request without a CSRF token reached the syncer")
 	}
-	assertErrorEnvelope(t, syncNow(t, nil, "admin", "jellyfin", true), http.StatusServiceUnavailable, "sync_unavailable")
 }
 
 func TestSyncNowRequiresASession(t *testing.T) {

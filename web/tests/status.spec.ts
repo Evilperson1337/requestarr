@@ -8,8 +8,8 @@ test('admin Settings shows Source outcomes, providers and recent errors', async 
         if (path.endsWith('/admin/status')) return route.fulfill({ json: {
             providers: [{ key: 'tmdb', name: 'TMDB', configured: true }, { key: 'igdb', name: 'IGDB', configured: false }],
             sources: [
-                { slug: 'jellyfin', name: 'Jellyfin', configured: true, lastRun: { id: 'r1', sourceId: 's', trigger: 'schedule', status: 'failed', startedAt: '2026-10-24T12:00:00Z', finishedAt: '2026-10-24T12:01:00Z', error: 'library unreachable' }, lastSuccessAt: null, lastError: 'library unreachable' },
-                { slug: 'plex', name: 'Plex', configured: false, lastRun: null, lastSuccessAt: null, lastError: '' },
+                { slug: 'jellyfin', name: 'Jellyfin', configured: true, lastRun: { id: 'r1', sourceId: 's', trigger: 'schedule', status: 'failed', startedAt: '2026-10-24T12:00:00Z', finishedAt: '2026-10-24T12:01:00Z', error: 'library unreachable' }, lastSuccessAt: null, lastSnapshotAt: null, lastError: 'library unreachable' },
+                { slug: 'plex', name: 'Plex', configured: false, lastRun: null, lastSuccessAt: null, lastSnapshotAt: null, lastError: '' },
             ],
             recentErrors: [{ source: 'Jellyfin', run: { id: 'r1', sourceId: 's', trigger: 'schedule', status: 'failed', startedAt: '2026-10-24T12:00:00Z', finishedAt: null, error: 'library unreachable' } }],
         } })

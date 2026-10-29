@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { sourceKinds } from './fixtures'
 
 // Automated WCAG 2.x A/AA audit plus a no-horizontal-scroll check of each main
 // page at desktop and phone widths, against a deterministic mocked API.
@@ -33,10 +34,9 @@ async function mockApp(page: Page, step = 'general') {
             '/auth/me': { user: { id: 'user-1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf' },
             '/requests': { items: [request], nextCursor: null },
             '/notifications': { items: [{ id: 'n1', title: 'Arrival is available', body: 'Now in Jellyfin', createdAt: '2026-10-01T12:00:00Z' }] },
-            '/admin/setup/draft': draft(step),
+            '/admin/setup/draft': draft(step), '/admin/setup/source-kinds': sourceKinds,
             '/admin/job-runs': { sources: [] }, '/admin/users': { users: [] }, '/admin/match-suggestions': { items: [] },
-            '/admin/sources/jellyfin/status': { configured: false, enabled: false, lastSyncStartedAt: null, lastSyncSucceededAt: null, lastSyncError: null },
-            '/admin/status': { providers: [{ key: 'tmdb', name: 'TMDB', configured: true }], sources: [{ slug: 'jellyfin', name: 'Jellyfin', configured: false, lastRun: null, lastSuccessAt: null, lastError: '' }], recentErrors: [] },
+            '/admin/status': { providers: [{ key: 'tmdb', name: 'TMDB', configured: true }], sources: [{ slug: 'jellyfin', name: 'Jellyfin', configured: false, lastRun: null, lastSuccessAt: null, lastSnapshotAt: null, lastError: '' }], recentErrors: [] },
             '/resolve': { Item: { ID: 'c1', MediaType: 'game', Provider: 'igdb', Title: 'Outer Wilds', Year: 2019, ArtworkURL: '', ArtworkKind: 'poster', ExternalURL: '' }, Platforms: [{ providerId: '6', key: 'pc', name: 'PC' }] },
         }
         return route.fulfill(path in json ? { json: json[path] } : { status: 404, json: { error: { code: 'not_found', message: 'unmocked' } } })

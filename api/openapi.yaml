@@ -205,6 +205,32 @@ paths:
         '422': { description: query_too_large; more than 10000 matching requests; narrow the filters }
         '500': { description: requests_list_failed; safe generic error }
         '503': { description: requests_unavailable }
+    post:
+      operationId: createRequest
+      summary: Create the one canonical shared request for an item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platforms]
+              properties:
+                catalogId: { type: string, format: uuid }
+                url: { type: string, format: uri, maxLength: 2048, description: Supported TMDB, MusicBrainz, or IGDB metadata URL. Mutually exclusive with catalogId. }
+                note: { type: string, maxLength: 2000 }
+                platforms:
+                  type: object
+                  required: [any]
+                  properties:
+                    any: { type: boolean }
+                    platformKeys: { type: array, items: { type: string } }
+      responses:
+        '201': { description: Canonical request created with creator subscription and event }
+        '200': { description: Existing shared request returned }
+        '400': { description: Invalid request }
+        '403': { description: User role cannot create requests }
+        '401': { description: Authentication required }
   /admin/sources/{source}/sync:
     post:
       operationId: syncSourceNow
@@ -238,6 +264,41 @@ paths:
         '404': { description: Source is not configured (code source_not_configured) }
         '409': { description: A sync for this source is already running (code sync_in_progress) }
         '503': { description: Sync unavailable }
+  /admin/development-logs:
+    get:
+      operationId: getDevelopmentLogs
+      summary: Recent connection-check diagnostics (development administrator only)
+      description: >-
+        Available only when REQUESTARR_DEV_LOGS is explicitly enabled and REQUESTARR_ENV is
+        development; enabling it outside development is a startup configuration error. The route
+        is not registered otherwise. Normal API authentication still applies to unknown routes.
+        Returns a whole in-memory snapshot, oldest first, with at most 200 entries; refresh manually.
+        Entries are lost on restart and seq is process-local. Only allowlisted connection-check
+        facts are retained, never general logs, errors/messages, URLs, headers, query parameters,
+        usernames, credentials, or provider bodies. A request-stage connected record means the HTTP
+        and parse step succeeded; the final check record reports the target's validation outcome.
+        IGDB uses separate oauth and platforms stages. No external calls are made to read this
+        snapshot. All responses, including authorization errors and disabled-route misses, are no-store.
+      responses:
+        '200':
+          description: Bounded recent snapshot
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [entries, capacity]
+                properties:
+                  entries:
+                    type: array
+                    maxItems: 200
+                    items: { $ref: '#/components/schemas/DevelopmentLogEntry' }
+                  capacity: { type: integer, const: 200 }
+        '401': { description: Authentication required (including when disabled) }
+        '403': { description: Administrator role required }
+        '404': { description: Development logs disabled; authenticated request to absent route }
   /admin/status:
     get:
       operationId: getOperationalStatus
@@ -256,6 +317,10 @@ paths:
                 type: object
                 required: [providers, sources, recentErrors]
                 properties:
+                  developmentLogsEnabled:
+                    type: boolean
+                    const: true
+                    description: Runtime capability for the development-logs endpoint; omitted when disabled. Administrator only.
                   providers:
                     type: array
                     items:
@@ -270,13 +335,14 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [slug, name, configured, lastRun, lastSuccessAt, lastError]
+                      required: [slug, name, configured, lastRun, lastSuccessAt, lastSnapshotAt, lastError]
                       properties:
                         slug: { type: string }
                         name: { type: string }
                         configured: { type: boolean }
                         lastRun: { oneOf: [{ $ref: '#/components/schemas/JobRun' }, { type: 'null' }] }
                         lastSuccessAt: { type: [string, 'null'], format: date-time }
+                        lastSnapshotAt: { type: [string, 'null'], format: date-time, description: When the Source last completed a full enumeration; a failed run never moves it }
                         lastError: { type: string }
                         note: { type: string, description: "Short fixed status such as 'stored secret unreadable'; absent when there is nothing to add" }
                   recentErrors:
@@ -439,6 +505,45 @@ paths:
         '403': { description: "Administrator role or CSRF/Origin failure" }
         '404': { description: "unknown_secret" }
         '500': { description: "secret_update_failed; safe generic message" }
+  /admin/setup/source-kinds:
+    get:
+      operationId: listSourceKinds
+      summary: List the Source kinds the setup wizard can configure (administrator only)
+      description: >-
+        The registry the wizard renders from: for each kind its slug, name, URL
+        environment variable, default media types and ordered credential fields.
+        A credential with a secret name is write-only and may be a stored secret.
+      responses:
+        '200':
+          description: Source kinds in a stable order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kinds]
+                properties:
+                  kinds:
+                    type: array
+                    items:
+                      type: object
+                      required: [slug, name, urlEnv, mediaTypes, credentials]
+                      properties:
+                        slug: { type: string }
+                        name: { type: string }
+                        urlEnv: { type: string }
+                        mediaTypes: { type: array, items: { type: string } }
+                        credentials:
+                          type: array
+                          items:
+                            type: object
+                            required: [role, env]
+                            properties:
+                              role: { type: string, enum: [token, username, password] }
+                              env: { type: string }
+                              secret: { type: string, description: Stored secret name; absent for a plain field }
+                              label: { type: string, description: Label for the secret field; absent for a plain field }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
   /admin/setup/draft:
     get:
       operationId: getSetupDraft
@@ -654,40 +759,6 @@ paths:
         '409': { description: Suggestion already accepted }
         '500': { description: Review failed; transaction rolled back }
         '503': { description: Match review unavailable }
-  /admin/sources/jellyfin/status:
-    get:
-      operationId: getJellyfinSyncStatus
-      summary: Get sanitized Jellyfin sync health (administrator only)
-      responses:
-        '200': { description: Configured state, sync timestamps, and safe error; excludes URLs, credentials, and inventory }
-        '401': { description: Authentication required }
-        '403': { description: Administrator role required }
-    post:
-      operationId: createRequest
-      summary: Create the one canonical shared request for an item
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [platforms]
-              properties:
-                catalogId: { type: string, format: uuid }
-                url: { type: string, format: uri, maxLength: 2048, description: Supported TMDB, MusicBrainz, or IGDB metadata URL. Mutually exclusive with catalogId. }
-                note: { type: string, maxLength: 2000 }
-                platforms:
-                  type: object
-                  required: [any]
-                  properties:
-                    any: { type: boolean }
-                    platformKeys: { type: array, items: { type: string } }
-      responses:
-        '201': { description: Canonical request created with creator subscription and event }
-        '200': { description: Existing shared request returned }
-        '400': { description: Invalid request }
-        '403': { description: User role cannot create requests }
-        '401': { description: Authentication required }
 components:
   headers:
     RequestId:
@@ -696,6 +767,24 @@ components:
         request_id. Client-supplied values are ignored. Quote it when reporting problems.
       schema: { type: string }
   schemas:
+    DevelopmentLogEntry:
+      type: object
+      additionalProperties: false
+      required: [seq, time, target, stage, outcome, code, durationMs]
+      properties:
+        seq: { type: integer, minimum: 1, description: Process-local monotonically increasing sequence }
+        time: { type: string, format: date-time, description: UTC completion time }
+        target:
+          type: string
+          enum: [general, authentication, tmdb, musicbrainz, igdb, 'library:jellyfin', 'library:plex', 'library:romm', 'library:navidrome', notifications]
+        stage: { type: string, enum: [check, request, oauth, platforms] }
+        outcome: { type: string, enum: [success, failure, skipped] }
+        code:
+          type: string
+          enum: [connected, connection_failed, authentication_failed, environment_required, incomplete_settings, disabled, http_status, network, network_timeout, network_dns, content_type, response_size, malformed_response]
+          description: Safe classification only. The protected production dial path may collapse network failures to network.
+        httpStatus: { type: integer, minimum: 100, maximum: 599, description: Present only when an HTTP response was received }
+        durationMs: { type: integer, minimum: 0 }
     SetupSettings:
       type: object
       additionalProperties: false
@@ -802,7 +891,7 @@ components:
               target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, notifications] }
               revision: { type: integer }
               valid: { type: boolean }
-              code: { type: string, enum: [connected, connection_failed, environment_required, incomplete_settings, disabled] }
+              code: { type: string, enum: [connected, connection_failed, authentication_failed, environment_required, incomplete_settings, disabled] }
               message: { type: string, description: "Fixed safe result; never raw upstream errors or payloads. A TMDB check names the secret source it used (D024) and runs against the value the next restart would use" }
               checkedAt: { type: string, format: date-time }
               expiresAt: { type: string, format: date-time }

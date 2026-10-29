@@ -14,6 +14,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
+	"github.com/evilperson1337/requestarr/internal/devlogs"
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
@@ -48,10 +49,6 @@ const readyTimeout = 2 * time.Second
 // recentRunsPerSource is how many runs the status endpoint returns per Source.
 const recentRunsPerSource = 10
 
-func New(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, authHandlers ...*auth.Handler) http.Handler {
-	return NewWithMetadata(logger, build, readiness, nil, authHandlers...)
-}
-
 // SourceSyncer starts a manual sync of a library Source, named by its route
 // slug (for example "jellyfin"), and returns the run it started. It returns
 // jobs.ErrAlreadyRunning while a run is active and jobs.ErrUnknownSource for a
@@ -60,25 +57,93 @@ type SourceSyncer interface {
 	SyncNow(ctx context.Context, source string) (jobs.Run, error)
 }
 
-func NewWithMetadata(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, resolverService interface {
+// Resolver turns a pasted metadata URL into a canonical catalog item.
+type Resolver interface {
 	ResolveAndUpsert(context.Context, string) (domain.ResolvedItem, error)
-}, authHandlers ...*auth.Handler) http.Handler {
-	return NewWithSync(logger, build, readiness, resolverService, nil, authHandlers...)
 }
 
-func NewWithSync(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, resolverService interface {
-	ResolveAndUpsert(context.Context, string) (domain.ResolvedItem, error)
-}, syncer SourceSyncer, authHandlers ...*auth.Handler) http.Handler {
-	return NewWithSetup(logger, build, readiness, resolverService, syncer, nil, authHandlers...)
+// JobRuns lists recent sync runs per Source.
+type JobRuns interface {
+	RecentRunsBySource(ctx context.Context, perSource int) ([]jobs.SourceRuns, error)
 }
 
-func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness ReadinessChecker, resolverService interface {
-	ResolveAndUpsert(context.Context, string) (domain.ResolvedItem, error)
-}, syncer SourceSyncer, wizard SetupService, authHandlers ...*auth.Handler) http.Handler {
-	var authHandler *auth.Handler
-	if len(authHandlers) > 0 {
-		authHandler = authHandlers[0]
+// StatusSource is the operational status overview.
+type StatusSource interface {
+	Overview(context.Context) (opstatus.Overview, error)
+}
+
+// UserAdmin lists users and changes their roles.
+type UserAdmin interface {
+	ListAdminUsers(context.Context) ([]postgres.AdminUser, error)
+	ChangeUserRole(ctx context.Context, actorID, targetID, role string, at time.Time) error
+}
+
+// SetupState reports whether first-run setup and the wizard are finished.
+type SetupState interface {
+	SetupComplete(context.Context) (bool, error)
+	SetupWizardComplete(context.Context) (bool, error)
+}
+
+// Deps is everything the HTTP API needs. Every field except DevelopmentLogs is
+// required: NewRouter fails at startup naming what is missing, instead of
+// serving a route that answers 503 later.
+type Deps struct {
+	Logger    *slog.Logger
+	Build     buildinfo.Info
+	Readiness ReadinessChecker
+	Auth      *auth.Handler
+
+	Requests    *requests.Service
+	Resolver    Resolver
+	Inbox       notifications.InboxRepository
+	MatchReview MatchReviewStore
+	JobRuns     JobRuns
+	Status      StatusSource
+	Users       UserAdmin
+	SetupState  SetupState
+	Syncer      SourceSyncer
+	Wizard      SetupService
+	Secrets     SecretsService
+
+	// DevelopmentLogs is nil unless the development-only flag enabled it.
+	DevelopmentLogs *devlogs.Recorder
+}
+
+// missing names the required dependencies that are nil.
+func (d Deps) missing() []string {
+	var names []string
+	for _, f := range []struct {
+		name string
+		nil  bool
+	}{
+		{"Logger", d.Logger == nil}, {"Readiness", d.Readiness == nil}, {"Auth", d.Auth == nil},
+		{"Requests", d.Requests == nil}, {"Resolver", d.Resolver == nil}, {"Inbox", d.Inbox == nil},
+		{"MatchReview", d.MatchReview == nil}, {"JobRuns", d.JobRuns == nil}, {"Status", d.Status == nil},
+		{"Users", d.Users == nil}, {"SetupState", d.SetupState == nil}, {"Syncer", d.Syncer == nil},
+		{"Wizard", d.Wizard == nil}, {"Secrets", d.Secrets == nil},
+	} {
+		if f.nil {
+			names = append(names, f.name)
+		}
 	}
+	return names
+}
+
+// NewRouter builds the API and UI handler. It fails when a required
+// dependency is missing.
+func NewRouter(d Deps) (http.Handler, error) {
+	handler, _, err := buildRouter(d)
+	return handler, err
+}
+
+// buildRouter also returns the route table, which tests read to check the access
+// and CSRF policy of every route.
+func buildRouter(d Deps) (http.Handler, *routeTable, error) {
+	if missing := d.missing(); len(missing) > 0 {
+		return nil, nil, fmt.Errorf("httpapi: missing dependencies: %s", strings.Join(missing, ", "))
+	}
+	logger, buildInfo, readiness, authHandler := d.Logger, d.Build, d.Readiness, d.Auth
+	requestService, resolverService, syncer, wizard := d.Requests, d.Resolver, d.Syncer, d.Wizard
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "time": time.Now().UTC()})
@@ -93,23 +158,19 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	})
 	api := http.NewServeMux()
-	var requestService *requests.Service
-	if backend, ok := readiness.(interface {
-		requests.Repository
-		Upsert(context.Context, domain.ResolvedItem) (domain.CatalogItem, error)
-	}); ok {
-		requestService = requests.New(backend)
-	}
-	if authHandler != nil {
+	rt := newRouteTable(api, authHandler)
+	logs := d.DevelopmentLogs
+	registerDevelopmentLogs(rt, logs)
+	{
 		authHandler.Register(api)
+		rt.record("GET /auth/login", accessPublic, false)
+		rt.record("GET /auth/callback", accessPublic, false)
+		rt.record("POST /auth/logout", accessSession, false) // checks CSRF itself
+		rt.record("GET /auth/me", accessSession, false)
+		rt.record("POST /setup/claim-admin", accessSession, true)
 	}
-	if inbox, ok := readiness.(notifications.InboxRepository); ok {
-		api.HandleFunc("GET /notifications", func(w http.ResponseWriter, r *http.Request) {
-			user, err := authHandler.CurrentSession(r)
-			if err != nil {
-				apierror.Write(w, r, 401, "authentication_required", "authentication required")
-				return
-			}
+	if inbox := d.Inbox; inbox != nil {
+		rt.handle("GET /notifications", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 			items, err := inbox.ListInbox(r.Context(), user.ID)
 			if err != nil {
 				apierror.Write(w, r, 500, "notifications_failed", "could not load notifications")
@@ -117,12 +178,7 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 			}
 			writeJSON(w, 200, map[string]any{"items": items})
 		})
-		api.HandleFunc("POST /notifications/{notificationID}/read", func(w http.ResponseWriter, r *http.Request) {
-			user, err := authHandler.CurrentSession(r)
-			if err != nil {
-				apierror.Write(w, r, 401, "authentication_required", "authentication required")
-				return
-			}
+		rt.handle("POST /notifications/{notificationID}/read", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 			id := r.PathValue("notificationID")
 			if !validUUID(id) {
 				apierror.Write(w, r, 400, "invalid_notification_id", "invalid notification ID")
@@ -140,51 +196,12 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 			w.WriteHeader(http.StatusNoContent)
 		})
 	}
-	api.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, build) })
-	registerMatchReviewRoutes(api, readiness, authHandler)
-	registerSetupRoutes(api, wizard, authHandler)
-	if secretsService, ok := wizard.(SecretsService); ok {
-		registerSecretsRoutes(api, secretsService, authHandler)
-	}
-	api.HandleFunc("GET /setup/status", func(w http.ResponseWriter, r *http.Request) { writeSetupStatus(w, r, readiness) })
-	api.HandleFunc("GET /admin/sources/jellyfin/status", func(w http.ResponseWriter, r *http.Request) {
-		user, err := authHandler.CurrentSession(r)
-		if err != nil {
-			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
-			return
-		}
-		if user.Role != "admin" {
-			apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
-			return
-		}
-		statusStore, ok := readiness.(interface {
-			JellyfinSyncStatus(context.Context) (domain.SourceSyncStatus, error)
-		})
-		if !ok {
-			apierror.Write(w, r, 503, "source_status_unavailable", "source status unavailable")
-			return
-		}
-		result, err := statusStore.JellyfinSyncStatus(r.Context())
-		if err != nil {
-			apierror.Write(w, r, 500, "source_status_failed", "could not load source status")
-			return
-		}
-		writeJSON(w, 200, result)
-	})
-	api.HandleFunc("POST /admin/sources/{source}/sync", func(w http.ResponseWriter, r *http.Request) {
-		user, err := authHandler.CurrentSession(r)
-		if err != nil {
-			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
-			return
-		}
-		if user.Role != "admin" {
-			apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
-			return
-		}
-		if syncer == nil {
-			apierror.Write(w, r, http.StatusServiceUnavailable, "sync_unavailable", "sync unavailable")
-			return
-		}
+	rt.handle("GET /version", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) { writeJSON(w, http.StatusOK, buildInfo) })
+	registerMatchReviewRoutes(rt, d.MatchReview)
+	registerSetupRoutes(rt, wizard)
+	registerSecretsRoutes(rt, d.Secrets)
+	rt.handle("GET /setup/status", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) { writeSetupStatus(w, r, d.SetupState) })
+	rt.handle("POST /admin/sources/{source}/sync", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		run, err := syncer.SyncNow(r.Context(), r.PathValue("source"))
 		switch {
 		case errors.Is(err, jobs.ErrAlreadyRunning):
@@ -197,24 +214,8 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 			writeJSON(w, http.StatusAccepted, map[string]any{"run": run})
 		}
 	})
-	api.HandleFunc("GET /admin/job-runs", func(w http.ResponseWriter, r *http.Request) {
-		user, err := authHandler.CurrentSession(r)
-		if err != nil {
-			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
-			return
-		}
-		if user.Role != "admin" {
-			apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
-			return
-		}
-		runs, ok := readiness.(interface {
-			RecentRunsBySource(context.Context, int) ([]jobs.SourceRuns, error)
-		})
-		if !ok {
-			apierror.Write(w, r, http.StatusServiceUnavailable, "job_runs_unavailable", "job runs unavailable")
-			return
-		}
-		groups, err := runs.RecentRunsBySource(r.Context(), recentRunsPerSource)
+	rt.handle("GET /admin/job-runs", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+		groups, err := d.JobRuns.RecentRunsBySource(r.Context(), recentRunsPerSource)
 		if err != nil {
 			apierror.Write(w, r, http.StatusInternalServerError, "job_runs_failed", "could not load job runs")
 			return
@@ -224,65 +225,25 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"sources": groups})
 	})
-	api.HandleFunc("GET /admin/status", func(w http.ResponseWriter, r *http.Request) {
+	rt.handle("GET /admin/status", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
-		user, err := authHandler.CurrentSession(r)
-		if err != nil {
-			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
-			return
-		}
-		if user.Role != "admin" {
-			apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
-			return
-		}
-		ops, ok := readiness.(interface {
-			OperationalStatus(context.Context) (opstatus.Overview, error)
-		})
-		if !ok {
-			apierror.Write(w, r, http.StatusServiceUnavailable, "status_unavailable", "operational status unavailable")
-			return
-		}
-		overview, err := ops.OperationalStatus(r.Context())
+		overview, err := d.Status.Overview(r.Context())
 		if err != nil {
 			apierror.Write(w, r, http.StatusInternalServerError, "status_failed", "could not load operational status")
 			return
 		}
+		overview.DevelopmentLogsEnabled = logs != nil
 		writeJSON(w, http.StatusOK, overview)
 	})
-	api.HandleFunc("GET /admin/users", func(w http.ResponseWriter, r *http.Request) {
-		user, err := authHandler.CurrentSession(r)
-		if err != nil {
-			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
-			return
-		}
-		if user.Role != "admin" {
-			apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
-			return
-		}
-		store, ok := readiness.(interface {
-			ListAdminUsers(context.Context) ([]postgres.AdminUser, error)
-		})
-		if !ok {
-			apierror.Write(w, r, http.StatusServiceUnavailable, "user_management_unavailable", "user management unavailable")
-			return
-		}
-		users, err := store.ListAdminUsers(r.Context())
+	rt.handle("GET /admin/users", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+		users, err := d.Users.ListAdminUsers(r.Context())
 		if err != nil {
 			apierror.Write(w, r, 500, "users_failed", "could not load users")
 			return
 		}
 		writeJSON(w, 200, map[string]any{"users": users})
 	})
-	api.HandleFunc("PUT /admin/users/{userID}/role", func(w http.ResponseWriter, r *http.Request) {
-		user, err := authHandler.CurrentSession(r)
-		if err != nil {
-			apierror.Write(w, r, 401, "authentication_required", "authentication required")
-			return
-		}
-		if user.Role != "admin" {
-			apierror.Write(w, r, 403, "forbidden", "administrator role required")
-			return
-		}
+	rt.handle("PUT /admin/users/{userID}/role", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		id := r.PathValue("userID")
 		if !validUUID(id) {
 			apierror.Write(w, r, 400, "invalid_user_id", "invalid user ID")
@@ -298,14 +259,7 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 			apierror.Write(w, r, 400, "invalid_role", "role must be viewer, requester or admin")
 			return
 		}
-		store, ok := readiness.(interface {
-			ChangeUserRole(context.Context, string, string, string, time.Time) error
-		})
-		if !ok {
-			apierror.Write(w, r, 503, "user_management_unavailable", "user management unavailable")
-			return
-		}
-		err = store.ChangeUserRole(r.Context(), user.ID, id, input.Role, time.Now().UTC())
+		err := d.Users.ChangeUserRole(r.Context(), user.ID, id, input.Role, time.Now().UTC())
 		switch {
 		case errors.Is(err, postgres.ErrAdminSelfRoleChange):
 			apierror.Write(w, r, 409, "self_role_change", "cannot change your own role")
@@ -319,17 +273,8 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 			w.WriteHeader(http.StatusNoContent)
 		}
 	})
-	api.HandleFunc("GET /requests", func(w http.ResponseWriter, r *http.Request) {
+	rt.handle("GET /requests", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
-		if requestService == nil {
-			apierror.Write(w, r, 503, "requests_unavailable", "requests unavailable")
-			return
-		}
-		user, err := authHandler.CurrentSession(r)
-		if err != nil {
-			apierror.Write(w, r, 401, "authentication_required", "authentication required")
-			return
-		}
 		query, err := parseRequestListQuery(r.URL.RawQuery)
 		if err != nil {
 			writeRequestListError(w, r, err)
@@ -355,16 +300,7 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 		}
 		writeJSON(w, 200, map[string]any{"items": out, "nextCursor": page.NextCursor})
 	})
-	api.HandleFunc("POST /requests/{requestID}/transition", func(w http.ResponseWriter, r *http.Request) {
-		if requestService == nil {
-			apierror.Write(w, r, 503, "requests_unavailable", "requests unavailable")
-			return
-		}
-		user, err := authHandler.CurrentSession(r)
-		if err != nil {
-			apierror.Write(w, r, 401, "authentication_required", "authentication required")
-			return
-		}
+	rt.handle("POST /requests/{requestID}/transition", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		var in struct {
 			ToStatus        domain.RequestStatus `json:"toStatus"`
 			ExpectedVersion int64                `json:"expectedVersion"`
@@ -397,16 +333,8 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 	})
 	for _, method := range []string{"PUT", "DELETE"} {
 		method := method
-		api.HandleFunc(method+" /requests/{requestID}/subscription", func(w http.ResponseWriter, r *http.Request) {
-			if requestService == nil {
-				apierror.Write(w, r, 503, "requests_unavailable", "requests unavailable")
-				return
-			}
-			user, err := authHandler.CurrentSession(r)
-			if err != nil {
-				apierror.Write(w, r, 401, "authentication_required", "authentication required")
-				return
-			}
+		rt.handle(method+" /requests/{requestID}/subscription", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+			var err error
 			var changed, cancelled bool
 			if r.Method == http.MethodPut {
 				changed, err = requestService.Subscribe(r.Context(), requests.Actor{ID: user.ID, Role: user.Role}, r.PathValue("requestID"))
@@ -430,11 +358,7 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 			writeJSON(w, 200, map[string]bool{"subscribed": r.Method == http.MethodPut, "changed": changed, "cancelled": cancelled})
 		})
 	}
-	api.HandleFunc("POST /resolve", func(w http.ResponseWriter, r *http.Request) {
-		if resolverService == nil {
-			apierror.Write(w, r, 503, "metadata_unavailable", "metadata resolution unavailable")
-			return
-		}
+	rt.handle("POST /resolve", accessSession, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		var in struct {
 			URL string `json:"url"`
 		}
@@ -459,11 +383,7 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 		}
 		writeJSON(w, 200, item)
 	})
-	api.HandleFunc("POST /requests", func(w http.ResponseWriter, r *http.Request) {
-		if requestService == nil {
-			apierror.Write(w, r, 503, "requests_unavailable", "requests unavailable")
-			return
-		}
+	rt.handle("POST /requests", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		var in struct {
 			URL       string                   `json:"url"`
 			CatalogID string                   `json:"catalogId"`
@@ -485,10 +405,6 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 			return
 		}
 		if in.URL != "" {
-			if resolverService == nil {
-				apierror.Write(w, r, 503, "metadata_unavailable", "metadata resolution unavailable")
-				return
-			}
 			resolved, resolveErr := resolverService.ResolveAndUpsert(r.Context(), in.URL)
 			if resolveErr != nil {
 				apierror.Write(w, r, 400, "invalid_metadata_url", "metadata URL could not be resolved")
@@ -500,33 +416,9 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 			apierror.Write(w, r, http.StatusBadRequest, "missing_catalog_id", "catalogId is required when url is omitted")
 			return
 		}
-		user, err := authHandler.CurrentSession(r)
-		if err != nil {
-			apierror.Write(w, r, 401, "authentication_required", "authentication required")
-			return
-		}
 		result, err := requestService.Create(r.Context(), requests.CreateInput{Actor: requests.Actor{ID: user.ID, Role: user.Role}, CatalogID: in.CatalogID, Note: in.Note, Platforms: in.Platforms})
 		if err != nil {
-			status := 400
-			code := "invalid_request"
-			if errors.Is(err, requests.ErrForbidden) {
-				status = 403
-				code = "forbidden"
-			} else if errors.Is(err, requests.ErrCatalogNotFound) {
-				status = http.StatusNotFound
-				code = "catalog_item_not_found"
-			} else if !errors.Is(err, requests.ErrInvalid) {
-				status = http.StatusInternalServerError
-				code = "request_failed"
-			}
-			message := "request could not be created"
-			if code == "catalog_item_not_found" {
-				message = "catalog item was not found"
-			}
-			if code == "invalid_request" {
-				message = "request details are invalid"
-			}
-			apierror.Write(w, r, status, code, message)
+			writeCreateRequestError(w, r, err)
 			return
 		}
 		status := 200
@@ -539,7 +431,12 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 	// routes and even unknown API paths require a session before dispatch.
 	apiHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/api/v1")
-		if path == "/version" || path == "/setup/status" || (r.Method == http.MethodGet && (path == "/auth/login" || path == "/auth/callback")) {
+		if path == "/admin/development-logs" || path == "/admin/status" {
+			// Apply before the session gate, including denied and disabled requests.
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		policy, known := rt.policyFor(r, path)
+		if known && policy.Access == accessPublic {
 			http.StripPrefix("/api/v1", routeMisses(api)).ServeHTTP(w, r)
 			return
 		}
@@ -552,19 +449,33 @@ func NewWithSetup(logger *slog.Logger, build buildinfo.Info, readiness Readiness
 			return
 		}
 		dispatch := http.Handler(http.StripPrefix("/api/v1", routeMisses(api)))
-		if protectedMutation(r.Method, path) {
+		if known && policy.CSRF {
 			dispatch = authHandler.CSRFMiddleware(dispatch)
 		}
 		dispatch.ServeHTTP(w, r)
 	})
 	mux.Handle("/api/v1/", apiHandler)
-	mux.Handle("GET /api/v1/version", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, build) }))
+	mux.Handle("GET /api/v1/version", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, buildInfo) }))
 	mux.Handle("GET /api/v1/setup/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeSetupStatus(w, r, readiness)
+		writeSetupStatus(w, r, d.SetupState)
 	}))
 	mux.Handle("/", webui.Handler())
 
-	return apierror.Middleware(requestLogger(logger, securityHeaders(mux)))
+	return apierror.Middleware(requestLogger(logger, securityHeaders(mux))), rt, nil
+}
+
+// writeCreateRequestError maps a failed request creation to its HTTP status.
+func writeCreateRequestError(w http.ResponseWriter, r *http.Request, err error) {
+	status, code, message := http.StatusBadRequest, "invalid_request", "request details are invalid"
+	switch {
+	case errors.Is(err, requests.ErrForbidden):
+		status, code, message = http.StatusForbidden, "forbidden", "request could not be created"
+	case errors.Is(err, requests.ErrCatalogNotFound):
+		status, code, message = http.StatusNotFound, "catalog_item_not_found", "catalog item was not found"
+	case !errors.Is(err, requests.ErrInvalid):
+		status, code, message = http.StatusInternalServerError, "request_failed", "request could not be created"
+	}
+	apierror.Write(w, r, status, code, message)
 }
 
 func validUUID(value string) bool {
@@ -582,42 +493,18 @@ func validUUID(value string) bool {
 	return true
 }
 
-func protectedMutation(method, path string) bool {
-	if strings.HasPrefix(path, "/admin/setup/") && (method == http.MethodPut || method == http.MethodPost) {
-		return true
-	}
-	if strings.HasPrefix(path, "/admin/secrets/") && (method == http.MethodPut || method == http.MethodDelete) {
-		return true
-	}
-	if method == http.MethodPost && strings.HasPrefix(path, "/admin/match-suggestions/") {
-		return true
-	}
-	if path == "/resolve" && method == http.MethodPost || path == "/requests" && method == http.MethodPost || path == "/setup/claim-admin" && method == http.MethodPost || strings.HasPrefix(path, "/admin/users/") && strings.HasSuffix(path, "/role") && method == http.MethodPut || strings.HasPrefix(path, "/requests/") && strings.HasSuffix(path, "/transition") && method == http.MethodPost || strings.HasPrefix(path, "/notifications/") && strings.HasSuffix(path, "/read") && method == http.MethodPost || strings.HasPrefix(path, "/admin/sources/") && strings.HasSuffix(path, "/sync") && method == http.MethodPost {
-		return true
-	}
-	return strings.HasPrefix(path, "/requests/") && strings.HasSuffix(path, "/subscription") && (method == http.MethodPut || method == http.MethodDelete)
-}
-
-func writeSetupStatus(w http.ResponseWriter, r *http.Request, readiness ReadinessChecker) {
-	if state, ok := readiness.(interface {
-		SetupComplete(context.Context) (bool, error)
-	}); ok {
-		complete, err := state.SetupComplete(r.Context())
-		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]bool{"complete": false, "required": true})
-			return
-		}
-		wizardComplete := false
-		if wizard, ok := readiness.(interface {
-			SetupWizardComplete(context.Context) (bool, error)
-		}); ok && complete {
-			// A lookup failure reads as "not finished"; the wizard stays reachable.
-			wizardComplete, _ = wizard.SetupWizardComplete(r.Context())
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"complete": complete, "required": !complete, "wizardComplete": wizardComplete})
+func writeSetupStatus(w http.ResponseWriter, r *http.Request, state SetupState) {
+	complete, err := state.SetupComplete(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]bool{"complete": false, "required": true})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"complete": false, "required": true})
+	wizardComplete := false
+	if complete {
+		// A lookup failure reads as "not finished"; the wizard stays reachable.
+		wizardComplete, _ = state.SetupWizardComplete(r.Context())
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"complete": complete, "required": !complete, "wizardComplete": wizardComplete})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

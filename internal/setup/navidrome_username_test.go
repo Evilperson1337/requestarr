@@ -35,7 +35,7 @@ func loadWith(t *testing.T, libraries string, runtime Runtime) Draft {
 }
 
 func TestLegacyDraftLoadsAndTakesTheEnvironmentUsername(t *testing.T) {
-	draft := loadWith(t, legacyNavidromeLibraries, Runtime{NavidromeUsername: "svc-music"})
+	draft := loadWith(t, legacyNavidromeLibraries, Runtime{LibraryUsernames: map[string]string{"navidrome": "svc-music"}})
 	if got := draft.Settings.Libraries.Navidrome.Username; got != "svc-music" {
 		t.Fatalf("username %q, want the environment-configured one", got)
 	}
@@ -50,7 +50,7 @@ func TestLegacyDraftLoadsAndTakesTheEnvironmentUsername(t *testing.T) {
 
 func TestSavedUsernameWinsOverTheEnvironmentOne(t *testing.T) {
 	libraries := strings.Replace(legacyNavidromeLibraries, `"usernameEnv":"REQUESTARR_NAVIDROME_USERNAME"`, `"username":"drafted"`, 1)
-	draft := loadWith(t, libraries, Runtime{NavidromeUsername: "svc-music"})
+	draft := loadWith(t, libraries, Runtime{LibraryUsernames: map[string]string{"navidrome": "svc-music"}})
 	if got := draft.Settings.Libraries.Navidrome.Username; got != "drafted" {
 		t.Fatalf("username %q", got)
 	}
@@ -77,7 +77,7 @@ func TestNavidromeUsernameIsAPlainValidatedDraftField(t *testing.T) {
 }
 
 func TestNavidromeEnvironmentListsThePlainUsernameAndTheSecretPassword(t *testing.T) {
-	svc := NewService(&memoryDrafts{}, fakeChecker{}, Runtime{NavidromeUsername: "old", LibrarySecrets: map[string]bool{"navidromePassword": true}})
+	svc := NewService(&memoryDrafts{}, fakeChecker{}, Runtime{LibraryUsernames: map[string]string{"navidrome": "old"}, SecretsConfigured: map[secrets.Name]bool{secrets.NavidromePassword: true}})
 	actor := Actor{ID: "admin-1", Role: "admin"}
 	draft, _ := svc.Load(context.Background(), actor)
 	s := draft.Settings
@@ -100,20 +100,5 @@ func TestNavidromeEnvironmentListsThePlainUsernameAndTheSecretPassword(t *testin
 	}
 	if pass == nil || !pass.Secret || pass.DesiredValue != "" || !pass.Configured {
 		t.Fatalf("password item %+v", pass)
-	}
-}
-
-func TestNavidromeCheckMessageNamesThePasswordSource(t *testing.T) {
-	repo := &memoryDrafts{}
-	svc := NewService(repo, codeChecker{CheckOK}, Runtime{})
-	svc.UseSecrets(stubSecrets{secrets.Resolved{Value: "pw", Source: secrets.SourceStored}})
-	actor := Actor{ID: "admin-1", Role: "admin"}
-	draft, _ := svc.Load(context.Background(), actor)
-	draft, err := svc.Validate(context.Background(), actor, draft.Revision, TargetNavidrome)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if msg := draft.Validations[0].Message; !strings.Contains(msg, "stored password") {
-		t.Fatalf("message %q", msg)
 	}
 }

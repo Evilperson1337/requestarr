@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
 	"github.com/evilperson1337/requestarr/internal/setup/checks"
 )
@@ -59,7 +60,7 @@ func TestIGDBOAuthAndPlatforms(t *testing.T) {
 		_, _ = w.Write(platforms)
 	}))
 	defer server.Close()
-	checker := checks.New(checks.Config{Runtime: setup.Runtime{IGDBClientID: "igdb-client", IGDBSecretConfigured: true}, IGDBClientSecret: "igdb-secret", Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}})
+	checker := checks.New(checks.Config{Runtime: setup.Runtime{IGDBClientID: "igdb-client"}, Secrets: secrets.Static{secrets.IGDBClientSecret: "igdb-secret"}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}})
 	code, err := checker.Check(context.Background(), setup.TargetIGDB, setup.Settings{Providers: setup.ProviderSettings{IGDBEnabled: true, IGDBClientID: "igdb-client", IGDBClientSecretEnv: setup.IGDBSecretEnv}})
 	if err != nil || code != setup.CheckOK || calls != 2 {
 		t.Fatalf("Check = %q, %v; calls %d", code, err, calls)
@@ -117,7 +118,7 @@ func TestTMDBConfiguration(t *testing.T) {
 	}))
 	defer server.Close()
 	client := &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}
-	checker := checks.New(checks.Config{Runtime: setup.Runtime{TMDBTokenConfigured: true}, TMDBReadToken: "tmdb-secret", Client: client})
+	checker := checks.New(checks.Config{Secrets: secrets.Static{secrets.TMDBReadToken: "tmdb-secret"}, Client: client})
 	settings := setup.Settings{Providers: setup.ProviderSettings{TMDBEnabled: true, TMDBTokenEnv: setup.TMDBTokenEnv}}
 	code, err := checker.Check(context.Background(), setup.TargetTMDB, settings)
 	if err != nil || code != setup.CheckOK {
@@ -186,7 +187,7 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 			defer server.Close()
 			libraries := setup.LibrariesSettings{}
 			source := setup.SourceSettings{Enabled: true, URL: "https://library.example", MediaTypes: []domain.MediaType{domain.MediaMovie}}
-			cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, JellyfinAPIKey: "jf-token", PlexToken: "plex-token", RommToken: "romm-token", NavidromePassword: "music-pass"}
+			cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, Secrets: secrets.Static{secrets.JellyfinAPIKey: "jf-token", secrets.PlexToken: "plex-token", secrets.RommToken: "romm-token", secrets.NavidromePassword: "music-pass"}}
 			target := setup.TargetJellyfin
 			switch tc.kind {
 			case "jellyfin":
@@ -225,8 +226,8 @@ func TestAppriseCheckProbesOnlyTheConfiguredServiceAndNeverSendsTheKey(t *testin
 		_, _ = w.Write([]byte("OK"))
 	}))
 	defer server.Close()
-	runtime := setup.Runtime{AppriseURL: server.URL, AppriseKeyConfigured: true, Development: true}
-	checker := checks.New(checks.Config{Runtime: runtime, Client: server.Client()})
+	runtime := setup.Runtime{AppriseURL: server.URL, Development: true}
+	checker := checks.New(checks.Config{Runtime: runtime, Secrets: secrets.Static{secrets.AppriseConfigKey: "secret-key"}, Client: server.Client()})
 	notify := func(n setup.NotificationSettings) setup.CheckCode {
 		code, err := checker.Check(context.Background(), setup.TargetNotifications, setup.Settings{Notifications: n})
 		if code == setup.CheckOK && err != nil {

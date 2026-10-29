@@ -10,32 +10,19 @@ import (
 	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
-type matchReviewStore interface {
+// MatchReviewStore lists and reviews suggested library matches.
+type MatchReviewStore interface {
 	ListMatchSuggestions(context.Context) ([]domain.MatchSuggestion, error)
 	ReviewMatchSuggestion(context.Context, string, string, string) error
 }
 
-func registerMatchReviewRoutes(api *http.ServeMux, readiness ReadinessChecker, authHandler *auth.Handler) {
-	store, available := readiness.(matchReviewStore)
-	admin := func(next func(http.ResponseWriter, *http.Request, auth.User)) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			user, err := authHandler.CurrentSession(r)
-			if err != nil {
-				apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
-				return
-			}
-			if user.Role != "admin" {
-				apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
-				return
-			}
-			if !available {
-				apierror.Write(w, r, http.StatusServiceUnavailable, "match_review_unavailable", "match review unavailable")
-				return
-			}
+func registerMatchReviewRoutes(rt *routeTable, store MatchReviewStore) {
+	admin := func(pattern string, next func(http.ResponseWriter, *http.Request, auth.User)) {
+		rt.handle(pattern, accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 			next(w, r, user)
-		}
+		})
 	}
-	api.HandleFunc("GET /admin/match-suggestions", admin(func(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	admin("GET /admin/match-suggestions", func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		items, err := store.ListMatchSuggestions(r.Context())
 		if err != nil {
 			apierror.Write(w, r, http.StatusInternalServerError, "match_suggestions_failed", "could not load match suggestions")
@@ -45,9 +32,9 @@ func registerMatchReviewRoutes(api *http.ServeMux, readiness ReadinessChecker, a
 			items = []domain.MatchSuggestion{}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"items": items})
-	}))
+	})
 	for _, decision := range []string{"accept", "dismiss"} {
-		api.HandleFunc("POST /admin/match-suggestions/{suggestionID}/"+decision, admin(func(w http.ResponseWriter, r *http.Request, user auth.User) {
+		admin("POST /admin/match-suggestions/{suggestionID}/"+decision, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 			id := r.PathValue("suggestionID")
 			if !validUUID(id) {
 				apierror.Write(w, r, http.StatusBadRequest, "invalid_suggestion_id", "invalid suggestion ID")
@@ -66,6 +53,6 @@ func registerMatchReviewRoutes(api *http.ServeMux, readiness ReadinessChecker, a
 			default:
 				w.WriteHeader(http.StatusNoContent)
 			}
-		}))
+		})
 	}
 }

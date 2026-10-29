@@ -11,9 +11,8 @@ import (
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
-
-const jellyfinSourceID = "5efcc577-5236-4ce3-b2c0-b9d58c64a718"
 
 // persistLockKey serializes snapshot persistence across Sources so two syncs
 // touching the same catalog items cannot deadlock on their row locks.
@@ -43,12 +42,8 @@ func (s *Store) PersistSnapshot(ctx context.Context, d inventory.Descriptor, bas
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	mediaTypes := make([]string, len(d.MediaTypes))
-	for i, m := range d.MediaTypes {
-		mediaTypes[i] = string(m)
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO library_sources(id,kind,name,base_url,enabled,authoritative_media_types,created_at,updated_at) VALUES($1,$2,$3,$4,true,$5,now(),now()) ON CONFLICT(id) DO UPDATE SET kind=EXCLUDED.kind,name=EXCLUDED.name,base_url=EXCLUDED.base_url,enabled=true,authoritative_media_types=EXCLUDED.authoritative_media_types,updated_at=now()`, d.ID, d.Kind, d.Name, baseURL, mustJSON(mediaTypes)); err != nil {
-		return fmt.Errorf("upsert %s source: %w", d.Kind, err)
+	if err = upsertSource(ctx, tx, d, baseURL, true); err != nil {
+		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE library_sources SET last_sync_started_at=$2,last_sync_succeeded_at=$2,last_sync_error=NULL,updated_at=now() WHERE id=$1`, d.ID, now); err != nil {
 		return fmt.Errorf("update %s sync health: %w", d.Kind, err)
@@ -373,26 +368,54 @@ func (s *Store) RecordSyncFailure(ctx context.Context, d inventory.Descriptor, s
 	if len(safeError) > 256 {
 		safeError = safeError[:256]
 	}
-	mediaTypes := make([]string, len(d.MediaTypes))
-	for i, m := range d.MediaTypes {
-		mediaTypes[i] = string(m)
+	if err := upsertSource(ctx, s.pool, d, "", false); err != nil {
+		return err
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO library_sources(id,kind,name,base_url,enabled,authoritative_media_types,last_sync_started_at,last_sync_error,created_at,updated_at) VALUES($1,$2,$3,'',true,$4,$5,$6,now(),now()) ON CONFLICT(id) DO UPDATE SET last_sync_started_at=EXCLUDED.last_sync_started_at,last_sync_error=EXCLUDED.last_sync_error,updated_at=now()`, d.ID, d.Kind, d.Name, mustJSON(mediaTypes), started, safeError)
-	if err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE library_sources SET last_sync_started_at=$2,last_sync_error=$3,updated_at=now() WHERE id=$1`, d.ID, started, safeError); err != nil {
 		return fmt.Errorf("record %s sync failure: %w", d.Kind, err)
 	}
 	return nil
 }
 
-func (s *Store) JellyfinSyncStatus(ctx context.Context) (domain.SourceSyncStatus, error) {
-	var out domain.SourceSyncStatus
-	err := s.pool.QueryRow(ctx, `SELECT enabled,last_sync_started_at,last_sync_succeeded_at,last_sync_error FROM library_sources WHERE id=$1`, jellyfinSourceID).Scan(&out.Enabled, &out.LastSyncStartedAt, &out.LastSyncSucceededAt, &out.LastSyncError)
-	if err != nil && err != pgx.ErrNoRows {
-		return domain.SourceSyncStatus{}, fmt.Errorf("read Jellyfin sync status: %w", err)
+// execer is the part of pgx.Tx and the pool that upsertSource needs.
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// upsertSource is the one write of a Source's identity row. A successful sync
+// (overwrite) refreshes name, URL and media types; a failure only makes sure the
+// row exists, so it can never replace a URL a past success recorded.
+func upsertSource(ctx context.Context, q execer, d inventory.Descriptor, baseURL string, overwrite bool) error {
+	mediaTypes := make([]string, len(d.MediaTypes))
+	for i, m := range d.MediaTypes {
+		mediaTypes[i] = string(m)
 	}
-	out.Configured = err == nil
-	if !out.Configured {
-		out.Enabled = false
+	conflict := `DO NOTHING`
+	if overwrite {
+		conflict = `DO UPDATE SET kind=EXCLUDED.kind,name=EXCLUDED.name,base_url=EXCLUDED.base_url,enabled=true,authoritative_media_types=EXCLUDED.authoritative_media_types,updated_at=now()`
 	}
-	return out, nil
+	if _, err := q.Exec(ctx, `INSERT INTO library_sources(id,kind,name,base_url,enabled,authoritative_media_types,created_at,updated_at) VALUES($1,$2,$3,$4,true,$5,now(),now()) ON CONFLICT(id) `+conflict, d.ID, d.Kind, d.Name, baseURL, mustJSON(mediaTypes)); err != nil {
+		return fmt.Errorf("upsert %s source: %w", d.Kind, err)
+	}
+	return nil
+}
+
+// LastSnapshotTimes maps each Source ID to the time of its last successful
+// snapshot. Run outcomes live in job_runs; this is the other half of Sync health.
+func (s *Store) LastSnapshotTimes(ctx context.Context) (map[string]time.Time, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id::text,last_sync_succeeded_at FROM library_sources WHERE last_sync_succeeded_at IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("list last snapshot times: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]time.Time{}
+	for rows.Next() {
+		var id string
+		var at time.Time
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, fmt.Errorf("scan last snapshot time: %w", err)
+		}
+		out[id] = at
+	}
+	return out, rows.Err()
 }

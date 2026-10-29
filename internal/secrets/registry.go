@@ -1,10 +1,11 @@
 package secrets
 
 // Name identifies one stored-capable secret. Adding one takes a constant and a
-// registry entry here, plus: a resolver call where the integration reads it,
-// the setup check mapping (internal/setup), and a field in the web UI
-// (web/src/storedSecrets.ts and the wizard step). This package itself knows
-// nothing about a specific provider.
+// registry entry here, plus: its Config field in app.secretFields, the
+// checker's resolver call, and its wizard step in the web UI (Settings lists
+// secrets from GET /admin/secrets). Setup's environment names and the Source kind
+// credentials are read from this registry. This package itself knows nothing
+// about a specific provider.
 type Name string
 
 const (
@@ -29,7 +30,7 @@ type Spec struct {
 }
 
 var registry = []Spec{
-	{Name: TMDBReadToken, EnvVar: "REQUESTARR_TMDB_READ_TOKEN", Label: "TMDB read token"},
+	{Name: TMDBReadToken, EnvVar: "REQUESTARR_TMDB_READ_TOKEN", Label: "TMDb read token"},
 	{Name: IGDBClientSecret, EnvVar: "REQUESTARR_IGDB_CLIENT_SECRET", Label: "IGDB client secret"},
 	{Name: AppriseConfigKey, EnvVar: "REQUESTARR_APPRISE_CONFIG_KEY", Label: "Apprise configuration key"},
 	{Name: NavidromePassword, EnvVar: "REQUESTARR_NAVIDROME_PASSWORD", Label: "Navidrome password"},

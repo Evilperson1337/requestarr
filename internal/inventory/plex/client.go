@@ -18,10 +18,11 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
 // SourceID is the stable ID of the single configured Plex source (V1 allows one per kind).
-const SourceID = "8d1b6e34-5a3f-4c0e-9a57-2f0f6a9c1d42"
+const SourceID = sources.PlexID
 
 const (
 	userAgent       = "Requestarr/1.0 (+https://github.com/example/requestarr)"

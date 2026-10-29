@@ -223,3 +223,18 @@ func (s *Service) Clear(ctx context.Context, actorID string, name Name) error {
 	}
 	return s.repo.DeleteStoredSecret(ctx, actorID, name)
 }
+
+// Static resolves from fixed environment values only, with no stored rows. It
+// stands in for a Service where no database is wired (tests, tools).
+type Static map[Name]string
+
+// Resolve returns the fixed value, as an environment value when present.
+func (s Static) Resolve(_ context.Context, name Name) (Resolved, error) {
+	if _, ok := Lookup(name); !ok {
+		return Resolved{}, ErrUnknownSecret
+	}
+	if value := s[name]; value != "" {
+		return Resolved{Value: value, Source: SourceEnvironment}, nil
+	}
+	return Resolved{Source: SourceNone}, nil
+}

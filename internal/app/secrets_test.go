@@ -39,7 +39,7 @@ func resolve(t *testing.T, cfg config.Config, repo fakeSecretRepo) (config.Confi
 	t.Helper()
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
-	got, _, err := resolveSecrets(context.Background(), cfg, repo, logger)
+	got, _, _, err := resolveSecrets(context.Background(), cfg, repo, logger)
 	if err != nil {
 		t.Fatalf("resolveSecrets must not fail boot: %v", err)
 	}

@@ -99,3 +99,50 @@ Implementation notes (ticket 02-07):
 
 - **Draft field rename:** the Navidrome draft field `usernameEnv` became `username`. Old drafts still load. A stale client that sends `usernameEnv` gets a 400 until it reloads.
 - **Value limits:** a secret value is 1-4096 characters, with no leading or trailing whitespace and no control characters.
+
+## D025 — Saved IGDB client IDs follow restart-bound credential activation
+
+The environment-only client-ID prerequisite conflicted with D024's UI-managed
+IGDB secret: entering both credentials in Setup still failed locally, and a
+restart did not activate the saved ID. Replace that prerequisite narrowly:
+
+- The non-secret IGDB client ID already persisted in the setup draft is the
+  startup fallback when `REQUESTARR_IGDB_CLIENT_ID` is absent. Saving does not
+  hot-reload the provider, and does not require wizard completion.
+- Connection checks use the saved ID plus the resolved secret. An explicit
+  environment ID takes precedence and must match the draft before checking.
+- ID writes keep the existing admin-only, revisioned, auditable draft path.
+  Startup only reads the existing draft; no schema migration or state reset is
+  needed. Other non-secret settings, including library/Apprise URLs and OIDC,
+  retain their existing activation rules.
+
+## D026 — Sync health has one read model
+
+A Source's health was reported two ways: `library_sources.last_sync_*` through a
+Jellyfin-only endpoint, and `job_runs` through the operational status view.
+Replace the Jellyfin-only path:
+
+- Run outcomes (latest run, error, last success) come from `job_runs` (D018).
+  The last successful snapshot time comes from `library_sources`. Both are
+  returned per Source by `GET /admin/status`; a failed run never moves
+  `lastSnapshotAt`.
+- `GET /admin/sources/jellyfin/status` is removed. The Settings page renders
+  every Source from `GET /admin/status` and can start a sync for each.
+- A Source ID is defined once, beside its adapter (`jellyfin.SourceID`, like the
+  other three).
+- `library_sources` is written by one upsert: a successful snapshot refreshes
+  its identity row, a failure only ensures the row exists. The unused
+  `last_sync_started_at` and `last_sync_error` columns are still written and are
+  dropped by a later migration (migrations are append-only).
+
+Extended by the architecture-deepening work:
+
+- **Source kinds** (Jellyfin, Plex, RomM, Navidrome) are one registry in
+  `internal/sources`: slug, stable ID, media types and ordered credential
+  fields. Setup, configuration, startup wiring and the wizard read it;
+  `GET /admin/setup/source-kinds` serves it to the web app.
+- **IGDB pairing:** the saved client ID and the secret are entered separately
+  (D025), so no pairing rule stops startup. IGDB is reported as not
+  configured until both exist.
+- **Startup** resolves in one order (`resolveBoot`: saved IGDB ID, secrets,
+  validation) and `app.Build` derives the runtime from the result.

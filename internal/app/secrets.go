@@ -6,38 +6,45 @@ import (
 	"log/slog"
 
 	"github.com/evilperson1337/requestarr/internal/config"
+	"github.com/evilperson1337/requestarr/internal/httpapi"
 	"github.com/evilperson1337/requestarr/internal/secrets"
-	"github.com/evilperson1337/requestarr/internal/setup"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
 // unreadableNote is shown in operational status for an integration whose stored
 // secret cannot be opened, so it is never mistaken for "not configured".
 const unreadableNote = "stored secret unreadable"
 
-// secretFields maps each registered secret to its Config field. Later
-// integrations add a line here and a registry entry; nothing else changes.
+// secretFields maps each registered secret to its Config field. Library
+// Source credentials come from the Source kind registry; the other
+// integrations add a line here and a registry entry.
 func secretFields(cfg *config.Config) map[secrets.Name]*string {
-	return map[secrets.Name]*string{
-		secrets.TMDBReadToken:     &cfg.TMDBReadToken,
-		secrets.IGDBClientSecret:  &cfg.IGDBClientSecret,
-		secrets.AppriseConfigKey:  &cfg.AppriseConfigKey,
-		secrets.JellyfinAPIKey:    &cfg.JellyfinAPIKey,
-		secrets.PlexToken:         &cfg.PlexToken,
-		secrets.RommToken:         &cfg.RommToken,
-		secrets.NavidromePassword: &cfg.NavidromePassword,
+	fields := map[secrets.Name]*string{
+		secrets.TMDBReadToken:    &cfg.TMDBReadToken,
+		secrets.IGDBClientSecret: &cfg.IGDBClientSecret,
+		secrets.AppriseConfigKey: &cfg.AppriseConfigKey,
 	}
+	for _, kind := range sources.All() {
+		for _, credential := range kind.Credentials {
+			if credential.Secret != "" {
+				fields[secrets.Name(credential.Secret)] = cfg.LibraryCredential(kind.Slug, credential.Role)
+			}
+		}
+	}
+	return fields
 }
 
-// secretSourceURLs maps a library credential to the Config field holding its
-// Source URL. If the credential cannot be read, the URL is cleared so the
-// URL-plus-secret rule does not stop boot; the Source stays unconfigured and
-// is reported as "stored secret unreadable".
-func secretSourceURLs(cfg *config.Config) map[secrets.Name]*string {
-	return map[secrets.Name]*string{
-		secrets.JellyfinAPIKey: &cfg.JellyfinURL,
-		secrets.PlexToken:      &cfg.PlexURL,
-		secrets.RommToken:      &cfg.RommURL,
+// unreadableSource finds the Source kind whose credential is the stored secret
+// name, so an unreadable secret can hold that Source off.
+func unreadableSource(name secrets.Name) (sources.Kind, bool) {
+	for _, kind := range sources.All() {
+		for _, credential := range kind.Credentials {
+			if credential.Secret == string(name) {
+				return kind, true
+			}
+		}
 	}
+	return sources.Kind{}, false
 }
 
 // resolveSecrets applies D024 startup resolution: for each registered secret the
@@ -45,15 +52,15 @@ func secretSourceURLs(cfg *config.Config) map[secrets.Name]*string {
 // before config.Validate so a stored secret can satisfy pairing rules. A stored
 // secret that cannot be read leaves the integration unconfigured-but-reported
 // (never guessed) and does not stop boot. Values are never logged.
-func resolveSecrets(ctx context.Context, cfg config.Config, repo secrets.Repository, logger *slog.Logger) (config.Config, *secrets.Service, error) {
+func resolveSecrets(ctx context.Context, cfg config.Config, repo secrets.Repository, logger *slog.Logger) (config.Config, *secrets.Service, map[secrets.Name]string, error) {
 	var sealer secrets.Sealer
 	if cfg.SecretsKey != "" {
 		key, err := secrets.ParseMasterKey(cfg.SecretsKey)
 		if err != nil {
-			return cfg, nil, err
+			return cfg, nil, nil, err
 		}
 		if sealer, err = secrets.NewAESGCM(key); err != nil {
-			return cfg, nil, err
+			return cfg, nil, nil, err
 		}
 	}
 	env := map[secrets.Name]string{}
@@ -63,24 +70,28 @@ func resolveSecrets(ctx context.Context, cfg config.Config, repo secrets.Reposit
 	svc := secrets.NewService(repo, sealer, env)
 	values, err := svc.Boot(ctx)
 	if err != nil {
-		return cfg, nil, fmt.Errorf("resolve stored secrets: %w", err)
+		return cfg, nil, nil, fmt.Errorf("resolve stored secrets: %w", err)
 	}
 	for name, field := range secretFields(&cfg) {
 		*field = values[name]
 	}
 	statuses, _, err := svc.Status(ctx)
 	if err != nil {
-		return cfg, nil, fmt.Errorf("resolve stored secrets: %w", err)
+		return cfg, nil, nil, fmt.Errorf("resolve stored secrets: %w", err)
 	}
+	unreadable := map[secrets.Name]string{}
 	for _, st := range statuses {
 		if st.Unreadable {
-			if url, ok := secretSourceURLs(&cfg)[st.Name]; ok {
-				*url = ""
-			}
-			if st.Name == secrets.NavidromePassword && cfg.NavidromePassword == "" {
-				// Navidrome's URL, username and password must be configured together;
+			unreadable[st.Name] = unreadableNote
+			if kind, ok := unreadableSource(st.Name); ok && *cfg.LibraryCredential(kind.Slug, credentialRole(kind, st.Name)) == "" {
+				// A Source's URL and credentials must be configured together;
 				// leave the whole Source off rather than failing boot or guessing.
-				cfg.NavidromeURL, cfg.NavidromeUsername = "", ""
+				*cfg.LibraryURL(kind.Slug) = ""
+				for _, credential := range kind.Credentials {
+					if credential.Secret == "" {
+						*cfg.LibraryCredential(kind.Slug, credential.Role) = ""
+					}
+				}
 			}
 			logger.Warn("stored secret unreadable; the integration is not configured until the secret is re-entered or REQUESTARR_SECRETS_KEY is restored", "secret", string(st.Name))
 			if st.Name == secrets.AppriseConfigKey && cfg.AppriseConfigKey == "" {
@@ -90,24 +101,18 @@ func resolveSecrets(ctx context.Context, cfg config.Config, repo secrets.Reposit
 			}
 		}
 	}
-	return cfg, svc, nil
+	return cfg, svc, unreadable, nil
 }
 
-// setupWithSecrets exposes the setup wizard and the secrets service as one
-// value for the HTTP layer, which discovers the secrets routes by interface.
-type setupWithSecrets struct {
-	*setup.Service
-	secretsAPI
+// credentialRole is the role of the credential field backed by a stored secret.
+func credentialRole(kind sources.Kind, name secrets.Name) sources.Role {
+	for _, credential := range kind.Credentials {
+		if credential.Secret == string(name) {
+			return credential.Role
+		}
+	}
+	return ""
 }
 
-type secretsAPI struct{ svc *secrets.Service }
-
-func (s secretsAPI) Status(ctx context.Context) ([]secrets.Status, bool, error) {
-	return s.svc.Status(ctx)
-}
-func (s secretsAPI) Set(ctx context.Context, actorID string, name secrets.Name, value string) error {
-	return s.svc.Set(ctx, actorID, name, value)
-}
-func (s secretsAPI) Clear(ctx context.Context, actorID string, name secrets.Name) error {
-	return s.svc.Clear(ctx, actorID, name)
-}
+// The HTTP API takes the secrets service directly.
+var _ httpapi.SecretsService = (*secrets.Service)(nil)

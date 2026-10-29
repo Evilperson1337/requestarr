@@ -20,9 +20,10 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
-const SourceID = "b44ce1fc-fbcb-4d36-8618-52de83e84a6d"
+const SourceID = sources.NavidromeID
 
 const (
 	apiVersion = "1.16.1"

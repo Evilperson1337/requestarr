@@ -2,6 +2,59 @@
 
 Step-by-step verification of the foundation: config validation, PostgreSQL startup/migrations/readiness, and the frontend build. These steps do not cover the request, OIDC, Jellyfin sync or notification features, which are implemented but have no manual walkthrough here yet (see `docs/IMPLEMENTATION_PLAN.md` for current status). See `docs/TESTING.md` for the broader automated-testing strategy as more of the system is implemented.
 
+## Quick start: full stack in Docker
+
+```bash
+make stack-up      # builds/runs app + Postgres + Keycloak; creates a local secrets key and prints first-admin setup details
+make stack-up-dev  # same stack, explicitly enables development connection diagnostics in the UI
+make stack-logs    # follow logs
+make stack-admin-token  # issue first-admin token only if none exists; cannot reprint an existing token
+make stack-down    # stop; STACK_PURGE=1 make stack-down also deletes its data
+```
+
+Open http://localhost:18080 and sign in as `requestarr-admin` / `requestarr-admin` (Keycloak admin console: http://localhost:8081, `admin` / `admin`). Postgres is published on host port 15432 (`REQUESTARR_STACK_POSTGRES_PORT`). The stack uses host ports 18080 and 8081; Keycloak still conflicts with `make dev-up`, so stop that stack first. Add TMDB/IGDB tokens or library sources through the setup wizard or by extending `compose.test.yaml`.
+
+The stack-only `REQUESTARR_STACK_HTTP_PORT` override controls the listen address,
+public URL, printed URL and startup readiness probe together. Set it in `.env`,
+the host environment, or with `make stack-up REQUESTARR_STACK_HTTP_PORT=18080`.
+An explicit Make value wins over the host environment, which wins over `.env`;
+an empty value uses 18080. Ordinary `make dev-up` / `make run` defaults remain 8080.
+The imported Keycloak client already allows exact callbacks at
+`http://localhost:8080/api/v1/auth/callback` and
+`http://localhost:18080/api/v1/auth/callback`. Other ports require registering the
+exact callback URL on the existing local Keycloak client first; changing the
+port does not register it automatically. Do not add wildcard redirects or
+recreate the realm/database. The 18080 default needs no realm edits, token
+rotation, secrets-key changes or volume deletion; existing setup state persists.
+
+Both startup commands preserve the database volume and existing local secrets key. Repeating startup skips first-admin token issuance when bootstrap is complete or any token already exists; it never silently rotates or reprints a token. Keep the original token for the claim. If it expires before the claim, explicitly run `make stack-admin-token ROTATE=1`. Database/configuration/issuance failures still fail startup.
+
+Before inspecting bootstrap state, startup waits for the app's public local
+`http://localhost:18080/readyz` endpoint (or the resolved stack port override) so migrations can finish. It makes at most
+30 probes (one-second connection timeout, two-second total timeout each), with
+one second between failed probes: at most approximately 89 seconds. If readiness
+never succeeds, startup fails without querying bootstrap SQL or issuing a token.
+Explicit `make stack-admin-token` issuance/rotation does not use this startup wait.
+
+### Development connection diagnostics
+
+1. Run `make stack-up-dev` and sign in as an **administrator**. The explicit server flag `REQUESTARR_DEV_LOGS=true` is accepted only with `REQUESTARR_ENV=development`; it defaults off. It is not controlled by the frontend build mode.
+2. Open **Setup** (`/setup`, after the first-admin claim, even while the wizard is incomplete) or **Settings** (`/settings`) and expand **Development connection logs**. The panel starts collapsed and only appears when the server advertises the capability to an administrator. Non-admins cannot read diagnostics.
+3. For an empty history, expect guidance to run a setup connection check. Re-run a failing/successful check in Setup, then open the panel or press **Refresh logs**. There is no polling: refresh manually after each check. Reading status/logs does not contact providers or run checks.
+4. Inspect target, stage (`check`, `request`, `oauth`, `platforms`), outcome, safe code, optional numeric HTTP status, timestamp and duration. These are narrow structured connection diagnostics, **not arbitrary server/container logs or Docker dependency logs**. There are no raw response/error payloads, URLs, credentials, tokens, cookies or authorization headers. Do not paste raw provider responses or tokens into bug reports.
+5. At most 200 records are held in server memory and in the panel, oldest first. Restarting Requestarr clears server history. Closing the panel, navigating away or losing authorization clears displayed records; no browser storage is used. A failed refresh shows a generic retry message rather than a raw error body. Records and successful checks **do not mean a runtime integration has been activated**; draft/runtime and restart requirements still apply.
+   A 401/403 from Setup stored-secret status, save, or clear (including Review)
+   must also remove the panel and cancel any pending diagnostic refresh; a late
+   response must not restore records. Secret-action failures show fixed messages,
+   never raw error payloads.
+6. Run ordinary `make stack-up` to disable diagnostics again, even if `.env` says `REQUESTARR_DEV_LOGS=true`. Compose reconfigures the app with the flag explicitly false, preserving volumes/key. Reload the UI: neither Setup nor Settings should show the panel. Direct Compose use defaults the flag to false but honors explicit environment/`.env` overrides.
+
+With records displayed in Settings, verify that an expired/revoked administrator session returning 401 or 403 from a different Settings action (sync, role change, secret status/save/clear, or suggested-match load/review) immediately removes the diagnostic panel without refreshing logs. Pending diagnostic reads must be cancelled; a late status/log response must not restore the panel for that session.
+
+Library checks validate response media types before parsing: Jellyfin, RomM and Navidrome expect JSON; the Plex setup probe expects XML (both application/xml and text/xml, including charset parameters). A successful HTTP response containing an HTML login/proxy page is classified with the fixed content-type diagnostic category, without retaining the header or body. Non-success HTTP statuses retain their HTTP-status classification.
+
+No Docker socket mount or log sidecar is used. `make stack-logs` remains a separate operator-only terminal workflow and is not connected to this panel. Never enable development diagnostics on a production deployment.
+
 ## 0. Prerequisites
 
 - Go 1.27+, Node 22, and either Docker (for `compose.dev.yaml`) or any reachable PostgreSQL 15+.

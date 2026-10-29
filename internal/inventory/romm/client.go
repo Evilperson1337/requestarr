@@ -24,10 +24,11 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
 // SourceID is the stable ID of the single configured RomM source (V1 allows one per kind).
-const SourceID = "c2f7b0a4-6d19-4e55-8b3e-5a1f9d7e3c68"
+const SourceID = sources.RommID
 
 const (
 	userAgent       = "Requestarr/1.0 (+https://github.com/evilperson1337/requestarr)"

@@ -15,6 +15,7 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/inventory/jellyfin"
 	"github.com/evilperson1337/requestarr/internal/requests"
 )
 
@@ -255,7 +256,7 @@ func TestJellyfinEmptySnapshotsRequirePersistedOptIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.pool.Exec(context.Background(), `DELETE FROM catalog_items WHERE id=$1`, id)
-	const source = jellyfinSourceID
+	const source = jellyfin.SourceID
 	if _, err := s.pool.Exec(ctx, `INSERT INTO library_sources(id,kind,name,base_url,enabled,authoritative_media_types,created_at,updated_at) VALUES($1,'jellyfin','Jellyfin','',true,'["movie","tv"]',now(),now()) ON CONFLICT(id) DO NOTHING`, source); err != nil {
 		t.Fatal(err)
 	}
@@ -606,10 +607,10 @@ func TestAdminCanDemoteToViewerButNotTheLastAdmin(t *testing.T) {
 	}
 }
 
-var jellyfinDescriptor = inventory.Descriptor{ID: jellyfinSourceID, Kind: "jellyfin", Name: "Jellyfin", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV}, IdentifierKinds: []string{"tmdb"}}
+var jellyfinDescriptor = inventory.Descriptor{ID: jellyfin.SourceID, Kind: "jellyfin", Name: "Jellyfin", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV}, IdentifierKinds: []string{"tmdb"}}
 
 func jellyfinSnapshotFor(catalogID string, complete bool) inventory.Snapshot {
-	return inventory.Snapshot{SourceID: jellyfinSourceID, Complete: complete, ObservedAt: time.Now().UTC(), Items: []inventory.Item{{SourceID: jellyfinSourceID, SourceItemID: "jf-" + catalogID, MediaType: domain.MediaMovie, Title: "Availability integration", ExternalIDs: map[string]string{"tmdb": catalogID}}}}
+	return inventory.Snapshot{SourceID: jellyfin.SourceID, Complete: complete, ObservedAt: time.Now().UTC(), Items: []inventory.Item{{SourceID: jellyfin.SourceID, SourceItemID: "jf-" + catalogID, MediaType: domain.MediaMovie, Title: "Availability integration", ExternalIDs: map[string]string{"tmdb": catalogID}}}}
 }
 
 func newMovieWithRequest(t *testing.T, ctx context.Context, s *Store, status domain.RequestStatus) (catalogID, requestID, requester string) {

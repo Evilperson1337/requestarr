@@ -50,15 +50,6 @@ type AvailabilityEvidence struct {
 	ObservedAt    time.Time
 }
 
-// SourceSyncStatus is sanitized operational health for an availability source.
-type SourceSyncStatus struct {
-	Configured          bool       `json:"configured"`
-	Enabled             bool       `json:"enabled"`
-	LastSyncStartedAt   *time.Time `json:"lastSyncStartedAt"`
-	LastSyncSucceededAt *time.Time `json:"lastSyncSucceededAt"`
-	LastSyncError       *string    `json:"lastSyncError"`
-}
-
 type ResolvedItem struct {
 	Item      CatalogItem
 	Platforms []Platform

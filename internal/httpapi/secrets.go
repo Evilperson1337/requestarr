@@ -30,21 +30,12 @@ type secretStatusBody struct {
 	PendingRestart bool   `json:"pendingRestart"`
 }
 
-func registerSecretsRoutes(api *http.ServeMux, service SecretsService, authHandler *auth.Handler) {
-	admin := func(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
+func registerSecretsRoutes(rt *routeTable, service SecretsService) {
+	admin := func(pattern string, next func(http.ResponseWriter, *http.Request, string)) {
+		rt.handle(pattern, accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 			w.Header().Set("Cache-Control", "no-store")
-			user, err := authHandler.CurrentSession(r)
-			if err != nil {
-				apierror.Write(w, r, 401, "authentication_required", "authentication required")
-				return
-			}
-			if user.Role != "admin" {
-				apierror.Write(w, r, 403, "forbidden", "administrator role required")
-				return
-			}
 			next(w, r, user.ID)
-		}
+		})
 	}
 	fail := func(w http.ResponseWriter, r *http.Request, err error) {
 		switch {
@@ -59,7 +50,7 @@ func registerSecretsRoutes(api *http.ServeMux, service SecretsService, authHandl
 			apierror.Write(w, r, 500, "secret_update_failed", "could not update the stored secret")
 		}
 	}
-	api.HandleFunc("GET /admin/secrets", admin(func(w http.ResponseWriter, r *http.Request, _ string) {
+	admin("GET /admin/secrets", func(w http.ResponseWriter, r *http.Request, _ string) {
 		statuses, enabled, err := service.Status(r.Context())
 		if err != nil {
 			apierror.Write(w, r, 500, "secret_status_failed", "could not load secret status")
@@ -70,8 +61,8 @@ func registerSecretsRoutes(api *http.ServeMux, service SecretsService, authHandl
 			out = append(out, secretStatusBody{Name: string(s.Name), Label: s.Label, EnvVar: s.EnvVar, Configured: s.Configured, Source: string(s.Source), Unreadable: s.Unreadable, PendingRestart: s.PendingRestart})
 		}
 		writeJSON(w, 200, map[string]any{"enabled": enabled, "secrets": out})
-	}))
-	api.HandleFunc("PUT /admin/secrets/{name}", admin(func(w http.ResponseWriter, r *http.Request, actorID string) {
+	})
+	admin("PUT /admin/secrets/{name}", func(w http.ResponseWriter, r *http.Request, actorID string) {
 		r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -87,12 +78,12 @@ func registerSecretsRoutes(api *http.ServeMux, service SecretsService, authHandl
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	api.HandleFunc("DELETE /admin/secrets/{name}", admin(func(w http.ResponseWriter, r *http.Request, actorID string) {
+	})
+	admin("DELETE /admin/secrets/{name}", func(w http.ResponseWriter, r *http.Request, actorID string) {
 		if err := service.Clear(r.Context(), actorID, secrets.Name(r.PathValue("name"))); err != nil {
 			fail(w, r, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})
 }

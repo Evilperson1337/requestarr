@@ -38,6 +38,9 @@ textarea:focus-visible {
     outline-offset: 3px
 }
 
+.developmentLogs summary { cursor: pointer; font-weight: 700; }
+.developmentLogs summary:focus-visible { outline: 3px solid #bb9cff; outline-offset: 3px; }
+
 .shell {
     max-width: 1100px;
     margin: 0 auto;

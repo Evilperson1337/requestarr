@@ -14,6 +14,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/config"
+	"github.com/evilperson1337/requestarr/internal/devlogs"
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/httpapi"
 	"github.com/evilperson1337/requestarr/internal/inventory"
@@ -29,14 +30,15 @@ import (
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/igdb"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/musicbrainz"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/tmdb"
+	"github.com/evilperson1337/requestarr/internal/requests"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
 	"github.com/evilperson1337/requestarr/internal/setup/checks"
+	"github.com/evilperson1337/requestarr/internal/sources"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
 )
 
 const startupTimeout = 30 * time.Second
-const jellyfinSourceID = "5efcc577-5236-4ce3-b2c0-b9d58c64a718"
 
 // sourceSyncInterval is how often each Source syncs. It is also the retry interval: a failed run waits for the next tick.
 const sourceSyncInterval = 15 * time.Minute
@@ -54,14 +56,12 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	var workers sync.WaitGroup
 	defer func() { cancelWorkers(); workers.Wait() }()
 	logger.Info("database ready")
-	// D024: resolve environment, then stored, secrets before the full validation.
-	cfg, secretsService, err := resolveSecrets(ctx, cfg, store, logger)
+	boot, err := resolveBoot(ctx, cfg, store, logger)
 	if err != nil {
-		return fmt.Errorf("secrets startup: %w", err)
+		return err
 	}
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
-	}
+	cfg = boot.Config
+	secretsService := boot.Secrets
 	provider, err := oidc.New(ctx, oidc.Config{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret}, cfg.PublicURL+"/api/v1/auth/callback")
 	if err != nil {
 		return fmt.Errorf("initialize OIDC provider: %w", err)
@@ -79,86 +79,47 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	}
 	runner := jobs.NewRunner(store)
 	runner.Logger = logger
+	aliaser := musicbrainz.NewAliaser(nil, musicbrainz.DefaultMinInterval)
+	rt, err := Build(boot, Adapters{
+		SyncStore: store,
+		Logger:    logger,
+		NewSource: func(cfg config.Config, kind sources.Kind) (inventory.Source, sourceDecorator, error) {
+			return newInventorySource(cfg, kind, func(ctx context.Context) { refreshMusicAliases(ctx, logger, store, aliaser) })
+		},
+	})
+	if err != nil {
+		return err
+	}
 	syncSources := map[string]syncSource{}
-	addSource := func(slug string, src inventory.Source, baseURL string, decorate func(func(context.Context) error) func(context.Context) error) {
-		job := sourceSyncJob(logger, store, src, baseURL)
-		if decorate != nil {
-			job = decorate(job)
-		}
-		id := src.Descriptor().ID
-		syncSources[slug] = syncSource{id: id, job: job}
+	for _, source := range rt.Jobs {
+		syncSources[source.Slug] = syncSource{id: source.ID, job: source.Job}
 		workers.Add(1)
-		go func() {
+		go func(source SourceJob) {
 			defer workers.Done()
-			runner.Schedule(workerCtx, sourceSyncInterval, id, job)
-		}()
-	}
-	if cfg.JellyfinURL != "" {
-		client, err := jellyfin.New(cfg.JellyfinURL, cfg.JellyfinAPIKey, jellyfinSourceID)
-		if err != nil {
-			return fmt.Errorf("initialize Jellyfin integration: %w", err)
-		}
-		addSource("jellyfin", client, cfg.JellyfinURL, nil)
-	}
-	if cfg.PlexURL != "" {
-		client, err := plex.New(cfg.PlexURL, cfg.PlexToken)
-		if err != nil {
-			return fmt.Errorf("initialize Plex integration: %w", err)
-		}
-		aliaser := musicbrainz.NewAliaser(nil, musicbrainz.DefaultMinInterval)
-		addSource("plex", client, cfg.PlexURL, func(job func(context.Context) error) func(context.Context) error {
-			return withAliasRefresh(func(ctx context.Context) { refreshMusicAliases(ctx, logger, store, aliaser) }, job)
-		})
-	}
-	if cfg.RommURL != "" {
-		client, err := romm.New(cfg.RommURL, cfg.RommToken)
-		if err != nil {
-			return fmt.Errorf("initialize RomM integration: %w", err)
-		}
-		addSource("romm", client, cfg.RommURL, nil)
-	}
-	if cfg.NavidromeURL != "" {
-		client, err := navidrome.New(cfg.NavidromeURL, cfg.NavidromeUsername, cfg.NavidromePassword)
-		if err != nil {
-			return fmt.Errorf("initialize Navidrome integration: %w", err)
-		}
-		addSource("navidrome", client, cfg.NavidromeURL, nil)
+			runner.Schedule(workerCtx, sourceSyncInterval, source.ID, source.Job)
+		}(source)
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
-	unreadable := map[secrets.Name]string{}
-	if statuses, _, err := secretsService.Status(ctx); err == nil {
-		for _, st := range statuses {
-			if st.Unreadable {
-				unreadable[st.Name] = unreadableNote
-			}
-		}
+	ops := opstatus.New(rt.Providers, rt.Sources, store)
+	setupRuntime := rt.Setup
+	var logs *devlogs.Recorder
+	if cfg.DevelopmentLogs { // cfg.Validate above rejects this outside development.
+		logs = &devlogs.Recorder{}
 	}
-	providers := []opstatus.Provider{
-		{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: unreadable[secrets.TMDBReadToken]},
-		{Key: "musicbrainz", Name: "MusicBrainz", Configured: true},
-		{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "", Note: unreadable[secrets.IGDBClientSecret]},
-		{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != "", Note: unreadable[secrets.AppriseConfigKey]},
-	}
-	if note := unreadable[secrets.NavidromePassword]; note != "" && cfg.NavidromePassword == "" { // held off; say why instead of looking unconfigured.
-		providers = append(providers, opstatus.Provider{Key: "navidrome", Name: "Navidrome", Note: note})
-	}
-	ops := opstatus.New(
-		providers,
-		[]opstatus.SourceRef{
-			{Slug: "jellyfin", Name: "Jellyfin", ID: syncSources["jellyfin"].id, Note: unreadable[secrets.JellyfinAPIKey]}, {Slug: "plex", Name: "Plex", ID: syncSources["plex"].id, Note: unreadable[secrets.PlexToken]},
-			{Slug: "romm", Name: "RomM", ID: syncSources["romm"].id, Note: unreadable[secrets.RommToken]}, {Slug: "navidrome", Name: "Navidrome", ID: syncSources["navidrome"].id},
-		}, store)
-	setupRuntime := setup.Runtime{PublicURL: cfg.PublicURL, OIDCIssuer: cfg.OIDCIssuer, OIDCClientID: cfg.OIDCClientID, IGDBClientID: cfg.IGDBClientID,
-		OIDCSecretConfigured: cfg.OIDCClientSecret != "", TMDBTokenConfigured: cfg.TMDBReadToken != "", IGDBSecretConfigured: cfg.IGDBClientSecret != "", AppriseURL: cfg.AppriseURL, AppriseKeyConfigured: cfg.AppriseConfigKey != "", Development: cfg.Environment == "development",
-		LibrarySecrets: map[string]bool{"jellyfin": cfg.JellyfinAPIKey != "", "plex": cfg.PlexToken != "", "romm": cfg.RommToken != "", "navidromeUsername": cfg.NavidromeUsername != "", "navidromePassword": cfg.NavidromePassword != ""}, NavidromeUsername: cfg.NavidromeUsername}
-	setupRuntime.LibraryURLs = map[string]string{"jellyfin": cfg.JellyfinURL, "plex": cfg.PlexURL, "romm": cfg.RommURL, "navidrome": cfg.NavidromeURL}
-	setupService := setup.NewService(store, checks.New(checks.Config{Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, TMDBReadToken: cfg.TMDBReadToken, Secrets: secretsService, IGDBClientSecret: cfg.IGDBClientSecret,
-		JellyfinAPIKey: cfg.JellyfinAPIKey, PlexToken: cfg.PlexToken, RommToken: cfg.RommToken, NavidromeUsername: cfg.NavidromeUsername, NavidromePassword: cfg.NavidromePassword}), setupRuntime)
-	setupService.UseSecrets(secretsService)
+	setupService := setup.NewService(store, checks.New(checks.Config{Diagnostics: logs, Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, Secrets: secretsService}), setupRuntime)
 
+	handler, err := httpapi.NewRouter(httpapi.Deps{
+		Logger: logger, Build: build, Readiness: store, Auth: authHandler,
+		Requests: requests.New(store), Resolver: metadataService, Inbox: store, MatchReview: store,
+		JobRuns: store, Status: ops, Users: store, SetupState: store, Syncer: syncer,
+		Wizard: setupService, Secrets: secretsService, DevelopmentLogs: logs,
+	})
+	if err != nil {
+		return fmt.Errorf("initialize HTTP API: %w", err)
+	}
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewWithSetup(logger, build, statusStore{Store: store, ops: ops}, metadataService, syncer, setupWithSecrets{setupService, secretsAPI{secretsService}}, authHandler),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -225,16 +186,6 @@ var (
 	errInventoryRequest    = errors.New("inventory request failed")
 	errSnapshotPersistence = errors.New("snapshot persistence failed")
 )
-
-// statusStore adds the operational status overview to the PostgreSQL store.
-type statusStore struct {
-	*postgres.Store
-	ops *opstatus.Service
-}
-
-func (s statusStore) OperationalStatus(ctx context.Context) (opstatus.Overview, error) {
-	return s.ops.Overview(ctx)
-}
 
 // syncSource is one Source's sync job and its stable ID.
 type syncSource struct {
@@ -322,4 +273,45 @@ func withAliasRefresh(refresh func(context.Context), job func(context.Context) e
 		refresh(ctx)
 		return job(ctx)
 	}
+}
+
+// newInventorySource builds the inventory client for a Source kind from the
+// resolved configuration, with an optional decoration of its sync job. This is
+// the one place a kind's constructor is named; it lives here, not in the
+// registry, because the registry must not import provider clients.
+func newInventorySource(cfg config.Config, kind sources.Kind, refreshAliases func(context.Context)) (inventory.Source, func(func(context.Context) error) func(context.Context) error, error) {
+	url := *cfg.LibraryURL(kind.Slug)
+	switch kind.Slug {
+	case "jellyfin":
+		client, err := jellyfin.New(url, cfg.JellyfinAPIKey, kind.ID)
+		return client, nil, err
+	case "plex":
+		client, err := plex.New(url, cfg.PlexToken)
+		return client, func(job func(context.Context) error) func(context.Context) error {
+			return withAliasRefresh(refreshAliases, job)
+		}, err
+	case "romm":
+		client, err := romm.New(url, cfg.RommToken)
+		return client, nil, err
+	case "navidrome":
+		client, err := navidrome.New(url, cfg.NavidromeUsername, cfg.NavidromePassword)
+		return client, nil, err
+	}
+	return nil, nil, fmt.Errorf("no inventory client for Source kind %q", kind.Slug)
+}
+
+// sourceRefs lists every Source kind for operational status, with the sync
+// job ID when it is configured and a note when its stored secret is unreadable.
+func sourceRefs(syncSources map[string]syncSource, unreadable map[secrets.Name]string) []opstatus.SourceRef {
+	var refs []opstatus.SourceRef
+	for _, kind := range sources.All() {
+		ref := opstatus.SourceRef{Slug: kind.Slug, Name: kind.Name, ID: syncSources[kind.Slug].id}
+		for _, credential := range kind.Credentials {
+			if note := unreadable[secrets.Name(credential.Secret)]; note != "" {
+				ref.Note = note
+			}
+		}
+		refs = append(refs, ref)
+	}
+	return refs
 }

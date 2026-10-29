@@ -11,6 +11,17 @@ import (
 
 var _ setup.Repository = (*Store)(nil)
 
+// LoadIGDBClientID reads the non-secret ID without initializing or modifying the
+// draft. No completed wizard is required: first-run checks need it before Finish.
+func (s *Store) LoadIGDBClientID(ctx context.Context) (string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx, `SELECT COALESCE(draft->'providers'->>'igdbClientId','') FROM setup_state WHERE singleton AND draft_revision > 0`).Scan(&id)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
 // lockedSetupDraft serializes draft operations with bootstrap operations on the
 // same singleton. A revision-zero row may still contain a legacy untyped draft.
 func lockedSetupDraft(ctx context.Context, tx pgx.Tx) (setup.Draft, error) {

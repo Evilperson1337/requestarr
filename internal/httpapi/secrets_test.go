@@ -61,7 +61,7 @@ func secretsHTTP(svc *fakeSecrets, logs *bytes.Buffer, role, method, path, body 
 }
 
 func TestSecretsStatusIsWriteOnly(t *testing.T) {
-	svc := &fakeSecrets{enabled: true, statuses: []secrets.Status{{Name: secrets.TMDBReadToken, EnvVar: "REQUESTARR_TMDB_READ_TOKEN", Label: "TMDB read token", Configured: true, Source: secrets.SourceShadowed, PendingRestart: true}}}
+	svc := &fakeSecrets{enabled: true, statuses: []secrets.Status{{Name: secrets.TMDBReadToken, EnvVar: "REQUESTARR_TMDB_READ_TOKEN", Label: "TMDb read token", Configured: true, Source: secrets.SourceShadowed, PendingRestart: true}}}
 	w := secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodGet, "/admin/secrets", "")
 	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status %d cache %q", w.Code, w.Header().Get("Cache-Control"))

@@ -4,7 +4,7 @@ import { api, type SecretsOverview } from '../api'
 // Review-step summary of stored secrets (D024): shadowed and unreadable values
 // are warned about, and secrets saved but not yet in effect are listed.
 // Stored values are never deleted automatically; clearing is an explicit action.
-export function SecretsReview({ csrfToken }: { csrfToken: string }) {
+export function SecretsReview({ csrfToken, onRequestError }: { csrfToken: string; onRequestError?: (error: unknown) => void }) {
     const [overview, setOverview] = useState<SecretsOverview | null>(null)
     const [error, setError] = useState('')
     const [busy, setBusy] = useState(false)
@@ -14,10 +14,11 @@ export function SecretsReview({ csrfToken }: { csrfToken: string }) {
             const result = await api<SecretsOverview>('/admin/secrets', { cache: 'no-store' })
             if (!result || !Array.isArray(result.secrets)) throw new Error('unexpected response')
             setOverview(result); setError('')
-        } catch {
+        } catch (e) {
+            onRequestError?.(e)
             setOverview(null); setError('Stored secret status could not be loaded.')
         }
-    }, [])
+    }, [onRequestError])
     useEffect(() => { void refresh() }, [refresh])
 
     async function clear(name: string, label: string) {
@@ -27,7 +28,8 @@ export function SecretsReview({ csrfToken }: { csrfToken: string }) {
             await api<void>(`/admin/secrets/${name}`, { method: 'DELETE' }, csrfToken)
             await refresh()
         } catch (e) {
-            setError(e instanceof Error ? e.message : `${label} could not be cleared.`)
+            onRequestError?.(e)
+            setError(`${label} could not be cleared.`)
         } finally { setBusy(false) }
     }
 

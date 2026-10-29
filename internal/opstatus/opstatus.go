@@ -35,7 +35,10 @@ type SourceStatus struct {
 	Configured    bool       `json:"configured"`
 	LastRun       *jobs.Run  `json:"lastRun"`
 	LastSuccessAt *time.Time `json:"lastSuccessAt"`
-	LastError     string     `json:"lastError"`
+	// LastSnapshotAt is when the Source last completed a full enumeration; it
+	// only moves on success, so a failed run never changes it.
+	LastSnapshotAt *time.Time `json:"lastSnapshotAt"`
+	LastError      string     `json:"lastError"`
 	// Note is a short fixed status such as "stored secret unreadable"; empty when there is nothing to add.
 	Note string `json:"note,omitempty"`
 }
@@ -46,22 +49,26 @@ type ErrorEntry struct {
 }
 
 type Overview struct {
-	Providers    []Provider     `json:"providers"`
-	Sources      []SourceStatus `json:"sources"`
-	RecentErrors []ErrorEntry   `json:"recentErrors"`
+	DevelopmentLogsEnabled bool           `json:"developmentLogsEnabled,omitempty"`
+	Providers              []Provider     `json:"providers"`
+	Sources                []SourceStatus `json:"sources"`
+	RecentErrors           []ErrorEntry   `json:"recentErrors"`
 }
 
-type RunSource interface {
+// Health is the stored half of Sync health: run outcomes from the job runs and
+// the time of each Source's last successful snapshot.
+type Health interface {
 	RecentRunsBySource(ctx context.Context, perSource int) ([]jobs.SourceRuns, error)
+	LastSnapshotTimes(ctx context.Context) (map[string]time.Time, error)
 }
 
 type Service struct {
 	providers []Provider
 	sources   []SourceRef
-	runs      RunSource
+	runs      Health
 }
 
-func New(providers []Provider, sources []SourceRef, runs RunSource) *Service {
+func New(providers []Provider, sources []SourceRef, runs Health) *Service {
 	return &Service{providers: providers, sources: sources, runs: runs}
 }
 
@@ -69,6 +76,10 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	groups, err := s.runs.RecentRunsBySource(ctx, runsPerSource)
 	if err != nil {
 		return Overview{}, fmt.Errorf("load recent runs: %w", err)
+	}
+	snapshots, err := s.runs.LastSnapshotTimes(ctx)
+	if err != nil {
+		return Overview{}, fmt.Errorf("load last snapshot times: %w", err)
 	}
 	byID := make(map[string][]jobs.Run, len(groups))
 	for _, group := range groups {
@@ -78,6 +89,9 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	for _, ref := range s.sources {
 		status := SourceStatus{Slug: ref.Slug, Name: ref.Name, Configured: ref.ID != "", Note: ref.Note}
 		if status.Configured {
+			if at, ok := snapshots[ref.ID]; ok {
+				status.LastSnapshotAt = &at
+			}
 			runs := byID[ref.ID] // newest first
 			if len(runs) > 0 {
 				latest := runs[0]

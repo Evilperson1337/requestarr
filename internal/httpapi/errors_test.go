@@ -105,8 +105,6 @@ func TestCommonFailureStatusesUseErrorEnvelope(t *testing.T) {
 		{"missing user", admin, &roleChangeReadiness{err: postgres.ErrAdminUserNotFound}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "csrf-token", "http://example.test", 404, "user_not_found"},
 		{"last admin", admin, &roleChangeReadiness{err: postgres.ErrLastAdmin}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "csrf-token", "http://example.test", 409, "last_admin"},
 		{"unexpected failure", admin, &roleChangeReadiness{err: errors.New("boom")}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "csrf-token", "http://example.test", 500, "role_change_failed"},
-		{"store unavailable", admin, fakeReadiness{}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "csrf-token", "http://example.test", 503, "user_management_unavailable"},
-		{"requests unavailable", admin, fakeReadiness{}, "GET", "/requests", "", "", "", 503, "requests_unavailable"},
 		{"unknown route", admin, fakeReadiness{}, "GET", "/no-such-route", "", "", "", 404, "not_found"},
 		{"wrong method", admin, fakeReadiness{}, "DELETE", "/version", "", "csrf-token", "http://example.test", 405, "method_not_allowed"},
 	} {

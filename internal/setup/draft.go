@@ -9,6 +9,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/secrets"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
 var (
@@ -21,16 +23,32 @@ var (
 	ErrNotReady = errors.New("setup checks are not passing")
 )
 
-const (
-	OIDCSecretEnv        = "REQUESTARR_OIDC_CLIENT_SECRET"
-	TMDBTokenEnv         = "REQUESTARR_TMDB_READ_TOKEN"
-	IGDBSecretEnv        = "REQUESTARR_IGDB_CLIENT_SECRET"
-	JellyfinAPIKeyEnv    = "REQUESTARR_JELLYFIN_API_KEY"
-	PlexTokenEnv         = "REQUESTARR_PLEX_TOKEN"
-	RommTokenEnv         = "REQUESTARR_ROMM_TOKEN"
-	NavidromeUsernameEnv = "REQUESTARR_NAVIDROME_USERNAME"
-	NavidromePasswordEnv = "REQUESTARR_NAVIDROME_PASSWORD"
-	AppriseConfigKeyEnv  = "REQUESTARR_APPRISE_CONFIG_KEY"
+// OIDCSecretEnv is the environment-only OIDC client secret; it is not a stored secret.
+const OIDCSecretEnv = "REQUESTARR_OIDC_CLIENT_SECRET"
+
+// EnvOf is the environment variable that supplies a registered secret.
+func EnvOf(name secrets.Name) string {
+	spec, _ := secrets.Lookup(name)
+	return spec.EnvVar
+}
+
+// credentialEnv is the environment variable of a Source kind's credential field.
+func credentialEnv(slug string, role sources.Role) string {
+	credential, _ := sources.MustLookup(slug).Credential(role)
+	return credential.Env
+}
+
+// The fixed environment names a draft may reference, read from the secret and
+// Source kind registries so each name is written once.
+var (
+	TMDBTokenEnv         = EnvOf(secrets.TMDBReadToken)
+	IGDBSecretEnv        = EnvOf(secrets.IGDBClientSecret)
+	AppriseConfigKeyEnv  = EnvOf(secrets.AppriseConfigKey)
+	JellyfinAPIKeyEnv    = credentialEnv("jellyfin", sources.RoleToken)
+	PlexTokenEnv         = credentialEnv("plex", sources.RoleToken)
+	RommTokenEnv         = credentialEnv("romm", sources.RoleToken)
+	NavidromeUsernameEnv = credentialEnv("navidrome", sources.RoleUsername)
+	NavidromePasswordEnv = credentialEnv("navidrome", sources.RolePassword)
 )
 
 type Actor struct{ ID, Role string }
@@ -65,6 +83,22 @@ type LibrariesSettings struct {
 	Plex      SourceSettings `json:"plex"`
 	Romm      SourceSettings `json:"romm"`
 	Navidrome SourceSettings `json:"navidrome"`
+}
+
+// Source returns the draft settings of one Source kind by slug; nil for an
+// unknown slug. This is the one place the struct fields are named.
+func (l *LibrariesSettings) Source(slug string) *SourceSettings {
+	switch slug {
+	case "jellyfin":
+		return &l.Jellyfin
+	case "plex":
+		return &l.Plex
+	case "romm":
+		return &l.Romm
+	case "navidrome":
+		return &l.Navidrome
+	}
+	return nil
 }
 
 // SourceSettings contains only safe draft values and fixed environment names.
@@ -118,32 +152,36 @@ const (
 )
 
 func (t Target) Valid() bool {
-	return t == TargetGeneral || t == TargetAuthentication || t == TargetTMDB || t == TargetMusicBrainz || t == TargetIGDB || t == TargetJellyfin || t == TargetPlex || t == TargetRomm || t == TargetNavidrome || t == TargetNotifications
+	if _, ok := LibrarySource(t); ok {
+		return true
+	}
+	return t == TargetGeneral || t == TargetAuthentication || t == TargetTMDB || t == TargetMusicBrainz || t == TargetIGDB || t == TargetNotifications
 }
 
+// LibraryTarget is the check target for a Source kind.
+func LibraryTarget(slug string) Target { return Target("library:" + slug) }
+
+// LibrarySource returns the Source kind slug a library check target names.
 func LibrarySource(t Target) (string, bool) {
-	switch t {
-	case TargetJellyfin:
-		return "jellyfin", true
-	case TargetPlex:
-		return "plex", true
-	case TargetRomm:
-		return "romm", true
-	case TargetNavidrome:
-		return "navidrome", true
-	default:
+	slug, ok := strings.CutPrefix(string(t), "library:")
+	if !ok {
 		return "", false
 	}
+	if _, known := sources.Lookup(slug); !known {
+		return "", false
+	}
+	return slug, true
 }
 
 type CheckCode string
 
 const (
-	CheckOK          CheckCode = "connected"
-	CheckUnavailable CheckCode = "connection_failed"
-	CheckEnvironment CheckCode = "environment_required"
-	CheckIncomplete  CheckCode = "incomplete_settings"
-	CheckDisabled    CheckCode = "disabled"
+	CheckOK             CheckCode = "connected"
+	CheckUnavailable    CheckCode = "connection_failed"
+	CheckAuthentication CheckCode = "authentication_failed"
+	CheckEnvironment    CheckCode = "environment_required"
+	CheckIncomplete     CheckCode = "incomplete_settings"
+	CheckDisabled       CheckCode = "disabled"
 )
 
 type Validation struct {
@@ -184,15 +222,26 @@ type EnvironmentItem struct {
 
 // Runtime carries safe configuration and secret-presence flags, not secrets.
 type Runtime struct {
-	PublicURL, OIDCIssuer, OIDCClientID, IGDBClientID               string
-	OIDCSecretConfigured, TMDBTokenConfigured, IGDBSecretConfigured bool
-	LibrarySecrets                                                  map[string]bool
-	NavidromeUsername                                               string
-	LibraryURLs                                                     map[string]string
-	AppriseURL                                                      string
-	AppriseKeyConfigured                                            bool
-	Development                                                     bool
+	PublicURL, OIDCIssuer, OIDCClientID, IGDBClientID string
+	// IGDBClientIDFromEnvironment distinguishes an operator override from a
+	// saved client ID loaded at boot. Checks may use a newer saved ID otherwise.
+	IGDBClientIDFromEnvironment bool
+	OIDCSecretConfigured        bool
+	// SecretsConfigured says which stored-capable secrets have a value in
+	// effect at boot (environment, else stored).
+	SecretsConfigured map[secrets.Name]bool
+	// LibraryUsernames are the plain usernames in effect at boot, by Source slug.
+	LibraryUsernames map[string]string
+	LibraryURLs      map[string]string
+	AppriseURL       string
+	Development      bool
 }
+
+// SecretConfigured reports whether a value for the secret is in effect.
+func (r Runtime) SecretConfigured(name secrets.Name) bool { return r.SecretsConfigured[name] }
+
+// LibraryUsername is the plain username in effect for a Source slug.
+func (r Runtime) LibraryUsername(slug string) string { return r.LibraryUsernames[slug] }
 
 type SaveInput struct {
 	ExpectedRevision int64    `json:"expectedRevision"`
@@ -240,40 +289,49 @@ func (s Settings) Validate(development bool) error {
 		}
 		seenAuto[media] = true
 	}
-	for kind, source := range map[string]SourceSettings{"jellyfin": s.Libraries.Jellyfin, "plex": s.Libraries.Plex, "romm": s.Libraries.Romm, "navidrome": s.Libraries.Navidrome} {
+	for _, kind := range sources.All() {
+		source := *s.Libraries.Source(kind.Slug)
 		if source.URL != "" && !ValidSourceURL(source.URL, development) {
 			return ErrInvalid
 		}
 		if !validMediaTypes(kind, source.MediaTypes) {
 			return ErrInvalid
 		}
-		wantToken := map[string]string{"jellyfin": JellyfinAPIKeyEnv, "plex": PlexTokenEnv, "romm": RommTokenEnv}[kind]
-		if kind == "navidrome" {
-			if source.TokenEnv != "" || source.PasswordEnv != NavidromePasswordEnv || !utf8.ValidString(source.Username) || utf8.RuneCountInString(source.Username) > 256 || strings.ContainsAny(source.Username, "\x00\r\n") {
-				return ErrInvalid
-			}
-		} else if source.TokenEnv != wantToken || source.Username != "" || source.PasswordEnv != "" {
+		if !source.credentialsValid(kind) {
 			return ErrInvalid
 		}
 	}
 	return nil
 }
 
-func validMediaTypes(kind string, types []domain.MediaType) bool {
-	allowed := map[string]map[domain.MediaType]bool{
-		"jellyfin":  {domain.MediaMovie: true, domain.MediaTV: true},
-		"plex":      {domain.MediaMovie: true, domain.MediaTV: true, domain.MediaAlbum: true, domain.MediaSong: true},
-		"romm":      {domain.MediaGame: true},
-		"navidrome": {domain.MediaAlbum: true, domain.MediaSong: true},
-	}[kind]
+func validMediaTypes(kind sources.Kind, types []domain.MediaType) bool {
 	seen := make(map[domain.MediaType]bool, len(types))
 	for _, media := range types {
-		if !allowed[media] || seen[media] {
+		if !kind.Covers(media) || seen[media] {
 			return false
 		}
 		seen[media] = true
 	}
 	return true
+}
+
+// credentialsValid reports whether the draft names exactly the credential
+// environment variables the kind declares, and a plain username only where the
+// kind has one.
+func (s SourceSettings) credentialsValid(kind sources.Kind) bool {
+	token, hasToken := kind.Credential(sources.RoleToken)
+	password, hasPassword := kind.Credential(sources.RolePassword)
+	_, hasUsername := kind.Credential(sources.RoleUsername)
+	if hasToken != (s.TokenEnv != "") || hasToken && s.TokenEnv != token.Env {
+		return false
+	}
+	if hasPassword != (s.PasswordEnv != "") || hasPassword && s.PasswordEnv != password.Env {
+		return false
+	}
+	if !hasUsername {
+		return s.Username == ""
+	}
+	return utf8.ValidString(s.Username) && utf8.RuneCountInString(s.Username) <= 256 && !strings.ContainsAny(s.Username, "\x00\r\n")
 }
 
 func ValidServiceURL(raw string, development bool) bool {
@@ -305,17 +363,13 @@ func (s Settings) RequiredTargets() []Target {
 	if s.Providers.IGDBEnabled {
 		targets = append(targets, TargetIGDB)
 	}
-	for _, entry := range []struct {
-		target  Target
-		enabled bool
-	}{
-		{TargetJellyfin, s.Libraries.Jellyfin.Enabled}, {TargetPlex, s.Libraries.Plex.Enabled},
-		{TargetRomm, s.Libraries.Romm.Enabled}, {TargetNavidrome, s.Libraries.Navidrome.Enabled},
-		{TargetNotifications, s.Notifications.AppriseEnabled},
-	} {
-		if entry.enabled {
-			targets = append(targets, entry.target)
+	for _, kind := range sources.All() {
+		if s.Libraries.Source(kind.Slug).Enabled {
+			targets = append(targets, LibraryTarget(kind.Slug))
 		}
+	}
+	if s.Notifications.AppriseEnabled {
+		targets = append(targets, TargetNotifications)
 	}
 	return targets
 }

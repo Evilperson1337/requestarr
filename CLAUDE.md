@@ -42,6 +42,8 @@ Module boundaries (`internal/`):
 
 - `auth/oidc` — OIDC discovery/login/callback/session/role mapping.
 - `providers/metadata` (+ `tmdb`, `musicbrainz`, `igdb`) — turns a pasted URL into a canonical catalog item. Answers "what is this?".
+- `sources` — the registry of Source kinds (slug, ID, media types, credential fields); plain data, imports only `domain`.
+- `secrets` — stored integration secrets (D024): registry, sealing, resolver. `opstatus` — the operational status overview.
 - `domain` — core types (`Request`, `RequestStatus`, `PlatformSelection`, catalog/media types) and pure business rules (e.g. `ValidatePlatformSelection`). Keep this free of HTTP/DB/provider imports.
 - `store` — repository interfaces close to domain use-cases, not a generic ORM; PostgreSQL is the only V1 target; SQL is explicit.
 - `inventory` (+ `plex`, `jellyfin`, `navidrome`, `romm`; all four are implemented; every adapter implements `inventory.Source` and runs the `inventorytest` contract suite) — normalized snapshots of what each authoritative library actually has. Answers "do we have it?".

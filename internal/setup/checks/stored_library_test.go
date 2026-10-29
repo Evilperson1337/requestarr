@@ -79,7 +79,7 @@ func TestLibraryCheckWithoutAReadableCredentialNeedsTheEnvironment(t *testing.T)
 		"unreadable": {Source: secrets.SourceUnreadable},
 	} {
 		target, libs, _, _ := libraryFixture("jellyfin")
-		checker := checks.New(checks.Config{Runtime: setup.Runtime{Development: true}, JellyfinAPIKey: "boot-value", Secrets: namedResolver{secrets.JellyfinAPIKey: r}})
+		checker := checks.New(checks.Config{Runtime: setup.Runtime{Development: true}, Secrets: namedResolver{secrets.JellyfinAPIKey: r}})
 		code, _ := checker.Check(context.Background(), target, setup.Settings{Libraries: libs})
 		if code == setup.CheckOK {
 			t.Errorf("%s: check passed without a usable credential", name)

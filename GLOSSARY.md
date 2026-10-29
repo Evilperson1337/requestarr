@@ -56,3 +56,14 @@ _Avoid_: Origin, provider
 The operator-supplied key that encrypts Stored secrets. It lives only in the environment, never in the database.
 _Avoid_: Encryption password, root secret
 
+**Source kind**:
+The type of a Source: Jellyfin, Plex, Navidrome or RomM. A kind fixes the slug, source ID, media types, Credential fields and pairing rule; a Source is one configured instance of it.
+_Avoid_: Source type, provider, backend
+
+**Credential field**:
+One input a Source kind or integration needs to connect: a URL, a token, or a username and password. Each is either plain or a Stored secret, and names the environment variable that can supply it.
+_Avoid_: Setting, auth param
+
+**Sync health**:
+The single read model of a Source's last run outcome (from the job runs) and its last successful snapshot. A failed run never changes what the last successful snapshot says.
+_Avoid_: Sync status, last sync

@@ -14,7 +14,11 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
+
+// SourceID is the stable ID of the single configured Jellyfin source (V1 allows one per kind).
+const SourceID = sources.JellyfinID
 
 const (
 	userAgent = "Requestarr/1.0 (+https://github.com/example/requestarr)"

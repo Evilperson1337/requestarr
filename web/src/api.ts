@@ -3,6 +3,7 @@ export type Session = { user: User; csrfToken: string }
 export type SetupStatus = { complete: boolean; required: boolean; wizardComplete?: boolean }
 export type SetupStep = 'general' | 'authentication' | 'providers' | 'libraries' | 'notifications' | 'policy' | 'review'
 export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome' | 'notifications'
+export type SourceKind = { slug: string; name: string; urlEnv: string; mediaTypes: SetupSource['mediaTypes']; credentials: { role: 'token' | 'username' | 'password'; env: string; secret?: string; label?: string }[] }
 export type SetupSource = { enabled: boolean; url: string; mediaTypes: ('movie' | 'tv' | 'album' | 'song' | 'game')[]; tokenEnv: string; username: string; passwordEnv: string }
 export type SetupSettings = {
     general: { instanceName: string; timezone: string; publicUrl: string }
@@ -24,7 +25,6 @@ export type Platform = { providerId: string; key: string; name: string }
 export type ResolvedItem = { Item: CatalogItem; Platforms: Platform[] }
 export type RequestItem = { ID: string; CatalogItemID: string; Title: string; MediaType: string; ArtworkURL: string; ArtworkKind: string; CatalogPlatforms?: Platform[]; Status: string; Version: number; RequestedBy: string; Note: string; availability: 'unknown' | 'available' | 'missing'; availabilityObservedAt?: string | null; Platforms: { any: boolean; platformKeys?: string[] }; CreatedAt: string; subscribed: boolean; subscriptionSource: 'requester' | 'manual' | '' }
 export type RequestPage = { items: RequestItem[]; nextCursor: string | null }
-export type JellyfinStatus = { configured: boolean; enabled: boolean; lastSyncStartedAt: string | null; lastSyncSucceededAt: string | null; lastSyncError: string | null }
 export type AdminUser = { id: string; email: string; displayName: string; role: 'admin' | 'requester' | 'viewer'; createdAt: string }
 export type MatchSuggestion = { id: string; catalogItemId: string; catalogTitle: string; catalogYear: number; inventoryTitle: string; inventoryYear: number; mediaType: string; platformKey: string; sourceName: string; sourceItemId: string; confidence: 'title_year' | 'title_only'; reason: string; observedAt: string }
 
@@ -44,16 +44,16 @@ export async function api<T>(path: string, init: RequestInit = {}, csrf?: string
 // Errors use {error:{code,message,requestId}}; keep the code for branching and
 // show the message plus request ID so a user can quote it when reporting a problem.
 export class ApiError extends Error {
-    constructor(message: string, readonly code = '') { super(message) }
+    constructor(message: string, readonly code = '', readonly status = 0) { super(message) }
 }
 
 async function apiError(response: Response): Promise<ApiError> {
     const body = await response.text()
     try {
         const { error } = JSON.parse(body) as { error?: { code?: string; message?: string; requestId?: string } }
-        if (error?.message) return new ApiError(error.requestId ? `${error.message} (request ${error.requestId})` : error.message, error.code)
+        if (error?.message) return new ApiError(error.requestId ? `${error.message} (request ${error.requestId})` : error.message, error.code, response.status)
     } catch { /* not the JSON envelope */ }
-    return new ApiError(body.trim() || `Request failed (${response.status})`)
+    return new ApiError(body.trim() || `Request failed (${response.status})`, '', response.status)
 }
 
 // Never surface server-provided error bodies from the bootstrap claim endpoint.
@@ -77,8 +77,18 @@ export type SecretsOverview = { enabled: boolean; secrets: SecretStatus[] }
 
 export type JobRun = { id: string; sourceId: string; trigger: 'schedule' | 'manual'; status: 'running' | 'succeeded' | 'failed'; startedAt: string; finishedAt: string | null; error?: string }
 export type OperationalStatus = {
+    developmentLogsEnabled?: true
     providers: { key: string; name: string; configured: boolean; note?: string }[]
-    sources: { slug: string; name: string; configured: boolean; lastRun: JobRun | null; lastSuccessAt: string | null; lastError: string; note?: string }[]
+    sources: { slug: string; name: string; configured: boolean; lastRun: JobRun | null; lastSuccessAt: string | null; lastSnapshotAt: string | null; lastError: string; note?: string }[]
     recentErrors: { source: string; run: JobRun }[]
 }
 export type SourceRuns = { sourceId: string; name: string; runs: JobRun[] }
+
+export type DevelopmentLogEntry = {
+    seq: number; time: string; target: SetupTarget
+    stage: 'check' | 'request' | 'oauth' | 'platforms'
+    outcome: 'success' | 'failure' | 'skipped'
+    code: 'connected' | 'connection_failed' | 'authentication_failed' | 'environment_required' | 'incomplete_settings' | 'disabled' | 'http_status' | 'network' | 'network_timeout' | 'network_dns' | 'content_type' | 'response_size' | 'malformed_response'
+    httpStatus?: number; durationMs: number
+}
+export type DevelopmentLogs = { entries: DevelopmentLogEntry[]; capacity: number }
