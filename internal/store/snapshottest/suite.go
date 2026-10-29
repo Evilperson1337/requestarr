@@ -33,9 +33,19 @@ type Backend interface {
 var seq atomic.Int64
 
 var (
-	jellyfin = inventory.Descriptor{ID: sources.JellyfinID, Kind: "jellyfin", Name: "Jellyfin", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV}, IdentifierKinds: []string{"tmdb"}}
-	plex     = inventory.Descriptor{ID: sources.PlexID, Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV}, IdentifierKinds: []string{"tmdb"}}
+	jellyfin = descriptor(sources.JellyfinID)
+	plex     = descriptor(sources.PlexID)
 )
+
+// descriptor is a movie Source of the registered kind with that ID.
+func descriptor(id string) inventory.Descriptor {
+	for _, k := range sources.All() {
+		if k.ID == id {
+			return inventory.Descriptor{ID: k.ID, Kind: k.Slug, Name: k.Name, MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV}, IdentifierKinds: []string{"tmdb"}}
+		}
+	}
+	panic("no Source kind with ID " + id)
+}
 
 func snapshot(d inventory.Descriptor, at time.Time, complete bool, tmdbIDs ...string) inventory.Snapshot {
 	snap := inventory.Snapshot{SourceID: d.ID, Complete: complete, ObservedAt: at}

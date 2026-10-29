@@ -38,29 +38,7 @@ The Go module and development container target Go 1.27. The web app has no third
 
 Modular monolith: one Go process serves the HTTP API, serves the embedded production UI, runs background jobs, and talks to a single PostgreSQL database. Do not split into microservices/workers prematurely. External systems (metadata providers, media libraries, notification gateway) sit behind narrow interfaces in `internal/`, never called directly from HTTP handlers or domain logic.
 
-Module boundaries (`internal/`):
-
-- `auth/oidc` — OIDC discovery/login/callback/session/role mapping.
-- `providers/metadata` (+ `tmdb`, `musicbrainz`, `igdb`) — turns a pasted URL into a canonical catalog item. Answers "what is this?".
-- `sources` — the registry of Source kinds (slug, ID, media types, credential fields); plain data, imports only `domain`.
-- `secrets` — stored integration secrets (D024): registry, sealing, resolver. `opstatus` — the operational status overview.
-- `domain` — core types (`Request`, `RequestStatus`, `PlatformSelection`, catalog/media types) and pure business rules (e.g. `ValidatePlatformSelection`). Keep this free of HTTP/DB/provider imports.
-- `store` — repository interfaces close to domain use-cases, not a generic ORM; PostgreSQL is the only V1 target; SQL is explicit.
-- `inventory` (+ `plex`, `jellyfin`, `navidrome`, `romm`; all four are implemented; every adapter implements `inventory.Source` and runs the `inventorytest` contract suite) — normalized snapshots of what each authoritative library actually has. Answers "do we have it?".
-- `notifications` (+ `apprise`) — fans out domain events to in-app notifications and the Apprise API.
-- `jobs` — the D018 run recorder and no-overlap guard: `Runner` records each run (start, finish, outcome, safe error) in `job_runs`, a per-Source lease in PostgreSQL stops overlap across restarts, and `Schedule` retries failures on the next tick. Jellyfin sync runs through it (`internal/app`), on the schedule and via the admin "Sync now" action (`POST /admin/sources/{source}/sync`), which share one guard.
-- `setup` — first-run wizard draft/validation/finalization state.
-- `httpapi` — transport only; no domain policy should live in handlers (see `internal/httpapi/router.go` for the routes, and `api/openapi.yaml` for the contract).
-- `app` — wires config + logger + HTTP server lifecycle (`internal/app/app.go`).
-
-Data flow for the core loop (see README's architecture diagram and `docs/ARCHITECTURE.md`):
-
-```
-metadata provider URL -> resolver -> canonical catalog item -> request
-request + subscriptions live in Postgres
-library sync -> normalized inventory -> InventoryChanged event -> targeted reconciliation
-      -> status transition to `available` -> RequestAvailable event -> notifications (in-app + Apprise)
-```
+Module boundaries (`internal/`), the core data flow, sync and matching rules are in `docs/ARCHITECTURE.md`; read it before adding a module or moving logic between modules.
 
 Key invariants worth knowing before touching this flow:
 

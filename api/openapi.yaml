@@ -759,6 +759,93 @@ paths:
         '409': { description: Suggestion already accepted }
         '500': { description: Review failed; transaction rolled back }
         '503': { description: Match review unavailable }
+  /requests/{requestId}/subscription:
+    put:
+      operationId: subscribeToRequest
+      summary: Enable Notify Me for the current user
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Subscription enabled; changed=false when already enabled }
+        '400': { description: Invalid request ID }
+        '409': { description: Request is closed (denied, available or cancelled) and takes no new subscribers }
+        '404': { description: Request not found }
+        '401': { description: Authentication required }
+    delete:
+      operationId: unsubscribeFromRequest
+      summary: Leave a request (D016); the last subscriber leaving cancels an open request
+      description: >-
+        Removes the current user's subscription. Any subscriber may leave, including the
+        creator. The request stays open while other subscribers remain; when the last
+        subscriber of a requested or approved request leaves, it becomes cancelled with a
+        version bump and an audit event, but only with confirmCancel=true; without it the
+        server returns 409 would_cancel and changes nothing. Idempotent by state, with no
+        operation key: leaving again returns changed=false and writes no event.
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: confirmCancel
+          required: false
+          description: Must be true for a leave that would cancel the request (the caller is the last subscriber)
+          schema: { type: boolean, default: false }
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Left (or was not subscribed)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [subscribed, changed, cancelled]
+                properties:
+                  subscribed: { type: boolean, description: Always false after a leave }
+                  changed: { type: boolean }
+                  cancelled: { type: boolean, description: True when this leave cancelled the request }
+        '400': { description: Invalid request ID }
+        '401': { description: Authentication required }
+        '409': { description: Leaving would cancel the request and confirmCancel was not set (code would_cancel) }
+        '404': { description: Request not found }
+  /requests/{requestId}/transition:
+    post:
+      operationId: transitionRequest
+      summary: Admin-only approval or denial of a requested item, or outright cancellation of an open one; does not alter availability
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [toStatus, expectedVersion, operationId]
+              properties:
+                toStatus: { type: string, enum: [approved, denied, cancelled], description: approved and denied apply to requested requests; cancelled applies to requested or approved requests }
+                expectedVersion: { type: integer, minimum: 1 }
+                operationId: { type: string, format: uuid }
+      responses:
+        '200': { description: Transition committed with incremented request version and audit event }
+        '400': { description: Invalid transition payload or lifecycle transition not allowed from the current status }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: Request not found }
+        '409': { description: Stale request version }
 components:
   headers:
     RequestId:
@@ -959,90 +1046,3 @@ components:
         body: { type: string }
         createdAt: { type: string, format: date-time }
         readAt: { type: [string, 'null'], format: date-time }
-  /requests/{requestId}/subscription:
-    put:
-      operationId: subscribeToRequest
-      summary: Enable Notify Me for the current user
-      parameters:
-        - in: path
-          name: requestId
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200': { description: Subscription enabled; changed=false when already enabled }
-        '400': { description: Invalid request ID }
-        '409': { description: Request is closed (denied, available or cancelled) and takes no new subscribers }
-        '404': { description: Request not found }
-        '401': { description: Authentication required }
-    delete:
-      operationId: unsubscribeFromRequest
-      summary: Leave a request (D016); the last subscriber leaving cancels an open request
-      description: >-
-        Removes the current user's subscription. Any subscriber may leave, including the
-        creator. The request stays open while other subscribers remain; when the last
-        subscriber of a requested or approved request leaves, it becomes cancelled with a
-        version bump and an audit event, but only with confirmCancel=true; without it the
-        server returns 409 would_cancel and changes nothing. Idempotent by state, with no
-        operation key: leaving again returns changed=false and writes no event.
-      parameters:
-        - in: path
-          name: requestId
-          required: true
-          schema: { type: string, format: uuid }
-        - in: query
-          name: confirmCancel
-          required: false
-          description: Must be true for a leave that would cancel the request (the caller is the last subscriber)
-          schema: { type: boolean, default: false }
-        - in: header
-          name: X-CSRF-Token
-          required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: Left (or was not subscribed)
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [subscribed, changed, cancelled]
-                properties:
-                  subscribed: { type: boolean, description: Always false after a leave }
-                  changed: { type: boolean }
-                  cancelled: { type: boolean, description: True when this leave cancelled the request }
-        '400': { description: Invalid request ID }
-        '401': { description: Authentication required }
-        '409': { description: Leaving would cancel the request and confirmCancel was not set (code would_cancel) }
-        '404': { description: Request not found }
-  /requests/{requestId}/transition:
-    post:
-      operationId: transitionRequest
-      summary: Admin-only approval or denial of a requested item, or outright cancellation of an open one; does not alter availability
-      parameters:
-        - in: path
-          name: requestId
-          required: true
-          schema: { type: string, format: uuid }
-        - in: header
-          name: X-CSRF-Token
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [toStatus, expectedVersion, operationId]
-              properties:
-                toStatus: { type: string, enum: [approved, denied, cancelled], description: approved and denied apply to requested requests; cancelled applies to requested or approved requests }
-                expectedVersion: { type: integer, minimum: 1 }
-                operationId: { type: string, format: uuid }
-      responses:
-        '200': { description: Transition committed with incremented request version and audit event }
-        '400': { description: Invalid transition payload or lifecycle transition not allowed from the current status }
-        '401': { description: Authentication required }
-        '403': { description: Administrator role required }
-        '404': { description: Request not found }
-        '409': { description: Stale request version }
