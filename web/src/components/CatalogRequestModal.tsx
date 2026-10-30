@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { api, ApiError, type MoviePreviewState, type ResolvedItem, type Session } from '../api'
 import { followLink } from '../navigation'
+import { LibraryTags } from './LibraryTags'
 
 // What the confirmation screen shows for one catalog item, whatever its media
 // type. Each media type fills it from its own provider details.
 type Facts = {
-    eyebrow: string; noun: string; source: string
+    eyebrow: string; noun: string; source: string; tagLabel: string
     backdropUrl?: string; badges: string[]; upcoming: boolean
     lines: ReactNode[]; rating: ReactNode
     overview: string; credit?: { label: string; names: string[] }
@@ -27,7 +28,7 @@ function describe(resolved: ResolvedItem): Facts {
         const game = resolved.Game
         const date = longDate(game?.releaseDate)
         return {
-            eyebrow: 'Game preview', noun: 'game', source: 'IGDB', backdropUrl: game?.backdropUrl, badges: game?.genres ?? [],
+            eyebrow: 'Game preview', noun: 'game', source: 'IGDB', tagLabel: 'Genres', backdropUrl: game?.backdropUrl, badges: game?.genres ?? [],
             upcoming: !!game?.releaseDate && game.releaseDate > todayISO(),
             lines: [date ? <><strong>Release date:</strong> {date}</> : 'Release date unknown'],
             rating: game?.ratingCount && game.score !== undefined ? <>IGDB <strong>{Math.round(game.score)}/100</strong> · {game.ratingCount.toLocaleString()} ratings</> : 'IGDB · Not yet rated',
@@ -40,7 +41,7 @@ function describe(resolved: ResolvedItem): Facts {
     const date = longDate(music?.releaseDate)
     const length = music?.lengthSeconds ? `${Math.floor(music.lengthSeconds / 60)}:${String(music.lengthSeconds % 60).padStart(2, '0')}` : ''
     return {
-        eyebrow: isSong ? 'Song preview' : 'Album preview', noun: isSong ? 'song' : 'album', source: 'MusicBrainz',
+        eyebrow: isSong ? 'Song preview' : 'Album preview', noun: isSong ? 'song' : 'album', source: 'MusicBrainz', tagLabel: 'Type and genres',
         badges: [music?.primaryType, ...(music?.secondaryTypes ?? []), ...(music?.genres ?? [])].filter((x): x is string => !!x),
         upcoming: !!music?.releaseDate && music.releaseDate > todayISO(),
         lines: [date ? <><strong>Release date:</strong> {date}</> : item.Year ? <><strong>Released:</strong> {item.Year}</> : 'Release date unknown', ...(length ? [<><strong>Length:</strong> {length}</>] : [])],
@@ -55,7 +56,6 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
     const item = resolved.Item
     const facts = describe(resolved)
     const dialog = useRef<HTMLElement>(null)
-    const [expanded, setExpanded] = useState(false)
     const [posterFailed, setPosterFailed] = useState(false)
     const [backdropFailed, setBackdropFailed] = useState(false)
     const [note, setNote] = useState('')
@@ -125,7 +125,6 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
         finally { if (!controller.signal.aborted) { pending.current = null; setBusy(false) } }
     }
     const overview = facts.overview
-    const longOverview = overview.length > 320
     return <div className="overlay movieOverlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
         <section ref={dialog} tabIndex={-1} onKeyDown={keyboard} role="dialog" aria-modal="true" aria-labelledby="catalog-preview-title" className="movieModal">
             <div className="movieScroll">
@@ -134,13 +133,15 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
                 <div className="movieIdentity">
                     {item.ArtworkURL && !posterFailed ? <img className="moviePoster" src={item.ArtworkURL} alt={`${item.MediaType === 'game' ? 'Cover' : 'Cover art'} for ${item.Title}`} onError={() => setPosterFailed(true)} /> : <div className="moviePoster moviePlaceholder" role="img" aria-label="Cover unavailable">Cover unavailable</div>}
                     <div className="movieHeading"><h2 id="catalog-preview-title">{item.Title}{item.Year ? ` (${item.Year})` : ''}</h2>
-                        <div className="movieFacts">{facts.upcoming && <span className="movieBadge">Upcoming</span>}{facts.badges.map((badge, index) => <span key={`${badge}-${index}`}>{badge}</span>)}</div>
+                        <div className="movieFacts">{facts.upcoming && <span className="movieBadge">Upcoming</span>}</div>
+                        {facts.badges.length > 0 && <ul className="tags" aria-label={facts.tagLabel}>{facts.badges.map((badge, index) => <li className="tag" key={`${badge}-${index}`}>{badge}</li>)}</ul>}
                         {facts.lines.map((line, index) => <p key={index}>{line}</p>)}
                         <p className="movieRating">{facts.rating}</p>
                         {item.ExternalURL && <a href={item.ExternalURL} target="_blank" rel="noreferrer">Open on {facts.source} ↗</a>}
+                        {!authLost && <LibraryTags preview={preview} />}
                     </div>
                 </div>
-                {overview && <section aria-label="Synopsis"><h3>Synopsis</h3><p id="catalog-synopsis">{longOverview && !expanded ? `${overview.slice(0, 320)}…` : overview}</p>{longOverview && <button className="button secondary" aria-expanded={expanded} aria-controls="catalog-synopsis" onClick={() => setExpanded(!expanded)}>{expanded ? 'Show less' : 'Show more'}</button>}</section>}
+                {overview && <section aria-label="Synopsis"><h3>Synopsis</h3><p>{overview}</p></section>}
                 {facts.credit && <p><strong>{facts.credit.label}:</strong> {facts.credit.names.join(', ')}</p>}
                 {facts.alsoOn && <p><strong>{facts.alsoOn.label}:</strong> {facts.alsoOn.names.join(', ')}</p>}
                 {canCreate && facts.needsPlatforms && <fieldset><legend>Platforms</legend>
@@ -150,7 +151,6 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
                 </fieldset>}
                 {!authLost && <section className="movieState" aria-label="Request and availability">
                     {success && <p ref={successMessage} tabIndex={-1} role="status"><strong>{success}</strong></p>}
-                    <p>{preview.availability === 'available' ? 'Available in your libraries' : preview.availability === 'missing' ? 'Not currently available in your libraries' : 'Library availability unknown'}</p>
                     {preview.request && <><p>Shared Request: {preview.request.status}</p><p role="status">{preview.request.subscribed ? 'Notifications On' : 'You are not subscribed to this Request.'}</p></>}
                     {session.user.role === 'viewer' && !preview.request && <p>Your viewer role cannot create Requests.</p>}
                 </section>}
@@ -160,8 +160,7 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
             <footer className="movieFooter" aria-busy={busy}>
                 <button className="button secondary" onClick={onClose}>{success ? 'Close' : 'Cancel'}</button>
                 {!authLost && preview.request && <a className="button secondary" href={`/requests?requestId=${encodeURIComponent(preview.request.id)}`} onClick={followLink}>View request</a>}
-                {!authLost && preview.availability === 'available' && preview.libraries?.map(link => <a key={link.url} className="button" href={link.url} target="_blank" rel="noreferrer">Open in {link.name}</a>)}
-                {!authLost && preview.canSubscribe && <button className="button" disabled={busy} onClick={() => void subscribe()}>{busy ? 'Saving…' : 'Notify Me'}</button>}
+                                {!authLost && preview.canSubscribe && <button className="button" disabled={busy} onClick={() => void subscribe()}>{busy ? 'Saving…' : 'Notify Me'}</button>}
                 {canCreate && <button className="button" disabled={busy || !platformsValid} onClick={() => void create()}>{busy ? 'Submitting…' : 'Create request'}</button>}
                 {busy && <span className="sr-only" role="status">Saving your request…</span>}
             </footer>

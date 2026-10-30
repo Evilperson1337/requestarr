@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { api, ApiError, type MoviePreviewState, type ResolvedItem, type Session } from '../api'
 import { followLink } from '../navigation'
+import { LibraryTags } from './LibraryTags'
 
 export function MovieRequestModal({ resolved, session, onClose }: { resolved: ResolvedItem; session: Session; onCreated: () => void; onClose: () => void }) {
     const item = resolved.Item, tv = resolved.TV
@@ -95,9 +96,7 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
                         {isTV && <p>Requests cover the whole series.</p>}
                         <p className="movieRating">{movie?.ratingCount && movie.score !== undefined ? <>TMDB <strong>{movie.score.toFixed(1)}/10</strong> · {movie.ratingCount.toLocaleString()} ratings</> : 'TMDB · Not yet rated'}</p>
                         {item.ExternalURL && <a href={item.ExternalURL} target="_blank" rel="noreferrer">Open on TMDB ↗</a>}
-                        {!authLost && <ul className="tags" aria-label="Library availability">{preview.availability === 'available' && preview.libraries?.length
-                            ? preview.libraries.map(link => <li key={link.url}><a className="tag tag-available" href={link.url} target="_blank" rel="noreferrer">{link.name}: Available</a></li>)
-                            : <li className={`tag${preview.availability === 'available' ? ' tag-available' : ''}`}>{preview.availability === 'available' ? 'Available' : preview.availability === 'missing' ? 'Not in your libraries' : 'Availability unknown'}</li>}</ul>}
+                        {!authLost && <LibraryTags preview={preview} />}
                     </div>
                 </div>
                 {overview && <section aria-label="Synopsis"><h3>Synopsis</h3><p>{overview}</p></section>}

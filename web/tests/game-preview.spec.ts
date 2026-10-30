@@ -34,7 +34,9 @@ test('game preview shows the same rich facts as a movie, with IGDB sourcing', as
     await expect(dialog).toContainText('81/100')
     await expect(dialog).toContainText('40 ratings')
     await expect(dialog).toContainText('Developer: Fixture Studio')
-    await expect(dialog.getByRole('button', { name: 'Show more' })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: /Show (more|less)/ })).toHaveCount(0)
+    await expect(dialog.getByRole('list', { name: 'Genres' }).getByRole('listitem')).toHaveText(['Shooter'])
+    await expect(dialog.getByRole('list', { name: 'Library availability' })).toHaveText('Availability unknown')
     await expect(dialog.getByRole('link', { name: 'Open on IGDB' })).toHaveAttribute('href', game.Item.ExternalURL)
 })
 
@@ -64,4 +66,10 @@ test('game preview has no accessibility violations', async ({ page }) => {
     await expect(dialog).toBeVisible()
     const results = await new AxeBuilder({ page }).include('[role="dialog"]').analyze()
     expect(results.violations).toEqual([])
+})
+
+test('a game available on two media servers shows one tag per server', async ({ page }) => {
+    const dialog = await openGame(page, { ...game, Preview: { availability: 'available', canRequest: false, canSubscribe: false, libraries: [{ name: 'RomM', url: 'https://romm.example.test/g/1' }, { name: 'Plex', url: 'https://plex.example.test/g/1' }] } })
+    await expect(dialog.getByRole('list', { name: 'Library availability' }).getByRole('listitem')).toHaveText(['RomM: Available', 'Plex: Available'])
+    await expect(dialog.getByRole('link', { name: 'RomM: Available' })).toHaveAttribute('href', 'https://romm.example.test/g/1')
 })
