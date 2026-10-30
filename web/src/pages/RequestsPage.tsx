@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, type RequestItem, type RequestPage, type User } from '../api'
 import { followBackLink, followLink, navigate, useLocation } from '../navigation'
+import { RequestCover } from '../components/RequestCover'
 
 const statuses = [['', 'All'], ['requested', 'Requested'], ['approved', 'Approved'], ['available', 'Available'], ['denied', 'Denied'], ['cancelled', 'Cancelled']] as const
 
@@ -154,7 +155,7 @@ export function RequestsPage({ user, csrfToken }: { user: User; csrfToken: strin
         {notice && <p role="status">{notice}</p>}{loading && <p role="status" aria-busy="true">Loading requests…</p>}{error && <div role="alert" className="errorBox"><p>{error}</p>{errorCode === 'cursor_expired' || errorCode === 'invalid_cursor' ? <button className="button secondary" onClick={() => changeFilters({})}>Restart from first page</button> : <button className="button secondary" onClick={() => void load()}>Retry</button>}</div>}
         {!loading && !error && items.length === 0 && <div className="empty"><h2>{hasFilters ? 'No matching requests' : 'No requests yet'}</h2><p>{hasFilters ? 'Try a different title, status, media type, or turn off My Requests.' : 'Be the first to request something for the shared library.'}</p></div>}
         {!error && items.length > 0 && <ul className="requestList" aria-label="Requests" aria-busy={loading || busy}>{items.map(req => <li className="requestRow" key={req.ID}>
-            {req.ArtworkURL ? <img src={req.ArtworkURL} alt={`Artwork for ${req.Title}`} className={`art small${req.ArtworkKind === 'square' ? ' square' : ''}`} /> : <span className="artPlaceholder" aria-hidden="true">{req.MediaType === 'tv' ? 'TV' : req.MediaType}</span>}
+            <RequestCover req={req} />
             <div className="requestInfo">
                 <h2>{req.Title}</h2>
                 <p className="requestFacts">{[req.MediaType, `requested ${new Date(req.CreatedAt).toLocaleDateString()}`, req.availability === 'available' ? 'In library' : req.availability === 'missing' ? 'Not in library' : '', req.MediaType === 'game' ? `Platforms: ${req.Platforms?.any ? 'any' : (req.Platforms?.platformKeys || []).map(key => req.CatalogPlatforms?.find(p => p.key === key)?.name || key).join(', ') || 'not specified'}` : ''].filter(Boolean).join(' · ')}</p>

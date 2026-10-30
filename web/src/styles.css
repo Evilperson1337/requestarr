@@ -695,13 +695,15 @@ p {
     justify-self: center;
 }
 
-.requestsPage .art.small {
+.requestsPage .art.small,
+.recentList .art.small {
     width: 40px;
     height: 58px;
     border-radius: 6px;
 }
 
-.requestsPage .art.small.square {
+.requestsPage .art.small.square,
+.recentList .art.small.square {
     width: 52px;
     height: 52px;
 }
@@ -1141,4 +1143,52 @@ tbody th {
 
 .card>h2:not(:first-child) {
     margin-top: 36px;
+}
+
+.recentHeader {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.recentHeader h2 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.recentList {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.recentList li {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 0;
+    border-top: 1px solid #29344a;
+}
+
+.recentList li>.art,
+.recentList li>.artPlaceholder {
+    justify-self: center;
+}
+
+.recentList a {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.recentList p {
+    margin: 2px 0 0;
+    font-size: .9rem;
+}
+
+/* Plain links read on the dark ground; buttons and nav links set their own colour. */
+a {
+    color: #c4b5ff;
 }

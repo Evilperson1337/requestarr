@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, type MoviePreviewState, type ResolvedItem, type Session } from '../api'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { api, type MoviePreviewState, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
+import { RequestCover } from '../components/RequestCover'
 import { RequestModal } from '../components/RequestModal'
+import { followLink } from '../navigation'
 
 export function HomePage({ session, onCreated }: { session: Session; onCreated: () => void }) {
     const [url, setURL] = useState('')
@@ -12,6 +14,16 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     const lookup = useRef<AbortController | null>(null)
     const cached = useRef<{ key: string; item: ResolvedItem } | null>(null)
     useEffect(() => () => lookup.current?.abort(), [])
+    // The requests this person follows, newest first: the screen's second question after "what do I want".
+    const [recent, setRecent] = useState<RequestItem[] | null>(null)
+    const [recentFailed, setRecentFailed] = useState(false)
+    const loadRecent = useCallback(async (signal?: AbortSignal) => {
+        try {
+            const page = await api<RequestPage>('/requests?mine=true&limit=5', { cache: 'no-store', signal })
+            if (!signal?.aborted) { setRecent(Array.isArray(page?.items) ? page.items : []); setRecentFailed(false) }
+        } catch { if (!signal?.aborted) setRecentFailed(true) }
+    }, [])
+    useEffect(() => { const controller = new AbortController(); void loadRecent(controller.signal); return () => controller.abort() }, [session.user.id, loadRecent])
     async function resolve(e: FormEvent) {
         if (busy) { e.preventDefault(); return }
         returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : previewButton.current
@@ -36,6 +48,14 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
             {busy && <p role="status">Looking up metadata…</p>}{error && <p role="alert" className="error">{error}</p>}
             <div className="providers"><span>TMDB · Movies &amp; TV</span><span>MusicBrainz · Music</span><span>IGDB · Games</span></div>
         </section>
-        {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus()) }} />}
+        <section className="recent" aria-labelledby="recent-heading">
+            <div className="recentHeader"><h2 id="recent-heading">Your recent requests</h2><a href="/requests?mine=true" onClick={followLink}>Open the full queue</a></div>
+            {recent === null ? <p>{recentFailed ? 'Your recent requests could not be loaded.' : 'Loading…'}</p> : recent.length === 0 ? <p>Nothing yet. Paste a link above to make your first request.</p> : <ul className="recentList">{recent.map(req => <li key={req.ID}>
+                <RequestCover req={req} />
+                <div><a href={`/requests?requestId=${encodeURIComponent(req.ID)}`} onClick={followLink}>{req.Title}</a><p>{[req.MediaType === 'tv' ? 'TV' : req.MediaType, req.availability === 'available' ? 'In library' : req.availability === 'missing' ? 'Not in library' : ''].filter(Boolean).join(' · ')}</p></div>
+                <span className={`badge status-${req.Status}`}>{req.Status}</span>
+            </li>)}</ul>}
+        </section>
+        {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus()) }} />}
     </main>
 }
