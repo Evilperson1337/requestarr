@@ -10,5 +10,5 @@ export function NotificationsPage({ session }: { session: Session }) {
         try { await api<void>(`/notifications/${id}/read`, { method: 'POST' }, session.csrfToken); setItems(current => current.map(item => item.id === id ? { ...item, readAt: new Date().toISOString() } : item)) }
         catch { setError('Could not update notification') }
     }
-    return <main className="shell"><section className="card"><p className="eyebrow">Your account</p><h1>Notifications</h1>{error && <p role="alert" className="error">{error}</p>}{items.length === 0 ? <p>No notifications yet.</p> : <ul>{items.map(item => <li key={item.id}><strong>{item.title}</strong><p>{item.body}</p><time>{new Date(item.createdAt).toLocaleString()}</time>{!item.readAt && <button className="button secondary" onClick={() => void markRead(item.id)}>Mark read</button>}</li>)}</ul>}</section></main>
+    return <main className="shell"><section className="card"><h1>Notifications</h1>{error && <p role="alert" className="error">{error}</p>}{items.length === 0 ? <p>No notifications yet.</p> : <ul>{items.map(item => <li key={item.id}><strong>{item.title}</strong><p>{item.body}</p><time>{new Date(item.createdAt).toLocaleString()}</time>{!item.readAt && <button className="button secondary" onClick={() => void markRead(item.id)}>Mark read</button>}</li>)}</ul>}</section></main>
 }

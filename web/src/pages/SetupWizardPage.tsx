@@ -33,7 +33,7 @@ export function SetupWizardPage({ session, onComplete }: { session: Session | nu
     }
 
     return <main className="shell setupShell"><section className="card setupCard">
-        <p className="eyebrow">Requestarr · First-run setup</p>
+        
         <h1>Connect sign-in, then claim the first admin</h1>
         <p>This page does not configure OIDC or edit server settings. OIDC must already be configured through the server environment before sign-in can work.</p>
         <div className="setupSteps">

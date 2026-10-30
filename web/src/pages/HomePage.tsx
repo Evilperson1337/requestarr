@@ -31,7 +31,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         finally { if (!controller.signal.aborted) setBusy(false) }
     }
     return <main className="shell">
-        <section className="card hero"><p className="eyebrow">Requestarr · Your shared library</p><h1>Request Something</h1><p>Paste a TMDB, MusicBrainz, or IGDB link to preview it before requesting.</p>
+        <section className="card hero"><h1>Request Something</h1><p>Paste a TMDB, MusicBrainz, or IGDB link to preview it before requesting.</p>
             <form onSubmit={resolve}><label className="urlBox"><span aria-hidden="true">↗</span><span className="sr-only">TMDB, MusicBrainz, or IGDB URL</span><input type="url" required value={url} onChange={e => setURL(e.target.value)} placeholder="Paste a supported link…" /></label><button ref={previewButton} className="button" disabled={busy} onClick={event => { if (event.detail > 0) event.currentTarget.focus() }}>{busy ? 'Resolving…' : 'Preview'}</button></form>
             {busy && <p role="status">Looking up metadata…</p>}{error && <p role="alert" className="error">{error}</p>}
             <div className="providers"><span>TMDB · Movies &amp; TV</span><span>MusicBrainz · Music</span><span>IGDB · Games</span></div>

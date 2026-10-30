@@ -159,7 +159,7 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
     const editable = !completed && (step === 'general' || step === 'authentication' || step === 'providers' || step === 'libraries' || step === 'notifications' || step === 'policy')
     const blockers = draft?.blockers ?? []
     return <main className="shell draftWizard">{!authorizationLost && <DevelopmentLogsPanel session={session} />}<section className="card">
-        <p className="eyebrow">Administrator · Shared setup draft</p>
+        
         <h1>Setup · Inactive draft</h1>
         <p>Saving a draft does not activate or apply configuration. Server environment changes require an operator restart. Setup completes only when you finish the Review step with every required check passing.</p>
         {busy && !draft && <p role="status">Loading saved draft…</p>}
