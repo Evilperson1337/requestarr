@@ -8,7 +8,6 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
     const movie = isTV ? tv && { ...tv, runtime: tv.episodeRuntime, releaseDate: tv.firstAirDate, releaseStatus: tv.seriesStatus, directors: tv.creators } : resolved.Movie
     const requestLabel = isTV ? 'Request series' : 'Request movie'
     const dialog = useRef<HTMLElement>(null)
-    const [expanded, setExpanded] = useState(false)
     const [posterFailed, setPosterFailed] = useState(false)
     const [backdropFailed, setBackdropFailed] = useState(false)
     const [note, setNote] = useState('')
@@ -74,7 +73,6 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
     }
     const canCreate = !authLost && !success && preview.canRequest && !preview.request && preview.availability !== 'available' && session.user.role !== 'viewer'
     const overview = movie?.overview || ''
-    const longOverview = overview.length > 320
     // Parse date-only values at local noon so locale formatting never shifts a day.
     const releaseDate = movie?.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(movie.releaseDate) ? new Date(`${movie.releaseDate}T12:00:00`) : null
     const today = new Date(); const todayISO = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
@@ -90,21 +88,24 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
                 <div className="movieIdentity">
                     {item.ArtworkURL && !posterFailed ? <img className="moviePoster" src={item.ArtworkURL} alt={`Poster for ${item.Title}`} onError={() => setPosterFailed(true)} /> : <div className="moviePoster moviePlaceholder" role="img" aria-label="Poster unavailable">Poster unavailable</div>}
                     <div className="movieHeading"><h2 id="movie-preview-title">{item.Title}{item.Year ? ` (${item.Year})` : ''}</h2>
-                        <div className="movieFacts">{upcoming ? <span className="movieBadge">Upcoming</span> : movie?.releaseStatus && <span className="movieBadge">{movie.releaseStatus}</span>}{movie?.runtime ? <span>{Math.floor(movie.runtime / 60) ? `${Math.floor(movie.runtime / 60)}h ` : ''}{movie.runtime % 60}m{isTV ? ' per episode' : ''}</span> : null}{isTV && tv?.seasons ? <span>{tv.seasons.toLocaleString()} {tv.seasons === 1 ? 'season' : 'seasons'}</span> : null}{isTV && tv?.episodes ? <span>{tv.episodes.toLocaleString()} {tv.episodes === 1 ? 'episode' : 'episodes'}</span> : null}{movie?.genres?.map((genre, index) => <span key={`${genre}-${index}`}>{genre}</span>)}</div>
+                        <div className="movieFacts">{upcoming ? <span className="movieBadge">Upcoming</span> : movie?.releaseStatus && <span className="movieBadge">{movie.releaseStatus}</span>}{movie?.runtime ? <span>{Math.floor(movie.runtime / 60) ? `${Math.floor(movie.runtime / 60)}h ` : ''}{movie.runtime % 60}m{isTV ? ' per episode' : ''}</span> : null}{isTV && tv?.seasons ? <span>{tv.seasons.toLocaleString()} {tv.seasons === 1 ? 'season' : 'seasons'}</span> : null}{isTV && tv?.episodes ? <span>{tv.episodes.toLocaleString()} {tv.episodes === 1 ? 'episode' : 'episodes'}</span> : null}</div>
+                        {!!movie?.genres?.length && <ul className="tags" aria-label="Genres">{movie.genres.map((genre, index) => <li className="tag" key={`${genre}-${index}`}>{genre}</li>)}</ul>}
                         <p>{releaseDate && !Number.isNaN(releaseDate.getTime()) ? <><strong>{isTV ? 'First aired:' : 'Release date:'}</strong> <time dateTime={movie?.releaseDate}>{releaseDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</time></> : isTV ? 'First air date unknown' : 'Release date unknown'}</p>
                         {isTV && lastAirDate && !Number.isNaN(lastAirDate.getTime()) && <p><strong>Last aired:</strong> <time dateTime={tv?.lastAirDate}>{lastAirDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</time></p>}
                         {isTV && <p>Requests cover the whole series.</p>}
                         <p className="movieRating">{movie?.ratingCount && movie.score !== undefined ? <>TMDB <strong>{movie.score.toFixed(1)}/10</strong> · {movie.ratingCount.toLocaleString()} ratings</> : 'TMDB · Not yet rated'}</p>
                         {item.ExternalURL && <a href={item.ExternalURL} target="_blank" rel="noreferrer">Open on TMDB ↗</a>}
+                        {!authLost && <ul className="tags" aria-label="Library availability">{preview.availability === 'available' && preview.libraries?.length
+                            ? preview.libraries.map(link => <li key={link.url}><a className="tag tag-available" href={link.url} target="_blank" rel="noreferrer">{link.name}: Available</a></li>)
+                            : <li className={`tag${preview.availability === 'available' ? ' tag-available' : ''}`}>{preview.availability === 'available' ? 'Available' : preview.availability === 'missing' ? 'Not in your libraries' : 'Availability unknown'}</li>}</ul>}
                     </div>
                 </div>
-                {overview && <section aria-label="Synopsis"><h3>Synopsis</h3><p id="movie-synopsis">{longOverview && !expanded ? `${overview.slice(0, 320)}…` : overview}</p>{longOverview && <button className="button secondary" aria-expanded={expanded} aria-controls="movie-synopsis" onClick={() => setExpanded(!expanded)}>{expanded ? 'Show less' : 'Show more'}</button>}</section>}
+                {overview && <section aria-label="Synopsis"><h3>Synopsis</h3><p>{overview}</p></section>}
                 {!!movie?.directors?.length && <p><strong>{isTV ? 'Creator' : 'Director'}{movie.directors.length > 1 ? 's' : ''}:</strong> {movie.directors.join(', ')}</p>}
                 {!!movie?.cast?.length && <section aria-label="Lead cast"><h3>Lead cast</h3><ul className="movieCast">{movie.cast.slice(0, 5).map((person, index) => <li key={`${person.name}-${index}`}><strong>{person.name}</strong>{person.character && <span>{person.character}</span>}</li>)}</ul></section>}
                 {movie?.detailsUnavailable && <p role="status">Some details unavailable.</p>}
                 {!authLost && <section className="movieState" aria-label="Request and availability">
                     {success && <p ref={successMessage} tabIndex={-1} role="status"><strong>{success}</strong></p>}
-                    <p>{preview.availability === 'available' ? 'Available in your libraries' : preview.availability === 'missing' ? 'Not currently available in your libraries' : 'Library availability unknown'}</p>
                     {preview.request && <><p>Shared Request: {preview.request.status}</p><p role="status">{preview.request.subscribed ? 'Notifications On' : 'You are not subscribed to this Request.'}</p></>}
                     {session.user.role === 'viewer' && !preview.request && <p>Your viewer role cannot create Requests.</p>}
                 </section>}
@@ -114,8 +115,7 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
             <footer className="movieFooter" aria-busy={busy}>
                 <button className="button secondary" onClick={onClose}>{success ? 'Close' : 'Cancel'}</button>
                 {!authLost && preview.request && <a className="button secondary" href={`/requests?requestId=${encodeURIComponent(preview.request.id)}`} onClick={followLink}>View request</a>}
-                {!authLost && preview.availability === 'available' && preview.libraries?.map(link => <a key={link.url} className="button" href={link.url} target="_blank" rel="noreferrer">Open in {link.name}</a>)}
-                {!authLost && preview.canSubscribe && <button className="button" disabled={busy} onClick={() => void subscribe()}>{busy ? 'Saving…' : 'Notify Me'}</button>}
+                                {!authLost && preview.canSubscribe && <button className="button" disabled={busy} onClick={() => void subscribe()}>{busy ? 'Saving…' : 'Notify Me'}</button>}
                 {canCreate && <button className="button" disabled={busy} onClick={() => void create()}>{busy ? 'Submitting…' : requestLabel}</button>}
                 {busy && <span className="sr-only" role="status">Saving your request…</span>}
             </footer>

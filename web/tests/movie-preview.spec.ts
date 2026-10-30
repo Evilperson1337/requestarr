@@ -21,15 +21,15 @@ async function openMovie(page: Page, resolved: unknown = movie, role = 'requeste
     return page.getByRole('dialog', { name: /Fixture movie/ })
 }
 
-test('movie preview exposes rich facts and an expandable official synopsis', async ({ page }) => {
+test('movie preview exposes rich facts, genre tags and the whole official synopsis', async ({ page }) => {
     const dialog = await openMovie(page)
     await expect(dialog).toContainText('2h 25m')
     await expect(dialog).toContainText('Adventure')
     await expect(dialog).toContainText('7.8/10')
     await expect(dialog).toContainText('120 ratings')
-    await expect(dialog.getByRole('button', { name: 'Show more' })).toBeVisible()
-    await dialog.getByRole('button', { name: 'Show more' }).click()
-    await expect(dialog.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true')
+    // The synopsis is shown whole; there is nothing to expand.
+    await expect(dialog.getByRole('button', { name: /Show (more|less)/ })).toHaveCount(0)
+    await expect(dialog.getByRole('list', { name: 'Genres' }).getByRole('listitem')).toHaveText(['Adventure'])
     await expect(dialog.getByRole('link', { name: 'Open on TMDB' })).toHaveAttribute('href', movie.Item.ExternalURL)
 })
 
@@ -86,8 +86,8 @@ test('existing shared Request offers notifications and an exact target, not crea
 
 test('known availability offers the library without creating a Request', async ({ page }) => {
     const dialog = await openMovie(page, { ...movie, Preview: { availability: 'available', canRequest: false, canSubscribe: false, libraries: [{ name: 'Library', url: 'https://library.example.test/items/1' }] } })
-    await expect(dialog).toContainText('Available in your libraries')
-    await expect(dialog.getByRole('link', { name: 'Open in Library' })).toHaveAttribute('href', 'https://library.example.test/items/1')
+    await expect(dialog.getByRole('list', { name: 'Library availability' })).toContainText('Library: Available')
+    await expect(dialog.getByRole('link', { name: 'Library: Available' })).toHaveAttribute('href', 'https://library.example.test/items/1')
     await expect(dialog.getByRole('button', { name: 'Request movie', exact: true })).toHaveCount(0)
 })
 
@@ -178,4 +178,17 @@ test('in-flight submission is disabled and only one creation call is made', asyn
     release()
     await expect(dialog).toContainText('Movie requested')
     expect(calls).toBe(1)
+})
+
+test('availability reads as one tag per media server, linked to the item', async ({ page }) => {
+    const dialog = await openMovie(page, { ...movie, Preview: { availability: 'available', canRequest: false, canSubscribe: false, libraries: [{ name: 'Plex', url: 'https://plex.example.test/item/1' }, { name: 'Jellyfin', url: 'https://jellyfin.example.test/item/9' }] } })
+    const tags = dialog.getByRole('list', { name: 'Library availability' })
+    await expect(tags.getByRole('listitem')).toHaveText(['Plex: Available', 'Jellyfin: Available'])
+    await expect(tags.getByRole('link', { name: 'Jellyfin: Available' })).toHaveAttribute('href', 'https://jellyfin.example.test/item/9')
+    await expect(dialog.getByText('Library availability unknown')).toHaveCount(0)
+})
+
+test('without library evidence the availability tag says so plainly', async ({ page }) => {
+    const unknown = await openMovie(page)
+    await expect(unknown.getByRole('list', { name: 'Library availability' })).toHaveText('Availability unknown')
 })

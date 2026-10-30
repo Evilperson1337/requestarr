@@ -1417,3 +1417,37 @@ a {
     padding: 4px 14px;
     white-space: nowrap;
 }
+
+/* Tags: genres and library availability. */
+.tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    list-style: none;
+    margin: 10px 0 0;
+    padding: 0;
+}
+
+.tag {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--raised);
+    color: var(--text);
+    font-size: .9rem;
+    line-height: 1.4;
+    text-decoration: none;
+}
+
+a.tag:hover {
+    background: #3a3a3a;
+}
+
+.tag-available {
+    background: var(--pill-positive-bg);
+    color: var(--pill-positive-ink);
+}
+
+a.tag-available:hover {
+    background: #2d3818;
+}
