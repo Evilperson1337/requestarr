@@ -39,7 +39,7 @@ export function MatchSuggestions({ csrfToken, onRequestError }: { csrfToken: str
     }
 
     return <section className="card" aria-labelledby="match-review-heading">
-        <p className="eyebrow">Administrator</p><h2 id="match-review-heading">Suggested matches</h2>
+        <h2 id="match-review-heading">Suggested matches</h2>
         <p>These title/year candidates are not availability evidence. Accept only when the catalog item and library item are the same. Accepting records library evidence and may notify subscribers; dismissing leaves availability unchanged and will not reopen this candidate.</p>
         <button className="button secondary" disabled={loading || !!reviewing} onClick={() => { setError(''); void load() }}>Refresh suggestions</button>
         {error && <p role="alert" className="error">{error}</p>}

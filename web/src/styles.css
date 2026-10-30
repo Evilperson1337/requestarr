@@ -1055,3 +1055,93 @@ legend {
 .draftWizard .draftEnvironment dd {
     margin: 6px 0 0;
 }
+/* Form controls and tables share one look everywhere, so a screen need not restyle them. */
+input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]),
+select,
+textarea {
+    min-height: 40px;
+    padding: 6px 12px;
+    border: 1px solid #46536b;
+    border-radius: 9px;
+    background: #090e18;
+    color: #fff;
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: #8995ad;
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+    opacity: .6;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+caption {
+    padding: 0 0 8px;
+    text-align: left;
+    color: #aab4c9;
+    font-size: .9rem;
+}
+
+th,
+td {
+    padding: 10px 14px 10px 0;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid #1f2a40;
+}
+
+thead th {
+    color: #aab4c9;
+    font-size: .85rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+tbody th {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.secretField {
+    display: grid;
+    gap: 8px;
+    max-width: 640px;
+    margin: 0 0 24px;
+}
+
+.secretField input {
+    width: 100%;
+}
+
+.secretField label {
+    font-weight: 600;
+}
+
+.secretField .draftActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.secretField p {
+    margin: 0;
+    color: #aab4c9;
+    font-size: .9rem;
+}
+
+.secretField [role="alert"],
+.secretField [role="status"] {
+    color: inherit;
+}
+
+.card>h2:not(:first-child) {
+    margin-top: 36px;
+}
