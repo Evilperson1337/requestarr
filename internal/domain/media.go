@@ -56,6 +56,7 @@ type ResolvedItem struct {
 	Movie     *MovieDetails `json:"Movie,omitempty"`
 	TV        *TVDetails    `json:"TV,omitempty"`
 	Game      *GameDetails  `json:"Game,omitempty"`
+	Music     *MusicDetails `json:"Music,omitempty"`
 	Preview   *MoviePreview `json:"Preview,omitempty"`
 }
 

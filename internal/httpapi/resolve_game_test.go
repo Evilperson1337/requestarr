@@ -72,3 +72,22 @@ func TestFailedResolutionIsLoggedWithItsCauseAndAnsweredGenerically(t *testing.T
 		t.Fatalf("log = %s", logs.String())
 	}
 }
+
+// Music resolves with its details and the same preview state, like the other media types.
+func TestResolvedMusicCarriesDetailsAndPreviewState(t *testing.T) {
+	score := 4.5
+	album := domain.ResolvedItem{
+		Item:  domain.CatalogItem{ID: matrixItemID, MediaType: domain.MediaAlbum, Provider: "musicbrainz", Title: "Radiohead — Kid A"},
+		Music: &domain.MusicDetails{Artists: []string{"Radiohead"}, PrimaryType: "Album", Genres: []string{"electronic"}, Score: &score, RatingCount: 22},
+	}
+	rec := resolveRequest(t, testLogger(), fixedResolver{item: album})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"Music":{"artists":["Radiohead"]`, `"primaryType":"Album"`, `"Preview":{"availability"`, `"canRequest":true`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("response lacks %s: %s", want, body)
+		}
+	}
+}

@@ -900,7 +900,22 @@ components:
         Movie: { $ref: '#/components/schemas/MovieDetails' }
         TV: { $ref: '#/components/schemas/TVDetails' }
         Game: { $ref: '#/components/schemas/GameDetails' }
+        Music: { $ref: '#/components/schemas/MusicDetails' }
         Preview: { $ref: '#/components/schemas/MoviePreviewState' }
+    MusicDetails:
+      type: object
+      additionalProperties: false
+      description: MusicBrainz details of an album or song, shown on the request preview. Every field is optional. Album art comes from the Cover Art Archive.
+      properties:
+        artists: { type: array, maxItems: 10, items: { type: string, maxLength: 256 } }
+        primaryType: { type: string, maxLength: 40, description: "For an album, such as Album, EP or Single" }
+        secondaryTypes: { type: array, maxItems: 5, items: { type: string, maxLength: 40 } }
+        releaseDate: { type: string, format: date, description: Present only when MusicBrainz has a complete date }
+        genres: { type: array, maxItems: 10, items: { type: string, maxLength: 80 } }
+        lengthSeconds: { type: integer, minimum: 1, description: A song's duration }
+        appearsOn: { type: array, maxItems: 5, items: { type: string, maxLength: 256 }, description: Releases a song appears on }
+        score: { type: number, minimum: 0, maximum: 5, description: MusicBrainz community rating on a 0-5 scale }
+        ratingCount: { type: integer, minimum: 1 }
     GameDetails:
       type: object
       additionalProperties: false

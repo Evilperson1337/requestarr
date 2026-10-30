@@ -401,14 +401,13 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			apierror.Write(w, r, 400, "metadata_resolution_failed", "metadata URL could not be resolved")
 			return
 		}
-		if item.Item.MediaType == domain.MediaMovie || item.Item.MediaType == domain.MediaTV || item.Item.MediaType == domain.MediaGame {
-			state, err := moviePreview(r.Context(), d.MoviePreview, item.Item.ID, user)
-			if err != nil {
-				writeMoviePreviewError(w, r, err)
-				return
-			}
-			item.Preview = &state
+		// Every media type previews its request and availability state alike.
+		state, err := moviePreview(r.Context(), d.MoviePreview, item.Item.ID, user)
+		if err != nil {
+			writeMoviePreviewError(w, r, err)
+			return
 		}
+		item.Preview = &state
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, 200, item)
 	})

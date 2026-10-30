@@ -40,18 +40,23 @@ test('home resolves a link, previews it in a labelled dialog, and creates a requ
     expect(calls).toEqual([{ path: '/requests', body: { catalogId: 'catalog-1', note: 'Please add', platforms: { any: true } } }])
 })
 
-for (const mediaType of ['album', 'song']) test(`${mediaType} keeps the original note and immediate Requests navigation`, async ({ page }) => {
-    await mockApp(page, (path, method) => {
+for (const mediaType of ['album', 'song']) test(`${mediaType} previews like the other media types and keeps the note`, async ({ page }) => {
+    const calls: unknown[] = []
+    await mockApp(page, (path, method, body) => {
         if (path === '/resolve') return resolved(mediaType)
-        if (path === '/requests' && method === 'POST') return {}
+        if (path === '/requests' && method === 'POST') { calls.push(body); return { Created: true, Request: { ID: 'request-1', Status: 'requested' } } }
+        if (path.includes('/preview')) return { availability: 'unknown', canRequest: false, canSubscribe: false, request: { id: 'request-1', status: 'requested', subscribed: true } }
         if (path === '/requests') return { items: [], nextCursor: null }
     })
     await page.goto('/')
     await page.getByPlaceholder('Paste a supported link…').fill(`https://musicbrainz.org/${mediaType === 'album' ? 'release-group' : 'recording'}/11111111-1111-4111-8111-111111111111`)
     await page.getByRole('button', { name: 'Preview', exact: true }).click()
-    await expect(page.getByLabel('Note (optional)')).toBeVisible()
-    await page.getByRole('button', { name: 'Create request', exact: true }).click()
-    await expect(page).toHaveURL(/\/requests$/)
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Add a note' }).click()
+    await dialog.getByLabel('Note (optional)').fill('Please add')
+    await dialog.getByRole('button', { name: 'Create request', exact: true }).click()
+    await expect(dialog).toContainText(`${mediaType === 'album' ? 'Album' : 'Song'} requested`)
+    expect(calls).toEqual([{ catalogId: 'catalog-1', note: 'Please add', platforms: { any: true } }])
 })
 
 test('game request modal enforces Any-or-explicit platforms and can be cancelled', async ({ page }) => {
