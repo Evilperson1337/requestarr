@@ -106,3 +106,30 @@ func TestDetailsAreBoundedAndCleaned(t *testing.T) {
 		t.Fatalf("genres = %d, score = %v: genres cap at 10 and a score off the 0-5 scale is dropped", len(got.Music.Genres), got.Music.Score)
 	}
 }
+
+// The bug report: MusicBrainz answered 503 now and then, and a release link
+// (two calls) failed with the generic metadata error. One blip must not fail it.
+func TestReleaseLinkSurvivesAnOccasional503(t *testing.T) {
+	calls := map[string]int{}
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls[r.URL.Path]++
+		if calls[r.URL.Path] == 1 { // every endpoint fails once
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/release/") {
+			_, _ = w.Write([]byte(`{"id":"` + pressA + `","title":"Deluxe","release-group":{"id":"` + album + `","title":"Kid A"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"` + album + `","title":"Kid A","artist-credit":[{"name":"Radiohead"}]}`))
+	}))
+	defer s.Close()
+	client := s.Client()
+	client.Transport = rewriteTransport{base: s.URL, next: http.DefaultTransport}
+	u, _ := url.Parse("https://musicbrainz.org/release/" + pressA)
+	got, err := New(client).Resolve(context.Background(), u)
+	if err != nil || got.Item.ProviderID != album {
+		t.Fatalf("err = %v, item = %+v", err, got.Item)
+	}
+}

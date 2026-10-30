@@ -72,7 +72,7 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 			Title string `json:"title"`
 		} `json:"releases"`
 	}
-	if err := metadata.Fetch(ctx, r.client, endpoint, nil, &data); err != nil {
+	if err := metadata.FetchRetrying(ctx, r.client, endpoint, nil, &data); err != nil {
 		return domain.ResolvedItem{}, err
 	}
 	if data.ID == "" || data.Title == "" {
@@ -131,7 +131,7 @@ func (r *Resolver) resolveRelease(ctx context.Context, id string) (domain.Resolv
 			Title string `json:"title"`
 		} `json:"release-group"`
 	}
-	if err := metadata.Fetch(ctx, r.client, "https://musicbrainz.org/ws/2/release/"+url.PathEscape(id)+"?fmt=json&inc=release-groups", nil, &data); err != nil {
+	if err := metadata.FetchRetrying(ctx, r.client, "https://musicbrainz.org/ws/2/release/"+url.PathEscape(id)+"?fmt=json&inc=release-groups", nil, &data); err != nil {
 		return domain.ResolvedItem{}, err
 	}
 	if data.ReleaseGroup == nil || !mbidPattern.MatchString(data.ReleaseGroup.ID) || data.ReleaseGroup.Title == "" {

@@ -162,7 +162,7 @@ func (r *Resolver) fetch(ctx context.Context, query string) ([]gameRow, error) {
 		}
 		h := http.Header{"Client-ID": {r.clientID}, "Authorization": {"Bearer " + token}, "Content-Type": {"text/plain"}}
 		var rows []gameRow
-		err = metadata.FetchWithBody(ctx, r.client, gamesEndpoint, query, h, &rows)
+		err = metadata.FetchWithBodyRetrying(ctx, r.client, gamesEndpoint, query, h, &rows)
 		if err != nil && attempt == 0 && strings.Contains(err.Error(), "401") {
 			continue
 		}
