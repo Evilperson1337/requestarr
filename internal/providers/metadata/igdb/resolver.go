@@ -80,7 +80,7 @@ func (r *Resolver) token(ctx context.Context, renew bool) (string, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		return "", fmt.Errorf("IGDB token request returned %s; check the IGDB client ID and client secret", resp.Status)
+		return "", tokenError(resp.StatusCode, resp.Status)
 	}
 	var out struct {
 		AccessToken string `json:"access_token"`
@@ -132,7 +132,7 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 		return domain.ResolvedItem{}, fmt.Errorf("unsupported IGDB URL")
 	}
 	if r.clientID == "" || r.secret == "" {
-		return domain.ResolvedItem{}, fmt.Errorf("IGDB is not configured: set the IGDB client ID and client secret")
+		return domain.ResolvedItem{}, fmt.Errorf("IGDB is not configured: set the IGDB client ID and client secret: %w", metadata.ErrNotConfigured)
 	}
 	// IGDB page URLs name a game by slug; a bare numeric ID is accepted too.
 	var where string
@@ -242,4 +242,16 @@ func clean(s string, limit int) string {
 		s = s[:limit]
 	}
 	return s
+}
+
+// tokenError tags a failed token request: bad credentials are the
+// administrator's to fix, a busy Twitch is not.
+func tokenError(code int, status string) error {
+	switch {
+	case code == http.StatusBadRequest || code == http.StatusUnauthorized || code == http.StatusForbidden:
+		return fmt.Errorf("IGDB token request returned %s; check the IGDB client ID and client secret: %w", status, metadata.ErrCredentials)
+	case code == http.StatusTooManyRequests || code >= 500:
+		return fmt.Errorf("IGDB token request returned %s: %w", status, metadata.ErrBusy)
+	}
+	return fmt.Errorf("IGDB token request returned %s", status)
 }

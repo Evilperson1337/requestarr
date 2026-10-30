@@ -76,14 +76,25 @@ func fetch(ctx context.Context, client *http.Client, method, endpoint, body stri
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
 		if !transient(resp.StatusCode) || attempt >= attempts {
-			return fmt.Errorf("metadata provider returned %s", resp.Status)
+			return statusError(resp)
 		}
 		select {
 		case <-time.After(retryDelay(attempt, resp.Header.Get("Retry-After"))):
 		case <-ctx.Done():
-			return fmt.Errorf("metadata provider returned %s; gave up waiting to retry: %w", resp.Status, ctx.Err())
+			return fmt.Errorf("metadata provider returned %s; gave up waiting to retry: %w: %w", resp.Status, ErrBusy, ctx.Err())
 		}
 	}
+}
+
+// statusError describes a non-200 answer, tagged with what the caller can do about it.
+func statusError(resp *http.Response) error {
+	switch {
+	case transient(resp.StatusCode):
+		return fmt.Errorf("metadata provider returned %s: %w", resp.Status, ErrBusy)
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return fmt.Errorf("metadata provider returned %s: %w", resp.Status, ErrCredentials)
+	}
+	return fmt.Errorf("metadata provider returned %s", resp.Status)
 }
 
 func send(ctx context.Context, client *http.Client, method, endpoint, body string, headers http.Header) (*http.Response, error) {

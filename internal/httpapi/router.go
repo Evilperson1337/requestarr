@@ -394,11 +394,8 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		}
 		item, err := resolverService.ResolveAndUpsert(r.Context(), in.URL)
 		if err != nil {
-			// The response stays generic; the cause (a provider status, a bad
-			// credential, an unsupported URL) is for the operator's log. Resolver
-			// errors carry no credentials: those travel in headers and bodies.
-			logger.Warn("metadata resolution failed", "request_id", apierror.RequestID(r.Context()), "error", err)
-			apierror.Write(w, r, 400, "metadata_resolution_failed", "metadata URL could not be resolved")
+			// Resolver errors carry no credentials: those travel in headers and bodies.
+			writeResolveError(w, r, logger, err, "metadata_resolution_failed")
 			return
 		}
 		// Every media type previews its request and availability state alike.
@@ -435,7 +432,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		if in.URL != "" {
 			resolved, resolveErr := resolverService.ResolveAndUpsert(r.Context(), in.URL)
 			if resolveErr != nil {
-				apierror.Write(w, r, 400, "invalid_metadata_url", "metadata URL could not be resolved")
+				writeResolveError(w, r, logger, resolveErr, "invalid_metadata_url")
 				return
 			}
 			in.CatalogID = resolved.Item.ID

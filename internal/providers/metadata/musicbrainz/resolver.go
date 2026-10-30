@@ -72,6 +72,9 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 			Title string `json:"title"`
 		} `json:"releases"`
 	}
+	if err := apiSpacer.wait(ctx); err != nil {
+		return domain.ResolvedItem{}, err
+	}
 	if err := metadata.FetchRetrying(ctx, r.client, endpoint, nil, &data); err != nil {
 		return domain.ResolvedItem{}, err
 	}
@@ -130,6 +133,9 @@ func (r *Resolver) resolveRelease(ctx context.Context, id string) (domain.Resolv
 			ID    string `json:"id"`
 			Title string `json:"title"`
 		} `json:"release-group"`
+	}
+	if err := apiSpacer.wait(ctx); err != nil {
+		return domain.ResolvedItem{}, err
 	}
 	if err := metadata.FetchRetrying(ctx, r.client, "https://musicbrainz.org/ws/2/release/"+url.PathEscape(id)+"?fmt=json&inc=release-groups", nil, &data); err != nil {
 		return domain.ResolvedItem{}, err

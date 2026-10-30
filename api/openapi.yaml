@@ -159,9 +159,10 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ResolvedPreview' }
-        '400': { description: Unsupported URL or provider resolution failure }
+        '400': { description: Unsupported URL, or the item was not found at the provider (metadata_resolution_failed) }
         '401': { description: Authentication required }
-        '503': { description: Local preview state unavailable; retry without discarding the pasted URL }
+        '502': { description: The provider rejected Requestarr's credentials; an administrator must fix them (metadata_provider_credentials) }
+        '503': { description: "The provider is busy (metadata_provider_busy, with Retry-After), its credentials are not set (metadata_provider_not_configured), or local preview state is unavailable; retry without discarding the pasted URL" }
   /requests:
     get:
       operationId: listRequests

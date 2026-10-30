@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/providers/metadata"
 )
 
 type fixedResolver struct {
@@ -89,5 +91,30 @@ func TestResolvedMusicCarriesDetailsAndPreviewState(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("response lacks %s: %s", want, body)
 		}
+	}
+}
+
+// A user told "could not be resolved" cannot tell a busy provider from a bad
+// link; the response says which, and the cause stays in the log.
+func TestResolveFailuresAreExplainedByKind(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		err        error
+		status     int
+		code       string
+		retryAfter bool
+	}{
+		{"busy", fmt.Errorf("provider returned 503: %w", metadata.ErrBusy), 503, "metadata_provider_busy", true},
+		{"credentials", fmt.Errorf("provider returned 401: %w", metadata.ErrCredentials), 502, "metadata_provider_credentials", false},
+		{"not configured", fmt.Errorf("IGDB is not configured: %w", metadata.ErrNotConfigured), 503, "metadata_provider_not_configured", false},
+		{"anything else", errors.New("IGDB game not found"), 400, "metadata_resolution_failed", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := resolveRequest(t, testLogger(), fixedResolver{err: tc.err})
+			assertErrorEnvelope(t, rec, tc.status, tc.code)
+			if (rec.Header().Get("Retry-After") != "") != tc.retryAfter {
+				t.Fatalf("Retry-After = %q", rec.Header().Get("Retry-After"))
+			}
+		})
 	}
 }
