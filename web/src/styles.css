@@ -886,8 +886,9 @@ fieldset {
     display: flex;
     flex-wrap: wrap;
     gap: 12px;
-    border: 1px solid #35415a;
+    border: 0;
     border-radius: 10px;
+    background: #0d1320;
     margin: 20px 0;
     padding: 14px
 }
@@ -937,9 +938,20 @@ legend {
     }
 
     .topbar {
-        gap: 8px;
+        gap: 4px 8px;
         padding: 10px 14px;
         flex-wrap: wrap
+    }
+
+    /* Brand and account share the first row; the links take the second. */
+    .topbar nav {
+        order: 3;
+        flex-basis: 100%;
+        gap: 4px;
+    }
+
+    .navlink {
+        padding: 8px 10px;
     }
 
     .account {
@@ -1191,4 +1203,8 @@ tbody th {
 /* Plain links read on the dark ground; buttons and nav links set their own colour. */
 a {
     color: #c4b5ff;
+}
+
+:root {
+    accent-color: #7d4dff;
 }
