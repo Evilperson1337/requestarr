@@ -50,10 +50,12 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         </section>
         <section className="recent" aria-labelledby="recent-heading">
             <div className="recentHeader"><h2 id="recent-heading">Your recent requests</h2><a href="/requests?mine=true" onClick={followLink}>Open the full queue</a></div>
-            {recent === null ? <p>{recentFailed ? 'Your recent requests could not be loaded.' : 'Loading…'}</p> : recent.length === 0 ? <p>Nothing yet. Paste a link above to make your first request.</p> : <ul className="recentList">{recent.map(req => <li key={req.ID}>
-                <RequestCover req={req} />
-                <div><a href={`/requests?requestId=${encodeURIComponent(req.ID)}`} onClick={followLink}>{req.Title}</a><p>{[req.MediaType === 'tv' ? 'TV' : req.MediaType, req.availability === 'available' ? 'In library' : req.availability === 'missing' ? 'Not in library' : ''].filter(Boolean).join(' · ')}</p></div>
-                <span className={`badge status-${req.Status}`}>{req.Status}</span>
+            {recent === null ? <p>{recentFailed ? 'Your recent requests could not be loaded.' : 'Loading…'}</p> : recent.length === 0 ? <p>Nothing yet. Paste a link above to make your first request.</p> : <ul className="recentGrid">{recent.map(req => <li key={req.ID}>
+                <a className="recentCard" href={`/requests?requestId=${encodeURIComponent(req.ID)}`} onClick={followLink}>
+                    <RequestCover req={req} />
+                    <span className="recentTitle">{req.Title}</span>
+                    <span className={`badge status-${req.Status}`}>{req.Status}</span>
+                </a>
             </li>)}</ul>}
         </section>
         {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus()) }} />}

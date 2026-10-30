@@ -24,7 +24,6 @@ test('Home lists the five newest requests the user follows, with status and libr
     const section = page.getByRole('region', { name: 'Your recent requests' })
     await expect(section.getByRole('link', { name: 'Arrival' })).toHaveAttribute('href', '/requests?requestId=1')
     await expect(section.getByRole('listitem')).toHaveCount(3)
-    await expect(section.getByRole('listitem').filter({ hasText: 'Severance' })).toContainText('In library')
     await expect(section.getByRole('listitem').filter({ hasText: 'Severance' })).toContainText('available')
     await expect(section.getByRole('img', { name: 'Artwork for Kid A' })).toBeVisible()
     await expect(section.getByRole('link', { name: 'Open the full queue' })).toHaveAttribute('href', '/requests?mine=true')

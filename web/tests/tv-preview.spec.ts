@@ -39,7 +39,7 @@ test('TV preview shows series facts, creators, cast, synopsis, and the themed sc
     await expect(dialog).toContainText('8.2/10')
     await dialog.getByRole('button', { name: 'Show more' }).click()
     await expect(dialog.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true')
-    await expect(dialog.locator('.movieScroll')).toHaveCSS('scrollbar-color', 'rgb(139, 120, 170) rgb(17, 24, 39)')
+    await expect(dialog.locator('.movieScroll')).toHaveCSS('scrollbar-color', 'rgb(68, 68, 68) rgb(17, 17, 17)')
     await expect(dialog.getByRole('button', { name: 'Request series', exact: true })).toBeVisible()
     const accessibility = await new AxeBuilder({ page }).include('[role="dialog"]').analyze()
     expect(accessibility.violations.filter(violation => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([])

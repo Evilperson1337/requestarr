@@ -1,3 +1,25 @@
+:root {
+    --ground: #000000;
+    --surface: #111111;
+    --raised: #2a2a2a;
+    --border: #1a1a1a;
+    --rule: #161616;
+    --control: #444444;
+    --text: #ffffff;
+    --muted: #b4b4b4;
+    --faint: #949494;
+    --accent: #c6f24e;
+    --positive: #c6f24e;
+    --negative: #e5484d;
+    --warning: #e5a93b;
+    --pill-positive-bg: #222a10; --pill-positive-ink: #c6f24e;
+    --pill-negative-bg: #2c1a20; --pill-negative-ink: #e5566f;
+    --pill-warning-bg: #2b2414; --pill-warning-ink: #e5a93b;
+    --pill-neutral-bg: #222222; --pill-neutral-ink: #ffffff;
+    --radius-card: 20px;
+    --gap: 14px;
+}
+
 .overlay.movieOverlay {
     padding: 24px;
 }
@@ -20,14 +42,14 @@
 
 .movieCast li {
     padding: 12px;
-    background: #1b2335;
+    background: var(--raised);
     border-radius: 8px;
     flex: 1 1 140px;
 }
 
 .movieCast span {
     display: block;
-    color: #b7bfd4;
+    color: var(--muted);
     margin-top: 4px;
 }
 
@@ -54,14 +76,14 @@
 }
 
 .movieModal a:not(.button) {
-    color: #d2beff;
+    color: var(--text);
     text-underline-offset: 3px;
 }
 
 :root {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    color: #eef0ff;
-    background: #090e18;
+    color: var(--text);
+    background: var(--ground);
     font-synthesis: none;
     text-rendering: optimizeLegibility
 }
@@ -77,15 +99,15 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: #111827;
-    border: 1px solid #38405a;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 20px;
     box-shadow: 0 24px 100px #0009;
 }
 
 .movieScroll {
     overflow-y: auto;
-    scrollbar-color: #8b78aa #111827;
+    scrollbar-color: var(--control) var(--surface);
     overscroll-behavior: contain;
     padding: 28px;
     min-height: 0;
@@ -96,21 +118,21 @@
 @media (forced-colors: none) {
     .movieScroll::-webkit-scrollbar {
         width: 12px;
-        background: #111827;
+        background: var(--surface);
     }
 
     .movieScroll::-webkit-scrollbar-track {
-        background: #111827;
+        background: var(--surface);
     }
 
     .movieScroll::-webkit-scrollbar-thumb {
-        background: #8b78aa;
-        border: 3px solid #111827;
+        background: var(--control);
+        border: 3px solid var(--surface);
         border-radius: 999px;
     }
 
     .movieScroll::-webkit-scrollbar-thumb:hover {
-        background: #bba1ee;
+        background: var(--muted);
     }
 }
 
@@ -144,14 +166,14 @@
     aspect-ratio: 2 / 3;
     object-fit: contain;
     border-radius: 12px;
-    background: #090e18;
+    background: var(--ground);
 }
 
 .moviePlaceholder {
     display: grid;
     place-content: center;
     padding: 16px;
-    color: #b7bfd4;
+    color: var(--muted);
     text-align: center;
 }
 
@@ -169,17 +191,17 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px 14px;
-    color: #c7cfe2;
+    color: var(--muted);
 }
 
 .movieBadge {
-    background: #50377a;
-    border-radius: 6px;
+    background: var(--raised);
+    border-radius: 999px;
     padding: 2px 8px;
 }
 
 .movieRating strong {
-    color: #c7b0ff;
+    color: var(--text);
     font-size: 1.3rem;
 }
 
@@ -195,8 +217,8 @@
     justify-content: flex-end;
     gap: 12px;
     padding: 18px 28px max(18px, env(safe-area-inset-bottom));
-    border-top: 1px solid #38405a;
-    background: #111827;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
 }
 
 @media (max-width: 600px) {
@@ -242,8 +264,8 @@
 body {
     margin: 0;
     min-height: 100dvh;
-    background: #090e18;
-    color: #eef0ff
+    background: var(--ground);
+    color: var(--text)
 }
 
 button,
@@ -263,7 +285,7 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-    outline: 3px solid #bb9cff;
+    outline: 3px solid #fff;
     outline-offset: 3px
 }
 
@@ -273,7 +295,7 @@ textarea:focus-visible {
 }
 
 .developmentLogs summary:focus-visible {
-    outline: 3px solid #bb9cff;
+    outline: 3px solid #fff;
     outline-offset: 3px;
 }
 
@@ -294,8 +316,8 @@ textarea:focus-visible {
 }
 
 .card {
-    border-radius: 12px;
-    background: #111826;
+    border-radius: var(--radius-card);
+    background: var(--surface);
     padding: 24px
 }
 
@@ -317,9 +339,9 @@ textarea:focus-visible {
 .setupNotice {
     margin: 24px 0;
     padding: 18px 20px;
-    border: 1px solid #34415a;
+    border: 1px solid var(--border);
     border-radius: 12px;
-    background: #0d1421;
+    background: var(--ground);
 }
 
 .setupSteps h2,
@@ -331,7 +353,7 @@ textarea:focus-visible {
 .setupSteps ol {
     margin-bottom: 0;
     padding-left: 1.4rem;
-    color: #c8cee0;
+    color: var(--muted);
     line-height: 1.7;
 }
 
@@ -350,9 +372,9 @@ textarea:focus-visible {
 .setupForm input {
     width: 100%;
     min-height: 46px;
-    border: 1px solid #46536b;
+    border: 1px solid var(--control);
     border-radius: 9px;
-    background: #090e18;
+    background: var(--ground);
     color: #fff;
     padding: 10px 12px;
 }
@@ -363,12 +385,12 @@ textarea:focus-visible {
 }
 
 .setupGuide a {
-    color: #c3aaff;
+    color: var(--text);
 }
 
 code {
     overflow-wrap: anywhere;
-    color: #e0d3ff;
+    color: var(--text);
 }
 
 @media (max-width: 600px) {
@@ -392,69 +414,84 @@ h2 {
 }
 
 p {
-    color: #adb6cb;
+    color: var(--muted);
     line-height: 1.6
 }
 
 .eyebrow {
     margin: 0;
-    color: #aab4c9;
+    color: var(--muted);
     font-size: .9rem;
     font-weight: 600
 }
 
-.topbar {
-    min-height: 72px;
+.appShell {
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    min-height: 100dvh;
+}
+
+.appMain {
+    min-width: 0;
+}
+
+.rail {
+    position: sticky;
+    top: 0;
+    height: 100dvh;
     display: flex;
-    align-items: center;
-    gap: 32px;
-    padding: 12px max(24px, calc((100vw - 1100px)/2));
-    background: #0c1220
+    flex-direction: column;
+    gap: 28px;
+    padding: 24px 14px;
+    background: var(--ground);
+    border-right: 1px solid var(--border);
 }
 
 .brand {
-    font-weight: 800;
+    padding: 0 10px;
+    font-weight: 600;
     color: #fff;
     text-decoration: none;
     font-size: 1.2rem
 }
 
-.topbar nav,
-.account {
+.rail nav {
     display: flex;
-    align-items: center;
-    gap: 14px
-}
-
-.account {
-    margin-left: auto;
-    color: #c8cee0
+    flex-direction: column;
+    gap: 2px;
 }
 
 .navlink {
+    display: block;
     border: 0;
     background: none;
-    color: #c8cee0;
+    color: #bbb;
     cursor: pointer;
-    padding: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
     text-decoration: none
 }
 
+.navlink:hover,
 .navlink[aria-current="page"] {
     color: #fff;
-    background: #251c40;
-    border-radius: 8px;
-}
-
-.topbar nav {
-    flex-wrap: wrap;
-    max-width: 100%;
 }
 
 .account {
+    margin-top: auto;
+    display: grid;
+    gap: 10px;
+    padding: 0 10px;
     min-width: 0;
-    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: .9rem;
     overflow-wrap: anywhere;
+}
+
+.account .button {
+    justify-self: start;
+    min-height: 36px;
+    padding: 4px 16px;
 }
 
 .button {
@@ -463,17 +500,17 @@ p {
     justify-content: center;
     min-height: 44px;
     padding: 10px 18px;
-    border: 1px solid #9a70ff;
-    border-radius: 10px;
-    background: #794cff;
-    color: #fff;
-    font-weight: 700;
+    border: 0;
+    border-radius: 999px;
+    background: #fff;
+    color: #000;
+    font-weight: 600;
     text-decoration: none;
     cursor: pointer
 }
 
 .button:hover {
-    background: #6a3de8
+    background: #e6e6e6
 }
 
 .button:disabled {
@@ -482,8 +519,12 @@ p {
 }
 
 .button.secondary {
-    background: #1a2436;
-    border-color: #3b4860
+    background: var(--raised);
+    color: var(--text)
+}
+
+.button.secondary:hover {
+    background: #3a3a3a
 }
 
 .hero form {
@@ -499,10 +540,10 @@ p {
     display: flex;
     align-items: center;
     gap: 12px;
-    border: 1px solid #7d4dff;
-    border-radius: 12px;
+    border: 1px solid var(--control);
+    border-radius: 999px;
     padding: 0 16px;
-    background: #0d1320
+    background: var(--ground)
 }
 
 .urlBox input {
@@ -520,16 +561,16 @@ p {
     gap: 26px;
     flex-wrap: wrap;
     margin-top: 20px;
-    color: #c8cee0
+    color: var(--muted)
 }
 
 .error {
-    color: #ffb4b4
+    color: var(--pill-negative-ink)
 }
 
 .errorBox {
-    border: 1px solid #8e4349;
-    background: #351b24;
+    border: 1px solid var(--negative);
+    background: var(--pill-negative-bg);
     border-radius: 10px;
     padding: 14px
 }
@@ -546,12 +587,12 @@ p {
     display: flex;
     align-items: center;
     gap: 9px;
-    color: #e1e5f1
+    color: var(--text)
 }
 
 .toggle {
     padding: 10px 14px;
-    border: 1px solid #3b4860;
+    border: 1px solid var(--control);
     border-radius: 10px;
     white-space: nowrap
 }
@@ -570,14 +611,14 @@ p {
 .badge {
     padding: 3px 10px;
     border-radius: 999px;
-    background: #25334d;
-    color: #d8ceff;
+    background: var(--pill-neutral-bg);
+    color: var(--text);
     font-size: .85rem;
     text-transform: capitalize
 }
 
 .requester {
-    color: #aab4c9;
+    color: var(--muted);
     font-size: .85rem
 }
 
@@ -632,9 +673,9 @@ p {
 .requestFilters select {
     min-height: 40px;
     padding: 6px 12px;
-    border: 1px solid #46536b;
+    border: 1px solid var(--control);
     border-radius: 9px;
-    background: #090e18;
+    background: var(--ground);
     color: #fff;
 }
 
@@ -655,8 +696,8 @@ p {
 }
 
 .statusFilters [aria-pressed="true"] {
-    background: #472b80;
-    border-color: #b092ff;
+    background: #fff;
+    color: #000;
 }
 
 .requestFilters {
@@ -665,7 +706,7 @@ p {
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 20px;
-    color: #aab4c9;
+    color: var(--muted);
     font-size: .9rem;
 }
 
@@ -687,7 +728,7 @@ p {
     align-items: center;
     gap: 6px 16px;
     padding: 12px 0;
-    border-top: 1px solid #29344a;
+    border-top: 1px solid var(--rule);
 }
 
 .requestsPage .requestRow>.art,
@@ -695,15 +736,13 @@ p {
     justify-self: center;
 }
 
-.requestsPage .art.small,
-.recentList .art.small {
+.requestsPage .art.small {
     width: 40px;
     height: 58px;
     border-radius: 6px;
 }
 
-.requestsPage .art.small.square,
-.recentList .art.small.square {
+.requestsPage .art.small.square {
     width: 52px;
     height: 52px;
 }
@@ -714,8 +753,8 @@ p {
     width: 52px;
     height: 52px;
     border-radius: 6px;
-    background: #1a2438;
-    color: #8995ad;
+    background: var(--raised);
+    color: var(--faint);
     font-size: .7rem;
     text-transform: capitalize;
 }
@@ -733,12 +772,12 @@ p {
 .requestFacts,
 .requestNote {
     margin: 2px 0 0;
-    color: #aab4c9;
+    color: var(--muted);
     font-size: .9rem;
 }
 
 .requestNote {
-    color: #d8deec;
+    color: var(--text);
     font-style: normal;
 }
 
@@ -864,7 +903,7 @@ p {
     max-height: 168px;
     object-fit: contain;
     border-radius: 8px;
-    background: #0b101a
+    background: var(--ground)
 }
 
 .art.square {
@@ -888,7 +927,7 @@ fieldset {
     gap: 12px;
     border: 0;
     border-radius: 10px;
-    background: #0d1320;
+    background: var(--ground);
     margin: 20px 0;
     padding: 14px
 }
@@ -908,8 +947,8 @@ legend {
     resize: vertical;
     padding: 10px;
     color: inherit;
-    background: #0d1320;
-    border: 1px solid #3b4860;
+    background: var(--ground);
+    border: 1px solid var(--control);
     border-radius: 8px
 }
 
@@ -937,21 +976,54 @@ legend {
         padding: 24px 14px
     }
 
-    .topbar {
-        gap: 4px 8px;
-        padding: 10px 14px;
-        flex-wrap: wrap
+    .appShell {
+        grid-template-columns: minmax(0, 1fr);
     }
 
-    /* Brand and account share the first row; the links take the second. */
-    .topbar nav {
-        order: 3;
-        flex-basis: 100%;
-        gap: 4px;
+    /* On a phone the rail is a slim top bar (brand, sign out) and the links a bottom bar. */
+    .rail {
+        position: static;
+        height: auto;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 14px;
+        border-right: 0;
     }
 
-    .navlink {
-        padding: 8px 10px;
+    .rail nav {
+        position: fixed;
+        z-index: 4;
+        inset: auto 0 0 0;
+        flex-direction: row;
+        justify-content: space-around;
+        gap: 0;
+        padding: 6px 8px max(6px, env(safe-area-inset-bottom));
+        background: var(--surface);
+    }
+
+    .rail .navlink {
+        flex: 1;
+        padding: 10px 4px;
+        text-align: center;
+        font-size: .85rem;
+    }
+
+    .account {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .account>span {
+        display: none;
+    }
+
+    .appMain {
+        padding-bottom: 64px;
     }
 
     .account {
@@ -999,11 +1071,11 @@ legend {
     flex-wrap: wrap;
     gap: 12px 28px;
     padding-left: 24px;
-    color: #adb6cb;
+    color: var(--muted);
 }
 
 .draftWizard .draftSteps [aria-current="step"] {
-    color: #e0d3ff;
+    color: var(--text);
     font-weight: 700;
 }
 
@@ -1014,7 +1086,7 @@ legend {
 }
 
 .draftWizard :focus-visible {
-    outline: 3px solid #c3aaff;
+    outline: 3px solid var(--text);
     outline-offset: 4px;
 }
 
@@ -1055,7 +1127,7 @@ legend {
 
 .draftWizard .draftProvider {
     padding: 18px;
-    border: 1px solid #34415a;
+    border: 1px solid var(--border);
     border-radius: 12px;
 }
 
@@ -1072,15 +1144,15 @@ legend {
 :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]), select, textarea) {
     min-height: 40px;
     padding: 6px 12px;
-    border: 1px solid #46536b;
+    border: 1px solid var(--control);
     border-radius: 9px;
-    background: #090e18;
+    background: var(--ground);
     color: #fff;
 }
 
 input::placeholder,
 textarea::placeholder {
-    color: #8995ad;
+    color: var(--faint);
 }
 
 input:disabled,
@@ -1097,7 +1169,7 @@ table {
 caption {
     padding: 0 0 8px;
     text-align: left;
-    color: #aab4c9;
+    color: var(--muted);
     font-size: .9rem;
 }
 
@@ -1106,11 +1178,11 @@ td {
     padding: 10px 14px 10px 0;
     text-align: left;
     vertical-align: top;
-    border-bottom: 1px solid #1f2a40;
+    border-bottom: 1px solid var(--rule);
 }
 
 thead th {
-    color: #aab4c9;
+    color: var(--muted);
     font-size: .85rem;
     font-weight: 600;
     white-space: nowrap;
@@ -1144,7 +1216,7 @@ tbody th {
 
 .secretField p {
     margin: 0;
-    color: #aab4c9;
+    color: var(--muted);
     font-size: .9rem;
 }
 
@@ -1170,41 +1242,178 @@ tbody th {
     font-size: 1.25rem;
 }
 
-.recentList {
+/* Plain links read on the dark ground; buttons and nav links set their own colour. */
+a {
+    color: var(--text);
+}
+
+:root {
+    accent-color: #fff;
+}
+
+/* Status marks: colour only on the state, as a pale pill. */
+.badge.status-requested { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+.badge.status-approved { background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); }
+.badge.status-available { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+.badge.status-denied { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+.badge.status-cancelled { background: var(--pill-neutral-bg); color: var(--faint); }
+
+/* Home: recent requests as covers. */
+.recentGrid {
     list-style: none;
     margin: 0;
     padding: 0;
-}
-
-.recentList li {
     display: grid;
-    grid-template-columns: 52px minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 16px;
-    padding: 10px 0;
-    border-top: 1px solid #29344a;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: var(--gap);
 }
 
-.recentList li>.art,
-.recentList li>.artPlaceholder {
-    justify-self: center;
+.recentCard {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    height: 100%;
+    padding: 10px;
+    border-radius: 16px;
+    background: var(--surface);
+    color: var(--text);
+    text-decoration: none;
 }
 
-.recentList a {
+.recentCard:hover {
+    background: #1a1a1a;
+}
+
+.recentCard .art,
+.recentCard .art.small,
+.recentCard .art.small.square,
+.recentCard .artPlaceholder {
+    width: 100%;
+    height: auto;
+    max-height: none;
+    aspect-ratio: 2 / 3;
+    border-radius: 10px;
+    object-fit: cover;
+}
+
+/* Square art (albums) is never cropped into a poster: it sits whole in the same frame. */
+.recentCard .art.square {
+    object-fit: contain;
+    background: var(--ground);
+}
+
+.recentTitle {
     font-weight: 600;
     overflow-wrap: anywhere;
 }
 
-.recentList p {
-    margin: 2px 0 0;
+.recentCard .badge {
+    justify-self: start;
+}
+
+/* Notifications: a feed, unread in full ink, read quietly. */
+.feed {
+    max-width: 760px;
+}
+
+.feedList {
+    list-style: none;
+    margin: 16px 0 0;
+    padding: 0;
+}
+
+.feedList li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 0;
+    border-top: 1px solid var(--rule);
+}
+
+.feedList p {
+    margin: 2px 0;
+}
+
+.feedList time {
+    color: var(--faint);
+    font-size: .85rem;
+}
+
+.feedList li.read strong {
+    font-weight: 500;
+    color: var(--muted);
+}
+
+/* Settings: each concern is a label column beside its panel. */
+.settingsPage {
+    gap: 0;
+}
+
+.settingsPage>h1 {
+    margin-bottom: 8px;
+}
+
+.setting {
+    display: grid;
+    grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+    gap: 24px 48px;
+    padding: 32px 0;
+    border-top: 1px solid var(--rule);
+}
+
+.settingLabel h2 {
+    margin: 0 0 6px;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.settingLabel p {
+    margin: 0;
+    color: var(--muted);
     font-size: .9rem;
+    line-height: 1.5;
 }
 
-/* Plain links read on the dark ground; buttons and nav links set their own colour. */
-a {
-    color: #c4b5ff;
+.settingPanel {
+    min-width: 0;
+    padding: 20px;
+    border-radius: 16px;
+    background: var(--surface);
 }
 
-:root {
-    accent-color: #7d4dff;
+.settingPanel>:first-child {
+    margin-top: 0;
+}
+
+.settingPanel>:last-child {
+    margin-bottom: 0;
+}
+
+.settingPanel .secretField:last-child {
+    margin-bottom: 0;
+}
+
+.settingsPage>.developmentLogs {
+    margin: 0 0 32px;
+}
+
+@media (max-width: 800px) {
+    .setting {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 12px;
+        padding: 24px 0;
+    }
+}
+
+.toggle {
+    background: var(--raised);
+    border: 0;
+    border-radius: 999px;
+}
+
+.settingPanel td .button {
+    min-height: 36px;
+    padding: 4px 14px;
+    white-space: nowrap;
 }
