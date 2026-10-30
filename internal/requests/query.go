@@ -20,6 +20,7 @@ var (
 // is opaque to the use case and excluded from the normalized query identity.
 type ListQuery struct {
 	Q         string
+	RequestID string `json:"requestId,omitempty"`
 	Status    domain.RequestStatus
 	MediaType domain.MediaType
 	Mine      bool
@@ -35,6 +36,10 @@ type Page struct {
 
 // Normalize validates transport-independent query values and supplies defaults.
 func (q ListQuery) Normalize() (ListQuery, error) {
+	if q.RequestID != "" && !domain.ValidUUID(q.RequestID) {
+		return ListQuery{}, ErrInvalidQuery
+	}
+	q.RequestID = strings.ToLower(q.RequestID)
 	if !utf8.ValidString(q.Q) || utf8.RuneCountInString(q.Q) > 200 || strings.IndexFunc(q.Q, unicode.IsControl) >= 0 {
 		return ListQuery{}, ErrInvalidQuery
 	}

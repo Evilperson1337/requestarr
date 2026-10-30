@@ -4,6 +4,61 @@ Open **Requests** from the main navigation, or bookmark `/requests` directly.
 All authenticated users see the same shared queue. The app uses real URLs for
 navigation, reloads, copied links, and browser Back/Forward.
 
+## Pasting TMDB links
+
+Movie and TV links copied directly from TMDB can include the readable title
+after the numeric ID. For example,
+https://www.themoviedb.org/movie/1762506-band-of-brothers-legacy and
+https://www.themoviedb.org/movie/1762506 resolve to the same catalog item.
+There is no need to remove the title suffix; it does not create a separate
+Request. Provider credentials and connectivity must still be configured.
+
+## Movie and TV confirmation previews
+
+Movie and TV links open a wider confirmation modal on desktop and a full-screen,
+stacked modal on phones. The complete poster retains its aspect ratio; a
+restrained optional backdrop sits above readable title and details. The preview
+uses a dark scrollbar track and purple thumb, deferring to system colors in
+high-contrast mode. The preview
+shows runtime, genres, locale-formatted release date/status, a TMDB score and its
+rating count, and an official synopsis with Show more / Show less. Director names
+and up to five lead cast members appear when supplied.
+
+TV uses first/last air dates, series status, per-episode runtime, season/episode
+counts, and series creators rather than a movie release date or director.
+Counts are informational: **Request series** always requests the whole series,
+with no season or episode selection. Ended/canceled status does not imply library
+availability, and an upcoming series remains requestable under the usual policy.
+
+Missing facts are not fabricated: unrated movies say Not yet rated, missing dates
+stay unknown, and missing/broken artwork has a neutral fallback. A failed optional
+credits lookup shows Some details unavailable without blocking the Request.
+Upcoming movies remain requestable; release date is not library availability.
+
+The action footer remains reachable while details scroll:
+
+- New movies/series offer **Request movie** / **Request series** to requesters/admins and an expandable
+  **Add a note**. Viewers cannot create Requests.
+- Already requested movies show their shared lifecycle state, **Notify Me** or
+  **Notifications On**, and **View request**. Closed Requests cannot gain new
+  subscriptions.
+- Known available movies show library-authoritative availability and **Open in
+  library** links only when a usable, non-credential-bearing link exists. Unknown
+  availability is not presented as missing.
+- A successful submission stays in the modal with confirmation, subscription
+  status, **View request**, and **Close**. A concurrent existing Request is reused
+  without falsely claiming that a second one or a subscription was created.
+- Submission errors preserve the note for retry. Authorization loss removes
+  protected actions. Cancel/Close and Escape return focus to the initiating control.
+
+Reopening the same movie or TV series in the current Home flow reuses resolved metadata and
+refreshes local Request/availability state only. Expanding synopsis or note does
+not call TMDB. A fresh explicit lookup can update the persisted metadata.
+Music and game-specific previews keep their previous controls and behavior.
+
+**View request** opens the shared queue filtered by the exact Request ID, not a
+potentially ambiguous title search. Clear filters returns to the full queue.
+
 ## Finding requests
 
 - **Search titles:** enter a literal title substring, then press Enter or Search.

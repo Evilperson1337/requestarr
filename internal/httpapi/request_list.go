@@ -24,7 +24,7 @@ func parseRequestListQuery(raw string) (requests.ListQuery, error) {
 			return requests.ListQuery{}, requests.ErrInvalidQuery
 		}
 		switch name {
-		case "q", "status", "mediaType", "mine", "sort", "limit", "cursor":
+		case "q", "requestId", "status", "mediaType", "mine", "sort", "limit", "cursor":
 		default:
 			return requests.ListQuery{}, requests.ErrInvalidQuery
 		}
@@ -36,6 +36,7 @@ func parseRequestListQuery(raw string) (requests.ListQuery, error) {
 		}
 	}
 	query := requests.ListQuery{Q: values.Get("q"), Status: domain.RequestStatus(values.Get("status")), MediaType: domain.MediaType(values.Get("mediaType")), Sort: values.Get("sort"), Cursor: values.Get("cursor")}
+	query.RequestID = values.Get("requestId")
 	if mine, present := values["mine"]; present {
 		if mine[0] != "true" && mine[0] != "false" {
 			return requests.ListQuery{}, requests.ErrInvalidQuery

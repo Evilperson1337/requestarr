@@ -1,0 +1,26 @@
+{
+    "id": 714,
+    "name": "Fixture TV series",
+    "first_air_date": "2020-01-01",
+    "last_air_date": "2025-03-04",
+    "status": "Returning Series",
+    "episode_run_time": [
+        45
+    ],
+    "number_of_seasons": 3,
+    "number_of_episodes": 30,
+    "genres": [
+        {
+            "name": "Drama"
+        }
+    ],
+    "vote_average": 8.2,
+    "vote_count": 400,
+    "created_by": [
+        {
+            "name": "Fixture Creator"
+        }
+    ],
+    "poster_path": "/fixture-tv.jpg",
+    "overview": "Deterministic TV metadata for URL resolution tests."
+}

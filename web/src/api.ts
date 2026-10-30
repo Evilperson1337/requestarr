@@ -22,7 +22,11 @@ export type SetupDraft = {
 }
 export type CatalogItem = { ID: string; MediaType: string; Provider: string; Title: string; Year: number; ArtworkURL: string; ArtworkKind: string; ExternalURL: string }
 export type Platform = { providerId: string; key: string; name: string }
-export type ResolvedItem = { Item: CatalogItem; Platforms: Platform[] }
+export type MovieDetails = { overview?: string; runtime?: number; genres?: string[]; releaseDate?: string; releaseStatus?: string; score?: number; ratingCount?: number; backdropUrl?: string; directors?: string[]; cast?: { name: string; character?: string }[]; detailsUnavailable?: boolean }
+export type TVDetails = Omit<MovieDetails, 'runtime' | 'releaseDate' | 'releaseStatus' | 'directors'> & { episodeRuntime?: number; firstAirDate?: string; lastAirDate?: string; seriesStatus?: string; seasons?: number; episodes?: number; creators?: string[] }
+export type GameDetails = { overview?: string; genres?: string[]; releaseDate?: string; developers?: string[]; score?: number; ratingCount?: number; backdropUrl?: string }
+export type MoviePreviewState = { availability: 'unknown' | 'available' | 'missing'; canRequest: boolean; canSubscribe: boolean; request?: { id: string; status: string; subscribed: boolean }; libraries?: { name: string; url: string }[] }
+export type ResolvedItem = { Item: CatalogItem; Platforms: Platform[]; Movie?: MovieDetails; TV?: TVDetails; Game?: GameDetails; Preview?: MoviePreviewState }
 export type RequestItem = { ID: string; CatalogItemID: string; Title: string; MediaType: string; ArtworkURL: string; ArtworkKind: string; CatalogPlatforms?: Platform[]; Status: string; Version: number; RequestedBy: string; Note: string; availability: 'unknown' | 'available' | 'missing'; availabilityObservedAt?: string | null; Platforms: { any: boolean; platformKeys?: string[] }; CreatedAt: string; subscribed: boolean; subscriptionSource: 'requester' | 'manual' | '' }
 export type RequestPage = { items: RequestItem[]; nextCursor: string | null }
 export type AdminUser = { id: string; email: string; displayName: string; role: 'admin' | 'requester' | 'viewer'; createdAt: string }

@@ -87,7 +87,7 @@ export function RequestsPage({ user, csrfToken }: { user: User; csrfToken: strin
     }
     const previous = history.state?.requestPrevious
     const previousPage = typeof previous === 'string' && (previous === '/requests' || previous.startsWith('/requests?')) ? previous : null
-    const hasFilters = !!(params.get('q') || params.get('status') || params.get('mediaType') || mine)
+    const hasFilters = !!(params.get('q') || params.get('requestId') || params.get('status') || params.get('mediaType') || mine)
     function updateRequest(id: string, patch: Partial<RequestItem>) {
         const update = (items: RequestItem[]) => items.map(item => item.ID === id ? { ...item, ...patch } : item)
         setItems(update)

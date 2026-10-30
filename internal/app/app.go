@@ -111,7 +111,8 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	handler, err := httpapi.NewRouter(httpapi.Deps{
 		Logger: logger, Build: build, Readiness: store, Auth: authHandler,
 		Requests: requests.New(store), Resolver: metadataService, Inbox: store, MatchReview: store,
-		JobRuns: store, Status: ops, Users: store, SetupState: store, Syncer: syncer,
+		MoviePreview: store,
+		JobRuns:      store, Status: ops, Users: store, SetupState: store, Syncer: syncer,
 		Wizard: setupService, Secrets: secretsService, DevelopmentLogs: logs,
 	})
 	if err != nil {

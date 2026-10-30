@@ -131,6 +131,7 @@ func (noSessionRepo) GetSession(context.Context, []byte, time.Time) (auth.User, 
 // testDeps fills Deps from a single fake backend by capability.
 func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessChecker, resolver Resolver, syncer SourceSyncer, wizard SetupService, authHandlers ...*auth.Handler) Deps {
 	d := Deps{Logger: logger, Build: info, Readiness: readiness, Resolver: resolver, Syncer: syncer, Wizard: wizard}
+	d.MoviePreview = emptyMoviePreview{}
 	if len(authHandlers) > 0 && authHandlers[0] != nil {
 		d.Auth = authHandlers[0]
 	} else {
@@ -198,6 +199,12 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 		d.DevelopmentLogs = v.DevelopmentLogs()
 	}
 	return d
+}
+
+type emptyMoviePreview struct{}
+
+func (emptyMoviePreview) MoviePreview(context.Context, string, string) (domain.MoviePreview, error) {
+	return domain.MoviePreview{Availability: domain.AvailabilityUnknown}, nil
 }
 
 // DevelopmentLogsSource lets a fake backend supply the development recorder.

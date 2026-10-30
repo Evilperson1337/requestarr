@@ -93,17 +93,18 @@ type Deps struct {
 	Readiness ReadinessChecker
 	Auth      *auth.Handler
 
-	Requests    *requests.Service
-	Resolver    Resolver
-	Inbox       notifications.InboxRepository
-	MatchReview MatchReviewStore
-	JobRuns     JobRuns
-	Status      StatusSource
-	Users       UserAdmin
-	SetupState  SetupState
-	Syncer      SourceSyncer
-	Wizard      SetupService
-	Secrets     SecretsService
+	Requests     *requests.Service
+	Resolver     Resolver
+	MoviePreview MoviePreviewReader
+	Inbox        notifications.InboxRepository
+	MatchReview  MatchReviewStore
+	JobRuns      JobRuns
+	Status       StatusSource
+	Users        UserAdmin
+	SetupState   SetupState
+	Syncer       SourceSyncer
+	Wizard       SetupService
+	Secrets      SecretsService
 
 	// DevelopmentLogs is nil unless the development-only flag enabled it.
 	DevelopmentLogs *devlogs.Recorder
@@ -118,6 +119,7 @@ func (d Deps) missing() []string {
 	}{
 		{"Logger", d.Logger == nil}, {"Readiness", d.Readiness == nil}, {"Auth", d.Auth == nil},
 		{"Requests", d.Requests == nil}, {"Resolver", d.Resolver == nil}, {"Inbox", d.Inbox == nil},
+		{"MoviePreview", d.MoviePreview == nil},
 		{"MatchReview", d.MatchReview == nil}, {"JobRuns", d.JobRuns == nil}, {"Status", d.Status == nil},
 		{"Users", d.Users == nil}, {"SetupState", d.SetupState == nil}, {"Syncer", d.Syncer == nil},
 		{"Wizard", d.Wizard == nil}, {"Secrets", d.Secrets == nil},
@@ -358,7 +360,21 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			writeJSON(w, 200, map[string]bool{"subscribed": r.Method == http.MethodPut, "changed": changed, "cancelled": cancelled})
 		})
 	}
-	rt.handle("POST /resolve", accessSession, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	rt.handle("GET /catalog/{catalogID}/preview", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+		w.Header().Set("Cache-Control", "no-store")
+		id := r.PathValue("catalogID")
+		if !domain.ValidUUID(id) {
+			apierror.Write(w, r, 400, "invalid_catalog_id", "catalog ID is invalid")
+			return
+		}
+		state, err := moviePreview(r.Context(), d.MoviePreview, id, user)
+		if err != nil {
+			writeMoviePreviewError(w, r, err)
+			return
+		}
+		writeJSON(w, 200, state)
+	})
+	rt.handle("POST /resolve", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		var in struct {
 			URL string `json:"url"`
 		}
@@ -378,9 +394,22 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		}
 		item, err := resolverService.ResolveAndUpsert(r.Context(), in.URL)
 		if err != nil {
+			// The response stays generic; the cause (a provider status, a bad
+			// credential, an unsupported URL) is for the operator's log. Resolver
+			// errors carry no credentials: those travel in headers and bodies.
+			logger.Warn("metadata resolution failed", "request_id", apierror.RequestID(r.Context()), "error", err)
 			apierror.Write(w, r, 400, "metadata_resolution_failed", "metadata URL could not be resolved")
 			return
 		}
+		if item.Item.MediaType == domain.MediaMovie || item.Item.MediaType == domain.MediaTV || item.Item.MediaType == domain.MediaGame {
+			state, err := moviePreview(r.Context(), d.MoviePreview, item.Item.ID, user)
+			if err != nil {
+				writeMoviePreviewError(w, r, err)
+				return
+			}
+			item.Preview = &state
+		}
+		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, 200, item)
 	})
 	rt.handle("POST /requests", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {

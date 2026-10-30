@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { api, type ResolvedItem, type Session } from '../api'
+import { MovieRequestModal } from './MovieRequestModal'
+import { GameRequestModal } from './GameRequestModal'
 
 export function RequestModal({ resolved, session, onCreated, onClose }: { resolved: ResolvedItem; session: Session; onCreated: () => void; onClose: () => void }) {
+    if (resolved.Item.MediaType === 'game') return <GameRequestModal resolved={resolved} session={session} onCreated={onCreated} onClose={onClose} />
+    return ['movie', 'tv'].includes(resolved.Item.MediaType) ? <MovieRequestModal resolved={resolved} session={session} onCreated={onCreated} onClose={onClose} /> : <BasicRequestModal resolved={resolved} session={session} onCreated={onCreated} onClose={onClose} />
+}
+
+function BasicRequestModal({ resolved, session, onCreated, onClose }: { resolved: ResolvedItem; session: Session; onCreated: () => void; onClose: () => void }) {
     const [note, setNote] = useState('')
     const [any, setAny] = useState(true)
     const [platforms, setPlatforms] = useState<string[]>([])

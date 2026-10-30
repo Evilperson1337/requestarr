@@ -124,6 +124,22 @@ paths:
         '204': { description: Admin role granted and setup atomically completed }
         '401': { description: Authentication required }
         '403': { description: Generic claim failure }
+  /catalog/{catalogID}/preview:
+    get:
+      operationId: moviePreviewState
+      summary: Read local shared Request, subscription, and library availability state
+      parameters:
+        - { in: path, name: catalogID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Local preview state and role-appropriate actions; no provider calls; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MoviePreviewState' }
+        '400': { description: Invalid catalog ID }
+        '401': { description: Authentication required }
+        '404': { description: Catalog item not found }
+        '503': { description: Local preview state unavailable }
   /resolve:
     post:
       operationId: resolveUrl
@@ -138,9 +154,14 @@ paths:
               properties:
                 url: { type: string, format: uri, maxLength: 2048 }
       responses:
-        '200': { description: Resolved canonical catalog item and dynamic platforms }
+        '200':
+          description: Resolved canonical catalog item; movies and TV include typed details and local action state; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResolvedPreview' }
         '400': { description: Unsupported URL or provider resolution failure }
         '401': { description: Authentication required }
+        '503': { description: Local preview state unavailable; retry without discarding the pasted URL }
   /requests:
     get:
       operationId: listRequests
@@ -157,6 +178,10 @@ paths:
         and survive process restarts. Each user retains five active snapshots;
         starting a sixth expires the oldest. No upstream service calls are made.
       parameters:
+        - in: query
+          name: requestId
+          schema: { type: string, format: uuid }
+          description: Exact shared Request ID for View request navigation; combines with other filters and participates in cursor identity.
         - in: query
           name: q
           description: Title substring; trimmed; at most 200 Unicode characters
@@ -854,6 +879,117 @@ components:
         request_id. Client-supplied values are ignored. Quote it when reporting problems.
       schema: { type: string }
   schemas:
+    ResolvedPreview:
+      type: object
+      required: [Item, Platforms]
+      properties:
+        Item:
+          type: object
+          description: Canonical catalog item; existing PascalCase fields are preserved.
+          properties:
+            ID: { type: string, format: uuid }
+            MediaType: { type: string, enum: [movie, tv, album, song, game] }
+            Title: { type: string }
+            Year: { type: integer }
+            Provider: { type: string }
+            ProviderID: { type: string }
+            ArtworkURL: { type: string }
+            ArtworkKind: { type: string, enum: [poster, square] }
+            ExternalURL: { type: string }
+        Platforms: { type: array, items: { type: object } }
+        Movie: { $ref: '#/components/schemas/MovieDetails' }
+        TV: { $ref: '#/components/schemas/TVDetails' }
+        Game: { $ref: '#/components/schemas/GameDetails' }
+        Preview: { $ref: '#/components/schemas/MoviePreviewState' }
+    GameDetails:
+      type: object
+      additionalProperties: false
+      description: IGDB details of a game, shown on the request preview. Every field is optional.
+      properties:
+        overview: { type: string, maxLength: 10000 }
+        genres: { type: array, maxItems: 20, items: { type: string, maxLength: 80 } }
+        releaseDate: { type: string, format: date }
+        developers: { type: array, maxItems: 10, items: { type: string, maxLength: 256 } }
+        score: { type: number, minimum: 0, maximum: 100, description: IGDB rating on a 0-100 scale }
+        ratingCount: { type: integer, minimum: 1 }
+        backdropUrl: { type: string, description: An IGDB screenshot }
+    MovieDetails:
+      type: object
+      additionalProperties: false
+      description: Movie-only validated metadata persisted in the existing catalog JSON; omitted facts are unknown. Credits have a 1.5-second sub-budget within a nine-second total lookup.
+      properties:
+        overview: { type: string, maxLength: 10000 }
+        runtime: { type: integer, minimum: 1, maximum: 1440 }
+        genres: { type: array, maxItems: 20, items: { type: string, maxLength: 80 } }
+        releaseDate: { type: string, format: date }
+        releaseStatus: { type: string, enum: [Rumored, Planned, In Production, Post Production, Released, Canceled] }
+        score: { type: number, minimum: 0, maximum: 10, description: Present only with a positive ratingCount; not Requestarr votes }
+        ratingCount: { type: integer, minimum: 1, maximum: 1000000000 }
+        backdropUrl: { type: string, format: uri, description: Approved TMDB image origin only }
+        directors: { type: array, maxItems: 10, items: { type: string, maxLength: 256 } }
+        cast:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            additionalProperties: false
+            required: [name]
+            properties:
+              name: { type: string, maxLength: 256 }
+              character: { type: string, maxLength: 256 }
+        detailsUnavailable: { type: boolean, description: Secondary enrichment failed; ordinary absent credits are not a failure }
+    TVDetails:
+      type: object
+      additionalProperties: false
+      description: Whole-series TMDB details persisted in catalog JSON; counts never select seasons or episodes for a Request. Cast uses the same bounded optional enrichment budget as movies.
+      properties:
+        overview: { type: string, maxLength: 10000 }
+        episodeRuntime: { type: integer, minimum: 1, maximum: 1440, description: "Per-episode minutes, not the total series length" }
+        genres: { type: array, maxItems: 20, items: { type: string, maxLength: 80 } }
+        firstAirDate: { type: string, format: date }
+        lastAirDate: { type: string, format: date }
+        seriesStatus: { type: string, enum: [Returning Series, Planned, In Production, Ended, Canceled, Pilot] }
+        seasons: { type: integer, minimum: 1, maximum: 1000 }
+        episodes: { type: integer, minimum: 1, maximum: 100000 }
+        score: { type: number, minimum: 0, maximum: 10 }
+        ratingCount: { type: integer, minimum: 1, maximum: 1000000000 }
+        backdropUrl: { type: string, format: uri }
+        creators: { type: array, maxItems: 10, items: { type: string, maxLength: 256 }, description: "Series creators from TMDB created_by, not episode directors" }
+        cast:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string, maxLength: 256 }
+              character: { type: string, maxLength: 256 }
+        detailsUnavailable: { type: boolean }
+    MoviePreviewState:
+      type: object
+      additionalProperties: false
+      required: [availability, canRequest, canSubscribe]
+      properties:
+        availability: { type: string, enum: [unknown, available, missing] }
+        canRequest: { type: boolean, description: Role permits creation and no shared Request or known availability exists; writes remain authoritative }
+        canSubscribe: { type: boolean, description: Shared Request is open and the current user is not subscribed }
+        request:
+          type: object
+          required: [id, status, subscribed]
+          properties:
+            id: { type: string, format: uuid }
+            status: { type: string, enum: [requested, approved, available, denied, cancelled] }
+            subscribed: { type: boolean }
+        libraries:
+          type: array
+          maxItems: 10
+          description: Only available evidence with usable non-credential-bearing client links; never fabricated.
+          items:
+            type: object
+            required: [name, url]
+            properties:
+              name: { type: string }
+              url: { type: string, format: uri }
     DevelopmentLogEntry:
       type: object
       additionalProperties: false

@@ -79,9 +79,22 @@ func TestRequestListHTTPCombinesQueryAndReturnsPage(t *testing.T) {
 	}
 }
 
+func TestRequestListCanFocusAnExactSharedRequest(t *testing.T) {
+	backend := &requestListBackend{page: requests.Page{Items: []domain.Request{}}}
+	w := requestListHTTP(backend, "viewer", "?requestId=22222222-2222-4222-8222-222222222222")
+	if w.Code != 200 || backend.calls != 1 {
+		t.Fatalf("exact Request navigation returned %d", w.Code)
+	}
+	encoded, _ := json.Marshal(backend.query)
+	if !strings.Contains(string(encoded), `"requestId":"22222222-2222-4222-8222-222222222222"`) {
+		t.Fatal("exact request filter was not preserved")
+	}
+}
+
 func TestRequestListHTTPRejectsInvalidParametersBeforeQuerying(t *testing.T) {
 	for _, query := range []string{
 		"?mine=1", "?mine=", "?mine=true&mine=false", "?q=a&q=b", "?unknown=x",
+		"?requestId=not-a-uuid", "?requestId=", "?requestId=22222222-2222-4222-8222-222222222222&requestId=22222222-2222-4222-8222-222222222222",
 		"?status=missing", "?status=", "?mediaType=movies", "?mediaType=", "?sort=title", "?sort=",
 		"?limit=0", "?limit=-1", "?limit=101", "?limit=1.5", "?limit=", "?limit=999999999999999999999",
 		"?q=" + strings.Repeat("a", 201), "?q=%00", "?q=%FF", "?q=%ZZ", "?q=" + strings.Repeat("a", 5000),

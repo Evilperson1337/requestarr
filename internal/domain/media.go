@@ -53,6 +53,10 @@ type AvailabilityEvidence struct {
 type ResolvedItem struct {
 	Item      CatalogItem
 	Platforms []Platform
+	Movie     *MovieDetails `json:"Movie,omitempty"`
+	TV        *TVDetails    `json:"TV,omitempty"`
+	Game      *GameDetails  `json:"Game,omitempty"`
+	Preview   *MoviePreview `json:"Preview,omitempty"`
 }
 
 type CatalogPlatform struct {

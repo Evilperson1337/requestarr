@@ -102,7 +102,8 @@ func matchingRequestIDs(ctx context.Context, tx pgx.Tx, userID string, query req
 	rows, err := tx.Query(ctx, `SELECT r.id::text FROM requests r JOIN catalog_items c ON c.id=r.catalog_item_id
 		WHERE ($2='' OR strpos(lower(c.title),lower($2))>0) AND ($3='' OR r.status=$3)
 		AND ($4='' OR c.media_type=$4) AND (NOT $5 OR EXISTS (SELECT 1 FROM request_subscriptions s WHERE s.request_id=r.id AND s.user_id=$1))
-		ORDER BY `+order+` LIMIT $6`, userID, query.Q, query.Status, query.MediaType, query.Mine, maxRequestSnapshotItems+1)
+		AND ($7='' OR r.id=NULLIF($7,'')::uuid)
+		ORDER BY `+order+` LIMIT $6`, userID, query.Q, query.Status, query.MediaType, query.Mine, maxRequestSnapshotItems+1, query.RequestID)
 	if err != nil {
 		return nil, fmt.Errorf("match request-list IDs: %w", err)
 	}
