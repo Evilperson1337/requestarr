@@ -30,7 +30,7 @@ test('movie preview exposes rich facts, genre tags and the whole official synops
     // The synopsis is shown whole; there is nothing to expand.
     await expect(dialog.getByRole('button', { name: /Show (more|less)/ })).toHaveCount(0)
     await expect(dialog.getByRole('list', { name: 'Genres' }).getByRole('listitem')).toHaveText(['Adventure'])
-    await expect(dialog.getByRole('link', { name: 'Open on TMDB' })).toHaveAttribute('href', movie.Item.ExternalURL)
+    await expect(dialog.getByRole('link', { name: 'TMDB (opens in a new tab)' })).toHaveAttribute('href', movie.Item.ExternalURL)
 })
 
 test('movie scrollbar uses the dark theme and respects forced system colors', async ({ page }) => {
@@ -139,11 +139,11 @@ test('reopening the same movie reuses metadata and refreshes only local state', 
     let providerLookups = 0
     await page.route('**/api/v1/resolve', route => { providerLookups++; return route.fulfill({ json: movie }) })
     await page.route('**/api/v1/catalog/*/preview', route => route.fulfill({ json: movie.Preview }))
-    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Close preview' }).click()
     await page.getByRole('button', { name: 'Preview', exact: true }).click()
     await expect(dialog).toBeVisible()
     expect(providerLookups).toBe(0)
-    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Close preview' }).click()
     const input = page.getByPlaceholder('Paste a supported link…')
     await input.focus()
     await input.press('Enter')
@@ -191,4 +191,21 @@ test('availability reads as one tag per media server, linked to the item', async
 test('without library evidence the availability tag says so plainly', async ({ page }) => {
     const unknown = await openMovie(page)
     await expect(unknown.getByRole('list', { name: 'Library availability' })).toHaveText('Availability unknown')
+})
+
+test('movie dialog has one close control in its top-right corner, cast photos and a TMDB link', async ({ page }) => {
+    const photo = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
+    const dialog = await openMovie(page, { ...movie, Movie: { ...movie.Movie, cast: [{ name: 'Pictured Actor', character: 'Lead', profileUrl: photo }, { name: 'Plain Actor' }] } })
+    // No separate Cancel button; the corner X is the only way out besides Escape.
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toHaveCount(0)
+    const box = await dialog.boundingBox(), close = await dialog.getByRole('button', { name: 'Close preview' }).boundingBox()
+    expect(box!.x + box!.width - (close!.x + close!.width)).toBeLessThan(24)
+    expect(close!.y - box!.y).toBeLessThan(24)
+    const cast = dialog.getByRole('region', { name: 'Lead cast' })
+    await expect(cast.locator('img.castPhoto')).toHaveCount(1)
+    await expect(cast.locator('.castInitials')).toHaveText('PA')
+    // The rating line reads as one sentence with the source as its link.
+    await expect(dialog.locator('.movieRating')).toHaveText('TMDB 7.8/10 · 120 ratings')
+    await expect(dialog.locator('.movieRating a')).toHaveCount(1)
+    await expect(dialog.getByText('Open on TMDB')).toHaveCount(0)
 })

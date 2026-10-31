@@ -71,7 +71,7 @@ test('game request modal enforces Any-or-explicit platforms and can be cancelled
     await expect(dialog.getByRole('button', { name: 'Create request' })).toBeDisabled()
     await dialog.getByLabel('Any platform').check()
     await expect(dialog.getByRole('button', { name: 'Create request' })).toBeEnabled()
-    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await dialog.getByRole('button', { name: 'Close preview' }).click()
     await expect(dialog).toHaveCount(0)
 })
 

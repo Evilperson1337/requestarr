@@ -31,7 +31,7 @@ function describe(resolved: ResolvedItem): Facts {
             eyebrow: 'Game preview', noun: 'game', source: 'IGDB', tagLabel: 'Genres', backdropUrl: game?.backdropUrl, badges: game?.genres ?? [],
             upcoming: !!game?.releaseDate && game.releaseDate > todayISO(),
             lines: [date ? <><strong>Release date:</strong> {date}</> : 'Release date unknown'],
-            rating: game?.ratingCount && game.score !== undefined ? <>IGDB <strong>{Math.round(game.score)}/100</strong> · {game.ratingCount.toLocaleString()} ratings</> : 'IGDB · Not yet rated',
+            rating: game?.ratingCount && game.score !== undefined ? <><strong>{Math.round(game.score)}/100</strong> · {game.ratingCount.toLocaleString()} ratings</> : '· Not yet rated',
             overview: game?.overview ?? '', credit: game?.developers?.length ? { label: game.developers.length > 1 ? 'Developers' : 'Developer', names: game.developers } : undefined,
             needsPlatforms: true,
         }
@@ -45,7 +45,7 @@ function describe(resolved: ResolvedItem): Facts {
         badges: [music?.primaryType, ...(music?.secondaryTypes ?? []), ...(music?.genres ?? [])].filter((x): x is string => !!x),
         upcoming: !!music?.releaseDate && music.releaseDate > todayISO(),
         lines: [date ? <><strong>Release date:</strong> {date}</> : item.Year ? <><strong>Released:</strong> {item.Year}</> : 'Release date unknown', ...(length ? [<><strong>Length:</strong> {length}</>] : [])],
-        rating: music?.ratingCount && music.score !== undefined ? <>MusicBrainz <strong>{music.score.toFixed(1)}/5</strong> · {music.ratingCount.toLocaleString()} ratings</> : 'MusicBrainz · Not yet rated',
+        rating: music?.ratingCount && music.score !== undefined ? <><strong>{music.score.toFixed(1)}/5</strong> · {music.ratingCount.toLocaleString()} ratings</> : '· Not yet rated',
         overview: '', credit: music?.artists?.length ? { label: music.artists.length > 1 ? 'Artists' : 'Artist', names: music.artists } : undefined,
         alsoOn: music?.appearsOn?.length ? { label: 'Appears on', names: music.appearsOn } : undefined,
         needsPlatforms: false,
@@ -125,19 +125,21 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
         finally { if (!controller.signal.aborted) { pending.current = null; setBusy(false) } }
     }
     const overview = facts.overview
+    const hasActions = canCreate || (!authLost && (!!preview.request || preview.canSubscribe))
+    const source = item.ExternalURL ? <a href={item.ExternalURL} target="_blank" rel="noreferrer" aria-label={`${facts.source} (opens in a new tab)`}>{facts.source}</a> : facts.source
     return <div className="overlay movieOverlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
         <section ref={dialog} tabIndex={-1} onKeyDown={keyboard} role="dialog" aria-modal="true" aria-labelledby="catalog-preview-title" className="movieModal">
+            <button className="close movieClose" aria-label="Close preview" onClick={onClose}>×</button>
             <div className="movieScroll">
                 {facts.backdropUrl && !backdropFailed && <img className="movieBackdrop" src={facts.backdropUrl} alt="" onError={() => setBackdropFailed(true)} />}
-                <header className="movieHeader"><p className="eyebrow">{facts.eyebrow}</p><button className="close" aria-label="Close preview" onClick={onClose}>×</button></header>
+                <header className="movieHeader"><p className="eyebrow">{facts.eyebrow}</p></header>
                 <div className="movieIdentity">
                     {item.ArtworkURL && !posterFailed ? <img className="moviePoster" src={item.ArtworkURL} alt={`${item.MediaType === 'game' ? 'Cover' : 'Cover art'} for ${item.Title}`} onError={() => setPosterFailed(true)} /> : <div className="moviePoster moviePlaceholder" role="img" aria-label="Cover unavailable">Cover unavailable</div>}
                     <div className="movieHeading"><h2 id="catalog-preview-title">{item.Title}{item.Year ? ` (${item.Year})` : ''}</h2>
                         <div className="movieFacts">{facts.upcoming && <span className="movieBadge">Upcoming</span>}</div>
                         {facts.badges.length > 0 && <ul className="tags" aria-label={facts.tagLabel}>{facts.badges.map((badge, index) => <li className="tag" key={`${badge}-${index}`}>{badge}</li>)}</ul>}
                         {facts.lines.map((line, index) => <p key={index}>{line}</p>)}
-                        <p className="movieRating">{facts.rating}</p>
-                        {item.ExternalURL && <a href={item.ExternalURL} target="_blank" rel="noreferrer">Open on {facts.source} ↗</a>}
+                        <p className="movieRating">{source} {facts.rating}</p>
                         {!authLost && <LibraryTags preview={preview} />}
                     </div>
                 </div>
@@ -157,13 +159,12 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
                 {canCreate && <><button className="button secondary" aria-expanded={noteOpen} aria-controls="catalog-note" onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? 'Hide note' : 'Add a note'}</button>{noteOpen && <label className="field" id="catalog-note">Note (optional)<textarea maxLength={2000} value={note} disabled={busy} onChange={event => setNote(event.target.value)} /></label>}</>}
                 {error && <p role="alert" className="error">{error}</p>}
             </div>
-            <footer className="movieFooter" aria-busy={busy}>
-                <button className="button secondary" onClick={onClose}>{success ? 'Close' : 'Cancel'}</button>
+            {hasActions && <footer className="movieFooter" aria-busy={busy}>
                 {!authLost && preview.request && <a className="button secondary" href={`/requests?requestId=${encodeURIComponent(preview.request.id)}`} onClick={followLink}>View request</a>}
                                 {!authLost && preview.canSubscribe && <button className="button" disabled={busy} onClick={() => void subscribe()}>{busy ? 'Saving…' : 'Notify Me'}</button>}
                 {canCreate && <button className="button" disabled={busy || !platformsValid} onClick={() => void create()}>{busy ? 'Submitting…' : 'Create request'}</button>}
                 {busy && <span className="sr-only" role="status">Saving your request…</span>}
-            </footer>
+            </footer>}
         </section>
     </div>
 }

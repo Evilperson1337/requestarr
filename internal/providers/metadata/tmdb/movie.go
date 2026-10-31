@@ -36,6 +36,7 @@ func (r *Resolver) credits(ctx context.Context, endpoint string, headers http.He
 		Cast []struct {
 			Name      string `json:"name"`
 			Character string `json:"character"`
+			Profile   string `json:"profile_path"`
 		} `json:"cast"`
 	}
 	if err := metadata.Fetch(ctx, r.client, endpoint, headers, &credits); err != nil || credits == nil {
@@ -55,7 +56,7 @@ func (r *Resolver) credits(ctx context.Context, endpoint string, headers http.He
 			break
 		}
 		if name := cleanText(person.Name, 256); name != "" {
-			movie.Cast = append(movie.Cast, domain.MovieCast{Name: name, Character: cleanText(person.Character, 256)})
+			movie.Cast = append(movie.Cast, domain.MovieCast{Name: name, Character: cleanText(person.Character, 256), ProfileURL: imageURL(person.Profile, "w185")})
 		}
 	}
 }

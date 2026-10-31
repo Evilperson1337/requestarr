@@ -37,7 +37,7 @@ test('game preview shows the same rich facts as a movie, with IGDB sourcing', as
     await expect(dialog.getByRole('button', { name: /Show (more|less)/ })).toHaveCount(0)
     await expect(dialog.getByRole('list', { name: 'Genres' }).getByRole('listitem')).toHaveText(['Shooter'])
     await expect(dialog.getByRole('list', { name: 'Library availability' })).toHaveText('Availability unknown')
-    await expect(dialog.getByRole('link', { name: 'Open on IGDB' })).toHaveAttribute('href', game.Item.ExternalURL)
+    await expect(dialog.getByRole('link', { name: 'IGDB (opens in a new tab)' })).toHaveAttribute('href', game.Item.ExternalURL)
 })
 
 test('game request needs a platform choice and sends it with the note', async ({ page }) => {

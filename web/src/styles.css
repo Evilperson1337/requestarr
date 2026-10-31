@@ -41,16 +41,47 @@
 }
 
 .movieCast li {
-    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px 10px 10px;
     background: var(--raised);
-    border-radius: 8px;
-    flex: 1 1 140px;
+    border-radius: 12px;
+    flex: 1 1 200px;
+    min-width: 0;
+}
+
+.movieCast li > div {
+    min-width: 0;
 }
 
 .movieCast span {
     display: block;
     color: var(--muted);
     margin-top: 4px;
+}
+
+.castPhoto {
+    flex: none;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--control);
+}
+
+.castInitials {
+    display: grid;
+    place-content: center;
+    margin: 0;
+    color: var(--text);
+    font-weight: 600;
+}
+
+.movieCast .castInitials {
+    display: grid;
+    margin-top: 0;
+    color: var(--text);
 }
 
 @media (max-width: 600px) {
@@ -93,6 +124,7 @@
 }
 
 .movieModal {
+    position: relative;
     color-scheme: dark;
     width: min(920px, 100%);
     max-height: min(92dvh, 1100px);
@@ -144,24 +176,35 @@
 
 .movieHeader {
     position: relative;
-    min-height: 38px;
-    padding-right: 32px;
+    padding-right: 48px;
 }
 
-.movieHeader .close {
-    top: -12px;
-    right: -8px;
+.movieModal .movieClose {
+    z-index: 2;
+    top: 14px;
+    right: 14px;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    background: #000a;
+    line-height: 1;
+}
+
+.movieModal .movieClose:hover {
+    background: var(--control);
 }
 
 .movieIdentity {
     display: grid;
     grid-template-columns: 190px minmax(0, 1fr);
     gap: 28px;
-    align-items: start;
+    align-items: stretch;
     margin-bottom: 28px;
 }
 
 .moviePoster {
+    align-self: start;
     width: 100%;
     aspect-ratio: 2 / 3;
     object-fit: contain;
@@ -179,6 +222,22 @@
 
 .movieHeading {
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.movieHeading > * {
+    margin-block: 0;
+}
+
+.movieHeading > * + * {
+    margin-top: 10px;
+}
+
+.movieHeading > .tags[aria-label="Library availability"] {
+    margin-top: auto;
+    padding-top: 10px;
 }
 
 .movieHeading h2 {
@@ -202,7 +261,6 @@
 
 .movieRating strong {
     color: var(--text);
-    font-size: 1.3rem;
 }
 
 .movieScroll p {

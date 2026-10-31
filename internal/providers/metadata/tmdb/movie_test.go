@@ -100,3 +100,27 @@ func TestNearDeadlineCreditsDoNotDiscardResolvedCoreMovie(t *testing.T) {
 		t.Fatal("optional credits consumed the remaining core lookup budget")
 	}
 }
+
+func TestCastPhotosAreApprovedTMDBImagesOnly(t *testing.T) {
+	credits := `{"crew":[],"cast":[{"name":"Pictured","profile_path":"/abc123.jpg"},{"name":"Hostile","profile_path":"//evil.example/x.jpg"},{"name":"Traversal","profile_path":"/../private"},{"name":"None","profile_path":null}]}`
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body := `{"id":1762506,"title":"Fixture","release_date":"2026-01-01"}`
+		if strings.HasSuffix(r.URL.Path, "/credits") {
+			body = credits
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), ContentLength: int64(len(body))}, nil
+	})}
+	u, _ := url.Parse("https://www.themoviedb.org/movie/1762506-fixture")
+	result, err := tmdb.New("private-token-canary", client).Resolve(context.Background(), u)
+	if err != nil || result.Movie == nil || len(result.Movie.Cast) != 4 {
+		t.Fatalf("cast lost: error=%v", err)
+	}
+	got := []string{}
+	for _, person := range result.Movie.Cast {
+		got = append(got, person.ProfileURL)
+	}
+	want := []string{"https://image.tmdb.org/t/p/w185/abc123.jpg", "", "", ""}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("profile URLs = %q, want %q", got, want)
+	}
+}

@@ -73,6 +73,8 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
         finally { if (!controller.signal.aborted) { pending.current = null; setBusy(false) } }
     }
     const canCreate = !authLost && !success && preview.canRequest && !preview.request && preview.availability !== 'available' && session.user.role !== 'viewer'
+    const hasActions = canCreate || (!authLost && (!!preview.request || preview.canSubscribe))
+    const tmdb = item.ExternalURL ? <a href={item.ExternalURL} target="_blank" rel="noreferrer" aria-label="TMDB (opens in a new tab)">TMDB</a> : 'TMDB'
     const overview = movie?.overview || ''
     // Parse date-only values at local noon so locale formatting never shifts a day.
     const releaseDate = movie?.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(movie.releaseDate) ? new Date(`${movie.releaseDate}T12:00:00`) : null
@@ -83,9 +85,10 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
     const lastAirDate = tv?.lastAirDate && /^\d{4}-\d{2}-\d{2}$/.test(tv.lastAirDate) ? new Date(`${tv.lastAirDate}T12:00:00`) : null
     return <div className="overlay movieOverlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
         <section ref={dialog} tabIndex={-1} onKeyDown={keyboard} role="dialog" aria-modal="true" aria-labelledby="movie-preview-title" className="movieModal">
+            <button className="close movieClose" aria-label="Close preview" onClick={onClose}>×</button>
             <div className="movieScroll">
                 {movie?.backdropUrl && !backdropFailed && <img className="movieBackdrop" src={movie.backdropUrl} alt="" onError={() => setBackdropFailed(true)} />}
-                <header className="movieHeader"><p className="eyebrow">{isTV ? 'TV preview' : 'Movie preview'}</p><button className="close" aria-label="Close preview" onClick={onClose}>×</button></header>
+                <header className="movieHeader"><p className="eyebrow">{isTV ? 'TV preview' : 'Movie preview'}</p></header>
                 <div className="movieIdentity">
                     {item.ArtworkURL && !posterFailed ? <img className="moviePoster" src={item.ArtworkURL} alt={`Poster for ${item.Title}`} onError={() => setPosterFailed(true)} /> : <div className="moviePoster moviePlaceholder" role="img" aria-label="Poster unavailable">Poster unavailable</div>}
                     <div className="movieHeading"><h2 id="movie-preview-title">{item.Title}{item.Year ? ` (${item.Year})` : ''}</h2>
@@ -94,14 +97,13 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
                         <p>{releaseDate && !Number.isNaN(releaseDate.getTime()) ? <><strong>{isTV ? 'First aired:' : 'Release date:'}</strong> <time dateTime={movie?.releaseDate}>{releaseDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</time></> : isTV ? 'First air date unknown' : 'Release date unknown'}</p>
                         {isTV && lastAirDate && !Number.isNaN(lastAirDate.getTime()) && <p><strong>Last aired:</strong> <time dateTime={tv?.lastAirDate}>{lastAirDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</time></p>}
                         {isTV && <p>Requests cover the whole series.</p>}
-                        <p className="movieRating">{movie?.ratingCount && movie.score !== undefined ? <>TMDB <strong>{movie.score.toFixed(1)}/10</strong> · {movie.ratingCount.toLocaleString()} ratings</> : 'TMDB · Not yet rated'}</p>
-                        {item.ExternalURL && <a href={item.ExternalURL} target="_blank" rel="noreferrer">Open on TMDB ↗</a>}
+                        <p className="movieRating">{movie?.ratingCount && movie.score !== undefined ? <>{tmdb} <strong>{movie.score.toFixed(1)}/10</strong> · {movie.ratingCount.toLocaleString()} ratings</> : <>{tmdb} · Not yet rated</>}</p>
                         {!authLost && <LibraryTags preview={preview} />}
                     </div>
                 </div>
                 {overview && <section aria-label="Synopsis"><h3>Synopsis</h3><p>{overview}</p></section>}
                 {!!movie?.directors?.length && <p><strong>{isTV ? 'Creator' : 'Director'}{movie.directors.length > 1 ? 's' : ''}:</strong> {movie.directors.join(', ')}</p>}
-                {!!movie?.cast?.length && <section aria-label="Lead cast"><h3>Lead cast</h3><ul className="movieCast">{movie.cast.slice(0, 5).map((person, index) => <li key={`${person.name}-${index}`}><strong>{person.name}</strong>{person.character && <span>{person.character}</span>}</li>)}</ul></section>}
+                {!!movie?.cast?.length && <section aria-label="Lead cast"><h3>Lead cast</h3><ul className="movieCast">{movie.cast.slice(0, 5).map((person, index) => <li key={`${person.name}-${index}`}><CastPhoto name={person.name} url={person.profileUrl} /><div><strong>{person.name}</strong>{person.character && <span>{person.character}</span>}</div></li>)}</ul></section>}
                 {movie?.detailsUnavailable && <p role="status">Some details unavailable.</p>}
                 {!authLost && <section className="movieState" aria-label="Request and availability">
                     {success && <p ref={successMessage} tabIndex={-1} role="status"><strong>{success}</strong></p>}
@@ -111,13 +113,19 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
                 {canCreate && <><button className="button secondary" aria-expanded={noteOpen} aria-controls="movie-note" onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? 'Hide note' : 'Add a note'}</button>{noteOpen && <label className="field" id="movie-note">Note (optional)<textarea maxLength={2000} value={note} disabled={busy} onChange={event => setNote(event.target.value)} /></label>}</>}
                 {error && <p role="alert" className="error">{error}</p>}
             </div>
-            <footer className="movieFooter" aria-busy={busy}>
-                <button className="button secondary" onClick={onClose}>{success ? 'Close' : 'Cancel'}</button>
+            {hasActions && <footer className="movieFooter" aria-busy={busy}>
                 {!authLost && preview.request && <a className="button secondary" href={`/requests?requestId=${encodeURIComponent(preview.request.id)}`} onClick={followLink}>View request</a>}
                                 {!authLost && preview.canSubscribe && <button className="button" disabled={busy} onClick={() => void subscribe()}>{busy ? 'Saving…' : 'Notify Me'}</button>}
                 {canCreate && <button className="button" disabled={busy} onClick={() => void create()}>{busy ? 'Submitting…' : requestLabel}</button>}
                 {busy && <span className="sr-only" role="status">Saving your request…</span>}
-            </footer>
+            </footer>}
         </section>
     </div>
+}
+
+function CastPhoto({ name, url }: { name: string; url?: string }) {
+    const [failed, setFailed] = useState(false)
+    if (url && !failed) return <img className="castPhoto" src={url} alt="" loading="lazy" onError={() => setFailed(true)} />
+    const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(word => [...word][0]).join('').toUpperCase()
+    return <span className="castPhoto castInitials" aria-hidden="true">{initials}</span>
 }

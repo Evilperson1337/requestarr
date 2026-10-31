@@ -19,4 +19,6 @@ type MovieDetails struct {
 type MovieCast struct {
 	Name      string `json:"name"`
 	Character string `json:"character,omitempty"`
+	// ProfileURL is an approved TMDB image origin photo; absent when TMDB has none.
+	ProfileURL string `json:"profileUrl,omitempty"`
 }

@@ -36,7 +36,7 @@ test('album preview shows the artist, release type, genres, date and rating', as
     await expect(dialog).toContainText('Album preview')
     await expect(dialog).toContainText('Artist: Radiohead')
     for (const text of ['Album', 'Live', 'electronic', 'art rock', 'Release date:', '4.5/5', '22 ratings']) await expect(dialog).toContainText(text)
-    await expect(dialog.getByRole('link', { name: 'Open on MusicBrainz' })).toHaveAttribute('href', album.Item.ExternalURL)
+    await expect(dialog.getByRole('link', { name: 'MusicBrainz (opens in a new tab)' })).toHaveAttribute('href', album.Item.ExternalURL)
     await expect(dialog.getByLabel('Any platform')).toHaveCount(0)
     // Release type and genres are separate tags.
     await expect(dialog.getByRole('list', { name: 'Type and genres' }).getByRole('listitem')).toHaveText(['Album', 'Live', 'electronic', 'art rock'])

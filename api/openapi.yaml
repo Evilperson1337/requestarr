@@ -953,6 +953,7 @@ components:
             properties:
               name: { type: string, maxLength: 256 }
               character: { type: string, maxLength: 256 }
+              profileUrl: { type: string, format: uri, description: Approved TMDB image origin only }
         detailsUnavailable: { type: boolean, description: Secondary enrichment failed; ordinary absent credits are not a failure }
     TVDetails:
       type: object
@@ -980,6 +981,7 @@ components:
             properties:
               name: { type: string, maxLength: 256 }
               character: { type: string, maxLength: 256 }
+              profileUrl: { type: string, format: uri, description: Approved TMDB image origin only }
         detailsUnavailable: { type: boolean }
     MoviePreviewState:
       type: object
