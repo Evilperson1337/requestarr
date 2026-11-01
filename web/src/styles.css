@@ -1699,7 +1699,9 @@ a.tag-available:hover {
 
 /* Choosing part of an item: tracks of an album, seasons and episodes of a series. */
 .picker {
+    display: block;
     border: 0;
+    background: none;
     margin: 20px 0 0;
     padding: 0;
     min-width: 0;
@@ -1710,6 +1712,12 @@ a.tag-available:hover {
     font-weight: 700;
     padding: 0;
     margin-bottom: 10px;
+    float: left;
+    width: 100%;
+}
+
+.picker legend + * {
+    clear: both;
 }
 
 .pickMode {
