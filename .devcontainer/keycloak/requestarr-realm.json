@@ -59,6 +59,7 @@
   ],
   "users": [
     {
+      "id": "527b6b94-0233-47ce-9011-0766ff7f4ce7",
       "username": "requestarr-admin",
       "enabled": true,
       "email": "admin@requestarr.local",
