@@ -37,7 +37,7 @@ func TestResolveUsesReleaseGroupForAlbumsAndRecordingForSongs(t *testing.T) {
 		wantTitle                     string
 		wantYear                      int
 	}{
-		{"release-group", "/release-group/" + id, "/ws/2/release-group/" + id + "?fmt=json&inc=artists+genres+ratings",
+		{"release-group", "/release-group/" + id, "/ws/2/release-group/" + id + "?fmt=json&inc=artists+genres+ratings+releases",
 			`{"id":"` + id + `","title":"Title","first-release-date":"1999-05-01","artist-credit":[{"name":"Artist"}]}`,
 			domain.MediaAlbum, id, "https://musicbrainz.org/release-group/" + id, "Artist — Title", 1999},
 		{"recording", "/recording/" + id, "/ws/2/recording/" + id + "?fmt=json&inc=artists+genres+ratings+releases",

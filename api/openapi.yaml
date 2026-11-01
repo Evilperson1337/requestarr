@@ -916,6 +916,19 @@ components:
         genres: { type: array, maxItems: 10, items: { type: string, maxLength: 80 } }
         lengthSeconds: { type: integer, minimum: 1, description: A song's duration }
         appearsOn: { type: array, maxItems: 5, items: { type: string, maxLength: 256 }, description: Releases a song appears on }
+        tracks:
+          type: array
+          maxItems: 200
+          description: An album's tracklist from one release, for choosing tracks to request. Absent when MusicBrainz could not supply it.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, position, title]
+            properties:
+              id: { type: string, maxLength: 64 }
+              position: { type: integer, minimum: 1, description: Counts across discs }
+              title: { type: string, maxLength: 512 }
+              lengthSeconds: { type: integer, minimum: 1 }
         score: { type: number, minimum: 0, maximum: 5, description: MusicBrainz community rating on a 0-5 scale }
         ratingCount: { type: integer, minimum: 1 }
     GameDetails:
@@ -1013,6 +1026,30 @@ components:
               name: { type: string, maxLength: 256 }
               character: { type: string, maxLength: 256 }
               profileUrl: { type: string, format: uri, description: Approved TMDB image origin only }
+        seasonList:
+          type: array
+          maxItems: 50
+          description: The series' seasons, for choosing seasons or episodes to request. Episodes are absent when TMDB's episode lists could not be read.
+          items:
+            type: object
+            additionalProperties: false
+            required: [number]
+            properties:
+              number: { type: integer, minimum: 0, maximum: 999, description: Season 0 is Specials }
+              name: { type: string, maxLength: 256 }
+              episodeCount: { type: integer, minimum: 1 }
+              airDate: { type: string, format: date }
+              episodes:
+                type: array
+                maxItems: 500
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [number]
+                  properties:
+                    number: { type: integer, minimum: 1 }
+                    name: { type: string, maxLength: 256 }
+                    airDate: { type: string, format: date }
         detailsUnavailable: { type: boolean }
     MoviePreviewState:
       type: object

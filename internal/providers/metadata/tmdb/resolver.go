@@ -63,6 +63,12 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 		Creators       []struct {
 			Name string `json:"name"`
 		} `json:"created_by"`
+		SeasonList []struct {
+			Number   int    `json:"season_number"`
+			Name     string `json:"name"`
+			Episodes int    `json:"episode_count"`
+			AirDate  string `json:"air_date"`
+		} `json:"seasons"`
 		Poster   string `json:"poster_path"`
 		Backdrop string `json:"backdrop_path"`
 		Overview string `json:"overview"`
@@ -173,6 +179,20 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 				seen[name] = true
 			}
 		}
+		for _, season := range data.SeasonList {
+			if season.Number < 0 || season.Number > 999 || len(tv.SeasonList) >= maxSeasons {
+				continue
+			}
+			entry := domain.TVSeason{Number: season.Number, Name: cleanText(season.Name, 256)}
+			if season.Episodes > 0 && season.Episodes <= 100000 {
+				entry.EpisodeCount = season.Episodes
+			}
+			if _, err := time.Parse("2006-01-02", season.AirDate); err == nil {
+				entry.AirDate = season.AirDate
+			}
+			tv.SeasonList = append(tv.SeasonList, entry)
+		}
+		r.episodes(ctx, endpoint, h, tv)
 		credits := &domain.MovieDetails{}
 		r.credits(ctx, endpoint+"/credits", h, credits)
 		if ctx.Err() != nil {

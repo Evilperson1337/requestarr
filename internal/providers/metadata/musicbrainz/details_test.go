@@ -133,3 +133,42 @@ func TestReleaseLinkSurvivesAnOccasional503(t *testing.T) {
 		t.Fatalf("err = %v, item = %+v", err, got.Item)
 	}
 }
+
+const pressB = "44444444-4444-4444-8444-444444444444"
+const trackOne = "55555555-5555-4555-8555-555555555555"
+const trackTwo = "66666666-6666-4666-8666-666666666666"
+
+func groupWithReleases() string {
+	return `{"id":"` + album + `","title":"Kid A","primary-type":"Album","first-release-date":"2000-10-02","artist-credit":[{"name":"Radiohead"}],
+"releases":[{"id":"` + pressB + `","title":"Kid A","status":"Official","date":"2001-01-01"},{"id":"` + pressA + `","title":"Kid A","status":"Official","date":"2000-10-02"}]}`
+}
+
+// An album carries its tracklist so a Request can pick tracks; discs flatten into one running position.
+func TestAlbumCarriesTheEarliestOfficialReleasesTracklist(t *testing.T) {
+	r, seen := fixture(t, map[string]string{
+		"/ws/2/release-group/" + album: groupWithReleases(),
+		"/ws/2/release/" + pressA:      `{"media":[{"tracks":[{"id":"` + trackOne + `","title":"Everything in Its Right Place","length":251000}]},{"tracks":[{"id":"` + trackTwo + `","title":"Kid A","length":284000},{"id":"bad","title":"Skipped: not an MBID"}]}]}`,
+	})
+	u, _ := url.Parse("https://musicbrainz.org/release-group/" + album)
+	got, err := r.Resolve(context.Background(), u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracks := got.Music.Tracks
+	if len(tracks) != 2 || tracks[0].ID != trackOne || tracks[0].Position != 1 || tracks[0].LengthSeconds != 251 || tracks[1].Position != 2 || tracks[1].Title != "Kid A" {
+		t.Fatalf("tracks = %+v", tracks)
+	}
+	if strings.Join(*seen, ",") != "/ws/2/release-group/"+album+",/ws/2/release/"+pressA {
+		t.Fatalf("calls = %v", *seen)
+	}
+}
+
+// A failed tracklist never blocks the album: it is requestable whole.
+func TestAlbumWithoutATracklistStillResolves(t *testing.T) {
+	r, _ := fixture(t, map[string]string{"/ws/2/release-group/" + album: groupWithReleases()})
+	u, _ := url.Parse("https://musicbrainz.org/release-group/" + album)
+	got, err := r.Resolve(context.Background(), u)
+	if err != nil || got.Music == nil || len(got.Music.Tracks) != 0 {
+		t.Fatalf("got %+v err %v", got.Music, err)
+	}
+}

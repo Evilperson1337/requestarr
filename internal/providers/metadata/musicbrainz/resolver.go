@@ -39,7 +39,7 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 	media := domain.MediaAlbum
 	switch parts[0] {
 	case "release-group":
-		inc = "artists+genres+ratings"
+		inc = "artists+genres+ratings+releases"
 	case "recording":
 		inc, media = "artists+genres+ratings+releases", domain.MediaSong
 	case "release":
@@ -68,8 +68,10 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 			VotesCount int64    `json:"votes-count"`
 		} `json:"rating"`
 		Releases []struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
+			ID     string `json:"id"`
+			Title  string `json:"title"`
+			Status string `json:"status"`
+			Date   string `json:"date"`
 		} `json:"releases"`
 	}
 	if err := apiSpacer.wait(ctx); err != nil {
@@ -106,6 +108,8 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 	}
 	if media == domain.MediaAlbum {
 		item.ArtworkURL = "https://coverartarchive.org/release-group/" + data.ID + "/front-500"
+		// Optional: without a tracklist the whole album is still requestable.
+		details.Tracks = r.tracklist(ctx, pickRelease(data.Releases, preferredRelease(ctx)))
 	} else {
 		if data.Length > 0 && data.Length <= 24*60*60*1000 {
 			details.LengthSeconds = int(data.Length / 1000)
@@ -143,7 +147,7 @@ func (r *Resolver) resolveRelease(ctx context.Context, id string) (domain.Resolv
 	if data.ReleaseGroup == nil || !mbidPattern.MatchString(data.ReleaseGroup.ID) || data.ReleaseGroup.Title == "" {
 		return domain.ResolvedItem{}, fmt.Errorf("invalid MusicBrainz response")
 	}
-	return r.Resolve(ctx, &url.URL{Scheme: "https", Host: "musicbrainz.org", Path: "/release-group/" + data.ReleaseGroup.ID})
+	return r.Resolve(withPreferredRelease(ctx, id), &url.URL{Scheme: "https", Host: "musicbrainz.org", Path: "/release-group/" + data.ReleaseGroup.ID})
 }
 
 type credit struct {
