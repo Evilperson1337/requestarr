@@ -288,7 +288,7 @@
     align-self: start;
     width: 100%;
     aspect-ratio: 2 / 3;
-    object-fit: contain;
+    object-fit: cover;
     border-radius: 12px;
     background: var(--ground);
 }

@@ -67,3 +67,21 @@ test('music preview has no accessibility violations', async ({ page }) => {
     await expect(dialog).toBeVisible()
     expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([])
 })
+
+test('album whose cover art fails to load shows a placeholder and no blurred banner', async ({ page }) => {
+    await page.route('https://coverartarchive.org/**', route => route.abort())
+    const album = { Item: { ID: '11111111-1111-4111-8111-111111111111', MediaType: 'album', Provider: 'musicbrainz', Title: 'No Cover', Year: 2026, ArtworkURL: 'https://coverartarchive.org/release-group/x/front-500', ArtworkKind: 'square', ExternalURL: 'https://musicbrainz.org/release/x' }, Platforms: [], Music: { primaryType: 'Album', artists: ['Someone'] }, Preview: { availability: 'unknown', canRequest: true, canSubscribe: false } }
+    await page.route('**/api/v1/**', route => {
+        const path = new URL(route.request().url()).pathname
+        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u', role: 'requester', displayName: 'U' }, csrfToken: 'c' } })
+        if (path.endsWith('/resolve')) return route.fulfill({ json: album })
+        return route.fulfill({ json: { items: [], nextCursor: null } })
+    })
+    await page.goto('/')
+    await page.getByPlaceholder('Paste a supported link…').fill('https://musicbrainz.org/release/x')
+    await page.getByRole('button', { name: 'Preview', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: /No Cover/ })
+    await expect(dialog.getByRole('img', { name: 'Cover unavailable' })).toBeVisible()
+    await expect(dialog.locator('.movieBanner')).toHaveCount(0)
+})

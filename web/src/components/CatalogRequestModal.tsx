@@ -31,7 +31,7 @@ function describe(resolved: ResolvedItem): Facts {
             eyebrow: 'Game preview', noun: 'game', source: 'IGDB', tagLabel: 'Genres', backdropUrl: game?.backdropUrl, badges: game?.genres ?? [],
             upcoming: !!game?.releaseDate && game.releaseDate > todayISO(),
             lines: [date ? <><strong>Release date:</strong> {date}</> : 'Release date unknown'],
-            rating: game?.ratingCount && game.score !== undefined ? <><strong>{Math.round(game.score)}/100</strong> · {game.ratingCount.toLocaleString()} ratings</> : '· Not yet rated',
+            rating: game?.ratingCount && game.score !== undefined ? <><strong>{Math.round(game.score)}/100</strong> · {game.ratingCount.toLocaleString()} {game.ratingCount === 1 ? 'rating' : 'ratings'}</> : '· Not yet rated',
             overview: game?.overview ?? '', credit: game?.developers?.length ? { label: game.developers.length > 1 ? 'Developers' : 'Developer', names: game.developers } : undefined,
             needsPlatforms: true,
         }
@@ -45,7 +45,7 @@ function describe(resolved: ResolvedItem): Facts {
         badges: [music?.primaryType, ...(music?.secondaryTypes ?? []), ...(music?.genres ?? [])].filter((x): x is string => !!x),
         upcoming: !!music?.releaseDate && music.releaseDate > todayISO(),
         lines: [date ? <><strong>Release date:</strong> {date}</> : item.Year ? <><strong>Released:</strong> {item.Year}</> : 'Release date unknown', ...(length ? [<><strong>Length:</strong> {length}</>] : [])],
-        rating: music?.ratingCount && music.score !== undefined ? <><strong>{music.score.toFixed(1)}/5</strong> · {music.ratingCount.toLocaleString()} ratings</> : '· Not yet rated',
+        rating: music?.ratingCount && music.score !== undefined ? <><strong>{music.score.toFixed(1)}/5</strong> · {music.ratingCount.toLocaleString()} {music.ratingCount === 1 ? 'rating' : 'ratings'}</> : '· Not yet rated',
         overview: '', credit: music?.artists?.length ? { label: music.artists.length > 1 ? 'Artists' : 'Artist', names: music.artists } : undefined,
         alsoOn: music?.appearsOn?.length ? { label: 'Appears on', names: music.appearsOn } : undefined,
         needsPlatforms: false,

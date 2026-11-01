@@ -97,7 +97,7 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
                         <p>{releaseDate && !Number.isNaN(releaseDate.getTime()) ? <><strong>{isTV ? 'First aired:' : 'Release date:'}</strong> <time dateTime={movie?.releaseDate}>{releaseDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</time></> : isTV ? 'First air date unknown' : 'Release date unknown'}</p>
                         {isTV && lastAirDate && !Number.isNaN(lastAirDate.getTime()) && <p><strong>Last aired:</strong> <time dateTime={tv?.lastAirDate}>{lastAirDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</time></p>}
                         {isTV && <p>Requests cover the whole series.</p>}
-                        <p className="movieRating">{movie?.ratingCount && movie.score !== undefined ? <>{tmdb} <strong>{movie.score.toFixed(1)}/10</strong> · {movie.ratingCount.toLocaleString()} ratings</> : <>{tmdb} · Not yet rated</>}</p>
+                        <p className="movieRating">{movie?.ratingCount && movie.score !== undefined ? <>{tmdb} <strong>{movie.score.toFixed(1)}/10</strong> · {movie.ratingCount.toLocaleString()} {movie.ratingCount === 1 ? 'rating' : 'ratings'}</> : <>{tmdb} · Not yet rated</>}</p>
                         {!authLost && <LibraryTags preview={preview} />}
                     </div>
                 </div>

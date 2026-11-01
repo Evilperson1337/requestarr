@@ -209,3 +209,8 @@ test('movie dialog has one close control in its top-right corner, cast photos an
     await expect(dialog.locator('.movieRating a')).toHaveCount(1)
     await expect(dialog.getByText('Open on TMDB')).toHaveCount(0)
 })
+
+test('a single rating reads "1 rating"', async ({ page }) => {
+    const dialog = await openMovie(page, { ...movie, Movie: { ...movie.Movie, score: 5, ratingCount: 1 } })
+    await expect(dialog.locator('.movieRating')).toHaveText('TMDB 5.0/10 · 1 rating')
+})
