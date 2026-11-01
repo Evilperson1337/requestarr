@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, type MoviePreviewState, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
-import { RequestCover } from '../components/RequestCover'
+import { RequestRail } from '../components/RequestRail'
 import { RequestModal } from '../components/RequestModal'
 import { followLink } from '../navigation'
 
@@ -24,6 +24,15 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         } catch { if (!signal?.aborted) setRecentFailed(true) }
     }, [])
     useEffect(() => { const controller = new AbortController(); void loadRecent(controller.signal); return () => controller.abort() }, [session.user.id, loadRecent])
+    // Shared and optional: what has just become available. A failure simply leaves the row out.
+    const [available, setAvailable] = useState<RequestItem[]>([])
+    useEffect(() => {
+        const controller = new AbortController()
+        api<RequestPage>('/requests?status=available&limit=6', { cache: 'no-store', signal: controller.signal })
+            .then(page => { if (!controller.signal.aborted) setAvailable(Array.isArray(page?.items) ? page.items : []) })
+            .catch(() => undefined)
+        return () => controller.abort()
+    }, [session.user.id])
     async function resolve(e: FormEvent) {
         if (busy) { e.preventDefault(); return }
         returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : previewButton.current
@@ -46,18 +55,16 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         <section className="card hero"><h1>Request Something</h1><p>Paste a TMDB, MusicBrainz, or IGDB link to preview it before requesting.</p>
             <form onSubmit={resolve}><label className="urlBox"><span aria-hidden="true">↗</span><span className="sr-only">TMDB, MusicBrainz, or IGDB URL</span><input type="url" required value={url} onChange={e => setURL(e.target.value)} placeholder="Paste a supported link…" /></label><button ref={previewButton} className="button" disabled={busy} onClick={event => { if (event.detail > 0) event.currentTarget.focus() }}>{busy ? 'Resolving…' : 'Preview'}</button></form>
             {busy && <p role="status">Looking up metadata…</p>}{error && <p role="alert" className="error">{error}</p>}
-            <div className="providers"><span>TMDB · Movies &amp; TV</span><span>MusicBrainz · Music</span><span>IGDB · Games</span></div>
+            <ul className="providers" aria-label="Supported links"><li>TMDB · Movies &amp; TV</li><li>MusicBrainz · Music</li><li>IGDB · Games</li></ul>
         </section>
         <section className="recent" aria-labelledby="recent-heading">
             <div className="recentHeader"><h2 id="recent-heading">Your recent requests</h2><a href="/requests?mine=true" onClick={followLink}>Open the full queue</a></div>
-            {recent === null ? <p>{recentFailed ? 'Your recent requests could not be loaded.' : 'Loading…'}</p> : recent.length === 0 ? <p>Nothing yet. Paste a link above to make your first request.</p> : <ul className="recentGrid">{recent.map(req => <li key={req.ID}>
-                <a className="recentCard" href={`/requests?requestId=${encodeURIComponent(req.ID)}`} onClick={followLink}>
-                    <RequestCover req={req} />
-                    <span className="recentTitle">{req.Title}</span>
-                    <span className={`badge status-${req.Status}`}>{req.Status}</span>
-                </a>
-            </li>)}</ul>}
+            {recent === null ? <p>{recentFailed ? 'Your recent requests could not be loaded.' : 'Loading…'}</p> : recent.length === 0 ? <p>Nothing yet. Paste a link above to make your first request.</p> : <RequestRail items={recent} />}
         </section>
+        {available.length > 0 && <section className="recent" aria-labelledby="available-heading">
+            <div className="recentHeader"><h2 id="available-heading">Recently available</h2><a href="/requests?status=available" onClick={followLink}>All available</a></div>
+            <RequestRail items={available} />
+        </section>}
         {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus()) }} />}
     </main>
 }

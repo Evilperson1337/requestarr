@@ -28,7 +28,7 @@ test('Home lists the five newest requests the user follows, with status and libr
     await expect(section.getByRole('img', { name: 'Artwork for Kid A' })).toBeVisible()
     await expect(section.getByRole('link', { name: 'Open the full queue' })).toHaveAttribute('href', '/requests?mine=true')
     // The dev server runs effects twice; the query is what matters.
-    expect([...new Set(calls)]).toEqual(['?mine=true&limit=5'])
+    expect([...new Set(calls)].filter(call => call.includes('mine'))).toEqual(['?mine=true&limit=5'])
 })
 
 test('Home says so when nothing has been requested yet', async ({ page }) => {
@@ -41,4 +41,18 @@ test('a failing list never blocks requesting', async ({ page }) => {
     await expect(page.getByText('Your recent requests could not be loaded.')).toBeVisible()
     await expect(page.getByPlaceholder('Paste a supported link…')).toBeEnabled()
     await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeEnabled()
+})
+
+test('Home adds a Recently available row from shared requests, and omits it when empty', async ({ page }) => {
+    const calls = await openHome(page, url => ({ json: { items: url.searchParams.get('status') === 'available' ? [row('9', 'Arrival', 'movie', 'available')] : [], nextCursor: null } }))
+    const available = page.getByRole('region', { name: 'Recently available' })
+    await expect(available.getByRole('link', { name: /Arrival/ })).toHaveAttribute('href', '/requests?requestId=9')
+    await expect(available.getByRole('link', { name: 'All available' })).toHaveAttribute('href', '/requests?status=available')
+    expect([...new Set(calls)]).toContain('?status=available&limit=6')
+})
+
+test('Home leaves the Recently available row out when there is nothing to show', async ({ page }) => {
+    await openHome(page, () => ({ json: { items: [], nextCursor: null } }))
+    await expect(page.getByText('Nothing yet. Paste a link above to make your first request.')).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Recently available' })).toHaveCount(0)
 })
