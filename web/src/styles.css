@@ -48,10 +48,8 @@
     opacity: .55;
 }
 
-.bannerImg.fromCover {
-    transform: scale(1.3);
-    filter: blur(28px) saturate(1.3);
-    opacity: .6;
+.movieBanner.flat {
+    background: var(--raised);
 }
 
 /* Square art (albums, singles) keeps its own shape instead of a poster frame. */
@@ -219,7 +217,6 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 20px;
-    box-shadow: 0 24px 100px #0009;
 }
 
 .movieScroll {

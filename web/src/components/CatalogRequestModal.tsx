@@ -132,10 +132,11 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
         finally { if (!controller.signal.aborted) { pending.current = null; setBusy(false) } }
     }
     const overview = facts.overview
-    // Album and single art is square: it keeps its own shape, and with no backdrop it also fills the banner, blurred.
+    // Album and single art is square: it keeps its own shape, and with no backdrop it hangs over a flat band.
     const square = item.ArtworkKind === 'square'
-    const banner = facts.backdropUrl && !backdropFailed ? facts.backdropUrl : square && item.ArtworkURL && !posterFailed ? item.ArtworkURL : ''
-    const fromCover = !!banner && banner === item.ArtworkURL && banner !== facts.backdropUrl
+    const banner = facts.backdropUrl && !backdropFailed ? facts.backdropUrl : ''
+    // With no backdrop (albums), the banner is a flat band so the cover still hangs over an edge.
+    const flatBanner = !banner && !!item.ArtworkURL && !posterFailed
     const hasActions = canSubmit || (!authLost && (!!preview.request || preview.canSubscribe))
     const source = item.ExternalURL ? <a href={item.ExternalURL} target="_blank" rel="noreferrer" aria-label={`${facts.source} (opens in a new tab)`}>{facts.source}</a> : facts.source
     return <div className="overlay movieOverlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
@@ -143,8 +144,9 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
             <button className="close movieClose" aria-label="Close preview" onClick={onClose}>×</button>
             <span className="movieKind">{facts.eyebrow}</span>
             <div className="movieScroll">
-                {banner && <div className="movieBanner"><img className={fromCover ? 'bannerImg fromCover' : 'bannerImg'} src={banner} alt="" onError={() => fromCover ? setPosterFailed(true) : setBackdropFailed(true)} /></div>}
-                <div className={`movieIdentity${banner ? ' overlap' : ''}${square ? ' square' : ''}`}>
+                {banner && <div className="movieBanner"><img className="bannerImg" src={banner} alt="" onError={() => setBackdropFailed(true)} /></div>}
+                {flatBanner && <div className="movieBanner flat" aria-hidden="true" />}
+                <div className={`movieIdentity${banner || flatBanner ? ' overlap' : ''}${square ? ' square' : ''}`}>
                     {item.ArtworkURL && !posterFailed ? <img className="moviePoster" src={item.ArtworkURL} alt={`${item.MediaType === 'game' ? 'Cover' : 'Cover art'} for ${item.Title}`} onError={() => setPosterFailed(true)} /> : <div className="moviePoster moviePlaceholder" role="img" aria-label="Cover unavailable">Cover unavailable</div>}
                     <div className="movieHeading"><h2 id="catalog-preview-title">{item.Title}{item.Year ? ` (${item.Year})` : ''}</h2>
                         {facts.credit && <p className="movieCredit"><span className="sr-only">{facts.credit.label}: </span>{facts.credit.names.join(', ')}</p>}
