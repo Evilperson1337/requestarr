@@ -34,6 +34,45 @@
     opacity: .55;
 }
 
+.movieBanner {
+    height: 200px;
+    margin: -28px -28px 0;
+    overflow: hidden;
+}
+
+.bannerImg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: .55;
+}
+
+.bannerImg.fromCover {
+    transform: scale(1.3);
+    filter: blur(28px) saturate(1.3);
+    opacity: .6;
+}
+
+/* Square art (albums, singles) keeps its own shape instead of a poster frame. */
+.movieIdentity.square {
+    grid-template-columns: 230px minmax(0, 1fr);
+}
+
+.movieIdentity.square .moviePoster {
+    aspect-ratio: 1;
+    object-fit: cover;
+}
+
+.movieIdentity.overlap.square .moviePoster {
+    margin-top: -110px;
+}
+
+.movieCredit {
+    font-size: 1.1rem;
+    color: var(--muted);
+}
+
 .movieKind {
     position: absolute;
     z-index: 2;
@@ -127,6 +166,19 @@
 
     .movieIdentity.overlap .moviePoster {
         margin-top: -64px;
+    }
+
+    .movieBanner {
+        height: 150px;
+        margin: -20px -20px 0;
+    }
+
+    .movieIdentity.square {
+        grid-template-columns: minmax(110px, 140px) minmax(0, 1fr);
+    }
+
+    .movieIdentity.overlap.square .moviePoster {
+        margin-top: -44px;
     }
 }
 
