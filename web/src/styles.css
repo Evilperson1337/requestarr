@@ -24,12 +24,42 @@
     padding: 24px;
 }
 
+/* Seerr-style header: a backdrop banner with the poster hanging over its lower edge. */
 .movieModal .movieBackdrop {
+    display: block;
     width: calc(100% + 56px);
-    margin: -28px -28px 20px;
-    max-height: 210px;
+    margin: -28px -28px 0;
+    height: 200px;
     object-fit: cover;
-    opacity: .65;
+    opacity: .55;
+}
+
+.movieKind {
+    position: absolute;
+    z-index: 2;
+    top: 18px;
+    left: 24px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: #000a;
+    font-size: .85rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.movieIdentity:not(.overlap) {
+    margin-top: 36px;
+    padding-right: 44px;
+}
+
+.movieIdentity.overlap .moviePoster {
+    margin-top: -96px;
+    position: relative;
+    box-shadow: 0 8px 28px #000a;
+}
+
+.movieIdentity.overlap .movieHeading {
+    padding-top: 20px;
 }
 
 .movieCast {
@@ -91,8 +121,12 @@
 
     .movieModal .movieBackdrop {
         width: calc(100% + 40px);
-        margin: -20px -20px 16px;
-        max-height: 150px;
+        margin: -20px -20px 0;
+        height: 150px;
+    }
+
+    .movieIdentity.overlap .moviePoster {
+        margin-top: -64px;
     }
 }
 
@@ -172,11 +206,6 @@
     .movieScroll {
         scrollbar-color: auto;
     }
-}
-
-.movieHeader {
-    position: relative;
-    padding-right: 48px;
 }
 
 .movieModal .movieClose {

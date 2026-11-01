@@ -86,10 +86,10 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
     return <div className="overlay movieOverlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
         <section ref={dialog} tabIndex={-1} onKeyDown={keyboard} role="dialog" aria-modal="true" aria-labelledby="movie-preview-title" className="movieModal">
             <button className="close movieClose" aria-label="Close preview" onClick={onClose}>×</button>
+            <span className="movieKind">{isTV ? 'TV preview' : 'Movie preview'}</span>
             <div className="movieScroll">
                 {movie?.backdropUrl && !backdropFailed && <img className="movieBackdrop" src={movie.backdropUrl} alt="" onError={() => setBackdropFailed(true)} />}
-                <header className="movieHeader"><p className="eyebrow">{isTV ? 'TV preview' : 'Movie preview'}</p></header>
-                <div className="movieIdentity">
+                <div className={`movieIdentity${movie?.backdropUrl && !backdropFailed ? ' overlap' : ''}`}>
                     {item.ArtworkURL && !posterFailed ? <img className="moviePoster" src={item.ArtworkURL} alt={`Poster for ${item.Title}`} onError={() => setPosterFailed(true)} /> : <div className="moviePoster moviePlaceholder" role="img" aria-label="Poster unavailable">Poster unavailable</div>}
                     <div className="movieHeading"><h2 id="movie-preview-title">{item.Title}{item.Year ? ` (${item.Year})` : ''}</h2>
                         <div className="movieFacts">{upcoming ? <span className="movieBadge">Upcoming</span> : movie?.releaseStatus && <span className="movieBadge">{movie.releaseStatus}</span>}{movie?.runtime ? <span>{Math.floor(movie.runtime / 60) ? `${Math.floor(movie.runtime / 60)}h ` : ''}{movie.runtime % 60}m{isTV ? ' per episode' : ''}</span> : null}{isTV && tv?.seasons ? <span>{tv.seasons.toLocaleString()} {tv.seasons === 1 ? 'season' : 'seasons'}</span> : null}{isTV && tv?.episodes ? <span>{tv.episodes.toLocaleString()} {tv.episodes === 1 ? 'episode' : 'episodes'}</span> : null}</div>

@@ -130,10 +130,10 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
     return <div className="overlay movieOverlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
         <section ref={dialog} tabIndex={-1} onKeyDown={keyboard} role="dialog" aria-modal="true" aria-labelledby="catalog-preview-title" className="movieModal">
             <button className="close movieClose" aria-label="Close preview" onClick={onClose}>×</button>
+            <span className="movieKind">{facts.eyebrow}</span>
             <div className="movieScroll">
                 {facts.backdropUrl && !backdropFailed && <img className="movieBackdrop" src={facts.backdropUrl} alt="" onError={() => setBackdropFailed(true)} />}
-                <header className="movieHeader"><p className="eyebrow">{facts.eyebrow}</p></header>
-                <div className="movieIdentity">
+                <div className={`movieIdentity${facts.backdropUrl && !backdropFailed ? ' overlap' : ''}`}>
                     {item.ArtworkURL && !posterFailed ? <img className="moviePoster" src={item.ArtworkURL} alt={`${item.MediaType === 'game' ? 'Cover' : 'Cover art'} for ${item.Title}`} onError={() => setPosterFailed(true)} /> : <div className="moviePoster moviePlaceholder" role="img" aria-label="Cover unavailable">Cover unavailable</div>}
                     <div className="movieHeading"><h2 id="catalog-preview-title">{item.Title}{item.Year ? ` (${item.Year})` : ''}</h2>
                         <div className="movieFacts">{facts.upcoming && <span className="movieBadge">Upcoming</span>}</div>
