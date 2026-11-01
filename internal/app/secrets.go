@@ -75,6 +75,23 @@ func resolveSecrets(ctx context.Context, cfg config.Config, repo secrets.Reposit
 	for name, field := range secretFields(&cfg) {
 		*field = values[name]
 	}
+	// A stored credential whose Source has no URL cannot configure it: the URL is
+	// env-only. Hold the Source off rather than fail boot, which would also lock
+	// the operator out of the Settings screen that stores credentials.
+	for _, kind := range sources.All() {
+		if *cfg.LibraryURL(kind.Slug) != "" {
+			continue
+		}
+		for _, credential := range kind.Credentials {
+			if credential.Secret == "" || env[secrets.Name(credential.Secret)] != "" {
+				continue
+			}
+			if field := cfg.LibraryCredential(kind.Slug, credential.Role); *field != "" {
+				*field = ""
+				logger.Warn("stored credential ignored: the Source has no URL", "source", kind.Slug, "set", kind.URLEnv)
+			}
+		}
+	}
 	statuses, _, err := svc.Status(ctx)
 	if err != nil {
 		return cfg, nil, nil, fmt.Errorf("resolve stored secrets: %w", err)

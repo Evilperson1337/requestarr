@@ -106,3 +106,24 @@ func TestUnreadableNavidromePasswordLeavesNavidromeOffInsteadOfFailingValidation
 		t.Fatalf("logs %q", logs)
 	}
 }
+
+func TestStoredPlexTokenWithoutAUrlLeavesPlexOffInsteadOfFailingBoot(t *testing.T) {
+	key, _ := secrets.ParseMasterKey(hexKeyA)
+	sealer, _ := secrets.NewAESGCM(key)
+	sealed, err := sealer.Seal(secrets.PlexToken, []byte("stored-plex-token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := fakeSecretRepo{rows: []secrets.Stored{{Name: secrets.PlexToken, Sealed: sealed}}}
+	got, logs := resolve(t, config.Config{SecretsKey: hexKeyA}, repo)
+	if got.PlexToken != "" || got.PlexURL != "" {
+		t.Fatalf("Plex must stay off while its URL is unset: %+v", got)
+	}
+	if strings.Contains(logs, "stored-plex-token") || !strings.Contains(logs, "REQUESTARR_PLEX_URL") {
+		t.Fatalf("logs %q", logs)
+	}
+	// An environment token with no URL is an operator mistake and still fails validation.
+	if env, _ := resolve(t, config.Config{SecretsKey: hexKeyA, PlexToken: "env-token"}, repo); env.PlexToken != "env-token" {
+		t.Fatal("an environment credential must never be discarded")
+	}
+}
