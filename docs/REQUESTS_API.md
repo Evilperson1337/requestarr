@@ -96,8 +96,15 @@ inside a nine-second total TMDB lookup; a secondary failure retains core metadat
 
 TV details include first/last air dates, series status, per-episode runtime,
 season/episode counts, and creators from TMDB's series-level created-by data.
-Counts never add child-unit Request selection. Movie and TV numeric provider IDs
-remain separate catalog namespaces, and a TV Request uses one canonical series ID.
+TV details also list the seasons (and, from one optional appended request, their
+episodes) so a Request can select part of the series (D027). Albums carry an
+optional tracklist from one MusicBrainz release. A Request has a `selection`
+(`tracks`, `seasons`, `episodes`; empty means the whole item). `POST /requests`
+accepts it, merges it by union into an existing open Request (`Merged: true`,
+the caller is subscribed) and never narrows it; the preview's `canExtend` says
+when that is possible. Availability is still projected for the whole item.
+Movie and TV numeric provider IDs remain separate catalog namespaces, and a TV
+Request uses one canonical series ID.
 
 The local catalog preview endpoint returns availability, the shared Request and
 current user's subscription if one exists, usable library links when known

@@ -26,8 +26,14 @@ and up to five lead cast members appear when supplied.
 
 TV uses first/last air dates, series status, per-episode runtime, season/episode
 counts, and series creators rather than a movie release date or director.
-Counts are informational: **Request series** always requests the whole series,
-with no season or episode selection. Ended/canceled status does not imply library
+**Request series** requests the whole series by default. Choosing "Choose seasons or
+episodes" lists each season (and, when TMDB supplied them, its episodes); a whole
+season absorbs its episodes. Albums work the same way with a tracklist ("Choose
+tracks"). The picker is hidden when the provider supplied no list, so the whole item
+is always requestable. When the shared Request is open and covers only part of the
+item, anyone allowed to request sees **Add to request**; parts already requested are
+listed but disabled, and adding never narrows the Request (D027). The Requests list
+says what a partial Request covers. Ended/canceled status does not imply library
 availability, and an upcoming series remains requestable under the usual policy.
 
 Missing facts are not fabricated: unrated movies say Not yet rated, missing dates

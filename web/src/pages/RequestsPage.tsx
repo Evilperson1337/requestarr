@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, type RequestItem, type RequestPage, type User } from '../api'
 import { followBackLink, followLink, navigate, useLocation } from '../navigation'
 import { RequestCover } from '../components/RequestCover'
+import { describeSelection } from '../selection'
 
 const statuses = [['', 'All'], ['requested', 'Requested'], ['approved', 'Approved'], ['available', 'Available'], ['denied', 'Denied'], ['cancelled', 'Cancelled']] as const
 
@@ -159,6 +160,7 @@ export function RequestsPage({ user, csrfToken }: { user: User; csrfToken: strin
             <div className="requestInfo">
                 <h2>{req.Title}</h2>
                 <p className="requestFacts">{[req.MediaType, `requested ${new Date(req.CreatedAt).toLocaleDateString()}`, req.availability === 'available' ? 'In library' : req.availability === 'missing' ? 'Not in library' : '', req.MediaType === 'game' ? `Platforms: ${req.Platforms?.any ? 'any' : (req.Platforms?.platformKeys || []).map(key => req.CatalogPlatforms?.find(p => p.key === key)?.name || key).join(', ') || 'not specified'}` : ''].filter(Boolean).join(' · ')}</p>
+                {describeSelection(req.selection) && <p className="requestSelection"><strong>Requested:</strong> {describeSelection(req.selection)}</p>}
                 {req.Note && <p className="requestNote">{req.Note}</p>}
             </div>
             <div className="requestMeta"><span className={`badge status-${req.Status}`}>{req.Status}</span><span className="requester">{req.RequestedBy === user.id ? 'Yours' : 'Shared'}</span></div>

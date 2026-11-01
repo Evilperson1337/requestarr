@@ -1054,11 +1054,12 @@ components:
     MoviePreviewState:
       type: object
       additionalProperties: false
-      required: [availability, canRequest, canSubscribe]
+      required: [availability, canRequest, canSubscribe, canExtend]
       properties:
         availability: { type: string, enum: [unknown, available, missing] }
         canRequest: { type: boolean, description: Role permits creation and no shared Request or known availability exists; writes remain authoritative }
         canSubscribe: { type: boolean, description: Shared Request is open and the current user is not subscribed }
+        canExtend: { type: boolean, description: Role permits creation and the open shared Request covers only part of the item, so more of it can be added }
         request:
           type: object
           required: [id, status, subscribed]
@@ -1066,6 +1067,7 @@ components:
             id: { type: string, format: uuid }
             status: { type: string, enum: [requested, approved, available, denied, cancelled] }
             subscribed: { type: boolean }
+            selection: { $ref: '#/components/schemas/Selection' }
         libraries:
           type: array
           maxItems: 10

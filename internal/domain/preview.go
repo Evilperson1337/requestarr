@@ -11,12 +11,16 @@ type MoviePreview struct {
 	Libraries    []LibraryLink   `json:"libraries,omitempty"`
 	CanRequest   bool            `json:"canRequest"`
 	CanSubscribe bool            `json:"canSubscribe"`
+	// CanExtend is true when the caller may add to an open Request that covers
+	// only part of the item (D027).
+	CanExtend bool `json:"canExtend"`
 }
 
 type PreviewRequest struct {
 	ID         string        `json:"id"`
 	Status     RequestStatus `json:"status"`
 	Subscribed bool          `json:"subscribed"`
+	Selection  Selection     `json:"selection"`
 }
 
 type LibraryLink struct {

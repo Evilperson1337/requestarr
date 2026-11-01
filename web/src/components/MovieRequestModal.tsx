@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { api, ApiError, type MoviePreviewState, type ResolvedItem, type Session } from '../api'
+import { api, ApiError, type MoviePreviewState, type ResolvedItem, type Selection, type Session } from '../api'
 import { followLink } from '../navigation'
 import { LibraryTags } from './LibraryTags'
+import { isWhole } from '../selection'
+import { SeasonPicker } from './SelectionPicker'
 
 export function MovieRequestModal({ resolved, session, onClose }: { resolved: ResolvedItem; session: Session; onCreated: () => void; onClose: () => void }) {
     const item = resolved.Item, tv = resolved.TV
@@ -19,6 +21,8 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
     const pending = useRef<AbortController | null>(null)
     const successMessage = useRef<HTMLParagraphElement>(null)
     const [busy, setBusy] = useState(false)
+    const [selection, setSelection] = useState<Selection>({})
+    const [selectionValid, setSelectionValid] = useState(true)
     const [error, setError] = useState('')
     useEffect(() => {
         const opener = document.activeElement as HTMLElement | null
@@ -43,15 +47,15 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
     }
     async function create() {
-        if (pending.current || !canCreate) return
+        if (pending.current || !canSubmit || !selectionValid) return
         const controller = new AbortController(); pending.current = controller
         setBusy(true); setError('')
         try {
-            const result = await api<{ Created: boolean; Request: { ID: string; Status: string } }>('/requests', { method: 'POST', signal: controller.signal, body: JSON.stringify({ catalogId: item.ID, note, platforms: { any: true } }) }, session.csrfToken)
+            const result = await api<{ Created: boolean; Merged?: boolean; Request: { ID: string; Status: string } }>('/requests', { method: 'POST', signal: controller.signal, body: JSON.stringify({ catalogId: item.ID, note, platforms: { any: true }, selection: isWhole(selection) ? undefined : selection }) }, session.csrfToken)
             if (controller.signal.aborted) return
             if (!result?.Request?.ID) throw new Error('The request result could not be confirmed. Retry safely to check the shared Request.')
-            setPreview({ availability: preview.availability, canRequest: false, canSubscribe: !result.Created && ['requested', 'approved'].includes(result.Request.Status), request: { id: result.Request.ID, status: result.Request.Status, subscribed: result.Created } })
-            setSuccess(result.Created ? isTV ? 'Series requested' : 'Movie requested' : isTV ? 'This series was already requested' : 'This movie was already requested')
+            setPreview({ availability: preview.availability, canRequest: false, canExtend: false, canSubscribe: !result.Created && !result.Merged && ['requested', 'approved'].includes(result.Request.Status), request: { id: result.Request.ID, status: result.Request.Status, subscribed: result.Created || !!result.Merged } })
+            setSuccess(result.Created ? isTV ? 'Series requested' : 'Movie requested' : result.Merged ? 'Added to the existing request' : isTV ? 'This series was already requested' : 'This movie was already requested')
             try { setPreview(await api<MoviePreviewState>(`/catalog/${encodeURIComponent(item.ID)}/preview`, { signal: controller.signal, cache: 'no-store' })) }
             catch (e) { if (!controller.signal.aborted) actionError(e, 'The Request was saved, but its latest state could not be refreshed. Close and preview it again to refresh.') }
         } catch (e) { if (!controller.signal.aborted) actionError(e, 'Could not create the request') }
@@ -75,6 +79,9 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
     const canCreate = !authLost && !success && preview.canRequest && !preview.request && preview.availability !== 'available' && session.user.role !== 'viewer'
     const hasActions = canCreate || (!authLost && (!!preview.request || preview.canSubscribe))
     const tmdb = item.ExternalURL ? <a href={item.ExternalURL} target="_blank" rel="noreferrer" aria-label="TMDB (opens in a new tab)">TMDB</a> : 'TMDB'
+    const seasonList = isTV ? tv?.seasonList ?? [] : []
+    const canExtend = !authLost && !success && !!preview.canExtend && seasonList.length > 0 && session.user.role !== 'viewer'
+    const canSubmit = canCreate || canExtend
     const overview = movie?.overview || ''
     // Parse date-only values at local noon so locale formatting never shifts a day.
     const releaseDate = movie?.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(movie.releaseDate) ? new Date(`${movie.releaseDate}T12:00:00`) : null
@@ -110,13 +117,14 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
                     {preview.request && <><p>Shared Request: {preview.request.status}</p><p role="status">{preview.request.subscribed ? 'Notifications On' : 'You are not subscribed to this Request.'}</p></>}
                     {session.user.role === 'viewer' && !preview.request && <p>Your viewer role cannot create Requests.</p>}
                 </section>}
+                {canSubmit && seasonList.length > 0 && <SeasonPicker items={seasonList} existing={preview.request?.selection} noun="series" onChange={(next, valid) => { setSelection(next); setSelectionValid(valid) }} />}
                 {canCreate && <><button className="button secondary" aria-expanded={noteOpen} aria-controls="movie-note" onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? 'Hide note' : 'Add a note'}</button>{noteOpen && <label className="field" id="movie-note">Note (optional)<textarea maxLength={2000} value={note} disabled={busy} onChange={event => setNote(event.target.value)} /></label>}</>}
                 {error && <p role="alert" className="error">{error}</p>}
             </div>
             {hasActions && <footer className="movieFooter" aria-busy={busy}>
                 {!authLost && preview.request && <a className="button secondary" href={`/requests?requestId=${encodeURIComponent(preview.request.id)}`} onClick={followLink}>View request</a>}
                                 {!authLost && preview.canSubscribe && <button className="button" disabled={busy} onClick={() => void subscribe()}>{busy ? 'Saving…' : 'Notify Me'}</button>}
-                {canCreate && <button className="button" disabled={busy} onClick={() => void create()}>{busy ? 'Submitting…' : requestLabel}</button>}
+                {canSubmit && <button className="button" disabled={busy || !selectionValid} onClick={() => void create()}>{busy ? 'Submitting…' : canExtend ? 'Add to request' : requestLabel}</button>}
                 {busy && <span className="sr-only" role="status">Saving your request…</span>}
             </footer>}
         </section>

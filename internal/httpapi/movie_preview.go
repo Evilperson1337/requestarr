@@ -21,6 +21,7 @@ func moviePreview(ctx context.Context, reader MoviePreviewReader, catalogID stri
 		return state, err
 	}
 	state.CanRequest = (user.Role == "requester" || user.Role == "admin") && state.Request == nil && state.Availability != domain.AvailabilityAvailable
+	state.CanExtend = (user.Role == "requester" || user.Role == "admin") && state.Request != nil && state.Request.Status.IsOpen() && !state.Request.Selection.IsAll()
 	state.CanSubscribe = state.Request != nil && state.Request.Status.IsOpen() && !state.Request.Subscribed
 	return state, nil
 }

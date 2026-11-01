@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { api, ApiError, type MoviePreviewState, type ResolvedItem, type Session } from '../api'
+import { api, ApiError, type MoviePreviewState, type Selection, type ResolvedItem, type Session } from '../api'
 import { followLink } from '../navigation'
 import { LibraryTags } from './LibraryTags'
+import { isWhole } from '../selection'
+import { TrackPicker } from './SelectionPicker'
 
 // What the confirmation screen shows for one catalog item, whatever its media
 // type. Each media type fills it from its own provider details.
@@ -68,6 +70,8 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
     const pending = useRef<AbortController | null>(null)
     const successMessage = useRef<HTMLParagraphElement>(null)
     const [busy, setBusy] = useState(false)
+    const [selection, setSelection] = useState<Selection>({})
+    const [selectionValid, setSelectionValid] = useState(true)
     const [error, setError] = useState('')
     useEffect(() => {
         const opener = document.activeElement as HTMLElement | null
@@ -94,16 +98,19 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
     function toggle(key: string) { setAny(false); setPlatforms(current => current.includes(key) ? current.filter(x => x !== key) : [...current, key]) }
     const platformsValid = !facts.needsPlatforms || any || platforms.length > 0
     const canCreate = !authLost && !success && preview.canRequest && !preview.request && preview.availability !== 'available' && session.user.role !== 'viewer'
+    const tracks = item.MediaType === 'album' ? resolved.Music?.tracks ?? [] : []
+    const canExtend = !authLost && !success && !!preview.canExtend && tracks.length > 0 && session.user.role !== 'viewer'
+    const canSubmit = canCreate || canExtend
     async function create() {
-        if (pending.current || !canCreate || !platformsValid) return
+        if (pending.current || !canSubmit || !platformsValid || !selectionValid) return
         const controller = new AbortController(); pending.current = controller
         setBusy(true); setError('')
         try {
-            const result = await api<{ Created: boolean; Request: { ID: string; Status: string } }>('/requests', { method: 'POST', signal: controller.signal, body: JSON.stringify({ catalogId: item.ID, note, platforms: facts.needsPlatforms ? { any, platformKeys: any ? [] : platforms } : { any: true } }) }, session.csrfToken)
+            const result = await api<{ Created: boolean; Merged?: boolean; Request: { ID: string; Status: string } }>('/requests', { method: 'POST', signal: controller.signal, body: JSON.stringify({ catalogId: item.ID, note, platforms: facts.needsPlatforms ? { any, platformKeys: any ? [] : platforms } : { any: true }, selection: isWhole(selection) ? undefined : selection }) }, session.csrfToken)
             if (controller.signal.aborted) return
             if (!result?.Request?.ID) throw new Error('The request result could not be confirmed. Retry safely to check the shared Request.')
-            setPreview({ availability: preview.availability, canRequest: false, canSubscribe: !result.Created && ['requested', 'approved'].includes(result.Request.Status), request: { id: result.Request.ID, status: result.Request.Status, subscribed: result.Created } })
-            setSuccess(result.Created ? `${facts.noun[0].toUpperCase()}${facts.noun.slice(1)} requested` : `This ${facts.noun} was already requested`)
+            setPreview({ availability: preview.availability, canRequest: false, canExtend: false, canSubscribe: !result.Created && !result.Merged && ['requested', 'approved'].includes(result.Request.Status), request: { id: result.Request.ID, status: result.Request.Status, subscribed: result.Created || !!result.Merged } })
+            setSuccess(result.Created ? `${facts.noun[0].toUpperCase()}${facts.noun.slice(1)} requested` : result.Merged ? 'Added to the existing request' : `This ${facts.noun} was already requested`)
             try { setPreview(await api<MoviePreviewState>(`/catalog/${encodeURIComponent(item.ID)}/preview`, { signal: controller.signal, cache: 'no-store' })) }
             catch (e) { if (!controller.signal.aborted) actionError(e, 'The Request was saved, but its latest state could not be refreshed. Close and preview it again to refresh.') }
         } catch (e) { if (!controller.signal.aborted) actionError(e, 'Could not create the request') }
@@ -129,7 +136,7 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
     const square = item.ArtworkKind === 'square'
     const banner = facts.backdropUrl && !backdropFailed ? facts.backdropUrl : square && item.ArtworkURL && !posterFailed ? item.ArtworkURL : ''
     const fromCover = !!banner && banner === item.ArtworkURL && banner !== facts.backdropUrl
-    const hasActions = canCreate || (!authLost && (!!preview.request || preview.canSubscribe))
+    const hasActions = canSubmit || (!authLost && (!!preview.request || preview.canSubscribe))
     const source = item.ExternalURL ? <a href={item.ExternalURL} target="_blank" rel="noreferrer" aria-label={`${facts.source} (opens in a new tab)`}>{facts.source}</a> : facts.source
     return <div className="overlay movieOverlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
         <section ref={dialog} tabIndex={-1} onKeyDown={keyboard} role="dialog" aria-modal="true" aria-labelledby="catalog-preview-title" className="movieModal">
@@ -150,6 +157,7 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
                 </div>
                 {overview && <section aria-label="Synopsis"><h3>Synopsis</h3><p>{overview}</p></section>}
                 {facts.alsoOn && <p><strong>{facts.alsoOn.label}:</strong> {facts.alsoOn.names.join(', ')}</p>}
+                {canSubmit && tracks.length > 0 && <TrackPicker items={tracks} existing={preview.request?.selection} noun="album" onChange={(next, valid) => { setSelection(next); setSelectionValid(valid) }} />}
                 {canCreate && facts.needsPlatforms && <fieldset><legend>Platforms</legend>
                     <label className="check"><input type="radio" checked={any} onChange={() => { setAny(true); setPlatforms([]) }} /> Any platform</label>
                     {resolved.Platforms?.map(p => <label className="check" key={p.key}><input type="checkbox" checked={!any && platforms.includes(p.key)} onChange={() => toggle(p.key)} /> {p.name}</label>)}
@@ -166,7 +174,7 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
             {hasActions && <footer className="movieFooter" aria-busy={busy}>
                 {!authLost && preview.request && <a className="button secondary" href={`/requests?requestId=${encodeURIComponent(preview.request.id)}`} onClick={followLink}>View request</a>}
                                 {!authLost && preview.canSubscribe && <button className="button" disabled={busy} onClick={() => void subscribe()}>{busy ? 'Saving…' : 'Notify Me'}</button>}
-                {canCreate && <button className="button" disabled={busy || !platformsValid} onClick={() => void create()}>{busy ? 'Submitting…' : 'Create request'}</button>}
+                {canSubmit && <button className="button" disabled={busy || !platformsValid || !selectionValid} onClick={() => void create()}>{busy ? 'Submitting…' : canExtend ? 'Add to request' : 'Create request'}</button>}
                 {busy && <span className="sr-only" role="status">Saving your request…</span>}
             </footer>}
         </section>

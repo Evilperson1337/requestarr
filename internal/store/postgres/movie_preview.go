@@ -16,8 +16,9 @@ import (
 func (s *Store) MoviePreview(ctx context.Context, catalogID, userID string) (domain.MoviePreview, error) {
 	var state domain.MoviePreview
 	var request domain.PreviewRequest
-	err := s.pool.QueryRow(ctx, `SELECT c.availability,COALESCE(r.id::text,''),COALESCE(r.status,''),EXISTS(SELECT 1 FROM request_subscriptions sub WHERE sub.request_id=r.id AND sub.user_id=$2)
-	 FROM catalog_items c LEFT JOIN requests r ON r.catalog_item_id=c.id WHERE c.id=$1`, catalogID, userID).Scan(&state.Availability, &request.ID, &request.Status, &request.Subscribed)
+	var selection []byte
+	err := s.pool.QueryRow(ctx, `SELECT c.availability,COALESCE(r.id::text,''),COALESCE(r.status,''),EXISTS(SELECT 1 FROM request_subscriptions sub WHERE sub.request_id=r.id AND sub.user_id=$2),COALESCE(r.selection,'{}'::jsonb)
+	 FROM catalog_items c LEFT JOIN requests r ON r.catalog_item_id=c.id WHERE c.id=$1`, catalogID, userID).Scan(&state.Availability, &request.ID, &request.Status, &request.Subscribed, &selection)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return state, requests.ErrCatalogNotFound
 	}
@@ -25,6 +26,9 @@ func (s *Store) MoviePreview(ctx context.Context, catalogID, userID string) (dom
 		return state, err
 	}
 	if request.ID != "" {
+		if request.Selection, err = parseSelection(selection); err != nil {
+			return state, err
+		}
 		state.Request = &request
 	}
 	if state.Availability != domain.AvailabilityAvailable {
