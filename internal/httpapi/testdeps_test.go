@@ -32,6 +32,9 @@ type absentRepo struct{}
 func (absentRepo) CreateOrGet(context.Context, domain.Request, domain.RequestSubscription) (domain.Request, bool, error) {
 	return domain.Request{}, false, errAbsent
 }
+func (absentRepo) MergeSelection(context.Context, string, string, domain.Selection) (domain.Request, bool, error) {
+	return domain.Request{}, false, errAbsent
+}
 func (absentRepo) List(context.Context, string, requests.ListQuery) (requests.Page, error) {
 	return requests.Page{}, errAbsent
 }

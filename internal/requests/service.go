@@ -32,11 +32,15 @@ type CreateInput struct {
 	CatalogID string
 	Note      string
 	Platforms domain.PlatformSelection
+	Selection domain.Selection
 }
 
 type CreateResult struct {
 	Request domain.Request
 	Created bool
+	// Merged is true when the item already had an open Request and this call
+	// added to its selection; the caller then follows the Request.
+	Merged bool
 }
 
 type TransitionInput struct {
@@ -56,6 +60,9 @@ type TransitionResult struct {
 // returns the existing request without subscribing the losing caller.
 type Repository interface {
 	CreateOrGet(context.Context, domain.Request, domain.RequestSubscription) (domain.Request, bool, error)
+	// MergeSelection unions a selection into an open Request, follows it for the
+	// user, and reports whether the selection grew. It never narrows a Request.
+	MergeSelection(ctx context.Context, requestID, userID string, selection domain.Selection) (domain.Request, bool, error)
 	List(context.Context, string, ListQuery) (Page, error)
 	CatalogMediaType(context.Context, string) (domain.MediaType, error)
 	ValidatePlatforms(context.Context, string, domain.PlatformSelection) error
@@ -163,11 +170,21 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	if err := s.repo.ValidatePlatforms(ctx, in.CatalogID, in.Platforms); err != nil {
 		return CreateResult{}, fmt.Errorf("%w: validate platform selection: %v", ErrInvalid, err)
 	}
-	req := domain.Request{CatalogItemID: in.CatalogID, Status: domain.RequestRequested, RequestedBy: in.Actor.ID, Note: in.Note, Platforms: in.Platforms}
+	if err := in.Selection.Validate(resolvedType); err != nil {
+		return CreateResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	req := domain.Request{CatalogItemID: in.CatalogID, Status: domain.RequestRequested, RequestedBy: in.Actor.ID, Note: in.Note, Platforms: in.Platforms, Selection: in.Selection}
 	sub := domain.RequestSubscription{UserID: in.Actor.ID, Source: domain.SubscriptionRequester}
 	created, isNew, err := s.repo.CreateOrGet(ctx, req, sub)
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("create request: %w", err)
+	}
+	if !isNew && created.Status.IsOpen() && !created.Selection.Contains(in.Selection) {
+		merged, changed, err := s.repo.MergeSelection(ctx, created.ID, in.Actor.ID, in.Selection)
+		if err != nil {
+			return CreateResult{}, fmt.Errorf("merge request selection: %w", err)
+		}
+		return CreateResult{Request: merged, Merged: changed}, nil
 	}
 	return CreateResult{Request: created, Created: isNew}, nil
 }

@@ -102,6 +102,10 @@ func (b *matrixBackend) CreateOrGet(_ context.Context, request domain.Request, s
 	return request, true, nil
 }
 
+func (b *matrixBackend) MergeSelection(context.Context, string, string, domain.Selection) (domain.Request, bool, error) {
+	return domain.Request{}, false, nil
+}
+
 func (b *matrixBackend) ResolveAndUpsert(context.Context, string) (domain.ResolvedItem, error) {
 	b.record("metadata.resolve", matrixUserID)
 	return domain.ResolvedItem{Item: domain.CatalogItem{ID: matrixItemID, MediaType: domain.MediaMovie}}, nil

@@ -251,9 +251,10 @@ paths:
                   properties:
                     any: { type: boolean }
                     platformKeys: { type: array, items: { type: string } }
+                selection: { $ref: '#/components/schemas/Selection' }
       responses:
         '201': { description: Canonical request created with creator subscription and event }
-        '200': { description: Existing shared request returned }
+        '200': { description: Existing shared request returned. When it was open and the selection added to it, Merged is true, the selection was widened (never narrowed) and the caller now follows it. }
         '400': { description: Invalid request }
         '403': { description: User role cannot create requests }
         '401': { description: Authentication required }
@@ -955,6 +956,36 @@ components:
               character: { type: string, maxLength: 256 }
               profileUrl: { type: string, format: uri, description: Approved TMDB image origin only }
         detailsUnavailable: { type: boolean, description: Secondary enrichment failed; ordinary absent credits are not a failure }
+    Selection:
+      type: object
+      additionalProperties: false
+      description: >-
+        The part of an item a Request covers (D027). Empty or omitted is the whole item. An album
+        selects tracks; a series selects whole seasons and single episodes of seasons that are not
+        selected whole. Selections merge by union into the one shared Request and never narrow it.
+      properties:
+        tracks:
+          type: array
+          maxItems: 500
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, title]
+            properties:
+              id: { type: string, maxLength: 64 }
+              position: { type: integer, minimum: 0, maximum: 10000 }
+              title: { type: string, maxLength: 512 }
+        seasons: { type: array, maxItems: 1000, items: { type: integer, minimum: 0, maximum: 999 } }
+        episodes:
+          type: array
+          maxItems: 5000
+          items:
+            type: object
+            additionalProperties: false
+            required: [season, episode]
+            properties:
+              season: { type: integer, minimum: 0, maximum: 999 }
+              episode: { type: integer, minimum: 1, maximum: 100000 }
     TVDetails:
       type: object
       additionalProperties: false

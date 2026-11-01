@@ -46,6 +46,7 @@ type Request struct {
 	RequestedBy            string
 	Note                   string
 	Platforms              PlatformSelection
+	Selection              Selection `json:"selection"`
 	PlatformNames          []string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time

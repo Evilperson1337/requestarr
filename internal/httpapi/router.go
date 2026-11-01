@@ -414,8 +414,9 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			CatalogID string                   `json:"catalogId"`
 			Note      string                   `json:"note"`
 			Platforms domain.PlatformSelection `json:"platforms"`
+			Selection domain.Selection         `json:"selection"`
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		decoder := json.NewDecoder(r.Body)
 		if err := decoder.Decode(&in); err != nil {
 			apierror.Write(w, r, 400, "invalid_json", "invalid JSON body")
@@ -441,7 +442,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			apierror.Write(w, r, http.StatusBadRequest, "missing_catalog_id", "catalogId is required when url is omitted")
 			return
 		}
-		result, err := requestService.Create(r.Context(), requests.CreateInput{Actor: requests.Actor{ID: user.ID, Role: user.Role}, CatalogID: in.CatalogID, Note: in.Note, Platforms: in.Platforms})
+		result, err := requestService.Create(r.Context(), requests.CreateInput{Actor: requests.Actor{ID: user.ID, Role: user.Role}, CatalogID: in.CatalogID, Note: in.Note, Platforms: in.Platforms, Selection: in.Selection})
 		if err != nil {
 			writeCreateRequestError(w, r, err)
 			return

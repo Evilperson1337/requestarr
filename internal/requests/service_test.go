@@ -18,6 +18,7 @@ type fakeRepository struct {
 	mediaErr     error
 	leaveResult  [2]bool
 	leaveErr     error
+	merged       *domain.Selection
 	subscribeErr error
 	leaveConfirm bool
 }
@@ -32,6 +33,13 @@ func (f *fakeRepository) CreateOrGet(_ context.Context, r domain.Request, s doma
 		return f.existing, false, nil
 	}
 	return r, f.created, nil
+}
+
+func (f *fakeRepository) MergeSelection(_ context.Context, id, _ string, sel domain.Selection) (domain.Request, bool, error) {
+	f.merged = &sel
+	merged := f.existing
+	merged.Selection = merged.Selection.Merge(sel)
+	return merged, true, nil
 }
 
 func (f *fakeRepository) List(context.Context, string, ListQuery) (Page, error) {
@@ -251,5 +259,44 @@ func TestLeavingForwardsCancelConfirmation(t *testing.T) {
 	repo.leaveErr = nil
 	if _, _, err := New(repo).Unsubscribe(context.Background(), Actor{ID: "u", Role: "viewer"}, "request", true); err != nil || !repo.leaveConfirm {
 		t.Fatalf("error=%v confirm=%v", err, repo.leaveConfirm)
+	}
+}
+
+func TestCreateRejectsASelectionTheMediaTypeCannotHold(t *testing.T) {
+	repo := &fakeRepository{mediaType: domain.MediaMovie, created: true}
+	_, err := New(repo).Create(context.Background(), CreateInput{Actor: Actor{ID: "u", Role: "requester"}, CatalogID: "item", Selection: domain.Selection{Seasons: []int{1}}})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid", err)
+	}
+}
+
+func TestCreateStoresAnAlbumTrackSelection(t *testing.T) {
+	repo := &fakeRepository{mediaType: domain.MediaAlbum, created: true}
+	sel := domain.Selection{Tracks: []domain.TrackRef{{ID: "t1", Position: 1, Title: "One"}}}
+	got, err := New(repo).Create(context.Background(), CreateInput{Actor: Actor{ID: "u", Role: "requester"}, CatalogID: "item", Selection: sel})
+	if err != nil || !got.Created || !got.Request.Selection.Equal(sel) {
+		t.Fatalf("got %#v, err %v", got, err)
+	}
+}
+
+func TestCreateMergesIntoAnOpenRequestOnlyWhenTheSelectionGrows(t *testing.T) {
+	existing := domain.Request{ID: "existing", Status: domain.RequestRequested, Selection: domain.Selection{Seasons: []int{1}}}
+	run := func(sel domain.Selection) (CreateResult, *fakeRepository) {
+		repo := &fakeRepository{mediaType: domain.MediaTV, existing: existing}
+		got, err := New(repo).Create(context.Background(), CreateInput{Actor: Actor{ID: "second", Role: "requester"}, CatalogID: "item", Selection: sel})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got, repo
+	}
+	if got, repo := run(domain.Selection{Seasons: []int{1}}); got.Merged || repo.merged != nil {
+		t.Fatal("a selection already covered must not merge")
+	}
+	got, repo := run(domain.Selection{Seasons: []int{2}})
+	if !got.Merged || repo.merged == nil || !got.Request.Selection.Equal(domain.Selection{Seasons: []int{1, 2}}) {
+		t.Fatalf("a new season must merge: %#v", got)
+	}
+	if got, _ := run(domain.Selection{}); !got.Merged || !got.Request.Selection.IsAll() {
+		t.Fatalf("requesting the whole series widens the selection to the whole series: %#v", got)
 	}
 }

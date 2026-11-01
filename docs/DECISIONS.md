@@ -146,3 +146,14 @@ Extended by the architecture-deepening work:
   configured until both exist.
 - **Startup** resolves in one order (`resolveBoot`: saved IGDB ID, secrets,
   validation) and `app.Build` derives the runtime from the result.
+
+## D027 — A Request can cover part of an item
+
+Accepted (this supersedes the earlier "a series Request always covers the whole series" wording).
+
+A Request still belongs to one catalog item and an item still has one shared Request. What changes is that a Request now carries a **selection**: the part of the item it covers. An empty selection is the whole item, so every earlier Request keeps its meaning.
+
+- An album selects tracks (snapshotted id, position and title); a series selects whole seasons and single episodes of seasons not selected whole. Games, movies and songs have no selection.
+- Selections merge by union into the existing open Request and never narrow it. Whoever widens a Request is subscribed to it as `manual` and the change is recorded as a `request.selection_changed` event. Requesting the whole item absorbs any subset.
+- Availability is unchanged for now: it is still projected for the whole item. Per-track and per-episode availability needs episode/track evidence from each Source adapter and is a later step. Until then a partial Request becomes available when its item does.
+- Track lists come from MusicBrainz and season/episode lists from TMDB, fetched when the dialog opens. If either lookup fails, the dialog falls back to requesting the whole item.

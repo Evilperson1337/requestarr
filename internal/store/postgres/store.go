@@ -110,7 +110,7 @@ func (s *Store) CreateOrGet(ctx context.Context, request domain.Request, sub dom
 	defer tx.Rollback(ctx)
 	var out domain.Request
 	scanner := requestJSON(&out)
-	err = tx.QueryRow(ctx, `INSERT INTO requests(id,catalog_item_id,status,requested_by,requester_note,acceptable_platforms,requested_at,updated_at) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,now(),now()) ON CONFLICT(catalog_item_id) DO NOTHING RETURNING id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at`, newUUID(), request.CatalogItemID, request.Status, request.RequestedBy, request.Note, mustJSON(request.Platforms)).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt)
+	err = tx.QueryRow(ctx, `INSERT INTO requests(id,catalog_item_id,status,requested_by,requester_note,acceptable_platforms,selection,requested_at,updated_at) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$7,now(),now()) ON CONFLICT(catalog_item_id) DO NOTHING RETURNING id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at`, newUUID(), request.CatalogItemID, request.Status, request.RequestedBy, request.Note, mustJSON(request.Platforms), mustJSON(request.Selection)).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt)
 	if err == nil {
 		_, err = tx.Exec(ctx, `INSERT INTO request_subscriptions(request_id,user_id,source,created_at) VALUES($1,$2,$3,now())`, out.ID, sub.UserID, sub.Source)
 		if err != nil {
@@ -123,19 +123,81 @@ func (s *Store) CreateOrGet(ctx context.Context, request domain.Request, sub dom
 		if err = tx.Commit(ctx); err != nil {
 			return domain.Request{}, false, err
 		}
+		out.Selection = request.Selection
 		return out, true, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return domain.Request{}, false, err
 	}
-	err = tx.QueryRow(ctx, `SELECT id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at FROM requests WHERE catalog_item_id=$1`, request.CatalogItemID).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt)
+	var selection []byte
+	err = tx.QueryRow(ctx, `SELECT id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at,selection FROM requests WHERE catalog_item_id=$1`, request.CatalogItemID).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt, &selection)
 	if err != nil {
+		return domain.Request{}, false, err
+	}
+	if out.Selection, err = parseSelection(selection); err != nil {
 		return domain.Request{}, false, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return domain.Request{}, false, err
 	}
 	return out, false, nil
+}
+
+func parseSelection(raw []byte) (domain.Selection, error) {
+	var selection domain.Selection
+	if len(raw) == 0 {
+		return selection, nil
+	}
+	if err := json.Unmarshal(raw, &selection); err != nil {
+		return domain.Selection{}, fmt.Errorf("invalid request selection: %w", err)
+	}
+	return selection, nil
+}
+
+// MergeSelection unions selection into an open Request under a row lock, follows
+// the Request for the user and bumps its version when the selection grew.
+func (s *Store) MergeSelection(ctx context.Context, requestID, userID string, selection domain.Selection) (domain.Request, bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.Request{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	var out domain.Request
+	var raw []byte
+	err = tx.QueryRow(ctx, `SELECT id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at,selection FROM requests WHERE id=$1 FOR UPDATE`, requestID).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, requestJSON(&out), &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt, &raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Request{}, false, requests.ErrRequestNotFound
+	}
+	if err != nil {
+		return domain.Request{}, false, err
+	}
+	if out.Selection, err = parseSelection(raw); err != nil {
+		return domain.Request{}, false, err
+	}
+	if !out.Status.IsOpen() || out.Selection.Contains(selection) {
+		return out, false, nil
+	}
+	merged := out.Selection.Merge(selection)
+	if _, err = tx.Exec(ctx, `UPDATE requests SET selection=$2,updated_at=now(),version=version+1 WHERE id=$1`, requestID, mustJSON(merged)); err != nil {
+		return domain.Request{}, false, err
+	}
+	if err = appendRequestEvent(ctx, tx, requestID, userID, "request.selection_changed", mustJSON(merged)); err != nil {
+		return domain.Request{}, false, err
+	}
+	ct, err := tx.Exec(ctx, `INSERT INTO request_subscriptions(request_id,user_id,source,created_at) VALUES($1,$2,'manual',now()) ON CONFLICT(request_id,user_id) DO NOTHING`, requestID, userID)
+	if err != nil {
+		return domain.Request{}, false, err
+	}
+	if ct.RowsAffected() == 1 {
+		if err = appendSubscriptionEvent(ctx, tx, requestID, userID, "request.subscribed"); err != nil {
+			return domain.Request{}, false, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Request{}, false, err
+	}
+	out.Selection = merged
+	return out, true, nil
 }
 
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
