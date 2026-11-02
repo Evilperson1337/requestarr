@@ -79,7 +79,7 @@ func (c *Checker) secretNote(ctx context.Context, target setup.Target, code setu
 	case secrets.SourceEnvironment:
 		return " Checked the " + noun + " from the environment."
 	case secrets.SourceStored:
-		return " Checked the stored " + noun + ", which a restart will use."
+		return " Checked the stored " + noun + "."
 	case secrets.SourceShadowed:
 		return " Checked the " + noun + " from the environment; the stored " + noun + " is shadowed by environment and is not used."
 	case secrets.SourceUnreadable:
