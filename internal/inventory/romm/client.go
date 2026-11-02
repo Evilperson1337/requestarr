@@ -100,6 +100,9 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 				IGDBID        *int   `json:"igdb_id"`
 				PlatformID    *int   `json:"platform_id"`
 				MissingFromFS bool   `json:"missing_from_fs"`
+				CreatedAt     string `json:"created_at"`
+				CoverLarge    string `json:"path_cover_large"`
+				PlatformName  string `json:"platform_display_name"`
 			} `json:"items"`
 			Total  *int `json:"total"`
 			Offset *int `json:"offset"`
@@ -126,7 +129,18 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 			if r.IGDBID != nil && *r.IGDBID > 0 {
 				ids["igdb"] = strconv.Itoa(*r.IGDBID)
 			}
-			items = append(items, inventory.Item{SourceID: SourceID, SourceItemID: strconv.Itoa(*r.ID), MediaType: domain.MediaGame, Title: r.Name, PlatformKey: platformKey, ExternalIDs: ids})
+			item := inventory.Item{SourceID: SourceID, SourceItemID: strconv.Itoa(*r.ID), MediaType: domain.MediaGame, Title: r.Name, PlatformKey: platformKey, ExternalIDs: ids}
+			if added, err := time.Parse(time.RFC3339, r.CreatedAt); err == nil && added.Unix() > 0 {
+				item.AddedAt = added.UTC()
+			}
+			// RomM appends a "?ts=" cache stamp with characters that are not URL-safe; the path alone names the file.
+			if ref, _, _ := strings.Cut(r.CoverLarge, "?"); coverPattern.MatchString(ref) {
+				item.ArtworkRef = ref
+			}
+			if name := strings.TrimSpace(r.PlatformName); name != "" && len(name) <= 128 && !strings.ContainsAny(name, "\x00\r\n") {
+				item.Detail = name
+			}
+			items = append(items, item)
 		}
 		if offset+len(res.Items) == total {
 			now := time.Now().UTC()

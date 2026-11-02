@@ -1435,6 +1435,11 @@ a {
     object-fit: cover;
 }
 
+/* Game covers are portrait but not quite a poster (IGDB's are about 3:4). */
+.railCover.game {
+    aspect-ratio: 3 / 4;
+}
+
 .railBlank {
     display: flex;
     align-items: flex-end;

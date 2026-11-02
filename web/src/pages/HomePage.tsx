@@ -28,6 +28,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     const [available, setAvailable] = useState<RequestItem[]>([])
     const [addedVideo, setAddedVideo] = useState<RecentLibraryItem[]>([])
     const [addedMusic, setAddedMusic] = useState<RecentLibraryItem[]>([])
+    const [addedGames, setAddedGames] = useState<RecentLibraryItem[]>([])
     useEffect(() => {
         const controller = new AbortController()
         api<RequestPage>('/requests?status=available&limit=6', { cache: 'no-store', signal: controller.signal })
@@ -41,7 +42,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         const shelf = (types: string, set: (items: RecentLibraryItem[]) => void) => api<{ items: RecentLibraryItem[] }>(`/library/recent?types=${types}&limit=6`, { signal: controller.signal })
             .then(result => { if (!controller.signal.aborted) set(Array.isArray(result?.items) ? result.items : []) })
             .catch(() => undefined)
-        void shelf('movie,tv', setAddedVideo); void shelf('album', setAddedMusic)
+        void shelf('movie,tv', setAddedVideo); void shelf('album', setAddedMusic); void shelf('game', setAddedGames)
         return () => controller.abort()
     }, [session.user.id])
     async function resolve(e: FormEvent) {
@@ -83,6 +84,10 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         {addedMusic.length > 0 && <section className="recent" aria-labelledby="added-music-heading">
             <div className="recentHeader"><h2 id="added-music-heading">New music in your libraries</h2></div>
             <LibraryRail items={addedMusic} />
+        </section>}
+        {addedGames.length > 0 && <section className="recent" aria-labelledby="added-games-heading">
+            <div className="recentHeader"><h2 id="added-games-heading">New games in your libraries</h2></div>
+            <LibraryRail items={addedGames} />
         </section>}
         {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus()) }} />}
     </main>

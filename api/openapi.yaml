@@ -466,7 +466,7 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 50, default: 12 }
         - in: query
           name: types
-          description: Comma-separated media types to include; default all three. Home asks for movie,tv and for album separately so each shelf has one cover shape.
+          description: Comma-separated media types to include; default all four (movie, tv, album, game). Home asks for movie,tv, for album and for game separately so each shelf has one cover shape.
           schema: { type: string, example: 'movie,tv' }
       responses:
         '200':
@@ -487,7 +487,8 @@ paths:
                         id: { type: string, format: uuid }
                         title: { type: string }
                         year: { type: integer }
-                        mediaType: { type: string, enum: [movie, tv, album] }
+                        mediaType: { type: string, enum: [movie, tv, album, game] }
+                        detail: { type: string, description: A short note from the library, such as a game's platform }
                         source: { type: string, description: The library's name }
                         addedAt: { type: string, format: date-time }
                         artworkUrl: { type: string }

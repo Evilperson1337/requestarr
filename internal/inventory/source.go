@@ -22,6 +22,8 @@ type Item struct {
 	// ArtworkRef is the library's own reference to the item's cover, which only
 	// that adapter can fetch (ArtworkSource). Empty when it has none.
 	ArtworkRef string
+	// Detail is a short note the library knows about the item, such as a game's platform name.
+	Detail string
 }
 
 // Artwork is one fetched cover image.

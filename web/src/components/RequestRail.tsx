@@ -22,11 +22,11 @@ export function RequestRail({ items }: { items: RequestItem[] }) {
 export function LibraryRail({ items }: { items: RecentLibraryItem[] }) {
     return <ul className="coverRail">{items.map(item => <li key={item.id}>
         <div className="railCard plain">
-            <span className={`railCover${item.mediaType === 'album' ? ' square' : ''}`}>
+            <span className={`railCover${item.mediaType === 'album' ? ' square' : item.mediaType === 'game' ? ' game' : ''}`}>
                 {item.artworkUrl ? <img src={item.artworkUrl} alt={`Cover for ${item.title}`} loading="lazy" /> : <span className="railBlank" aria-hidden="true">{kinds[item.mediaType] ?? item.mediaType}</span>}
             </span>
             <span className="railTitle">{item.title}</span>
-            <span className="railKind">{[kinds[item.mediaType] ?? item.mediaType, item.year || '', item.source].filter(Boolean).join(' · ')}</span>
+            <span className="railKind">{[kinds[item.mediaType] ?? item.mediaType, item.year || '', item.detail || '', item.source].filter(Boolean).join(' · ')}</span>
         </div>
     </li>)}</ul>
 }

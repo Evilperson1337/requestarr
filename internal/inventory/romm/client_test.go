@@ -176,3 +176,63 @@ func TestNewRejectsUnsafeConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGamesCarryTheirAddedDatePlatformNameAndAWellFormedCover(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/platforms" {
+			_, _ = w.Write([]byte(`[{"id":1,"igdb_id":6}]`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"total":2,"offset":0,"items":[
+			{"id":10,"name":"Good Game","igdb_id":99,"platform_id":1,"created_at":"2026-10-11T07:42:15+00:00","path_cover_large":"/assets/romm/resources/roms/1/10/cover/big.png?ts=2026-10-11 07:42:17","platform_display_name":"Windows"},
+			{"id":11,"name":"Odd Game","platform_id":1,"created_at":"not a date","path_cover_large":"http://evil.example/cover.png","platform_display_name":"  "}]}`))
+	}))
+	defer server.Close()
+	c, err := NewWithHTTPClient(server.URL, testToken, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := c.Snapshot(context.Background())
+	if err != nil || len(snap.Items) != 2 {
+		t.Fatalf("snapshot %v %d", err, len(snap.Items))
+	}
+	good := snap.Items[0]
+	if good.AddedAt.Year() != 2026 || good.ArtworkRef != "/assets/romm/resources/roms/1/10/cover/big.png" || good.Detail != "Windows" {
+		t.Fatalf("good = %+v", good)
+	}
+	odd := snap.Items[1]
+	if !odd.AddedAt.IsZero() || odd.ArtworkRef != "" || odd.Detail != "" {
+		t.Fatalf("a bad date, a foreign cover URL and a blank platform must all be dropped: %+v", odd)
+	}
+}
+
+func TestArtworkIsFetchedWithTheTokenInAHeaderAndOnlyForAWellFormedReference(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+testToken || r.URL.RawQuery != "" {
+			http.Error(w, "bad", http.StatusUnauthorized)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/99/") {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte("<html>"))
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("pngbytes"))
+	}))
+	defer server.Close()
+	c, _ := NewWithHTTPClient(server.URL, testToken, server.Client())
+	got, err := c.Artwork(context.Background(), "/assets/romm/resources/roms/1/10/cover/big.png")
+	if err != nil || got.ContentType != "image/png" || string(got.Data) != "pngbytes" {
+		t.Fatalf("artwork %+v err %v", got, err)
+	}
+	for _, bad := range []string{"/api/users", "http://evil.example/x.png", "/assets/romm/resources/roms/1/10/cover/big.png?x=1", "/assets/romm/resources/roms/../../etc/passwd", "/assets/romm/resources/roms/1/10/manual.pdf"} {
+		if _, err := c.Artwork(context.Background(), bad); err == nil {
+			t.Errorf("%q must be refused before any request", bad)
+		}
+	}
+	if _, err := c.Artwork(context.Background(), "/assets/romm/resources/roms/1/99/cover/big.png"); err == nil {
+		t.Fatal("a non-image answer must be refused")
+	}
+}

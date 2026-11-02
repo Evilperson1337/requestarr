@@ -65,21 +65,26 @@ test('Home shows what the libraries recently gained as one shelf per cover shape
     const calls: string[] = []
     await openHome(page, () => ({ json: { items: [], nextCursor: null } }), url => {
         calls.push(url.search)
-        const video = url.searchParams.get('types') === 'movie,tv'
-        return { json: { items: video
+        const types = url.searchParams.get('types')
+        return { json: { items: types === 'movie,tv'
             ? [{ id: 'a', title: 'Arrival', year: 2016, mediaType: 'movie', source: 'Plex', addedAt: '2026-11-01T12:00:00Z', artworkUrl: '/api/v1/library/items/a/artwork' }]
-            : [{ id: 'b', title: 'Kid A', year: 2000, mediaType: 'album', source: 'Plex', addedAt: '2026-10-30T12:00:00Z' }] } }
+            : types === 'game'
+                ? [{ id: 'g', title: 'Hades II', mediaType: 'game', detail: 'Windows', source: 'RomM', addedAt: '2026-10-29T12:00:00Z', artworkUrl: '/api/v1/library/items/g/artwork' }]
+                : [{ id: 'b', title: 'Kid A', year: 2000, mediaType: 'album', source: 'Plex', addedAt: '2026-10-30T12:00:00Z' }] } }
     })
     const shows = page.getByRole('region', { name: 'New movies and shows in your libraries' })
     const music = page.getByRole('region', { name: 'New music in your libraries' })
     await expect(shows.getByRole('img', { name: 'Cover for Arrival' })).toHaveAttribute('src', '/api/v1/library/items/a/artwork')
     await expect(shows.getByRole('listitem')).toContainText('Movie · 2016 · Plex')
     await expect(music.getByRole('listitem')).toContainText('Album · 2000 · Plex')
+    const games = page.getByRole('region', { name: 'New games in your libraries' })
+    await expect(games.getByRole('listitem')).toContainText('Game · Windows · RomM')
+    await expect(games.locator('.railCover.game')).toHaveCount(1)
     // Square art never shares a row with posters, and nothing in either shelf is a link.
     await expect(shows.locator('.railCover.square')).toHaveCount(0)
     await expect(music.locator('.railCover.square')).toHaveCount(1)
     await expect(page.getByRole('region', { name: /in your libraries/ }).getByRole('link')).toHaveCount(0)
-    expect([...new Set(calls)].sort()).toEqual(['?types=album&limit=6', '?types=movie,tv&limit=6'])
+    expect([...new Set(calls)].sort()).toEqual(['?types=album&limit=6', '?types=game&limit=6', '?types=movie,tv&limit=6'])
 })
 
 test('Home leaves the library shelves out when libraries have nothing to show', async ({ page }) => {

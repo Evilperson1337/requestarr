@@ -178,3 +178,5 @@ Accepted.
 - Every signed-in role can read both endpoints; nothing in them is request- or user-specific.
 
 Amended (same day): Home shows two shelves, movies and shows (posters) and music (squares), so every cover in a row has the same proportions; `GET /library/recent` takes a `types` filter for this. A title resolved after its library synced is matched against the inventory already stored (`matchExistingInventory`), so its availability is known at once; the preview always names the libraries that hold it (a link only when safe); and a Request for something a library already has is refused (`409 already_available`) unless a Request already exists.
+
+Amended again: games are a third shelf (3:4 frame, portrait covers cropped to fill, caption "Game · <platform> · RomM"). The RomM adapter supplies the added date (`created_at`), the platform's display name (`inventory_items.detail`) and fetches the ROM's own cover (`/assets/romm/resources/roms/<platform>/<id>/cover/big|small.<ext>`) through its token, never IGDB.
