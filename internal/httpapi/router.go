@@ -107,6 +107,7 @@ type Deps struct {
 	Secrets      SecretsService
 	Connections  ConnectionsService
 	Library      LibraryReader
+	Issues       IssueService
 
 	// DevelopmentLogs is nil unless the development-only flag enabled it.
 	DevelopmentLogs *devlogs.Recorder
@@ -124,7 +125,7 @@ func (d Deps) missing() []string {
 		{"MoviePreview", d.MoviePreview == nil},
 		{"MatchReview", d.MatchReview == nil}, {"JobRuns", d.JobRuns == nil}, {"Status", d.Status == nil},
 		{"Users", d.Users == nil}, {"SetupState", d.SetupState == nil}, {"Syncer", d.Syncer == nil},
-		{"Wizard", d.Wizard == nil}, {"Secrets", d.Secrets == nil}, {"Connections", d.Connections == nil}, {"Library", d.Library == nil},
+		{"Wizard", d.Wizard == nil}, {"Secrets", d.Secrets == nil}, {"Connections", d.Connections == nil}, {"Library", d.Library == nil}, {"Issues", d.Issues == nil},
 	} {
 		if f.nil {
 			names = append(names, f.name)
@@ -206,6 +207,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	registerSecretsRoutes(rt, d.Secrets)
 	registerConnectionRoutes(rt, d.Connections)
 	registerLibraryRoutes(rt, d.Library)
+	registerIssueRoutes(rt, d.Issues)
 	rt.handle("GET /setup/status", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) { writeSetupStatus(w, r, d.SetupState) })
 	rt.handle("POST /admin/sources/{source}/sync", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		run, err := syncer.SyncNow(r.Context(), r.PathValue("source"))

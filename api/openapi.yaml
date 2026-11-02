@@ -494,6 +494,147 @@ paths:
                         artworkUrl: { type: string }
         '401': { description: Authentication required }
         '500': { description: library_recent_failed }
+  /issues:
+    post:
+      operationId: reportIssue
+      summary: Report a problem with a Library item
+      description: >-
+        D030. Any signed-in role, Viewers included. The kinds offered depend on the item's media type
+        (movie and series: video, audio, subtitles, wrong_item, other; album and song: audio, missing_tracks,
+        wrong_tags, other; game: no_boot, wrong_region, wrong_version, missing_files, other). other needs a
+        description. part (Selection) names a season, episode or track; movies and games have none. A report of
+        the same item, kind and part as an open Issue joins it (200, joined true) instead of opening another (201).
+        Limited to 10 new reports an hour per user (429). Requires CSRF and a same-origin Origin header.
+      parameters:
+        - { in: header, name: X-CSRF-Token, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [libraryItemId, kind]
+              properties:
+                libraryItemId: { type: string, format: uuid }
+                kind: { $ref: '#/components/schemas/IssueKind' }
+                description: { type: string, maxLength: 2000 }
+                part: { $ref: '#/components/schemas/Selection' }
+      responses:
+        '201': { description: A new Issue was opened, content: { application/json: { schema: { $ref: '#/components/schemas/IssueResult' } } } }
+        '200': { description: Joined the open Issue for the same item, kind and part, content: { application/json: { schema: { $ref: '#/components/schemas/IssueResult' } } } }
+        '400': { description: invalid_json }
+        '401': { description: Authentication required }
+        '404': { description: issue_not_found; no such library item }
+        '422': { description: invalid_issue; the kind, description or part does not fit the item }
+        '429': { description: rate_limited; Retry-After is sent }
+    get:
+      operationId: listIssues
+      summary: Issues (administrators see all, everyone else the ones they reported)
+      parameters:
+        - { in: query, name: status, schema: { type: string, enum: [open, resolved, closed] } }
+        - { in: query, name: kind, schema: { $ref: '#/components/schemas/IssueKind' } }
+        - { in: query, name: mediaType, schema: { type: string, enum: [movie, tv, album, song, game] } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { in: query, name: cursor, schema: { type: string } }
+      responses:
+        '200':
+          description: Newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Issue' } }
+                  nextCursor: { type: [string, 'null'] }
+        '400': { description: invalid_query or invalid_cursor }
+        '401': { description: Authentication required }
+  /issues/summary:
+    get:
+      operationId: issuesSummary
+      summary: How many Issues are open (all for an administrator, otherwise the caller's)
+      responses:
+        '200': { description: Count, content: { application/json: { schema: { type: object, required: [open], properties: { open: { type: integer, minimum: 0 } } } } } }
+        '401': { description: Authentication required }
+  /issues/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getIssue
+      summary: An Issue with its timeline
+      description: An administrator sees every reporter and note; a reporter sees only their own. Anyone else gets 404.
+      responses:
+        '200':
+          description: The Issue
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [issue, events, reporters, youReported]
+                properties:
+                  issue: { $ref: '#/components/schemas/Issue' }
+                  events: { type: array, items: { type: object, required: [id, type, actorName, at], properties: { id: { type: string }, type: { type: string }, actorName: { type: string }, comment: { type: string }, at: { type: string, format: date-time } } } }
+                  reporters: { type: array, items: { type: object, required: [userId, name, at, left], properties: { userId: { type: string }, name: { type: string }, note: { type: string }, at: { type: string, format: date-time }, left: { type: boolean } } } }
+                  youReported: { type: boolean }
+        '401': { description: Authentication required }
+        '404': { description: issue_not_found }
+  /issues/{id}/comments:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: commentOnIssue
+      summary: Add a note (administrators on any Issue, others on Issues they reported)
+      description: An administrator's comment tells the Issue's reporters in-app. Requires CSRF and a same-origin Origin header.
+      parameters:
+        - { in: header, name: X-CSRF-Token, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [text], properties: { text: { type: string, minLength: 1, maxLength: 2000 } } }
+      responses:
+        '204': { description: Added }
+        '400': { description: invalid_json }
+        '401': { description: Authentication required }
+        '403': { description: Not a reporter of this Issue }
+        '404': { description: issue_not_found }
+        '422': { description: invalid_issue; empty or too long }
+  /issues/{id}/status:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: setIssueStatus
+      summary: Resolve, close (won't fix) or reopen an Issue (administrator only)
+      description: >-
+        open to resolved or closed, and resolved or closed back to open. Reopening is refused (409) when another open
+        Issue already holds the same item, kind and part. Reporters are notified in-app and the global Apprise route
+        hears of it. Requires CSRF and a same-origin Origin header.
+      parameters:
+        - { in: header, name: X-CSRF-Token, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [status], properties: { status: { type: string, enum: [open, resolved, closed] }, comment: { type: string, maxLength: 2000 } } }
+      responses:
+        '200': { description: The Issue as now, content: { application/json: { schema: { type: object, required: [issue], properties: { issue: { $ref: '#/components/schemas/Issue' } } } } } }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: issue_not_found }
+        '409': { description: invalid_transition }
+  /issues/{id}/reporter:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    delete:
+      operationId: leaveIssue
+      summary: Stop hearing about an Issue you reported (it stays open)
+      parameters:
+        - { in: header, name: X-CSRF-Token, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Left, or already had }
+        '401': { description: Authentication required }
+        '404': { description: issue_not_found }
   /library/items:
     get:
       operationId: browseLibrary
@@ -1199,6 +1340,35 @@ components:
               character: { type: string, maxLength: 256 }
               profileUrl: { type: string, format: uri, description: Approved TMDB image origin only }
         detailsUnavailable: { type: boolean, description: Secondary enrichment failed; ordinary absent credits are not a failure }
+    IssueKind:
+      type: string
+      enum: [video, audio, subtitles, wrong_item, missing_tracks, wrong_tags, no_boot, wrong_region, wrong_version, missing_files, other]
+    Issue:
+      type: object
+      additionalProperties: false
+      required: [id, libraryItemId, title, mediaType, source, kind, kindLabel, part, status, reporters, goneFromLibrary, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        libraryItemId: { type: string, format: uuid }
+        title: { type: string }
+        mediaType: { type: string, enum: [movie, tv, album, song, game] }
+        source: { type: string }
+        kind: { $ref: '#/components/schemas/IssueKind' }
+        kindLabel: { type: string }
+        part: { $ref: '#/components/schemas/Selection' }
+        status: { type: string, enum: [open, resolved, closed] }
+        description: { type: string, description: The first reporter's note }
+        reporters: { type: integer, minimum: 0, description: Reporters still following the Issue }
+        goneFromLibrary: { type: boolean, description: Its Source has since synced without the item }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time }
+    IssueResult:
+      type: object
+      required: [issue, joined]
+      properties:
+        issue: { $ref: '#/components/schemas/Issue' }
+        joined: { type: boolean }
     LibraryItem:
       type: object
       additionalProperties: false

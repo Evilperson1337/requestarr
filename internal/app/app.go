@@ -22,6 +22,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/inventory/navidrome"
 	"github.com/evilperson1337/requestarr/internal/inventory/plex"
 	"github.com/evilperson1337/requestarr/internal/inventory/romm"
+	"github.com/evilperson1337/requestarr/internal/issues"
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/notifications/apprise"
@@ -113,7 +114,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		Requests: requests.New(store), Resolver: metadataService, Inbox: store, MatchReview: store,
 		MoviePreview: store,
 		JobRuns:      store, Status: ops, Users: store, SetupState: store, Syncer: syncer,
-		Wizard: setupService, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, DevelopmentLogs: logs,
+		Wizard: setupService, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize HTTP API: %w", err)

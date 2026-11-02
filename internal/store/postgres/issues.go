@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -310,4 +311,128 @@ func (st issueStore) Leave(ctx context.Context, issueID, userID string) error {
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func (st issueStore) List(ctx context.Context, userID string, admin bool, q domain.IssueQuery) (domain.IssuePage, error) {
+	args := []any{}
+	var where []string
+	add := func(cond string, v any) {
+		args = append(args, v)
+		where = append(where, fmt.Sprintf(cond, len(args)))
+	}
+	if !admin {
+		add("EXISTS (SELECT 1 FROM issue_reporters r WHERE r.issue_id=iss.id AND r.user_id=$%d)", userID)
+	}
+	if q.Status != "" {
+		add("iss.status=$%d", q.Status)
+	}
+	if q.Kind != "" {
+		add("iss.kind=$%d", q.Kind)
+	}
+	if q.MediaType != "" {
+		add("i.media_type=$%d", q.MediaType)
+	}
+	if q.After != "" {
+		at, id, err := decodeCursor(q.After)
+		if err != nil {
+			return domain.IssuePage{}, issues.ErrBadCursor
+		}
+		args = append(args, at, id)
+		where = append(where, fmt.Sprintf("(iss.created_at,iss.id) < ($%d,$%d::uuid)", len(args)-1, len(args)))
+	}
+	limit := q.Limit
+	if limit < 1 || limit > 100 {
+		limit = 25
+	}
+	args = append(args, limit+1)
+	cond := ""
+	if len(where) > 0 {
+		cond = " WHERE " + strings.Join(where, " AND ")
+	}
+	rows, err := st.s.pool.Query(ctx, `SELECT `+issueColumns+issueFrom+cond+fmt.Sprintf(` ORDER BY iss.created_at DESC, iss.id DESC LIMIT $%d`, len(args)), args...)
+	if err != nil {
+		return domain.IssuePage{}, fmt.Errorf("list issues: %w", err)
+	}
+	defer rows.Close()
+	page := domain.IssuePage{}
+	for rows.Next() {
+		is, err := scanIssue(rows)
+		if err != nil {
+			return domain.IssuePage{}, err
+		}
+		page.Items = append(page.Items, is)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.IssuePage{}, err
+	}
+	if len(page.Items) > limit {
+		page.Items = page.Items[:limit]
+		last := page.Items[limit-1]
+		cursor := encodeCursor(last.CreatedAt, last.ID)
+		page.NextCursor = &cursor
+	}
+	return page, nil
+}
+
+func (st issueStore) Detail(ctx context.Context, issueID, userID string, admin bool) (domain.IssueDetail, error) {
+	is, err := st.Get(ctx, issueID)
+	if err != nil {
+		return domain.IssueDetail{}, err
+	}
+	var mine bool
+	if err := st.s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM issue_reporters WHERE issue_id=$1 AND user_id=$2)`, issueID, userID).Scan(&mine); err != nil {
+		return domain.IssueDetail{}, err
+	}
+	if !admin && !mine {
+		return domain.IssueDetail{}, issues.ErrNotFound
+	}
+	detail := domain.IssueDetail{Issue: is, YouReported: mine}
+	events, err := st.s.pool.Query(ctx, `SELECT e.id::text,e.event_type,COALESCE(NULLIF(u.display_name,''),u.email,'Someone'),e.comment,e.created_at FROM issue_events e JOIN users u ON u.id=e.actor_user_id WHERE e.issue_id=$1 ORDER BY e.created_at, e.id`, issueID)
+	if err != nil {
+		return domain.IssueDetail{}, err
+	}
+	defer events.Close()
+	for events.Next() {
+		var ev domain.IssueEvent
+		if err := events.Scan(&ev.ID, &ev.Type, &ev.ActorName, &ev.Comment, &ev.At); err != nil {
+			return domain.IssueDetail{}, err
+		}
+		ev.At = ev.At.UTC()
+		detail.Events = append(detail.Events, ev)
+	}
+	if err := events.Err(); err != nil {
+		return domain.IssueDetail{}, err
+	}
+	events.Close()
+	filter := ""
+	args := []any{issueID}
+	if !admin {
+		filter = " AND r.user_id=$2"
+		args = append(args, userID)
+	}
+	reporters, err := st.s.pool.Query(ctx, `SELECT r.user_id::text,COALESCE(NULLIF(u.display_name,''),u.email,'Someone'),r.note,r.created_at,r.left_at IS NOT NULL FROM issue_reporters r JOIN users u ON u.id=r.user_id WHERE r.issue_id=$1`+filter+` ORDER BY r.created_at`, args...)
+	if err != nil {
+		return domain.IssueDetail{}, err
+	}
+	defer reporters.Close()
+	for reporters.Next() {
+		var rp domain.IssueReporter
+		if err := reporters.Scan(&rp.UserID, &rp.Name, &rp.Note, &rp.At, &rp.Left); err != nil {
+			return domain.IssueDetail{}, err
+		}
+		rp.At = rp.At.UTC()
+		detail.Reporters = append(detail.Reporters, rp)
+	}
+	return detail, reporters.Err()
+}
+
+func (st issueStore) OpenCount(ctx context.Context, userID string, admin bool) (int, error) {
+	var n int
+	q := `SELECT count(*) FROM issues WHERE status='open'`
+	args := []any{}
+	if !admin {
+		q += ` AND EXISTS (SELECT 1 FROM issue_reporters r WHERE r.issue_id=issues.id AND r.user_id=$1)`
+		args = append(args, userID)
+	}
+	return n, st.s.pool.QueryRow(ctx, q, args...).Scan(&n)
 }

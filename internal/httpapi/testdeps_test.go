@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/issues"
 	"github.com/evilperson1337/requestarr/internal/sources"
 	"log/slog"
 	"net/http"
@@ -200,6 +201,11 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 	} else {
 		d.Secrets = absentSecrets{}
 	}
+	if v, ok := readiness.(IssueService); ok {
+		d.Issues = v
+	} else {
+		d.Issues = absentIssues{}
+	}
 	if v, ok := readiness.(LibraryReader); ok {
 		d.Library = v
 	} else {
@@ -311,3 +317,23 @@ func (absentLibrary) Browse(context.Context, domain.LibraryQuery) (domain.Librar
 func (absentLibrary) Item(context.Context, string) (domain.LibraryItem, error) {
 	return domain.LibraryItem{}, errAbsent
 }
+
+type absentIssues struct{}
+
+func (absentIssues) ReportIssue(context.Context, issues.ReportInput) (issues.ReportResult, error) {
+	return issues.ReportResult{}, errAbsent
+}
+func (absentIssues) ListIssues(context.Context, issues.Actor, domain.IssueQuery) (domain.IssuePage, error) {
+	return domain.IssuePage{}, errAbsent
+}
+func (absentIssues) IssueDetail(context.Context, issues.Actor, string) (domain.IssueDetail, error) {
+	return domain.IssueDetail{}, errAbsent
+}
+func (absentIssues) CommentOnIssue(context.Context, issues.Actor, string, string) error {
+	return errAbsent
+}
+func (absentIssues) TransitionIssue(context.Context, issues.Actor, string, domain.IssueStatus, string) (domain.Issue, error) {
+	return domain.Issue{}, errAbsent
+}
+func (absentIssues) LeaveIssue(context.Context, issues.Actor, string) error    { return errAbsent }
+func (absentIssues) OpenIssueCount(context.Context, issues.Actor) (int, error) { return 0, errAbsent }

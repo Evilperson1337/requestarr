@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"github.com/evilperson1337/requestarr/internal/issues"
 	"github.com/evilperson1337/requestarr/internal/sources"
 	"net/http"
 	"net/http/httptest"
@@ -62,6 +63,10 @@ func mutationCases() []mutationCase {
 		{"save library connection", "PUT /admin/library-connections/{slug}", "/admin/library-connections/plex", `{"url":"https://plex.example.test"}`, "admin", 200, "connection.save"},
 		{"remove library connection", "DELETE /admin/library-connections/{slug}", "/admin/library-connections/plex", "", "admin", 200, "connection.remove"},
 		{"test library connection", "POST /admin/library-connections/{slug}/test", "/admin/library-connections/plex/test", "", "admin", 200, "connection.test"},
+		{"report an issue", "POST /issues", "/issues", `{"libraryItemId":"` + matrixItemID + `","kind":"video"}`, "authenticated", 201, "issue.report"},
+		{"comment on an issue", "POST /issues/{id}/comments", "/issues/" + matrixItemID + "/comments", `{"text":"still broken"}`, "authenticated", 204, "issue.comment"},
+		{"resolve an issue", "POST /issues/{id}/status", "/issues/" + matrixItemID + "/status", `{"status":"resolved","comment":"fixed"}`, "admin", 200, "issue.status"},
+		{"leave an issue", "DELETE /issues/{id}/reporter", "/issues/" + matrixItemID + "/reporter", "", "authenticated", 204, "issue.leave"},
 		{"validate library", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"library:plex"}`, "admin", 200, "setup.validate"},
 	}
 }
@@ -323,3 +328,27 @@ func TestBootstrapClaimRequiresIdentityAndTokenNotExistingAdminRole(t *testing.T
 		}
 	}
 }
+
+func (b *matrixBackend) ReportIssue(_ context.Context, in issues.ReportInput) (issues.ReportResult, error) {
+	b.record("issue.report", in.Actor.ID)
+	return issues.ReportResult{Issue: domain.Issue{ID: matrixItemID, Status: domain.IssueOpen}}, nil
+}
+func (b *matrixBackend) ListIssues(context.Context, issues.Actor, domain.IssueQuery) (domain.IssuePage, error) {
+	return domain.IssuePage{}, nil
+}
+func (b *matrixBackend) IssueDetail(context.Context, issues.Actor, string) (domain.IssueDetail, error) {
+	return domain.IssueDetail{}, nil
+}
+func (b *matrixBackend) CommentOnIssue(_ context.Context, actor issues.Actor, _, _ string) error {
+	b.record("issue.comment", actor.ID)
+	return nil
+}
+func (b *matrixBackend) TransitionIssue(_ context.Context, actor issues.Actor, _ string, to domain.IssueStatus, _ string) (domain.Issue, error) {
+	b.record("issue.status", actor.ID)
+	return domain.Issue{ID: matrixItemID, Status: to}, nil
+}
+func (b *matrixBackend) LeaveIssue(_ context.Context, actor issues.Actor, _ string) error {
+	b.record("issue.leave", actor.ID)
+	return nil
+}
+func (b *matrixBackend) OpenIssueCount(context.Context, issues.Actor) (int, error) { return 0, nil }

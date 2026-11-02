@@ -58,6 +58,9 @@ var issueKindLabels = map[IssueKind]string{
 	IssueMissingFiles: "Missing files", IssueOther: "Other",
 }
 
+// Valid reports whether the kind exists at all (for any media type).
+func (k IssueKind) Valid() bool { _, ok := issueKindLabels[k]; return ok }
+
 // Label is the kind as people read it.
 func (k IssueKind) Label() string {
 	if label, ok := issueKindLabels[k]; ok {
@@ -146,4 +149,45 @@ func CanTransitionIssue(from, to IssueStatus) bool {
 		return from == IssueResolved || from == IssueClosed
 	}
 	return false
+}
+
+// IssueEvent is one thing that happened to an Issue, oldest first in a timeline.
+type IssueEvent struct {
+	ID        string    `json:"id"`
+	Type      string    `json:"type"`
+	ActorName string    `json:"actorName"`
+	Comment   string    `json:"comment,omitempty"`
+	At        time.Time `json:"at"`
+}
+
+// IssueReporter is someone who reported or joined an Issue, with their own note.
+type IssueReporter struct {
+	UserID string    `json:"userId"`
+	Name   string    `json:"name"`
+	Note   string    `json:"note,omitempty"`
+	At     time.Time `json:"at"`
+	Left   bool      `json:"left"`
+}
+
+// IssueQuery filters the Issues list.
+type IssueQuery struct {
+	Status    IssueStatus
+	Kind      IssueKind
+	MediaType MediaType
+	Limit     int
+	After     string
+}
+
+type IssuePage struct {
+	Items      []Issue
+	NextCursor *string
+}
+
+// IssueDetail is an Issue with its timeline. Reporters lists everyone for an
+// admin and only the viewer for anyone else.
+type IssueDetail struct {
+	Issue       Issue
+	Events      []IssueEvent
+	Reporters   []IssueReporter
+	YouReported bool
 }

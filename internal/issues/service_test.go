@@ -36,6 +36,13 @@ func (f *fakeRepo) Transition(_ context.Context, _ string, to domain.IssueStatus
 	return domain.Issue{ID: "i1", Status: to}, nil
 }
 func (f *fakeRepo) Leave(context.Context, string, string) error { return nil }
+func (f *fakeRepo) List(context.Context, string, bool, domain.IssueQuery) (domain.IssuePage, error) {
+	return domain.IssuePage{}, nil
+}
+func (f *fakeRepo) Detail(context.Context, string, string, bool) (domain.IssueDetail, error) {
+	return domain.IssueDetail{}, nil
+}
+func (f *fakeRepo) OpenCount(context.Context, string, bool) (int, error) { return 0, nil }
 
 func TestEverySignedInRoleCanReportButNobodyElse(t *testing.T) {
 	for _, role := range []string{"viewer", "requester", "admin"} {

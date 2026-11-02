@@ -54,6 +54,11 @@ type Repository interface {
 	Comment(ctx context.Context, issueID, userID string, admin bool, text string) error
 	Transition(ctx context.Context, issueID string, to domain.IssueStatus, actorID, comment string) (domain.Issue, error)
 	Leave(ctx context.Context, issueID, userID string) error
+	// List returns an admin every Issue and anyone else the Issues they reported.
+	List(ctx context.Context, userID string, admin bool, q domain.IssueQuery) (domain.IssuePage, error)
+	// Detail is nil-safe for access: a non-admin who did not report the Issue gets ErrNotFound.
+	Detail(ctx context.Context, issueID, userID string, admin bool) (domain.IssueDetail, error)
+	OpenCount(ctx context.Context, userID string, admin bool) (int, error)
 }
 
 type Service struct{ repo Repository }
@@ -139,4 +144,33 @@ func (s *Service) Leave(ctx context.Context, actor Actor, issueID string) error 
 
 func (s *Service) Get(ctx context.Context, issueID string) (domain.Issue, error) {
 	return s.repo.Get(ctx, issueID)
+}
+
+// ErrBadCursor means a list cursor was not one this server produced.
+var ErrBadCursor = errors.New("invalid cursor")
+
+func (s *Service) List(ctx context.Context, actor Actor, q domain.IssueQuery) (domain.IssuePage, error) {
+	if !signedIn(actor) {
+		return domain.IssuePage{}, ErrForbidden
+	}
+	if q.Limit < 1 || q.Limit > 100 {
+		q.Limit = 25
+	}
+	return s.repo.List(ctx, actor.ID, actor.Role == "admin", q)
+}
+
+// Detail shows an Issue to an admin or to someone who reported it; to anyone
+// else it does not exist.
+func (s *Service) Detail(ctx context.Context, actor Actor, issueID string) (domain.IssueDetail, error) {
+	if !signedIn(actor) {
+		return domain.IssueDetail{}, ErrForbidden
+	}
+	return s.repo.Detail(ctx, issueID, actor.ID, actor.Role == "admin")
+}
+
+func (s *Service) OpenCount(ctx context.Context, actor Actor) (int, error) {
+	if !signedIn(actor) {
+		return 0, ErrForbidden
+	}
+	return s.repo.OpenCount(ctx, actor.ID, actor.Role == "admin")
 }

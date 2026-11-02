@@ -181,3 +181,66 @@ func TestIssueNotificationsReachAdminsAndReportersOnlyIntegration(t *testing.T) 
 		t.Fatal("comments never go to the global Apprise route")
 	}
 }
+
+func TestIssueListDetailAndCountsRespectWhoIsAskingIntegration(t *testing.T) {
+	ctx, s, _ := setupDraftStore(t)
+	mine, theirs, admin := integrationUser(t, ctx, s), integrationUser(t, ctx, s), integrationUser(t, ctx, s)
+	svc := issues.New(s.Issues())
+	item := libraryItem(t, ctx, s, "list-"+newUUID()[:8], domain.MediaMovie)
+	a, err := svc.Report(ctx, issues.ReportInput{Actor: issues.Actor{ID: mine, Role: "viewer"}, ItemID: item, Kind: domain.IssueVideo, Description: "mine"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := svc.Report(ctx, issues.ReportInput{Actor: issues.Actor{ID: theirs, Role: "viewer"}, ItemID: item, Kind: domain.IssueAudio, Description: "theirs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminActor, mineActor := issues.Actor{ID: admin, Role: "admin"}, issues.Actor{ID: mine, Role: "viewer"}
+	all, err := svc.List(ctx, adminActor, domain.IssueQuery{Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := func(page domain.IssuePage, id string) bool {
+		for _, it := range page.Items {
+			if it.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(all, a.Issue.ID) || !has(all, b.Issue.ID) {
+		t.Fatal("an admin sees every Issue")
+	}
+	own, _ := svc.List(ctx, mineActor, domain.IssueQuery{Limit: 100})
+	if !has(own, a.Issue.ID) || has(own, b.Issue.ID) {
+		t.Fatal("anyone else sees only the Issues they reported")
+	}
+	if filtered, _ := svc.List(ctx, adminActor, domain.IssueQuery{Limit: 100, Kind: domain.IssueAudio, Status: domain.IssueOpen, MediaType: domain.MediaMovie}); !has(filtered, b.Issue.ID) || has(filtered, a.Issue.ID) {
+		t.Fatal("kind, status and media type filters apply together")
+	}
+	if _, err := svc.Detail(ctx, mineActor, b.Issue.ID); !errors.Is(err, issues.ErrNotFound) {
+		t.Fatalf("someone else's Issue must not exist for me: %v", err)
+	}
+	d, err := svc.Detail(ctx, mineActor, a.Issue.ID)
+	if err != nil || !d.YouReported || len(d.Reporters) != 1 || d.Reporters[0].UserID != mine || len(d.Events) != 1 || d.Events[0].Type != "reported" {
+		t.Fatalf("detail = %+v err %v", d, err)
+	}
+	if d, _ := svc.Detail(ctx, adminActor, b.Issue.ID); len(d.Reporters) != 1 || d.Reporters[0].Note != "theirs" {
+		t.Fatalf("an admin sees reporters and their notes: %+v", d.Reporters)
+	}
+	if n, _ := svc.OpenCount(ctx, mineActor); n != 1 {
+		t.Fatalf("my open count = %d", n)
+	}
+	// Pages are stable and do not repeat.
+	first, _ := svc.List(ctx, adminActor, domain.IssueQuery{Limit: 1})
+	if first.NextCursor == nil || len(first.Items) != 1 {
+		t.Fatalf("first page = %+v", first)
+	}
+	second, err := svc.List(ctx, adminActor, domain.IssueQuery{Limit: 1, After: *first.NextCursor})
+	if err != nil || len(second.Items) != 1 || second.Items[0].ID == first.Items[0].ID {
+		t.Fatalf("second page = %+v err %v", second, err)
+	}
+	if _, err := svc.List(ctx, adminActor, domain.IssueQuery{After: "garbage"}); !errors.Is(err, issues.ErrBadCursor) {
+		t.Fatalf("bad cursor: %v", err)
+	}
+}
