@@ -115,3 +115,69 @@ func TestReportsAreRateLimitedPerUserIntegration(t *testing.T) {
 		t.Fatalf("the report over the limit: %v", err)
 	}
 }
+
+func TestIssueNotificationsReachAdminsAndReportersOnlyIntegration(t *testing.T) {
+	ctx, s, _ := setupDraftStore(t)
+	admin, reporter, leaver, bystander := integrationUser(t, ctx, s), integrationUser(t, ctx, s), integrationUser(t, ctx, s), integrationUser(t, ctx, s)
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, admin); err != nil {
+		t.Fatal(err)
+	}
+	svc := issues.New(s.Issues())
+	item := libraryItem(t, ctx, s, "notify-"+newUUID()[:8], domain.MediaMovie)
+	count := func(user, like string) int {
+		var n int
+		if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM notification_deliveries WHERE user_id=$1 AND channel='in_app' AND event_key LIKE $2`, user, like).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	outbox := func(like string) int {
+		var n int
+		if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM notification_outbox WHERE event_key LIKE $1`, like).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	res, err := svc.Report(ctx, issues.ReportInput{Actor: issues.Actor{ID: reporter, Role: "viewer"}, ItemID: item, Kind: domain.IssueSubtitles, Description: "late"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count(admin, "issue.reported:%") != 1 || count(reporter, "issue.reported:%") != 0 || count(bystander, "issue.reported:%") != 0 {
+		t.Fatal("a new Issue must notify admins and nobody else")
+	}
+	if outbox("issue.reported:%") < 1 {
+		t.Fatal("a new Issue must reach the global Apprise route")
+	}
+	// A second reporter joins, then leaves; only the one who stayed hears updates.
+	if _, err := svc.Report(ctx, issues.ReportInput{Actor: issues.Actor{ID: leaver, Role: "viewer"}, ItemID: item, Kind: domain.IssueSubtitles}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Leave(ctx, issues.Actor{ID: leaver, Role: "viewer"}, res.Issue.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A reporter's own comment tells nobody; an admin's reaches the reporters.
+	if err := svc.Comment(ctx, issues.Actor{ID: reporter, Role: "viewer"}, res.Issue.ID, "still bad"); err != nil {
+		t.Fatal(err)
+	}
+	if count(admin, "issue.commented:%") != 0 {
+		t.Fatal("a reporter's comment is not an admin notification")
+	}
+	if err := svc.Comment(ctx, issues.Actor{ID: admin, Role: "admin"}, res.Issue.ID, "looking into it"); err != nil {
+		t.Fatal(err)
+	}
+	if count(reporter, "issue.commented:%") != 1 || count(leaver, "issue.commented:%") != 0 || count(admin, "issue.commented:%") != 0 {
+		t.Fatal("an admin comment must reach current reporters, not the one who left or the admin")
+	}
+	if _, err := svc.Transition(ctx, issues.Actor{ID: admin, Role: "admin"}, res.Issue.ID, domain.IssueResolved, "fixed"); err != nil {
+		t.Fatal(err)
+	}
+	if count(reporter, "issue.resolved:%") != 1 || count(leaver, "issue.resolved:%") != 0 || count(bystander, "issue.resolved:%") != 0 {
+		t.Fatal("resolving must reach the reporters who stayed")
+	}
+	if outbox("issue.resolved:%") < 1 {
+		t.Fatal("a status change must reach the global Apprise route")
+	}
+	if outbox("issue.commented:%") != 0 {
+		t.Fatal("comments never go to the global Apprise route")
+	}
+}

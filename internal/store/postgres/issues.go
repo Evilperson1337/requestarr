@@ -71,9 +71,79 @@ func (st issueStore) Get(ctx context.Context, id string) (domain.Issue, error) {
 	return is, err
 }
 
+// appendIssueEvent records what happened and tells the people it concerns, in the
+// same transaction, so an event and its notifications always exist together.
 func appendIssueEvent(ctx context.Context, tx pgx.Tx, issueID, eventType, actorID, comment string, now time.Time) error {
-	_, err := tx.Exec(ctx, `INSERT INTO issue_events(id,issue_id,event_type,actor_user_id,comment,created_at) VALUES($1,$2,$3,$4,$5,$6)`, newUUID(), issueID, eventType, actorID, comment, now)
-	return err
+	eventID := newUUID()
+	if _, err := tx.Exec(ctx, `INSERT INTO issue_events(id,issue_id,event_type,actor_user_id,comment,created_at) VALUES($1,$2,$3,$4,$5,$6)`, eventID, issueID, eventType, actorID, comment, now); err != nil {
+		return err
+	}
+	return notifyIssueEvent(ctx, tx, issueID, eventID, eventType, actorID, comment)
+}
+
+func shorten(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
+}
+
+// notifyIssueEvent: a new Issue tells every admin; an admin's comment and every
+// status change tell the Issue's reporters (never the person who acted). The
+// global Apprise route hears about new Issues and status changes only, since it
+// is one operator channel and not a place for conversation.
+func notifyIssueEvent(ctx context.Context, tx pgx.Tx, issueID, eventID, eventType, actorID, comment string) error {
+	var title, source string
+	var kind domain.IssueKind
+	var actorRole string
+	if err := tx.QueryRow(ctx, `SELECT i.title,src.name,iss.kind,(SELECT role FROM users WHERE id=$2) FROM issues iss JOIN inventory_items i ON i.id=iss.inventory_item_id JOIN library_sources src ON src.id=i.source_id WHERE iss.id=$1`, issueID, actorID).Scan(&title, &source, &kind, &actorRole); err != nil {
+		return err
+	}
+	key := "issue." + eventType + ":" + eventID
+	var heading, body, audience string
+	toApprise := false
+	switch eventType {
+	case "reported":
+		heading, audience, toApprise = "New issue: "+title, "admins", true
+		body = kind.Label() + " reported on " + title + " (" + source + ")."
+		if comment != "" {
+			body += " " + shorten(comment, 300)
+		}
+	case "commented":
+		if actorRole != "admin" {
+			return nil
+		}
+		heading, audience = "Update on your issue: "+title, "reporters"
+		body = shorten(comment, 400)
+	case "resolved", "closed", "reopened":
+		verb := map[string]string{"resolved": "resolved", "closed": "closed without a fix", "reopened": "reopened"}[eventType]
+		heading, audience, toApprise = "Issue "+verb+": "+title, "reporters", true
+		body = kind.Label() + " on " + title + " (" + source + ") was " + verb + "."
+		if comment != "" {
+			body += " " + shorten(comment, 300)
+		}
+	default:
+		return nil
+	}
+	who := `SELECT u.id FROM users u WHERE u.role='admin' AND u.id<>$1`
+	if audience == "reporters" {
+		who = `SELECT r.user_id FROM issue_reporters r WHERE r.issue_id=$2 AND r.left_at IS NULL AND r.user_id<>$1`
+	}
+	args := []any{actorID}
+	if audience == "reporters" {
+		args = append(args, issueID)
+	}
+	args = append(args, key, shorten(heading, 500), shorten(body, 2000))
+	n := len(args)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO notification_deliveries(id,event_key,user_id,channel,status,title,body,created_at,available_at,updated_at)
+		SELECT gen_random_uuid(),$%d,w.id,'in_app','pending',$%d,$%d,now(),now(),now() FROM (%s) w(id)
+		ON CONFLICT(event_key,user_id,channel) WHERE event_key IS NOT NULL DO NOTHING`, n-2, n-1, n, who), args...); err != nil {
+		return fmt.Errorf("enqueue issue notifications: %w", err)
+	}
+	if toApprise {
+		return enqueueGlobalAppriseEvent(ctx, tx, key, shorten(heading, 500), shorten(body, 2000))
+	}
+	return nil
 }
 
 // ReportOrJoin opens an Issue, or adds the reporter to the open one for the same

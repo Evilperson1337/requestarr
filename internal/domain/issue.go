@@ -51,6 +51,21 @@ func IssueKindsFor(media MediaType) []IssueKind {
 	return nil
 }
 
+var issueKindLabels = map[IssueKind]string{
+	IssueVideo: "Video", IssueAudio: "Audio", IssueSubtitles: "Subtitles", IssueWrongItem: "Wrong item",
+	IssueMissingTracks: "Missing or wrong tracks", IssueWrongTags: "Wrong tags or artwork",
+	IssueNoBoot: "Doesn't boot or launch", IssueWrongRegion: "Wrong region", IssueWrongVersion: "Wrong version or platform",
+	IssueMissingFiles: "Missing files", IssueOther: "Other",
+}
+
+// Label is the kind as people read it.
+func (k IssueKind) Label() string {
+	if label, ok := issueKindLabels[k]; ok {
+		return label
+	}
+	return string(k)
+}
+
 // Issue is a report that a Library item has a problem. It is about something a
 // Source already holds, so it is never a Request and never causes a download.
 type Issue struct {
