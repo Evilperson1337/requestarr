@@ -44,8 +44,22 @@ func (s *Store) MoviePreview(ctx context.Context, catalogID, userID string) (dom
 		if err := rows.Scan(&name, &raw); err != nil {
 			return state, err
 		}
+		link := ""
 		if safeLibraryLink(raw) {
-			state.Libraries = append(state.Libraries, domain.LibraryLink{Name: name, URL: raw})
+			link = raw
+		}
+		// The library that has it is always named; a link is added only when it is safe.
+		seen := false
+		for i := range state.Libraries {
+			if state.Libraries[i].Name == name {
+				seen = true
+				if state.Libraries[i].URL == "" {
+					state.Libraries[i].URL = link
+				}
+			}
+		}
+		if !seen {
+			state.Libraries = append(state.Libraries, domain.LibraryLink{Name: name, URL: link})
 		}
 	}
 	return state, rows.Err()

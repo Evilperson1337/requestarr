@@ -90,6 +90,11 @@ func (s *Store) Upsert(ctx context.Context, resolved domain.ResolvedItem) (domai
 			return domain.CatalogItem{}, fmt.Errorf("save catalog platform: %w", err)
 		}
 	}
+	// A title resolved after its library synced has no evidence yet: look in
+	// what the libraries already hold, so its availability is known at once.
+	if err := matchExistingInventory(ctx, tx, i.ID, string(i.MediaType), i.Provider, i.ProviderID, time.Now().UTC()); err != nil {
+		return domain.CatalogItem{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.CatalogItem{}, fmt.Errorf("commit catalog platforms: %w", err)
 	}
@@ -108,6 +113,21 @@ func (s *Store) CreateOrGet(ctx context.Context, request domain.Request, sub dom
 		return domain.Request{}, false, err
 	}
 	defer tx.Rollback(ctx)
+	// Something a library already has is not requested: it is there to watch.
+	// An existing Request is still returned (and may be extended) as before.
+	var availability string
+	if err = tx.QueryRow(ctx, `SELECT availability FROM catalog_items WHERE id=$1`, request.CatalogItemID).Scan(&availability); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return domain.Request{}, false, err
+	}
+	if availability == string(domain.AvailabilityAvailable) {
+		var existing bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM requests WHERE catalog_item_id=$1)`, request.CatalogItemID).Scan(&existing); err != nil {
+			return domain.Request{}, false, err
+		}
+		if !existing {
+			return domain.Request{}, false, requests.ErrAlreadyAvailable
+		}
+	}
 	var out domain.Request
 	scanner := requestJSON(&out)
 	err = tx.QueryRow(ctx, `INSERT INTO requests(id,catalog_item_id,status,requested_by,requester_note,acceptable_platforms,selection,requested_at,updated_at) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$7,now(),now()) ON CONFLICT(catalog_item_id) DO NOTHING RETURNING id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at`, newUUID(), request.CatalogItemID, request.Status, request.RequestedBy, request.Note, mustJSON(request.Platforms), mustJSON(request.Selection)).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt)

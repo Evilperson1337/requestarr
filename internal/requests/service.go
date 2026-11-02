@@ -14,6 +14,7 @@ var (
 	ErrForbidden               = errors.New("request creation is not permitted")
 	ErrInvalid                 = errors.New("invalid request")
 	ErrCatalogNotFound         = errors.New("catalog item not found")
+	ErrAlreadyAvailable        = errors.New("item is already available in a library")
 	ErrRequestNotFound         = errors.New("request not found")
 	ErrRequestClosed           = errors.New("request is closed")
 	ErrCancelNeedsConfirmation = errors.New("leaving would cancel the request")

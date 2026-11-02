@@ -61,27 +61,29 @@ test('Home leaves the Recently available row out when there is nothing to show',
     await expect(page.getByRole('region', { name: 'Recently available' })).toHaveCount(0)
 })
 
-test('Home shows what the libraries recently gained, with their own covers, and says where each is', async ({ page }) => {
+test('Home shows what the libraries recently gained as one shelf per cover shape', async ({ page }) => {
     const calls: string[] = []
     await openHome(page, () => ({ json: { items: [], nextCursor: null } }), url => {
         calls.push(url.search)
-        return { json: { items: [
-            { id: 'a', title: 'Arrival', year: 2016, mediaType: 'movie', source: 'Plex', addedAt: '2026-11-01T12:00:00Z', artworkUrl: '/api/v1/library/items/a/artwork' },
-            { id: 'b', title: 'Kid A', year: 2000, mediaType: 'album', source: 'Plex', addedAt: '2026-10-30T12:00:00Z' },
-        ] } }
+        const video = url.searchParams.get('types') === 'movie,tv'
+        return { json: { items: video
+            ? [{ id: 'a', title: 'Arrival', year: 2016, mediaType: 'movie', source: 'Plex', addedAt: '2026-11-01T12:00:00Z', artworkUrl: '/api/v1/library/items/a/artwork' }]
+            : [{ id: 'b', title: 'Kid A', year: 2000, mediaType: 'album', source: 'Plex', addedAt: '2026-10-30T12:00:00Z' }] } }
     })
-    const section = page.getByRole('region', { name: 'Recently added to your libraries' })
-    await expect(section.getByRole('listitem')).toHaveCount(2)
-    await expect(section.getByRole('img', { name: 'Cover for Arrival' })).toHaveAttribute('src', '/api/v1/library/items/a/artwork')
-    await expect(section.getByRole('listitem').filter({ hasText: 'Arrival' })).toContainText('Movie · 2016 · Plex')
-    await expect(section.getByRole('listitem').filter({ hasText: 'Kid A' })).toContainText('Album · 2000 · Plex')
-    // An item without a cover is a plain tile, and nothing in the row is a link.
-    await expect(section.getByRole('link')).toHaveCount(0)
-    expect([...new Set(calls)]).toEqual(['?limit=12'])
+    const shows = page.getByRole('region', { name: 'New movies and shows in your libraries' })
+    const music = page.getByRole('region', { name: 'New music in your libraries' })
+    await expect(shows.getByRole('img', { name: 'Cover for Arrival' })).toHaveAttribute('src', '/api/v1/library/items/a/artwork')
+    await expect(shows.getByRole('listitem')).toContainText('Movie · 2016 · Plex')
+    await expect(music.getByRole('listitem')).toContainText('Album · 2000 · Plex')
+    // Square art never shares a row with posters, and nothing in either shelf is a link.
+    await expect(shows.locator('.railCover.square')).toHaveCount(0)
+    await expect(music.locator('.railCover.square')).toHaveCount(1)
+    await expect(page.getByRole('region', { name: /in your libraries/ }).getByRole('link')).toHaveCount(0)
+    expect([...new Set(calls)].sort()).toEqual(['?types=album&limit=6', '?types=movie,tv&limit=6'])
 })
 
-test('Home leaves the Recently added row out when libraries have nothing to show', async ({ page }) => {
+test('Home leaves the library shelves out when libraries have nothing to show', async ({ page }) => {
     await openHome(page, () => ({ json: { items: [], nextCursor: null } }))
     await expect(page.getByText('Nothing yet. Paste a link above to make your first request.')).toBeVisible()
-    await expect(page.getByRole('region', { name: 'Recently added to your libraries' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: /in your libraries/ })).toHaveCount(0)
 })

@@ -214,3 +214,10 @@ test('a single rating reads "1 rating"', async ({ page }) => {
     const dialog = await openMovie(page, { ...movie, Movie: { ...movie.Movie, score: 5, ratingCount: 1 } })
     await expect(dialog.locator('.movieRating')).toHaveText('TMDB 5.0/10 · 1 rating')
 })
+
+test('a movie a library already holds names that library and cannot be requested', async ({ page }) => {
+    const dialog = await openMovie(page, { ...movie, Preview: { availability: 'available', canRequest: false, canSubscribe: false, canExtend: false, libraries: [{ name: 'Plex' }] } })
+    await expect(dialog.getByRole('list', { name: 'Library availability' }).getByRole('listitem')).toHaveText(['Plex: Available'])
+    await expect(dialog.getByRole('link', { name: /Plex/ })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Request movie' })).toHaveCount(0)
+})

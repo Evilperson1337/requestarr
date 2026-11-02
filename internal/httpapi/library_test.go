@@ -21,7 +21,7 @@ type fakeLibrary struct {
 	err error
 }
 
-func (f fakeLibrary) RecentlyAdded(_ context.Context, limit int) ([]domain.RecentLibraryItem, error) {
+func (f fakeLibrary) RecentlyAdded(_ context.Context, limit int, _ []domain.MediaType) ([]domain.RecentLibraryItem, error) {
 	if f.err != nil {
 		return nil, f.err
 	}

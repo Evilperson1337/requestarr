@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"github.com/evilperson1337/requestarr/internal/auth"
@@ -17,14 +18,20 @@ var ErrNoArtwork = errors.New("no artwork")
 
 // LibraryReader is what the libraries recently gained, and the covers for it (D029).
 type LibraryReader interface {
-	RecentlyAdded(ctx context.Context, limit int) ([]domain.RecentLibraryItem, error)
+	RecentlyAdded(ctx context.Context, limit int, types []domain.MediaType) ([]domain.RecentLibraryItem, error)
 	Artwork(ctx context.Context, itemID string) (inventory.Artwork, error)
 }
 
 func registerLibraryRoutes(rt *routeTable, library LibraryReader) {
 	rt.handle("GET /library/recent", accessSession, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		items, err := library.RecentlyAdded(r.Context(), limit)
+		var types []domain.MediaType
+		for _, name := range strings.Split(r.URL.Query().Get("types"), ",") {
+			if name != "" {
+				types = append(types, domain.MediaType(name))
+			}
+		}
+		items, err := library.RecentlyAdded(r.Context(), limit, types)
 		if err != nil {
 			apierror.Write(w, r, 500, "library_recent_failed", "could not load recently added items")
 			return

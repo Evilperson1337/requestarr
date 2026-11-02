@@ -426,3 +426,42 @@ func nullTime(t time.Time) any {
 	}
 	return t.UTC()
 }
+
+// matchExistingInventory records positive evidence for a catalog item from the
+// inventory already stored: items in a source's latest complete snapshot whose
+// provider id (or a recorded alias) is the catalog item's. It is the other half
+// of sync-time matching, for items resolved after their library last synced.
+func matchExistingInventory(ctx context.Context, tx pgx.Tx, catalogID, mediaType, provider, providerID string, now time.Time) error {
+	rows, err := tx.Query(ctx, `SELECT DISTINCT i.source_id::text,src.kind,i.source_item_id,COALESCE(i.platform_key,'')
+		FROM inventory_items i
+		JOIN library_sources src ON src.id=i.source_id AND src.enabled
+		WHERE i.media_type=$2
+		  AND i.last_seen_at >= COALESCE((SELECT max(observed_at) FROM source_snapshot_runs r WHERE r.source_id=i.source_id), i.last_seen_at)
+		  AND (i.external_ids->>$3 = $4
+		       OR EXISTS (SELECT 1 FROM catalog_item_aliases a WHERE a.catalog_item_id=$1::uuid AND i.external_ids->>a.kind = a.value))`,
+		catalogID, mediaType, provider, providerID)
+	if err != nil {
+		return fmt.Errorf("match catalog item to inventory: %w", err)
+	}
+	type hit struct{ sourceID, kind, itemID, platform string }
+	var hits []hit
+	for rows.Next() {
+		var h hit
+		if err := rows.Scan(&h.sourceID, &h.kind, &h.itemID, &h.platform); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan inventory match: %w", err)
+		}
+		hits = append(hits, h)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return fmt.Errorf("match catalog item to inventory: %w", err)
+	}
+	for _, h := range hits {
+		if err := recordPresence(ctx, tx, inventory.Descriptor{ID: h.sourceID, Kind: h.kind}, catalogID, h.itemID, h.platform, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}

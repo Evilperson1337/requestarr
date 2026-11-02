@@ -298,7 +298,7 @@ func (absentConnections) TestConnection(context.Context, string) (ConnectionTest
 
 type absentLibrary struct{}
 
-func (absentLibrary) RecentlyAdded(context.Context, int) ([]domain.RecentLibraryItem, error) {
+func (absentLibrary) RecentlyAdded(context.Context, int, []domain.MediaType) ([]domain.RecentLibraryItem, error) {
 	return nil, errAbsent
 }
 func (absentLibrary) Artwork(context.Context, string) (inventory.Artwork, error) {

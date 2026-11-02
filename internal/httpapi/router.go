@@ -502,6 +502,8 @@ func writeCreateRequestError(w http.ResponseWriter, r *http.Request, err error) 
 		status, code, message = http.StatusForbidden, "forbidden", "request could not be created"
 	case errors.Is(err, requests.ErrCatalogNotFound):
 		status, code, message = http.StatusNotFound, "catalog_item_not_found", "catalog item was not found"
+	case errors.Is(err, requests.ErrAlreadyAvailable):
+		status, code, message = http.StatusConflict, "already_available", "this is already available in a library"
 	case !errors.Is(err, requests.ErrInvalid):
 		status, code, message = http.StatusInternalServerError, "request_failed", "request could not be created"
 	}

@@ -26,7 +26,8 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     useEffect(() => { const controller = new AbortController(); void loadRecent(controller.signal); return () => controller.abort() }, [session.user.id, loadRecent])
     // Shared and optional: what has just become available. A failure simply leaves the row out.
     const [available, setAvailable] = useState<RequestItem[]>([])
-    const [added, setAdded] = useState<RecentLibraryItem[]>([])
+    const [addedVideo, setAddedVideo] = useState<RecentLibraryItem[]>([])
+    const [addedMusic, setAddedMusic] = useState<RecentLibraryItem[]>([])
     useEffect(() => {
         const controller = new AbortController()
         api<RequestPage>('/requests?status=available&limit=6', { cache: 'no-store', signal: controller.signal })
@@ -36,9 +37,11 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     }, [session.user.id])
     useEffect(() => {
         const controller = new AbortController()
-        api<{ items: RecentLibraryItem[] }>('/library/recent?limit=12', { signal: controller.signal })
-            .then(result => { if (!controller.signal.aborted) setAdded(Array.isArray(result?.items) ? result.items : []) })
+        // One shelf per cover shape, so every cover in a row has the same proportions.
+        const shelf = (types: string, set: (items: RecentLibraryItem[]) => void) => api<{ items: RecentLibraryItem[] }>(`/library/recent?types=${types}&limit=6`, { signal: controller.signal })
+            .then(result => { if (!controller.signal.aborted) set(Array.isArray(result?.items) ? result.items : []) })
             .catch(() => undefined)
+        void shelf('movie,tv', setAddedVideo); void shelf('album', setAddedMusic)
         return () => controller.abort()
     }, [session.user.id])
     async function resolve(e: FormEvent) {
@@ -73,9 +76,13 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
             <div className="recentHeader"><h2 id="available-heading">Recently available</h2><a href="/requests?status=available" onClick={followLink}>All available</a></div>
             <RequestRail items={available} />
         </section>}
-        {added.length > 0 && <section className="recent" aria-labelledby="added-heading">
-            <div className="recentHeader"><h2 id="added-heading">Recently added to your libraries</h2></div>
-            <LibraryRail items={added} />
+        {addedVideo.length > 0 && <section className="recent" aria-labelledby="added-video-heading">
+            <div className="recentHeader"><h2 id="added-video-heading">New movies and shows in your libraries</h2></div>
+            <LibraryRail items={addedVideo} />
+        </section>}
+        {addedMusic.length > 0 && <section className="recent" aria-labelledby="added-music-heading">
+            <div className="recentHeader"><h2 id="added-music-heading">New music in your libraries</h2></div>
+            <LibraryRail items={addedMusic} />
         </section>}
         {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus()) }} />}
     </main>

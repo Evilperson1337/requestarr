@@ -256,6 +256,7 @@ paths:
         '201': { description: Canonical request created with creator subscription and event }
         '200': { description: Existing shared request returned. When it was open and the selection added to it, Merged is true, the selection was widened (never narrowed) and the caller now follows it. }
         '400': { description: Invalid request }
+        '409': { description: already_available; a library already has the item and no Request exists, so none is created }
         '403': { description: User role cannot create requests }
         '401': { description: Authentication required }
   /admin/sources/{source}/sync:
@@ -463,6 +464,10 @@ paths:
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 50, default: 12 }
+        - in: query
+          name: types
+          description: Comma-separated media types to include; default all three. Home asks for movie,tv and for album separately so each shelf has one cover shape.
+          schema: { type: string, example: 'movie,tv' }
       responses:
         '200':
           description: Recently added items
@@ -1278,13 +1283,13 @@ components:
         libraries:
           type: array
           maxItems: 10
-          description: Only available evidence with usable non-credential-bearing client links; never fabricated.
+          description: The libraries holding the item, each named; a link is included only when it is usable and carries no credential.
           items:
             type: object
-            required: [name, url]
+            required: [name]
             properties:
               name: { type: string }
-              url: { type: string, format: uri }
+              url: { type: string, format: uri, description: Present only when the library supplies a usable link without credentials }
     DevelopmentLogEntry:
       type: object
       additionalProperties: false

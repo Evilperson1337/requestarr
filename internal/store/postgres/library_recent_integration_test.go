@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
 	"github.com/evilperson1337/requestarr/internal/inventory/plex"
+	"github.com/evilperson1337/requestarr/internal/requests"
 )
 
 func TestRecentlyAddedOrdersByAddedDateSkipsSongsAndRemovedItemsIntegration(t *testing.T) {
@@ -35,7 +37,7 @@ func TestRecentlyAddedOrdersByAddedDateSkipsSongsAndRemovedItemsIntegration(t *t
 	if err := s.PersistSnapshot(ctx, d, "http://plex.example.test", second); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.RecentlyAdded(ctx, 10)
+	got, err := s.RecentlyAdded(ctx, 10, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,5 +72,37 @@ func TestRecentlyAddedOrdersByAddedDateSkipsSongsAndRemovedItemsIntegration(t *t
 	}
 	if _, _, err := s.LibraryArtworkRef(ctx, "not-a-uuid"); err != ErrNoArtwork {
 		t.Fatalf("bad id err = %v", err)
+	}
+}
+
+// A title resolved after its library synced is available at once: the catalog
+// item is matched against the inventory already stored.
+func TestResolvingAfterTheSyncMatchesAgainstStoredInventoryIntegration(t *testing.T) {
+	ctx, s, user := setupDraftStore(t)
+	d := inventory.Descriptor{ID: plex.SourceID, Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaMovie}, IdentifierKinds: []string{"tmdb"}}
+	tmdbID := newUUID()[:8]
+	snap := inventory.Snapshot{SourceID: d.ID, Complete: true, ObservedAt: time.Now().UTC(), Items: []inventory.Item{
+		{SourceID: d.ID, SourceItemID: "late-" + tmdbID, MediaType: domain.MediaMovie, Title: "Late arrival", ExternalIDs: map[string]string{"tmdb": tmdbID}},
+	}}
+	if err := s.PersistSnapshot(ctx, d, "http://plex.example.test", snap); err != nil {
+		t.Fatal(err)
+	}
+	item, err := s.Upsert(ctx, domain.ResolvedItem{Item: domain.CatalogItem{MediaType: domain.MediaMovie, Provider: "tmdb", ProviderID: tmdbID, Title: "Late arrival"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.MoviePreview(ctx, item.ID, user)
+	if err != nil || state.Availability != domain.AvailabilityAvailable || len(state.Libraries) != 1 || state.Libraries[0].Name != "Plex" {
+		t.Fatalf("preview = %+v err %v", state, err)
+	}
+	if _, err := requests.New(s).Create(ctx, requests.CreateInput{Actor: requests.Actor{ID: user, Role: "requester"}, CatalogID: item.ID}); !errors.Is(err, requests.ErrAlreadyAvailable) {
+		t.Fatalf("requesting what a library already has: err = %v", err)
+	}
+	other, err := s.Upsert(ctx, domain.ResolvedItem{Item: domain.CatalogItem{MediaType: domain.MediaMovie, Provider: "tmdb", ProviderID: tmdbID + "9", Title: "Not in Plex"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := s.MoviePreview(ctx, other.ID, user); st.Availability == domain.AvailabilityAvailable {
+		t.Fatal("a title no library holds must not become available")
 	}
 }

@@ -25,7 +25,7 @@ type PreviewRequest struct {
 
 type LibraryLink struct {
 	Name string `json:"name"`
-	URL  string `json:"url"`
+	URL  string `json:"url,omitempty"`
 }
 
 func ValidUUID(id string) bool {

@@ -12,7 +12,7 @@ import (
 )
 
 type libraryStore interface {
-	RecentlyAdded(context.Context, int) ([]domain.RecentLibraryItem, error)
+	RecentlyAdded(context.Context, int, []domain.MediaType) ([]domain.RecentLibraryItem, error)
 	LibraryArtworkRef(context.Context, string) (string, string, error)
 }
 
@@ -25,8 +25,8 @@ type libraryService struct {
 
 var _ httpapi.LibraryReader = (*libraryService)(nil)
 
-func (s *libraryService) RecentlyAdded(ctx context.Context, limit int) ([]domain.RecentLibraryItem, error) {
-	return s.store.RecentlyAdded(ctx, limit)
+func (s *libraryService) RecentlyAdded(ctx context.Context, limit int, types []domain.MediaType) ([]domain.RecentLibraryItem, error) {
+	return s.store.RecentlyAdded(ctx, limit, types)
 }
 
 func (s *libraryService) Artwork(ctx context.Context, itemID string) (inventory.Artwork, error) {

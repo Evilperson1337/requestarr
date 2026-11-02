@@ -57,7 +57,7 @@ func TestMoviePreviewPersistenceAndExactRequestNavigationIntegration(t *testing.
 	}
 	state, err = s.MoviePreview(ctx, item.ID, user)
 	if err != nil || state.Availability != domain.AvailabilityAvailable || len(state.Libraries) != 0 {
-		t.Fatal("availability without an actual library URL was misrepresented")
+		t.Fatal("availability with no evidence at all must not name a library")
 	}
 	sourceID := newUUID()
 	if _, err = s.pool.Exec(ctx, `INSERT INTO library_sources(id,kind,name,base_url,enabled,authoritative_media_types,created_at,updated_at) VALUES($1,$2,'Fixture library','https://library.example.test',true,'["movie"]',now(),now())`, sourceID, sources.All()[0].Slug); err != nil {
@@ -77,7 +77,7 @@ func TestMoviePreviewPersistenceAndExactRequestNavigationIntegration(t *testing.
 		t.Fatal(err)
 	}
 	state, err = s.MoviePreview(ctx, item.ID, user)
-	if err != nil || len(state.Libraries) != 0 {
-		t.Fatal("credential-bearing library link escaped the preview boundary")
+	if err != nil || len(state.Libraries) != 1 || state.Libraries[0].Name != "Fixture library" || state.Libraries[0].URL != "" {
+		t.Fatal("a credential-bearing link must be dropped but the library still named")
 	}
 }

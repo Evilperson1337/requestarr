@@ -1427,9 +1427,12 @@ a {
     object-fit: cover;
 }
 
+.railCover.square {
+    aspect-ratio: 1;
+}
+
 .railCover.square img {
-    object-fit: contain;
-    background: var(--ground);
+    object-fit: cover;
 }
 
 .railBlank {
