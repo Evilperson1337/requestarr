@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/config"
+	"github.com/evilperson1337/requestarr/internal/inventory"
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/opstatus"
 	"github.com/evilperson1337/requestarr/internal/secrets"
@@ -39,6 +40,7 @@ type sourceManager struct {
 
 	mu      sync.Mutex
 	running map[string]*running
+	clients map[string]inventory.Source // by Source ID, for covers
 }
 
 // Active reports whether a Source's sync is scheduled.
@@ -63,6 +65,10 @@ func (m *sourceManager) start(slug string, source SourceJob) {
 	done := make(chan struct{})
 	m.running[slug] = &running{cancel: cancel, done: done}
 	m.syncer.set(slug, syncSource{id: source.ID, job: source.Job})
+	if m.clients == nil {
+		m.clients = map[string]inventory.Source{}
+	}
+	m.clients[source.ID] = source.Client
 	m.workers.Add(1)
 	go func() {
 		defer m.workers.Done()
@@ -83,6 +89,9 @@ func (m *sourceManager) stop(slug string) {
 		m.logger.Warn("source schedule slow to stop", "source", slug)
 	}
 	delete(m.running, slug)
+	if s, ok := m.syncer.snapshot()[slug]; ok {
+		delete(m.clients, s.id)
+	}
 	m.syncer.remove(slug)
 }
 
@@ -125,7 +134,7 @@ func (m *sourceManager) Apply(ctx context.Context, slug string) error {
 		job = decorate(job)
 	}
 	m.stop(slug)
-	m.start(slug, SourceJob{Slug: slug, ID: client.Descriptor().ID, Job: job})
+	m.start(slug, SourceJob{Slug: slug, ID: client.Descriptor().ID, Job: job, Client: client})
 	return m.applied(ctx, kind)
 }
 
@@ -161,4 +170,12 @@ func missingFields(cfg config.Config, kind sources.Kind) []string {
 		}
 	}
 	return missing
+}
+
+// artworkSource returns the running adapter that can fetch covers for a Source ID.
+func (m *sourceManager) artworkSource(sourceID string) inventory.ArtworkSource {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	source, _ := m.clients[sourceID].(inventory.ArtworkSource)
+	return source
 }

@@ -17,6 +17,23 @@ type Item struct {
 	ExternalIDs  map[string]string
 	ExternalURL  string
 	LastSeenAt   time.Time
+	// AddedAt is when the library added the item, when it says so. Zero otherwise.
+	AddedAt time.Time
+	// ArtworkRef is the library's own reference to the item's cover, which only
+	// that adapter can fetch (ArtworkSource). Empty when it has none.
+	ArtworkRef string
+}
+
+// Artwork is one fetched cover image.
+type Artwork struct {
+	ContentType string
+	Data        []byte
+}
+
+// ArtworkSource is implemented by adapters that can fetch the cover an item's
+// ArtworkRef names. The library's credentials never leave the adapter.
+type ArtworkSource interface {
+	Artwork(ctx context.Context, ref string) (Artwork, error)
 }
 
 // Snapshot describes one source's complete inventory view. Complete must only

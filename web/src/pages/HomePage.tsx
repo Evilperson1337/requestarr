@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, type MoviePreviewState, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
-import { RequestRail } from '../components/RequestRail'
+import { api, type MoviePreviewState, type RecentLibraryItem, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
+import { LibraryRail, RequestRail } from '../components/RequestRail'
 import { RequestModal } from '../components/RequestModal'
 import { followLink } from '../navigation'
 
@@ -26,10 +26,18 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     useEffect(() => { const controller = new AbortController(); void loadRecent(controller.signal); return () => controller.abort() }, [session.user.id, loadRecent])
     // Shared and optional: what has just become available. A failure simply leaves the row out.
     const [available, setAvailable] = useState<RequestItem[]>([])
+    const [added, setAdded] = useState<RecentLibraryItem[]>([])
     useEffect(() => {
         const controller = new AbortController()
         api<RequestPage>('/requests?status=available&limit=6', { cache: 'no-store', signal: controller.signal })
             .then(page => { if (!controller.signal.aborted) setAvailable(Array.isArray(page?.items) ? page.items : []) })
+            .catch(() => undefined)
+        return () => controller.abort()
+    }, [session.user.id])
+    useEffect(() => {
+        const controller = new AbortController()
+        api<{ items: RecentLibraryItem[] }>('/library/recent?limit=12', { signal: controller.signal })
+            .then(result => { if (!controller.signal.aborted) setAdded(Array.isArray(result?.items) ? result.items : []) })
             .catch(() => undefined)
         return () => controller.abort()
     }, [session.user.id])
@@ -64,6 +72,10 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         {available.length > 0 && <section className="recent" aria-labelledby="available-heading">
             <div className="recentHeader"><h2 id="available-heading">Recently available</h2><a href="/requests?status=available" onClick={followLink}>All available</a></div>
             <RequestRail items={available} />
+        </section>}
+        {added.length > 0 && <section className="recent" aria-labelledby="added-heading">
+            <div className="recentHeader"><h2 id="added-heading">Recently added to your libraries</h2></div>
+            <LibraryRail items={added} />
         </section>}
         {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus()) }} />}
     </main>

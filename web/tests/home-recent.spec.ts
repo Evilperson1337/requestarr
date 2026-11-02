@@ -5,7 +5,10 @@ const row = (id: string, title: string, mediaType: string, status: string, over:
     RequestedBy: 'user-1', Note: '', availability: 'unknown', Platforms: { any: true }, CreatedAt: '2026-10-28T12:00:00Z', subscribed: true, subscriptionSource: 'requester', ...over,
 })
 
-async function openHome(page: Page, requests: (url: URL) => { status?: number; json: unknown }) {
+type Reply = { status?: number; json: unknown }
+const noLibrary = (): Reply => ({ json: { items: [] } })
+
+async function openHome(page: Page, requests: (url: URL) => Reply, library: (url: URL) => Reply = noLibrary) {
     const calls: string[] = []
     await page.route('**/api/v1/**', route => {
         const url = new URL(route.request().url())
@@ -13,6 +16,7 @@ async function openHome(page: Page, requests: (url: URL) => { status?: number; j
         if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
         if (path === '/requests') { calls.push(url.search); return route.fulfill(requests(url)) }
+        if (path === '/library/recent') return route.fulfill(library(url))
         return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'unmocked' } } })
     })
     await page.goto('/')
@@ -55,4 +59,29 @@ test('Home leaves the Recently available row out when there is nothing to show',
     await openHome(page, () => ({ json: { items: [], nextCursor: null } }))
     await expect(page.getByText('Nothing yet. Paste a link above to make your first request.')).toBeVisible()
     await expect(page.getByRole('region', { name: 'Recently available' })).toHaveCount(0)
+})
+
+test('Home shows what the libraries recently gained, with their own covers, and says where each is', async ({ page }) => {
+    const calls: string[] = []
+    await openHome(page, () => ({ json: { items: [], nextCursor: null } }), url => {
+        calls.push(url.search)
+        return { json: { items: [
+            { id: 'a', title: 'Arrival', year: 2016, mediaType: 'movie', source: 'Plex', addedAt: '2026-11-01T12:00:00Z', artworkUrl: '/api/v1/library/items/a/artwork' },
+            { id: 'b', title: 'Kid A', year: 2000, mediaType: 'album', source: 'Plex', addedAt: '2026-10-30T12:00:00Z' },
+        ] } }
+    })
+    const section = page.getByRole('region', { name: 'Recently added to your libraries' })
+    await expect(section.getByRole('listitem')).toHaveCount(2)
+    await expect(section.getByRole('img', { name: 'Cover for Arrival' })).toHaveAttribute('src', '/api/v1/library/items/a/artwork')
+    await expect(section.getByRole('listitem').filter({ hasText: 'Arrival' })).toContainText('Movie · 2016 · Plex')
+    await expect(section.getByRole('listitem').filter({ hasText: 'Kid A' })).toContainText('Album · 2000 · Plex')
+    // An item without a cover is a plain tile, and nothing in the row is a link.
+    await expect(section.getByRole('link')).toHaveCount(0)
+    expect([...new Set(calls)]).toEqual(['?limit=12'])
+})
+
+test('Home leaves the Recently added row out when libraries have nothing to show', async ({ page }) => {
+    await openHome(page, () => ({ json: { items: [], nextCursor: null } }))
+    await expect(page.getByText('Nothing yet. Paste a link above to make your first request.')).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Recently added to your libraries' })).toHaveCount(0)
 })

@@ -82,9 +82,10 @@ type Adapters struct {
 
 // SourceJob is one configured Source's sync job and its stable ID.
 type SourceJob struct {
-	Slug string
-	ID   string
-	Job  func(context.Context) error
+	Slug   string
+	ID     string
+	Job    func(context.Context) error
+	Client inventory.Source
 }
 
 // Runtime describes what a running server is made of, derived from the
@@ -122,7 +123,7 @@ func Build(b booted, a Adapters) (Runtime, error) {
 			job = decorate(job)
 		}
 		id := client.Descriptor().ID
-		rt.Jobs = append(rt.Jobs, SourceJob{Slug: kind.Slug, ID: id, Job: job})
+		rt.Jobs = append(rt.Jobs, SourceJob{Slug: kind.Slug, ID: id, Job: job, Client: client})
 		jobs[kind.Slug] = syncSource{id: id, job: job}
 	}
 	rt.Sources = sourceRefs(jobs, b.Unreadable)

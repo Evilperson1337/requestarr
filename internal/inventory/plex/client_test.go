@@ -245,3 +245,58 @@ func TestUntitledAndOverlongTitlesDoNotFailTheSync(t *testing.T) {
 		t.Fatalf("overlong title has %d runes", n)
 	}
 }
+
+func TestItemsCarryTheirAddedDateAndOnlyAWellFormedCoverReference(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/library/sections" {
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"1","type":"movie"}]}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":2,"offset":0,"Metadata":[
+			{"ratingKey":"1","title":"A","addedAt":1700000000,"thumb":"/library/metadata/1/thumb/1699999999"},
+			{"ratingKey":"2","title":"B","addedAt":-5,"thumb":"http://evil.example/x"}]}}`))
+	}))
+	defer server.Close()
+	c, _ := New(server.URL, testToken)
+	snap, err := c.Snapshot(context.Background())
+	if err != nil || len(snap.Items) != 2 {
+		t.Fatalf("snapshot %v %d", err, len(snap.Items))
+	}
+	if snap.Items[0].AddedAt.Unix() != 1700000000 || snap.Items[0].ArtworkRef != "/library/metadata/1/thumb/1699999999" {
+		t.Fatalf("item 1 = %+v", snap.Items[0])
+	}
+	if !snap.Items[1].AddedAt.IsZero() || snap.Items[1].ArtworkRef != "" {
+		t.Fatalf("a bad date or a foreign cover URL must be dropped: %+v", snap.Items[1])
+	}
+}
+
+func TestArtworkIsFetchedWithTheTokenInAHeaderAndOnlyForAWellFormedReference(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Plex-Token") != testToken || r.URL.RawQuery == "" || strings.Contains(r.URL.RawQuery, testToken) {
+			http.Error(w, "bad", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Query().Get("url") == "/library/metadata/9/thumb" {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte("<html>"))
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("jpegbytes"))
+	}))
+	defer server.Close()
+	c, _ := New(server.URL, testToken)
+	got, err := c.Artwork(context.Background(), "/library/metadata/5/thumb/123")
+	if err != nil || got.ContentType != "image/jpeg" || string(got.Data) != "jpegbytes" {
+		t.Fatalf("artwork %+v err %v", got, err)
+	}
+	for _, bad := range []string{"/library/metadata/5/art/1", "http://evil.example/thumb", "/library/metadata/5/thumb/1?x=y", "../../etc/passwd"} {
+		if _, err := c.Artwork(context.Background(), bad); err == nil {
+			t.Errorf("%q must be refused before any request", bad)
+		}
+	}
+	if _, err := c.Artwork(context.Background(), "/library/metadata/9/thumb"); err == nil {
+		t.Fatal("a non-image answer must be refused")
+	}
+}

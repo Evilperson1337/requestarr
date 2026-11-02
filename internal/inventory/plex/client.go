@@ -76,6 +76,8 @@ type container struct {
 			RatingKey string `json:"ratingKey"`
 			Title     string `json:"title"`
 			Year      int    `json:"year"`
+			AddedAt   int64  `json:"addedAt"`
+			Thumb     string `json:"thumb"`
 			// Plex sends both "guid" (a string) and "Guid" (an array). encoding/json
 			// matches names case-insensitively, so without this field the string
 			// would be decoded into the array and fail.
@@ -188,7 +190,14 @@ func (c *Client) library(ctx context.Context, key string, media domain.MediaType
 					ids["mbid"] = strings.ToLower(value)
 				}
 			}
-			items = append(items, inventory.Item{SourceID: SourceID, SourceItemID: m.RatingKey, MediaType: media, Title: m.Title, Year: m.Year, ExternalIDs: ids})
+			item := inventory.Item{SourceID: SourceID, SourceItemID: m.RatingKey, MediaType: media, Title: m.Title, Year: m.Year, ExternalIDs: ids}
+			if m.AddedAt > 0 && m.AddedAt < 1<<33 {
+				item.AddedAt = time.Unix(m.AddedAt, 0).UTC()
+			}
+			if thumbPattern.MatchString(m.Thumb) {
+				item.ArtworkRef = m.Thumb
+			}
+			items = append(items, item)
 		}
 		if offset+len(mc.Metadata) == total {
 			return items, nil

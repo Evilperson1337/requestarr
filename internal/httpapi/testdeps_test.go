@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"github.com/evilperson1337/requestarr/internal/inventory"
 	"github.com/evilperson1337/requestarr/internal/sources"
 	"log/slog"
 	"net/http"
@@ -199,6 +200,11 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 	} else {
 		d.Secrets = absentSecrets{}
 	}
+	if v, ok := readiness.(LibraryReader); ok {
+		d.Library = v
+	} else {
+		d.Library = absentLibrary{}
+	}
 	if v, ok := readiness.(ConnectionsService); ok {
 		d.Connections = v
 	} else {
@@ -288,4 +294,13 @@ func (absentConnections) RemoveConnection(context.Context, string) (Connection, 
 }
 func (absentConnections) TestConnection(context.Context, string) (ConnectionTest, error) {
 	return ConnectionTest{}, errAbsent
+}
+
+type absentLibrary struct{}
+
+func (absentLibrary) RecentlyAdded(context.Context, int) ([]domain.RecentLibraryItem, error) {
+	return nil, errAbsent
+}
+func (absentLibrary) Artwork(context.Context, string) (inventory.Artwork, error) {
+	return inventory.Artwork{}, errAbsent
 }

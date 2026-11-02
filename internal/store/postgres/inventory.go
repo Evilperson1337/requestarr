@@ -75,7 +75,7 @@ func (s *Store) PersistSnapshot(ctx context.Context, d inventory.Descriptor, bas
 		if err != nil {
 			return fmt.Errorf("encode %s provider IDs: %w", d.Kind, err)
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO inventory_items(id,source_id,source_item_id,media_type,title,year,platform_key,external_ids,first_seen_at,last_seen_at) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),NULLIF($7,''),$8,$9,$9) ON CONFLICT(source_id,source_item_id) DO UPDATE SET media_type=EXCLUDED.media_type,title=EXCLUDED.title,year=EXCLUDED.year,platform_key=EXCLUDED.platform_key,external_ids=EXCLUDED.external_ids,last_seen_at=EXCLUDED.last_seen_at`, newUUID(), d.ID, item.SourceItemID, item.MediaType, item.Title, item.Year, item.PlatformKey, ids, now); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO inventory_items(id,source_id,source_item_id,media_type,title,year,platform_key,external_ids,first_seen_at,last_seen_at,added_at,artwork_ref) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),NULLIF($7,''),$8,$9,$9,$10,$11) ON CONFLICT(source_id,source_item_id) DO UPDATE SET media_type=EXCLUDED.media_type,title=EXCLUDED.title,year=EXCLUDED.year,platform_key=EXCLUDED.platform_key,external_ids=EXCLUDED.external_ids,last_seen_at=EXCLUDED.last_seen_at,added_at=COALESCE(EXCLUDED.added_at,inventory_items.added_at),artwork_ref=EXCLUDED.artwork_ref`, newUUID(), d.ID, item.SourceItemID, item.MediaType, item.Title, item.Year, item.PlatformKey, ids, now, nullTime(item.AddedAt), item.ArtworkRef); err != nil {
 			return fmt.Errorf("upsert %s inventory item: %w", d.Kind, err)
 		}
 		matched, err := matchCatalogItems(ctx, tx, d, item)
@@ -418,4 +418,11 @@ func (s *Store) LastSnapshotTimes(ctx context.Context) (map[string]time.Time, er
 		out[id] = at
 	}
 	return out, rows.Err()
+}
+
+func nullTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC()
 }

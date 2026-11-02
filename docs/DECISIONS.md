@@ -168,3 +168,11 @@ Accepted. This supersedes the "library and Apprise URLs stay environment-only" p
 - **Boot never fails on a half-set stored connection.** A stored credential with no address (or the reverse) leaves that Source off with a warning, as the unreadable-secret case already does. An environment credential with no address is still a configuration error.
 - **Test connection** is the setup wizard's read-only probe run against the Source as currently configured. It never returns a credential.
 - Removing a connection stops syncing; inventory already observed is kept and is replaced by the next successful sync of that Source (D015 still forbids removals from a failed one).
+
+## D029 — Home shows what libraries recently gained, with the library's own covers
+
+Accepted.
+
+- Home's "Recently added to your libraries" lists the newest movies, series and albums from each enabled library's latest complete snapshot (so a removed item never shows; songs are left out; the same title in two libraries is one entry). Order is the library's own added date, else first sighting.
+- Covers come from the library that owns the item, not from TMDB or MusicBrainz lookups. An adapter that can supply them implements `inventory.ArtworkSource`; it keeps only a validated reference to one item's cover (Plex: `/library/metadata/<id>/thumb[/<ts>]`) and fetches it through the library's own resizer. The credential stays inside the adapter and the browser only ever calls `GET /library/items/{id}/artwork`, which returns an image or a generic error. Libraries without covers (today: Jellyfin, RomM, Navidrome) show a plain tile.
+- Every signed-in role can read both endpoints; nothing in them is request- or user-specific.

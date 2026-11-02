@@ -450,6 +450,67 @@ paths:
         '403': { description: Administrator role required }
         '404': { description: User not found }
         '409': { description: Cannot change your own role, or cannot demote the last administrator; nothing is changed }
+  /library/recent:
+    get:
+      operationId: listRecentlyAddedToLibraries
+      summary: Movies, series and albums the libraries gained most recently
+      description: >-
+        D029. Newest first by the library's own added date (first sighting when it gives none),
+        from each source's latest complete snapshot, so a removed item never shows. Songs are
+        left out. artworkUrl is present only when the owning library can supply a cover.
+        Any signed-in role; private, cached for a minute.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 50, default: 12 }
+      responses:
+        '200':
+          description: Recently added items
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [id, title, mediaType, source, addedAt]
+                      properties:
+                        id: { type: string, format: uuid }
+                        title: { type: string }
+                        year: { type: integer }
+                        mediaType: { type: string, enum: [movie, tv, album] }
+                        source: { type: string, description: The library's name }
+                        addedAt: { type: string, format: date-time }
+                        artworkUrl: { type: string }
+        '401': { description: Authentication required }
+        '500': { description: library_recent_failed }
+  /library/items/{id}/artwork:
+    get:
+      operationId: getLibraryItemArtwork
+      summary: A library item's cover, fetched by the library's own adapter
+      description: >-
+        The library's credentials stay in the server. The reference is validated to one item's
+        cover path before any request is made; the response is an image (jpeg, png or webp) with
+        nosniff, private and cached for a day. Library errors are never echoed.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The cover image
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        '401': { description: Authentication required }
+        '404': { description: artwork_not_found }
+        '502': { description: artwork_unavailable }
   /admin/library-connections:
     get:
       operationId: listLibraryConnections
