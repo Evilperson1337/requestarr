@@ -35,6 +35,7 @@ async function mock(page: Page, options: { enabled?: boolean; role?: string; sta
         if (path === '/admin/users') return route.fulfill({ json: { users: [] } })
         if (path === '/admin/match-suggestions') return route.fulfill({ json: { items: [] } })
         if (path === '/admin/secrets') return route.fulfill({ json: { enabled: false, secrets: [] } })
+        if (path === '/admin/library-connections') return route.fulfill({ json: { connections: [] } })
         if (path === '/notifications') return route.fulfill({ json: { items: [] } })
         return route.fulfill({ json: {} })
     })

@@ -79,6 +79,8 @@ export type SecretStatus = {
     source: 'none' | 'environment' | 'stored' | 'stored (shadowed by environment)' | 'stored secret unreadable'
     unreadable: boolean; pendingRestart: boolean
 }
+export type LibraryConnection = { slug: string; name: string; url: string; urlFromEnvironment: boolean; urlEnv: string; saved: boolean; takesUsername: boolean; username: string; active: boolean; missing: string[]; credentials: { secret: string; label: string; configured: boolean; source: string; unreadable: boolean }[] }
+export type ConnectionTest = { ok: boolean; code: string; message: string }
 export type SecretsOverview = { enabled: boolean; secrets: SecretStatus[] }
 
 export type JobRun = { id: string; sourceId: string; trigger: 'schedule' | 'manual'; status: 'running' | 'succeeded' | 'failed'; startedAt: string; finishedAt: string | null; error?: string }
