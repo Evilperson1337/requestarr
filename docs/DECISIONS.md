@@ -182,3 +182,16 @@ Amended (same day): Home shows two shelves, movies and shows (posters) and music
 Amended again: games are a third shelf (3:4 frame, portrait covers cropped to fill, caption "Game · <platform> · RomM"). The RomM adapter supplies the added date (`created_at`), the platform's display name (`inventory_items.detail`) and fetches the ROM's own cover (`/assets/romm/resources/roms/<platform>/<id>/cover/big|small.<ext>`) through its token, never IGDB.
 
 Amended again: each adapter now records where its media server shows an item (`inventory_items.external_url`): Plex Web (`/web/index.html#!/server/<machineId>/details?key=<item>`, the server id read once from `/identity`), Jellyfin (`/web/index.html#!/details?id=`), RomM (`/rom/<id>`) and Navidrome albums (`/app/#/album/<id>/show`). The request dialog's "Plex: Available" tag opens it there in a new tab. The link uses the address Requestarr was configured with, so it only works where the browser can reach that address; it carries no credential and is dropped if it ever would (`safeLibraryLink`).
+
+## D030 — Library items are browsable, and an Issue is a report about one
+
+Accepted.
+
+People can browse what each Source holds (the Library page) and report a problem with an item. An **Issue** is separate from a Request: it is about something a Source already has, it attaches to the **Library item** (not the Catalog item), and Requestarr only records it and notifies people. An admin fixes the item outside Requestarr; nothing in an Issue can start a download, replacement or *arr call, so the acquisition boundary in AGENTS.md and V1_SCOPE is unchanged.
+
+- Every signed-in role can report (Viewers included); only admins resolve, close or reopen.
+- One shared open Issue per (Library item, kind, part), like one shared Request per item; no vote counts.
+- Kinds are fixed in code per media type (video, audio and subtitles for video; audio and tracks for music; boot, region, version and files for games).
+- An item that leaves its library keeps its Issue open and labelled; nothing resolves automatically.
+
+The spec and tickets are in `.scratch/library-and-issues/`.
