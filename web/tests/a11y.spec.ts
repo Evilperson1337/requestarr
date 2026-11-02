@@ -35,7 +35,7 @@ async function mockApp(page: Page, step = 'general') {
             '/requests': { items: [request], nextCursor: null },
             '/notifications': { items: [{ id: 'n1', title: 'Arrival is available', body: 'Now in Jellyfin', createdAt: '2026-10-01T12:00:00Z' }] },
             '/admin/setup/draft': draft(step), '/admin/setup/source-kinds': sourceKinds,
-            '/admin/job-runs': { sources: [] }, '/admin/users': { users: [] }, '/admin/match-suggestions': { items: [] },
+            '/admin/job-runs': { sources: [] }, '/admin/secrets': { enabled: true, secrets: [{ name: 'plex_token', label: 'Plex token', envVar: 'X', configured: false, source: 'none', unreadable: false, pendingRestart: false }, { name: 'tmdb_read_token', label: 'TMDb read token', envVar: 'X', configured: true, source: 'stored', unreadable: false, pendingRestart: false }] }, '/admin/library-connections': { connections: [{ slug: 'plex', name: 'Plex', url: '', urlFromEnvironment: false, urlEnv: 'REQUESTARR_PLEX_URL', saved: false, takesUsername: false, username: '', active: false, missing: [], credentials: [{ secret: 'plex_token', label: 'Plex token', configured: false, source: 'none', unreadable: false }] }] }, '/admin/users': { users: [] }, '/admin/match-suggestions': { items: [] },
             '/admin/status': { providers: [{ key: 'tmdb', name: 'TMDB', configured: true }], sources: [{ slug: 'jellyfin', name: 'Jellyfin', configured: false, lastRun: null, lastSuccessAt: null, lastSnapshotAt: null, lastError: '' }], recentErrors: [] },
             '/resolve': { Item: { ID: 'c1', MediaType: 'game', Provider: 'igdb', Title: 'Outer Wilds', Year: 2019, ArtworkURL: '', ArtworkKind: 'poster', ExternalURL: '' }, Platforms: [{ providerId: '6', key: 'pc', name: 'PC' }] },
         }
@@ -58,7 +58,8 @@ const pages: { name: string; step?: string; open: (page: Page) => Promise<void> 
         await page.getByRole('button', { name: 'Preview' }).click(); await expect(page.getByRole('dialog')).toBeVisible() } },
     { name: 'Requests', open: async page => { await page.goto('/requests'); await expect(page.getByRole('heading', { name: 'Arrival', exact: true })).toBeVisible() } },
     { name: 'Notifications', open: async page => { await page.goto('/notifications'); await expect(page.getByText('Arrival is available')).toBeVisible() } },
-    { name: 'Settings', open: async page => { await page.goto('/settings'); await expect(page.getByRole('heading', { name: 'Operational status' })).toBeVisible() } },
+    { name: 'Settings', open: async page => { await page.goto('/settings'); await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible(); await page.getByRole('button', { name: 'Set up' }).click(); await expect(page.getByLabel('Address')).toBeVisible() } },
+    { name: 'Settings · Activity', open: async page => { await page.goto('/settings'); await page.getByRole('button', { name: 'Activity', exact: true }).click(); await expect(page.getByRole('heading', { name: 'Recent errors' })).toBeVisible() } },
     ...['general', 'authentication', 'providers', 'libraries', 'notifications', 'policy', 'review'].map(step => ({
         name: `Setup wizard · ${step}`, step, open: async (page: Page) => { await page.goto('/setup'); await expect(page.getByLabel('Setup steps')).toBeVisible() },
     })),

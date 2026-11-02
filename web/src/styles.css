@@ -1842,53 +1842,172 @@ a.tag-available:hover {
     }
 }
 
-/* Library connections: one flat block per media server. */
-.connections {
+/* Settings: tabs, then each integration as one row that opens into its settings. */
+.settingsTabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0 28px;
+}
+
+.settingsTab {
+    font: inherit;
+    border: 0;
+    border-radius: 999px;
+    padding: 8px 16px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.settingsTab[aria-pressed="true"] {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.tabCount {
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--negative);
+    color: #000;
+    font-size: .8rem;
+    font-weight: 700;
+}
+
+.integrationGroup {
+    margin-bottom: 40px;
+}
+
+.groupHead {
+    max-width: 62ch;
+    margin-bottom: 14px;
+}
+
+.groupHead h2 {
+    margin: 0 0 4px;
+    font-size: 1.3rem;
+}
+
+.groupHead p {
+    margin: 0;
+    color: var(--muted);
+}
+
+.integrations {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
+    gap: 10px;
+}
+
+.integration {
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 16px 18px;
+}
+
+.integrationHead {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
     gap: 14px;
 }
 
-.connection {
-    background: var(--ground);
-    border-radius: 14px;
-    padding: 18px;
+.providerLogo {
+    display: block;
+    object-fit: contain;
 }
 
-.connection h3 {
+.logoBlank {
+    display: block;
+    border-radius: 8px;
+    background: var(--raised);
+}
+
+.integrationTitle h3 {
     margin: 0;
+    font-size: 1.1rem;
 }
 
-.connectionHead {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 6px 16px;
-    margin-bottom: 8px;
-}
-
-.connectionState {
+.integrationState {
     color: var(--muted);
     font-size: .95rem;
 }
 
-.connectionState.on {
+.integrationState.on {
     color: var(--accent);
 }
 
-.connection label {
+.integrationState.warn {
+    color: var(--warning);
+}
+
+.integrationActions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.integrationMeta {
+    margin: 10px 0 0 46px;
+    color: var(--muted);
+    font-size: .92rem;
+    overflow-wrap: anywhere;
+}
+
+.integrationBody {
+    margin: 14px 0 0 46px;
+    padding: 16px;
+    border-radius: 12px;
+    background: var(--ground);
+}
+
+.integrationBody[hidden] {
+    display: none;
+}
+
+.integrationBody label {
     display: block;
     margin: 12px 0 6px;
     font-weight: 600;
 }
 
-.connection input:not([type="password"]) {
+.integrationBody label:first-child {
+    margin-top: 0;
+}
+
+.integrationBody input:not([type="password"]) {
     width: 100%;
 }
 
 .testOk {
     color: var(--accent);
+}
+
+@media (max-width: 600px) {
+    .integrationHead {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .integrationActions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+    }
+
+    .integrationMeta,
+    .integrationBody {
+        margin-left: 0;
+    }
+}
+
+.integrationBody .secretField,
+.integrationBody .draftActions {
+    margin-top: 16px;
+}
+
+.integrationBody .secretField:first-child {
+    margin-top: 0;
 }

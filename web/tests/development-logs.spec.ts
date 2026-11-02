@@ -22,7 +22,7 @@ async function mock(page: Page, options: { enabled?: boolean; role?: string; sta
         if (path === '/auth/logout') return route.fulfill({ status: 204 })
         if (path === '/admin/status') {
             if (state.status) return state.status(route)
-            return route.fulfill({ status: options.statusCode ?? 200, json: { providers: [], sources: [{ slug: 'jellyfin', name: 'Jellyfin', configured: true, lastRun: null, lastSuccessAt: null, lastSnapshotAt: null, lastError: '' }], recentErrors: [], ...(options.enabled === undefined ? {} : { developmentLogsEnabled: options.enabled }) } })
+            return route.fulfill({ status: options.statusCode ?? 200, json: { providers: [{ key: 'tmdb', name: 'TMDB', configured: true }], sources: [{ slug: 'jellyfin', name: 'Jellyfin', configured: true, lastRun: null, lastSuccessAt: null, lastSnapshotAt: null, lastError: '' }], recentErrors: [], ...(options.enabled === undefined ? {} : { developmentLogsEnabled: options.enabled }) } })
         }
         if (path === '/admin/development-logs') {
             if (state.logs) return state.logs(route)
@@ -35,12 +35,16 @@ async function mock(page: Page, options: { enabled?: boolean; role?: string; sta
         if (path === '/admin/users') return route.fulfill({ json: { users: [] } })
         if (path === '/admin/match-suggestions') return route.fulfill({ json: { items: [] } })
         if (path === '/admin/secrets') return route.fulfill({ json: { enabled: false, secrets: [] } })
-        if (path === '/admin/library-connections') return route.fulfill({ json: { connections: [] } })
+        if (path === '/admin/library-connections') return route.fulfill({ json: { connections: [{ slug: 'jellyfin', name: 'Jellyfin', url: 'https://jf.example.test', urlFromEnvironment: false, urlEnv: 'REQUESTARR_JELLYFIN_URL', saved: true, takesUsername: false, username: '', active: true, missing: [], credentials: [] }] } })
         if (path === '/notifications') return route.fulfill({ json: { items: [] } })
         return route.fulfill({ json: {} })
     })
     return state
 }
+
+// Diagnostics live under Settings > Activity.
+async function activity(page: Page) { await page.getByRole('button', { name: 'Activity', exact: true }).click() }
+async function tab(page: Page, name: string) { await page.getByRole('button', { name, exact: true }).click() }
 
 const summary = (page: Page) => page.locator('summary').filter({ hasText: 'Development connection logs' })
 const logCalls = (calls: string[]) => calls.filter(call => call === 'GET /admin/development-logs')
@@ -69,13 +73,15 @@ for (const status of [401, 403]) {
                 return route.fallback()
             })
             await page.goto('/settings')
+            await activity(page)
             await summary(page).click()
             await expect(page.getByRole('cell', { name: 'igdb', exact: true })).toBeVisible()
             fail = true
-            if (action === 'sync') await page.getByRole('button', { name: 'Sync Jellyfin now', exact: true }).click()
-            if (action === 'role') await page.getByLabel('Role for Other user').selectOption('requester')
-            if (action === 'suggestions') await page.getByRole('button', { name: 'Refresh suggestions' }).click()
-            if (action === 'review') await page.getByRole('button', { name: 'Accept match for Test movie from Test library' }).click()
+            if (action === 'sync') { await tab(page, 'Integrations'); await page.getByRole('button', { name: 'Sync Jellyfin now', exact: true }).click() }
+            if (action === 'role') { await tab(page, 'Users'); await page.getByLabel('Role for Other user').selectOption('requester') }
+            if (action === 'suggestions') { await tab(page, 'Matches'); await page.getByRole('button', { name: 'Refresh suggestions' }).click() }
+            if (action === 'review') { await tab(page, 'Matches'); await page.getByRole('button', { name: 'Accept match for Test movie from Test library' }).click() }
+            if (action === 'clear secret' || action === 'secret' || action === 'secret status') { await tab(page, 'Integrations'); await page.getByRole('listitem').filter({ hasText: 'TMDB' }).getByRole('button', { name: /Settings|Set up/ }).click() }
             if (action === 'clear secret') await page.getByRole('button', { name: 'Clear stored value', exact: true }).click()
             if (action === 'secret') {
                 await page.getByLabel('TMDb read token', { exact: true }).fill('test-value')
@@ -92,6 +98,7 @@ for (const status of [401, 403]) {
         const state = await mock(page, { enabled: true })
         state.entries = [record]
         await page.goto('/settings')
+        await activity(page)
         await summary(page).click()
         await expect(page.getByRole('cell', { name: 'igdb', exact: true })).toBeVisible()
         let release!: () => void
@@ -102,6 +109,7 @@ for (const status of [401, 403]) {
         await page.getByRole('button', { name: 'Refresh logs' }).click()
         await expect.poll(() => logCalls(state.calls).length).toBe(2)
         await page.route('**/api/v1/admin/match-suggestions', route => route.fulfill({ status, json: { error: { message: 'Authorization lost' } } }))
+        await tab(page, 'Matches')
         await page.getByRole('button', { name: 'Refresh suggestions' }).click()
         await expect(summary(page)).toHaveCount(0)
         await expect.poll(() => aborted).toBe(true)
@@ -118,7 +126,9 @@ for (const status of [401, 403]) {
         let aborted = false
         page.on('requestfailed', request => { if (request.url().endsWith('/admin/status')) aborted = true })
         await page.goto('/settings')
+        await activity(page)
         await expect.poll(() => state.calls.includes('GET /admin/status')).toBe(true)
+        await tab(page, 'Matches')
         await expect(page.getByRole('button', { name: 'Refresh suggestions' })).toBeEnabled()
         aborted = false // Ignore StrictMode's initial effect cleanup.
         await page.route('**/api/v1/admin/match-suggestions', route => route.fulfill({ status, json: { error: { message: 'Authorization lost' } } }))
@@ -140,6 +150,7 @@ for (const status of [401, 403]) {
                 await route.fulfill({ status, json: { error: { message: 'Authorization lost' } } }).catch(() => undefined)
             })
             await page.goto('/settings')
+            await activity(page)
             await summary(page).click()
             await expect(page.getByRole('cell', { name: 'igdb', exact: true })).toBeVisible()
             release()
@@ -154,11 +165,14 @@ test('Settings non-authentication action failure keeps displayed diagnostics', a
     const state = await mock(page, { enabled: true })
     state.entries = [record]
     await page.goto('/settings')
+    await activity(page)
     await summary(page).click()
     await expect(page.getByRole('cell', { name: 'igdb', exact: true })).toBeVisible()
     await page.route('**/api/v1/admin/match-suggestions', route => route.fulfill({ status: 503, json: { error: { message: 'Service unavailable' } } }))
+    await tab(page, 'Matches')
     await page.getByRole('button', { name: 'Refresh suggestions' }).click()
     await expect(page.getByRole('alert')).toHaveText('Service unavailable')
+    await activity(page)
     await expect(page.getByRole('cell', { name: 'igdb', exact: true })).toBeVisible()
     expect(logCalls(state.calls)).toHaveLength(1)
 })
@@ -168,6 +182,7 @@ for (const path of ['/setup', '/settings']) {
         test(`${path}: hidden when capability is ${enabled}`, async ({ page }) => {
             const state = await mock(page, { enabled })
             await page.goto(path)
+            if (path === '/settings') await activity(page)
             await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
             await expect.poll(() => state.calls.includes('GET /admin/status')).toBe(true)
             await expect(summary(page)).toHaveCount(0)
@@ -177,6 +192,7 @@ for (const path of ['/setup', '/settings']) {
     test(`${path}: collapsed, manual empty/entries refresh, safe failure and retry`, async ({ page }) => {
         const state = await mock(page, { enabled: true })
         await page.goto(path)
+        if (path === '/settings') await activity(page)
         await expect(summary(page)).toBeVisible()
         expect(logCalls(state.calls)).toHaveLength(0)
         expect(state.calls.filter(call => call === 'GET /admin/status').length).toBeLessThanOrEqual(2) // StrictMode may cancel its first read.
@@ -241,6 +257,7 @@ test('bounded history is text only, even for unexpected markup', async ({ page }
     state.entries = Array.from({ length: 205 }, (_, index) => ({ ...record, seq: index + 1 }))
     state.entries[204].code = '<img src=x onerror=alert(1)>' as DevelopmentLogEntry['code']
     await page.goto('/settings')
+    await activity(page)
     await summary(page).click()
     const region = page.getByRole('region', { name: 'Development connection records' })
     await expect(region.getByRole('row')).toHaveCount(201)

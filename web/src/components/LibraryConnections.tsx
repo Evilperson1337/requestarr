@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react'
-import { api, type ConnectionTest, type LibraryConnection } from '../api'
+import { api, type ConnectionTest, type LibraryConnection, type OperationalStatus } from '../api'
+import { IntegrationCard, type Tone } from './IntegrationCard'
 import { SecretField } from './SecretField'
 
-function status(c: LibraryConnection): string {
-    if (c.urlFromEnvironment && c.active) return `Syncing · address set by ${c.urlEnv}`
-    if (c.active) return 'Syncing'
-    if (c.url && c.missing.length) return `Off · needs ${c.missing.join(' and ')}`
-    if (c.urlFromEnvironment) return `Off · address set by ${c.urlEnv}`
-    return 'Not set up'
+type Source = OperationalStatus['sources'][number]
+
+function summary(c: LibraryConnection): { text: string; tone: Tone } {
+    if (c.active) return { text: c.urlFromEnvironment ? `Syncing · address set by ${c.urlEnv}` : 'Syncing', tone: 'on' }
+    if (c.url && c.missing.length) return { text: `Off · needs ${c.missing.join(' and ')}`, tone: 'warn' }
+    if (c.urlFromEnvironment) return { text: `Off · address set by ${c.urlEnv}`, tone: 'warn' }
+    return { text: 'Not set up', tone: 'off' }
 }
 
-function Connection({ connection, csrfToken, reload, onRequestError }: { connection: LibraryConnection; csrfToken: string; reload: () => Promise<void>; onRequestError: (error: unknown) => void }) {
+const when = (value: string | null | undefined) => (value ? new Date(value).toLocaleString() : 'Never')
+
+function Connection({ connection, source, syncing, onSync, csrfToken, reload, onRequestError }: { connection: LibraryConnection; source?: Source; syncing: boolean; onSync: (slug: string) => void; csrfToken: string; reload: () => Promise<void>; onRequestError: (error: unknown) => void }) {
     const id = useId()
     const [url, setURL] = useState(connection.url)
     const [username, setUsername] = useState(connection.username)
@@ -40,8 +44,12 @@ function Connection({ connection, csrfToken, reload, onRequestError }: { connect
         void run('test', async () => { setTest(await api<ConnectionTest>(`${base}/test`, { method: 'POST' }, csrfToken)) }, `${connection.name} could not be tested.`)
     }
     const dirty = url.trim() !== connection.url || (connection.takesUsername && username.trim() !== connection.username)
-    return <li className="connection" aria-labelledby={`${id}-name`}>
-        <div className="connectionHead"><h3 id={`${id}-name`}>{connection.name}</h3><span className={`connectionState${connection.active ? ' on' : ''}`}>{status(connection)}</span></div>
+    const { text, tone } = summary(connection)
+    const meta = connection.active && source
+        ? <>Last sync {when(source.lastRun?.startedAt)} · {source.lastRun?.status ?? 'not run yet'}{source.lastSuccessAt ? <> · last success {when(source.lastSuccessAt)}</> : null}{source.lastError ? <> · <span className="error">{source.lastError}</span></> : null}</>
+        : undefined
+    const sync = connection.active ? <button className="button secondary" type="button" aria-label={`Sync ${connection.name} now`} disabled={syncing} onClick={() => onSync(connection.slug)}>{syncing ? 'Syncing…' : 'Sync now'}</button> : undefined
+    return <IntegrationCard slug={connection.slug} name={connection.name} status={text} tone={tone} meta={meta} actions={sync} setUp={!connection.url && !connection.active}>
         <form onSubmit={save}>
             <label htmlFor={`${id}-url`}>Address</label>
             <input id={`${id}-url`} type="url" inputMode="url" autoComplete="off" spellCheck={false} maxLength={2048} placeholder="https://" value={url} disabled={locked || !!busy} aria-describedby={`${id}-help`} onChange={event => setURL(event.target.value)} />
@@ -62,12 +70,12 @@ function Connection({ connection, csrfToken, reload, onRequestError }: { connect
             {test && <p role="status" className={test.ok ? 'testOk' : 'error'}>{test.message}</p>}
         </div>
         {error && <p role="alert" className="error">{error}</p>}
-    </li>
+    </IntegrationCard>
 }
 
 // Where each library Source lives (D028). Changes apply at once; an address set
 // by an environment variable is shown but cannot be changed here.
-export function LibraryConnections({ csrfToken, onRequestError, onLoaded }: { csrfToken: string; onRequestError: (error: unknown) => void; onLoaded?: (secretNames: string[]) => void }) {
+export function LibraryConnections({ csrfToken, onRequestError, onLoaded, sources, syncing, onSync }: { csrfToken: string; onRequestError: (error: unknown) => void; onLoaded?: (secretNames: string[]) => void; sources: Source[]; syncing: string; onSync: (slug: string) => void }) {
     const [connections, setConnections] = useState<LibraryConnection[] | null>(null)
     const [failed, setFailed] = useState(false)
     const reload = useCallback(async () => {
@@ -81,5 +89,5 @@ export function LibraryConnections({ csrfToken, onRequestError, onLoaded }: { cs
     useEffect(() => { void reload() }, [reload])
     if (failed) return <p role="alert" className="error">Library connections could not be loaded.</p>
     if (!connections) return <p role="status">Loading library connections…</p>
-    return <ul className="connections" aria-label="Library connections">{connections.map(c => <Connection key={c.slug} connection={c} csrfToken={csrfToken} reload={reload} onRequestError={onRequestError} />)}</ul>
+    return <ul className="integrations" aria-label="Library connections">{connections.map(c => <Connection key={c.slug} connection={c} source={sources.find(item => item.slug === c.slug)} syncing={syncing !== ''} onSync={onSync} csrfToken={csrfToken} reload={reload} onRequestError={onRequestError} />)}</ul>
 }

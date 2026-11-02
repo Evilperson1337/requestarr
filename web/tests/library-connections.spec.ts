@@ -41,6 +41,8 @@ async function openSettings(page: Page, conns: Conn[]) {
     return calls
 }
 
+const open = (item: import('@playwright/test').Locator) => item.getByRole('button', { name: /^(Settings|Set up)$/ }).click()
+
 const set = () => [
     conn('jellyfin', 'Jellyfin', 'jellyfin_api_key', 'Jellyfin API key', { url: 'https://jf.example.test', urlFromEnvironment: true, active: true, credentials: [{ secret: 'jellyfin_api_key', label: 'Jellyfin API key', configured: true, source: 'environment', unreadable: false }] }),
     conn('plex', 'Plex', 'plex_token', 'Plex token'),
@@ -48,23 +50,24 @@ const set = () => [
     conn('navidrome', 'Navidrome', 'navidrome_password', 'Navidrome password', { takesUsername: true }),
 ]
 
-test('Settings lists each library server, locks an address set by the environment and keeps its secret out of the generic list', async ({ page }) => {
+test('Settings lists each library server and locks an address set by the environment', async ({ page }) => {
     await openSettings(page, set())
     const list = page.getByRole('list', { name: 'Library connections' })
     await expect(list.getByRole('listitem')).toHaveCount(4)
     const jellyfin = list.getByRole('listitem').filter({ hasText: 'Jellyfin' })
     await expect(jellyfin).toContainText('Syncing · address set by REQUESTARR_JELLYFIN_URL')
+    await open(jellyfin)
     await expect(jellyfin.getByLabel('Address')).toBeDisabled()
     await expect(jellyfin.getByRole('button', { name: 'Save and apply' })).toBeDisabled()
     await expect(list.getByRole('listitem').filter({ hasText: 'Plex' })).toContainText('Not set up')
-    // Each library credential lives in its own card, not in "Stored secrets" as well.
+    // Each credential lives only in its own card.
     await expect(page.getByLabel('Plex token')).toHaveCount(1)
-    await expect(page.getByRole('region', { name: 'Stored secrets' }).getByLabel('TMDb read token')).toBeVisible()
 })
 
 test('saving an address applies it, and the credential completes it', async ({ page }) => {
     const calls = await openSettings(page, set())
     const plex = page.getByRole('list', { name: 'Library connections' }).getByRole('listitem').filter({ hasText: 'Plex' })
+    await open(plex)
     await plex.getByLabel('Address').fill('http://192.168.1.20:32400')
     await plex.getByRole('button', { name: 'Save and apply' }).click()
     await expect(plex.getByText('Plex saved and applied.')).toBeVisible()
@@ -79,6 +82,7 @@ test('saving an address applies it, and the credential completes it', async ({ p
 test('Navidrome takes a username, and a saved connection can be tested and removed', async ({ page }) => {
     const calls = await openSettings(page, set())
     const navidrome = page.getByRole('list', { name: 'Library connections' }).getByRole('listitem').filter({ hasText: 'Navidrome' })
+    await open(navidrome)
     await expect(navidrome.getByRole('button', { name: 'Test connection' })).toBeDisabled()
     await navidrome.getByLabel('Address').fill('https://music.example.test')
     await navidrome.getByLabel('Username').fill('alice')
