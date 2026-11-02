@@ -58,6 +58,15 @@ type ResolvedItem struct {
 	Game      *GameDetails  `json:"Game,omitempty"`
 	Music     *MusicDetails `json:"Music,omitempty"`
 	Preview   *MoviePreview `json:"Preview,omitempty"`
+	// Aliases are other identifiers the provider already told us belong to this
+	// item, such as every release of an album's release group (D020). Server-side only.
+	Aliases []Alias `json:"-"`
+}
+
+// Alias is one alternate identifier of a catalog item.
+type Alias struct {
+	Kind  string
+	Value string
 }
 
 type CatalogPlatform struct {

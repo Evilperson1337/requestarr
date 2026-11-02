@@ -123,7 +123,18 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 			}
 		}
 	}
-	return domain.ResolvedItem{Item: item, Music: details}, nil
+	resolved := domain.ResolvedItem{Item: item, Music: details}
+	if media == domain.MediaAlbum {
+		// Libraries identify an album by one of its releases, not its release group.
+		// The group's releases were already in this response, so recording them
+		// costs nothing and lets a library match be found without a second lookup.
+		for _, release := range data.Releases {
+			if mbidPattern.MatchString(release.ID) && len(resolved.Aliases) < 200 {
+				resolved.Aliases = append(resolved.Aliases, domain.Alias{Kind: "mbid", Value: strings.ToLower(release.ID)})
+			}
+		}
+	}
+	return resolved, nil
 }
 
 // resolveRelease maps a release to its release-group, then reads the group's

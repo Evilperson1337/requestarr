@@ -106,3 +106,35 @@ func TestResolvingAfterTheSyncMatchesAgainstStoredInventoryIntegration(t *testin
 		t.Fatal("a title no library holds must not become available")
 	}
 }
+
+// A library names an album by one of its releases; resolving the album by another
+// edition (or by the release group) must still find it.
+func TestAnAlbumOwnedAsAnotherReleaseIsAvailableOnceResolvedIntegration(t *testing.T) {
+	ctx, s, user := setupDraftStore(t)
+	d := inventory.Descriptor{ID: plex.SourceID, Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaAlbum}, IdentifierKinds: []string{"mbid"}}
+	owned, other, group := newUUID(), newUUID(), newUUID()
+	if err := s.PersistSnapshot(ctx, d, "http://plex.example.test", inventory.Snapshot{SourceID: d.ID, Complete: true, ObservedAt: time.Now().UTC(), Items: []inventory.Item{
+		{SourceID: d.ID, SourceItemID: "alb-" + owned[:8], MediaType: domain.MediaAlbum, Title: "Owned album", ExternalIDs: map[string]string{"mbid": owned}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	item, err := s.Upsert(ctx, domain.ResolvedItem{
+		Item:    domain.CatalogItem{MediaType: domain.MediaAlbum, Provider: "musicbrainz", ProviderID: group, Title: "Owned album"},
+		Aliases: []domain.Alias{{Kind: "mbid", Value: other}, {Kind: "mbid", Value: owned}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, err := s.MoviePreview(ctx, item.ID, user); err != nil || st.Availability != domain.AvailabilityAvailable {
+		t.Fatalf("an album owned as a sibling release must be available: %+v %v", st, err)
+	}
+	if _, err := requests.New(s).Create(ctx, requests.CreateInput{Actor: requests.Actor{ID: user, Role: "requester"}, CatalogID: item.ID}); !errors.Is(err, requests.ErrAlreadyAvailable) {
+		t.Fatalf("requesting it: %v", err)
+	}
+	// An album whose releases match nothing stays requestable.
+	if free, err := s.Upsert(ctx, domain.ResolvedItem{Item: domain.CatalogItem{MediaType: domain.MediaAlbum, Provider: "musicbrainz", ProviderID: newUUID(), Title: "Not owned"}, Aliases: []domain.Alias{{Kind: "mbid", Value: newUUID()}}}); err != nil {
+		t.Fatal(err)
+	} else if st, _ := s.MoviePreview(ctx, free.ID, user); st.Availability == domain.AvailabilityAvailable {
+		t.Fatal("an album no library holds must not become available")
+	}
+}

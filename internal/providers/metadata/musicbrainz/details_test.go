@@ -172,3 +172,30 @@ func TestAlbumWithoutATracklistStillResolves(t *testing.T) {
 		t.Fatalf("got %+v err %v", got.Music, err)
 	}
 }
+
+// An album records every release of its group as an alias, so a library that
+// identifies it by one edition can be matched at once.
+func TestAlbumRecordsItsGroupsReleasesAsAliases(t *testing.T) {
+	r, _ := fixture(t, map[string]string{"/ws/2/release-group/" + album: groupWithReleases()})
+	u, _ := url.Parse("https://musicbrainz.org/release-group/" + album)
+	got, err := r.Resolve(context.Background(), u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values []string
+	for _, a := range got.Aliases {
+		if a.Kind != "mbid" {
+			t.Fatalf("alias kind = %q", a.Kind)
+		}
+		values = append(values, a.Value)
+	}
+	if strings.Join(values, ",") != pressB+","+pressA {
+		t.Fatalf("aliases = %v", values)
+	}
+	// A song is identified by its recording and records none.
+	rs, _ := fixture(t, map[string]string{"/ws/2/recording/" + track: `{"id":"` + track + `","title":"Song","releases":[{"id":"` + pressA + `","title":"Kid A"}]}`})
+	us, _ := url.Parse("https://musicbrainz.org/recording/" + track)
+	if song, err := rs.Resolve(context.Background(), us); err != nil || len(song.Aliases) != 0 {
+		t.Fatalf("song aliases = %v err %v", song.Aliases, err)
+	}
+}

@@ -90,6 +90,14 @@ func (s *Store) Upsert(ctx context.Context, resolved domain.ResolvedItem) (domai
 			return domain.CatalogItem{}, fmt.Errorf("save catalog platform: %w", err)
 		}
 	}
+	for _, alias := range resolved.Aliases {
+		if alias.Kind == "" || alias.Value == "" || len(alias.Kind) > 32 || len(alias.Value) > 256 {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO catalog_item_aliases(catalog_item_id,kind,value) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, i.ID, alias.Kind, alias.Value); err != nil {
+			return domain.CatalogItem{}, fmt.Errorf("save catalog alias: %w", err)
+		}
+	}
 	// A title resolved after its library synced has no evidence yet: look in
 	// what the libraries already hold, so its availability is known at once.
 	if err := matchExistingInventory(ctx, tx, i.ID, string(i.MediaType), i.Provider, i.ProviderID, time.Now().UTC()); err != nil {

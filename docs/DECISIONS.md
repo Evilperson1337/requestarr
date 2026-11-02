@@ -195,3 +195,5 @@ People can browse what each Source holds (the Library page) and report a problem
 - An item that leaves its library keeps its Issue open and labelled; nothing resolves automatically.
 
 The spec and tickets are in `.scratch/library-and-issues/`.
+
+Addendum to D020: when an album is resolved, every release of its release group (already in the MusicBrainz response) is recorded as an `mbid` alias, and the item is matched against the inventory already stored (`matchExistingInventory`). A library that holds the album as any edition is therefore found at once, without waiting for a Request to exist (alias lookups for open Requests during sync remain the fallback for songs).
