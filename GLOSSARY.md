@@ -67,3 +67,15 @@ _Avoid_: Setting, auth param
 **Sync health**:
 The single read model of a Source's last run outcome (from the job runs) and its last successful snapshot. A failed run never changes what the last successful snapshot says.
 _Avoid_: Sync status, last sync
+
+**Library item**:
+Something a Source actually holds, as of its latest successful sync: a movie, show, album, song or game. Most Library items have never been requested and have no Catalog item. A Source's Library items are browsable, and an Issue is about one.
+_Avoid_: Inventory row, media file, title
+
+**Issue**:
+A report that a Library item has a problem, such as broken subtitles or a game that will not boot. It is separate from a Request: a Request asks for something no Source has, an Issue is about something one does. Requestarr only records it and tells people; an admin fixes the item outside Requestarr and resolves the Issue. It never causes any download or replacement.
+_Avoid_: Ticket, bug, complaint
+
+**Issue kind**:
+The category of an Issue, such as video, audio, subtitles, wrong region or does not boot. The kinds offered depend on the item's media type.
+_Avoid_: Issue type, severity
