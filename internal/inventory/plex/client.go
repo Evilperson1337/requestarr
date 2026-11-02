@@ -157,8 +157,17 @@ func (c *Client) library(ctx context.Context, key string, media domain.MediaType
 		}
 		total = *mc.TotalSize
 		for _, m := range mc.Metadata {
-			if m.RatingKey == "" || len(m.RatingKey) > 256 || len(m.Title) > 512 || m.Title == "" {
+			if m.RatingKey == "" || len(m.RatingKey) > 256 {
 				return nil, fmt.Errorf("invalid Plex library item")
+			}
+			// Real libraries hold untitled items and absurdly long titles. Neither
+			// is a reason to discard a complete listing: an untitled item may still
+			// match by id, and a long title only needs shortening.
+			if m.Title == "" {
+				m.Title = "(untitled)"
+			}
+			if r := []rune(m.Title); len(r) > 512 {
+				m.Title = string(r[:512])
 			}
 			ids := map[string]string{}
 			guids := make([]string, 0, len(m.Guid)+1)

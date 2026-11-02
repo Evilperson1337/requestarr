@@ -26,7 +26,7 @@ async function openSettings(page: Page, conns: Conn[]) {
             const c = conns.find(item => item.slug === match[1])!
             const body = request.postDataJSON?.() ?? undefined
             calls.push({ method: request.method(), path, body })
-            if (match[2]) return route.fulfill({ json: c.url ? { ok: true, code: 'connected', message: `${c.name} answered.` } : { ok: false, code: 'incomplete_settings', message: 'Enter an address first.' } })
+            if (match[2]) return route.fulfill({ json: c.url ? { ok: true, code: 'connected', message: `${c.name} answered with the saved address and credentials.` } : { ok: false, code: 'incomplete_settings', message: 'Enter an address first.' } })
             if (request.method() === 'PUT') { Object.assign(c, { url: body.url, username: body.username ?? '', saved: true }); c.missing = c.credentials[0].configured ? [] : ['token']; c.active = c.credentials[0].configured }
             if (request.method() === 'DELETE') Object.assign(c, { url: '', username: '', saved: false, active: false, missing: [] })
             return route.fulfill({ json: c })
@@ -86,7 +86,7 @@ test('Navidrome takes a username, and a saved connection can be tested and remov
     await expect(navidrome.getByText('Navidrome saved and applied.')).toBeVisible()
     expect(calls.find(c => c.method === 'PUT')!.body).toEqual({ url: 'https://music.example.test', username: 'alice' })
     await navidrome.getByRole('button', { name: 'Test connection' }).click()
-    await expect(navidrome.getByText('Connected. Navidrome answered.')).toBeVisible()
+    await expect(navidrome.getByText('Navidrome answered with the saved address and credentials.')).toBeVisible()
     await navidrome.getByRole('button', { name: 'Remove' }).click()
     await expect(navidrome.getByText('Navidrome removed.')).toBeVisible()
     await expect(navidrome).toContainText('Not set up')

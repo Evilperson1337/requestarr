@@ -161,7 +161,11 @@ func (s *connectionsService) TestConnection(ctx context.Context, slug string) (h
 	*settings.Libraries.Source(slug) = source
 	target := setup.LibraryTarget(slug)
 	code, _ := s.checker.Check(ctx, target, settings)
-	return httpapi.ConnectionTest{OK: code == setup.CheckOK, Code: string(code), Message: s.checker.Describe(ctx, target, code)}, nil
+	if code == setup.CheckOK {
+		// The wizard's success text talks about draft settings, which is not what this is.
+		return httpapi.ConnectionTest{OK: true, Code: string(code), Message: kind.Name + " answered with the saved address and credentials."}, nil
+	}
+	return httpapi.ConnectionTest{OK: false, Code: string(code), Message: s.checker.Describe(ctx, target, code)}, nil
 }
 
 // reloadingSecrets applies a Source's new credential at once instead of waiting

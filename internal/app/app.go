@@ -168,6 +168,11 @@ func sourceSyncJob(logger *slog.Logger, db sourceSyncStore, src inventory.Source
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			// The stored error stays a fixed string, but the operator's log says why. Adapter
+			// errors are fixed phrases that never carry provider text (inventorytest checks).
+			if !errors.Is(err, errInventoryRequest) {
+				logger.Warn("source snapshot failed", "source", d.Kind, "reason", err.Error())
+			}
 			if e := db.RecordSyncFailure(ctx, d, started, errInventoryRequest.Error()); e != nil {
 				logger.Warn("record sync health failed", "source", d.Kind)
 			}

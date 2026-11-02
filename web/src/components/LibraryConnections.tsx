@@ -59,7 +59,7 @@ function Connection({ connection, csrfToken, reload, onRequestError }: { connect
         {connection.credentials.map(credential => <SecretField key={credential.secret} name={credential.secret} label={credential.label || credential.secret} csrfToken={csrfToken} onRequestError={onRequestError} appliesImmediately onChanged={() => void reload()} />)}
         <div aria-live="polite">
             {notice && <p role="status">{notice}</p>}
-            {test && <p role="status" className={test.ok ? 'testOk' : 'error'}>{test.ok ? 'Connected. ' : ''}{test.message}</p>}
+            {test && <p role="status" className={test.ok ? 'testOk' : 'error'}>{test.message}</p>}
         </div>
         {error && <p role="alert" className="error">{error}</p>}
     </li>

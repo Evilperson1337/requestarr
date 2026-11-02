@@ -212,3 +212,36 @@ func TestMusicTracksFailingAfterAlbumsSucceededDiscardsEverything(t *testing.T) 
 		t.Fatalf("err=%v complete=%v items=%d: movies, shows and albums were read, but a failed tracks page must discard the lot", err, snap.Complete, len(snap.Items))
 	}
 }
+
+// A real library had one album with no title, and the strict check failed the
+// whole sync. Such an item is still inventory (it may match by id), and an
+// overlong title is shortened, never a reason to discard a complete listing.
+func TestUntitledAndOverlongTitlesDoNotFailTheSync(t *testing.T) {
+	long := strings.Repeat("é", 600)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/library/sections" {
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"1","type":"movie"}]}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":3,"offset":0,"Metadata":[
+			{"ratingKey":"1","title":"","year":2001,"Guid":[{"id":"tmdb://5"}]},
+			{"ratingKey":"2","title":"` + long + `"},
+			{"ratingKey":"3","title":"Normal"}]}}`))
+	}))
+	defer server.Close()
+	c, err := New(server.URL, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := c.Snapshot(context.Background())
+	if err != nil || len(snap.Items) != 3 || !snap.Complete {
+		t.Fatalf("snapshot err=%v items=%d", err, len(snap.Items))
+	}
+	if snap.Items[0].Title != "(untitled)" || snap.Items[0].ExternalIDs["tmdb"] != "5" {
+		t.Fatalf("untitled item = %+v", snap.Items[0])
+	}
+	if n := len([]rune(snap.Items[1].Title)); n != 512 {
+		t.Fatalf("overlong title has %d runes", n)
+	}
+}

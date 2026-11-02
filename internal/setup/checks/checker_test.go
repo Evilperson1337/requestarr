@@ -180,7 +180,14 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 				}
 				w.Header().Set("Content-Type", "application/json")
 				if tc.kind == "plex" {
-					w.Header().Set("Content-Type", "application/xml")
+					// Real Plex answers in JSON whenever the client says it accepts JSON,
+					// and in XML otherwise (observed against a live server).
+					if strings.Contains(r.Header.Get("Accept"), "json") {
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = io.WriteString(w, `{"MediaContainer":{"size":1}}`)
+						return
+					}
+					w.Header().Set("Content-Type", "text/xml;charset=utf-8")
 				}
 				_, _ = io.WriteString(w, tc.body)
 			}))

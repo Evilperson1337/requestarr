@@ -234,7 +234,9 @@ func (c *Checker) library(ctx context.Context, slug string, libraries setup.Libr
 	accept := "application/json, application/xml"
 	if probeSpec.acceptedXML {
 		// This probe parses Plex's XML sections response, unlike the JSON
-		// inventory client. Both standard XML media types are used by Plex.
+		// inventory client. Plex answers in JSON whenever JSON is acceptable, so
+		// the request must ask for XML alone. Both standard XML media types occur.
+		accept = "application/xml"
 		types = []string{"application/xml", "text/xml"}
 	}
 	if err := c.fetch(ctx, fetchSpec{stage: devlogs.StageRequest, method: http.MethodGet, endpoint: endpoint, headers: headers, accept: accept,
