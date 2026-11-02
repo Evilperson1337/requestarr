@@ -30,6 +30,16 @@ var audibleHosts = map[string]AudibleRegion{
 	"audible.in": RegionIN, "audible.es": RegionES,
 }
 
+// Host is the marketplace's storefront domain, such as "audible.co.uk"; empty for an unknown region.
+func (r AudibleRegion) Host() string {
+	for host, known := range audibleHosts {
+		if r == known {
+			return host
+		}
+	}
+	return ""
+}
+
 // Valid reports whether r is a known marketplace.
 func (r AudibleRegion) Valid() bool {
 	for _, known := range audibleHosts {
@@ -94,4 +104,12 @@ func ParseAudibleURL(u *url.URL) (string, AudibleRegion, error) {
 		return "", "", ErrInvalidAudibleURL
 	}
 	return asin, region, nil
+}
+
+// Unresolved reports an audiobook accepted by ASIN alone because its metadata
+// providers were unreachable. Its title is a placeholder until a later
+// resolution fills it in.
+func (c CatalogItem) Unresolved() bool {
+	v, _ := c.Metadata["unresolved"].(bool)
+	return v
 }

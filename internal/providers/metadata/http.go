@@ -91,6 +91,8 @@ func statusError(resp *http.Response) error {
 	switch {
 	case transient(resp.StatusCode):
 		return fmt.Errorf("metadata provider returned %s: %w", resp.Status, ErrBusy)
+	case resp.StatusCode == http.StatusNotFound:
+		return fmt.Errorf("metadata provider returned %s: %w", resp.Status, ErrNotFound)
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		return fmt.Errorf("metadata provider returned %s: %w", resp.Status, ErrCredentials)
 	}

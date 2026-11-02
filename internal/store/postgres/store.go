@@ -73,9 +73,29 @@ func (s *Store) Upsert(ctx context.Context, resolved domain.ResolvedItem) (domai
 	if i.UpdatedAt.IsZero() {
 		i.UpdatedAt = time.Now().UTC()
 	}
-	err = s.pool.QueryRow(ctx, `INSERT INTO catalog_items(id,media_type,provider,provider_id,title,year,artwork_url,artwork_kind,external_url,metadata,metadata_fetched_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),$7,$8,$9,$10,now(),now(),$11) ON CONFLICT(provider,provider_id,media_type) DO UPDATE SET title=EXCLUDED.title,year=EXCLUDED.year,artwork_url=EXCLUDED.artwork_url,artwork_kind=EXCLUDED.artwork_kind,external_url=EXCLUDED.external_url,metadata=EXCLUDED.metadata,metadata_fetched_at=now(),updated_at=EXCLUDED.updated_at RETURNING id::text,updated_at`, i.ID, i.MediaType, i.Provider, i.ProviderID, i.Title, i.Year, i.ArtworkURL, i.ArtworkKind, i.ExternalURL, metadata, i.UpdatedAt).Scan(&i.ID, &i.UpdatedAt)
+	// A placeholder for an item whose providers were unreachable must never
+	// replace metadata already resolved for it.
+	onConflict := `DO UPDATE SET title=EXCLUDED.title,year=EXCLUDED.year,artwork_url=EXCLUDED.artwork_url,artwork_kind=EXCLUDED.artwork_kind,external_url=EXCLUDED.external_url,metadata=EXCLUDED.metadata,metadata_fetched_at=now(),updated_at=EXCLUDED.updated_at`
+	if i.Unresolved() {
+		onConflict = `DO UPDATE SET updated_at=catalog_items.updated_at`
+	}
+	err = s.pool.QueryRow(ctx, `INSERT INTO catalog_items(id,media_type,provider,provider_id,title,year,artwork_url,artwork_kind,external_url,metadata,metadata_fetched_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),$7,$8,$9,$10,now(),now(),$11) ON CONFLICT(provider,provider_id,media_type) `+onConflict+` RETURNING id::text,updated_at`, i.ID, i.MediaType, i.Provider, i.ProviderID, i.Title, i.Year, i.ArtworkURL, i.ArtworkKind, i.ExternalURL, metadata, i.UpdatedAt).Scan(&i.ID, &i.UpdatedAt)
 	if err != nil {
 		return domain.CatalogItem{}, fmt.Errorf("upsert catalog item: %w", err)
+	}
+	if i.Unresolved() {
+		// The row may already hold real metadata; report that, not the placeholder.
+		var year *int
+		var stored []byte
+		if err := s.pool.QueryRow(ctx, `SELECT title,year,COALESCE(artwork_url,''),COALESCE(external_url,''),metadata FROM catalog_items WHERE id=$1`, i.ID).Scan(&i.Title, &year, &i.ArtworkURL, &i.ExternalURL, &stored); err != nil {
+			return domain.CatalogItem{}, fmt.Errorf("read catalog item: %w", err)
+		}
+		i.Year = 0
+		if year != nil {
+			i.Year = *year
+		}
+		i.Metadata = nil
+		_ = json.Unmarshal(stored, &i.Metadata)
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
 var (
@@ -27,6 +29,9 @@ func ParseURL(raw string) (*url.URL, error) {
 	host := strings.ToLower(u.Hostname())
 	if host == "" || u.Port() != "" && u.Port() != "443" {
 		return nil, fmt.Errorf("invalid metadata URL host")
+	}
+	if _, _, err := domain.ParseAudibleURL(u); err == nil {
+		return u, nil
 	}
 	allowed := host == "themoviedb.org" || host == "www.themoviedb.org" || host == "tmdb.org" || host == "www.tmdb.org" || host == "musicbrainz.org" || host == "www.musicbrainz.org" || host == "igdb.com" || host == "www.igdb.com"
 	if !allowed {

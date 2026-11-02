@@ -28,6 +28,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/notifications/apprise"
 	"github.com/evilperson1337/requestarr/internal/opstatus"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata"
+	"github.com/evilperson1337/requestarr/internal/providers/metadata/audible"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/igdb"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/musicbrainz"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/tmdb"
@@ -69,7 +70,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		return fmt.Errorf("initialize OIDC provider: %w", err)
 	}
 	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://")}
-	metadataService := metadata.NewService(store, tmdb.New(cfg.TMDBReadToken, nil), musicbrainz.New(nil), igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil))
+	metadataService := metadata.NewService(store, tmdb.New(cfg.TMDBReadToken, nil), musicbrainz.New(nil), igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil), audible.New(domain.AudibleRegion(cfg.AudibleRegion), nil))
 	if cfg.AppriseURL != "" {
 		workers.Add(1)
 		go func() {

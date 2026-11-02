@@ -49,7 +49,23 @@ func NewService(catalog Catalog, resolvers ...Resolver) *Service {
 	return &Service{resolvers: append([]Resolver(nil), resolvers...), catalog: catalog, now: time.Now, cache: map[string]cacheEntry{}}
 }
 
+// Canonicalizer is implemented by a Resolver that also accepts input that is
+// not a plain provider URL, such as a bare ASIN or a link with tracking
+// parameters. It returns the canonical URL to resolve, or false if the input
+// is not its own.
+type Canonicalizer interface {
+	Canonicalize(raw string) (string, bool)
+}
+
 func (s *Service) Resolve(ctx context.Context, raw string) (domain.ResolvedItem, error) {
+	for _, resolver := range s.resolvers {
+		if c, ok := resolver.(Canonicalizer); ok {
+			if canonical, ok := c.Canonicalize(raw); ok {
+				raw = canonical
+				break
+			}
+		}
+	}
 	u, err := ParseURL(raw)
 	if err != nil {
 		return domain.ResolvedItem{}, err
@@ -72,7 +88,9 @@ func (s *Service) Resolve(ctx context.Context, raw string) (domain.ResolvedItem,
 			}
 			return domain.ResolvedItem{}, err
 		}
-		s.store(key, item)
+		if !item.Item.Unresolved() {
+			s.store(key, item)
+		}
 		return item, nil
 	}
 	return domain.ResolvedItem{}, fmt.Errorf("unsupported metadata URL")

@@ -1,6 +1,6 @@
 # Audiobook metadata resolver (Audnexus, then Audible)
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 Resolve an ASIN to a Catalog item without a hard dependency on either upstream.
@@ -13,3 +13,9 @@ Resolve an ASIN to a Catalog item without a hard dependency on either upstream.
 - httptest fixtures: success, region 404, both down, malformed JSON, oversized body.
 
 Acceptance: a Request can be created for a valid ASIN with the upstreams up, partly down, and fully down.
+
+## Answer
+
+Built `internal/providers/metadata/audible`: Audnexus first, Audible catalog fallback, a bare ASIN or tracking-laden Audible link canonicalised through a new optional `metadata.Canonicalizer` hook (so `Service.Resolve` accepts them with no router change). Both upstreams 404 gives `ErrNotFound` (new, tagged by `statusError`); any other failure of both yields a placeholder (`Title "Audiobook <ASIN>"`, `Metadata.unresolved=true`) that is never cached, and the catalog `Upsert` never lets it overwrite real metadata (integration-tested). Covers are accepted only from Amazon image hosts. Default region is `REQUESTARR_AUDIBLE_REGION` (validated, US when unset), an environment setting like the other provider options, not an admin UI field.
+
+Not done: a background job that retries unresolved items. They are findable by `metadata->>'unresolved'` and re-resolve whenever someone previews or requests the ASIN again; a scheduled retry is a follow-up. `writeResolveError` still answers 400 for a not-found ASIN (unchanged for TMDB), so a nicer 404 message is a follow-up.

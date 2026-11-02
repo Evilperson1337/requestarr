@@ -152,7 +152,7 @@ paths:
               type: object
               required: [url]
               properties:
-                url: { type: string, format: uri, maxLength: 2048 }
+                url: { type: string, maxLength: 2048, description: "A TMDB, MusicBrainz, IGDB or Audible product URL, or a bare audiobook ASIN (resolved in the administrator's default Audible marketplace)" }
       responses:
         '200':
           description: Resolved canonical catalog item; movies and TV include typed details and local action state; Cache-Control no-store
@@ -243,7 +243,7 @@ paths:
               required: [platforms]
               properties:
                 catalogId: { type: string, format: uuid }
-                url: { type: string, format: uri, maxLength: 2048, description: Supported TMDB, MusicBrainz, or IGDB metadata URL. Mutually exclusive with catalogId. }
+                url: { type: string, maxLength: 2048, description: Supported TMDB, MusicBrainz, IGDB or Audible metadata URL, or a bare audiobook ASIN. Mutually exclusive with catalogId. }
                 note: { type: string, maxLength: 2000 }
                 platforms:
                   type: object

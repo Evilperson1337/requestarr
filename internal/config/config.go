@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/sources"
 )
@@ -28,6 +29,8 @@ type Config struct {
 	TMDBReadToken     string
 	IGDBClientID      string
 	IGDBClientSecret  string
+	// AudibleRegion is the marketplace assumed for a bare ASIN (D031); "us" when unset.
+	AudibleRegion     string
 	JellyfinURL       string
 	JellyfinAPIKey    string
 	PlexURL           string
@@ -60,6 +63,7 @@ func FromEnv() Config {
 		TMDBReadToken:     os.Getenv("REQUESTARR_TMDB_READ_TOKEN"),
 		IGDBClientID:      os.Getenv("REQUESTARR_IGDB_CLIENT_ID"),
 		IGDBClientSecret:  os.Getenv("REQUESTARR_IGDB_CLIENT_SECRET"),
+		AudibleRegion:     strings.ToLower(strings.TrimSpace(os.Getenv("REQUESTARR_AUDIBLE_REGION"))),
 		AppriseURL:        os.Getenv("REQUESTARR_APPRISE_URL"),
 		AppriseConfigKey:  os.Getenv("REQUESTARR_APPRISE_CONFIG_KEY"),
 		SecretsKey:        os.Getenv(secrets.MasterKeyEnv),
@@ -166,6 +170,9 @@ func (c Config) ValidateBootstrap() error {
 		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
 	}
 	problems = append(problems, c.secretsKeyProblems()...)
+	if c.AudibleRegion != "" && !domain.AudibleRegion(c.AudibleRegion).Valid() {
+		problems = append(problems, "REQUESTARR_AUDIBLE_REGION must be one of us, ca, uk, au, fr, de, jp, it, in, es")
+	}
 	problems = append(problems, c.developmentLogsProblems()...)
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
