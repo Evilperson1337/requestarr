@@ -24,6 +24,10 @@ type Item struct {
 	ArtworkRef string
 	// Detail is a short note the library knows about the item, such as a game's platform name.
 	Detail string
+	// ParentSourceItemID is the item this one belongs to: a track's album. Empty otherwise.
+	ParentSourceItemID string
+	// Disc and Position order a track within its album; zero when unknown.
+	Disc, Position int
 }
 
 // Artwork is one fetched cover image.

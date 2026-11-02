@@ -138,5 +138,20 @@ func (s *Store) LibraryItemByID(ctx context.Context, id string) (domain.LibraryI
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.LibraryItem{}, ErrLibraryItemNotFound
 	}
-	return it, err
+	if err != nil || it.MediaType != domain.MediaAlbum {
+		return it, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT t.id::text,t.title,t.disc,t.position FROM inventory_items t JOIN inventory_items a ON a.source_id=t.source_id AND a.source_item_id=t.parent_source_item_id WHERE a.id=$1 AND t.media_type='song' AND t.parent_source_item_id<>'' ORDER BY t.disc,t.position,lower(t.title) LIMIT 500`, id)
+	if err != nil {
+		return domain.LibraryItem{}, fmt.Errorf("list album tracks: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var t domain.LibraryTrack
+		if err := rows.Scan(&t.ID, &t.Title, &t.Disc, &t.Position); err != nil {
+			return domain.LibraryItem{}, err
+		}
+		it.Tracks = append(it.Tracks, t)
+	}
+	return it, rows.Err()
 }

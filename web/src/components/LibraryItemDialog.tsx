@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError, type LibraryItem, type Selection, type Session } from '../api'
 import { followLink } from '../navigation'
 import { Modal } from './Modal'
@@ -15,8 +15,18 @@ export function LibraryItemDialog({ item, session, onClose, onReported }: { item
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
     const [done, setDone] = useState<{ joined: boolean } | null>(null)
+    // An album's tracks come with the single item, not the list.
+    const [tracks, setTracks] = useState(item.tracks ?? [])
+    const [picked, setPicked] = useState<Set<string>>(new Set())
+    useEffect(() => {
+        if (item.mediaType !== 'album' || item.tracks) return
+        const controller = new AbortController()
+        api<LibraryItem>(`/library/items/${encodeURIComponent(item.id)}`, { signal: controller.signal }).then(full => setTracks(full.tracks ?? [])).catch(() => undefined)
+        return () => controller.abort()
+    }, [item.id, item.mediaType, item.tracks])
     const needsWords = kind === 'other'
     const part = (): Selection | undefined => {
+        if (item.mediaType === 'album') return picked.size ? { tracks: tracks.filter(t => picked.has(t.id)).map((t, index) => ({ id: t.id, position: t.position || index + 1, title: t.title })) } : undefined
         if (item.mediaType !== 'tv' || !season) return undefined
         const s = Number(season), e = Number(episode)
         return episode ? { episodes: [{ season: s, episode: e }] } : { seasons: [s] }
@@ -58,6 +68,13 @@ export function LibraryItemDialog({ item, session, onClose, onReported }: { item
                 <label>Season (optional)<input inputMode="numeric" value={season} onChange={event => setSeason(event.target.value.replace(/\D/g, '').slice(0, 3))} /></label>
                 <label>Episode (optional)<input inputMode="numeric" value={episode} disabled={!season} onChange={event => setEpisode(event.target.value.replace(/\D/g, '').slice(0, 5))} /></label>
             </div>}
+            {item.mediaType === 'album' && tracks.length > 0 && <fieldset className="picker">
+                <legend>Which tracks? (optional)</legend>
+                <ul className="pickList" aria-label="Tracks">{tracks.map((track, index) => <li key={track.id}><label>
+                    <input type="checkbox" checked={picked.has(track.id)} onChange={() => setPicked(current => { const next = new Set(current); if (!next.delete(track.id)) next.add(track.id); return next })} />
+                    <span className="pickIndex">{track.position || index + 1}</span><span className="pickName">{track.title}</span>
+                </label></li>)}</ul>
+            </fieldset>}
             <label className="field">{needsWords ? 'Describe the problem' : 'Details (optional)'}<textarea maxLength={2000} required={needsWords} value={description} disabled={busy} onChange={event => setDescription(event.target.value)} /></label>
             {error && <p role="alert" className="error">{error}</p>}
             <div className="draftActions">

@@ -334,3 +334,42 @@ func TestItemsLinkToPlexWebWhenTheServerIdentifiesItself(t *testing.T) {
 		}
 	}
 }
+
+func TestTracksRememberTheirAlbumDiscAndPosition(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/library/sections":
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"6","type":"artist"}]}}`))
+		case r.URL.Query().Get("type") == "9":
+			_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":1,"offset":0,"Metadata":[{"ratingKey":"87073","title":"Breathe"}]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":3,"offset":0,"Metadata":[
+				{"ratingKey":"1","title":"One","parentRatingKey":"87073","index":1,"parentIndex":1},
+				{"ratingKey":"2","title":"Two","parentRatingKey":"87073","index":7,"parentIndex":2},
+				{"ratingKey":"3","title":"Stray","parentRatingKey":"../evil","index":-4}]}}`))
+		}
+	}))
+	defer server.Close()
+	c, _ := New(server.URL, testToken)
+	snap, err := c.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byTitle := map[string]inventory.Item{}
+	for _, it := range snap.Items {
+		byTitle[it.Title] = it
+	}
+	if one := byTitle["One"]; one.ParentSourceItemID != "87073" || one.Disc != 1 || one.Position != 1 {
+		t.Fatalf("one = %+v", one)
+	}
+	if two := byTitle["Two"]; two.Disc != 2 || two.Position != 7 {
+		t.Fatalf("two = %+v", two)
+	}
+	if stray := byTitle["Stray"]; stray.ParentSourceItemID != "" || stray.Position != 0 {
+		t.Fatalf("a malformed parent must be dropped: %+v", stray)
+	}
+	if album := byTitle["Breathe"]; album.ParentSourceItemID != "" {
+		t.Fatalf("an album has no parent: %+v", album)
+	}
+}

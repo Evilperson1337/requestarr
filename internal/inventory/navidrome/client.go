@@ -108,6 +108,8 @@ type song struct {
 	Artist        string `json:"artist"`
 	Year          int    `json:"year"`
 	MusicBrainzID string `json:"musicBrainzId"`
+	Track         int    `json:"track"`
+	DiscNumber    int    `json:"discNumber"`
 }
 
 func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
@@ -166,6 +168,13 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 					year = full.Year
 				}
 				songItem := makeItem(SourceID, "song:"+track.ID, domain.MediaSong, track.Title, year, track.MusicBrainzID)
+				songItem.ParentSourceItemID = albumItem.SourceItemID
+				if track.Track > 0 && track.Track < 100000 {
+					songItem.Position = track.Track
+				}
+				if track.DiscNumber > 0 && track.DiscNumber < 1000 {
+					songItem.Disc = track.DiscNumber
+				}
 				if _, duplicate := seen[songItem.SourceItemID]; duplicate {
 					return inventory.Snapshot{}, fmt.Errorf("duplicate Navidrome inventory item")
 				}

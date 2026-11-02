@@ -35,6 +35,17 @@ type LibraryItem struct {
 	OpenIssues int `json:"openIssues"`
 	// IssueKinds are the kinds of Issue that can be reported about this item.
 	IssueKinds []IssueKindOption `json:"issueKinds"`
+	// Tracks lists an album's tracks, when its library reports them. Only a single item has them.
+	Tracks []LibraryTrack `json:"tracks,omitempty"`
+}
+
+// LibraryTrack is one track of an album a Source holds.
+type LibraryTrack struct {
+	// ID is the track's Library item id, which is what a report names.
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Disc     int    `json:"disc,omitempty"`
+	Position int    `json:"position,omitempty"`
 }
 
 // IssueKindOption is one choice in the report form.

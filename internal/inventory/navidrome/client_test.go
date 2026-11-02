@@ -100,6 +100,9 @@ func TestSnapshotNormalizesMusicBrainzIdentifiersAndMusicOnlyDescriptor(t *testi
 		}
 		if item.MediaType == domain.MediaSong && item.ExternalIDs["musicbrainz"] == "recording-1" {
 			song = true
+			if !strings.HasPrefix(item.ParentSourceItemID, "album:") {
+				t.Fatalf("a song must name its album: %+v", item)
+			}
 		}
 	}
 	if !album || !song {

@@ -93,3 +93,38 @@ func TestBrowseLibraryFiltersPagesAndHidesWhatLeftIntegration(t *testing.T) {
 		t.Fatalf("unknown id: %v", err)
 	}
 }
+
+func TestAnAlbumListsItsTracksInOrderIntegration(t *testing.T) {
+	ctx, s, _ := setupDraftStore(t)
+	d := inventory.Descriptor{ID: newUUID(), Kind: "navidrome", Name: "Track fixture", MediaTypes: []domain.MediaType{domain.MediaAlbum, domain.MediaSong}}
+	tag := newUUID()[:8]
+	album := "album:" + tag
+	snap := inventory.Snapshot{SourceID: d.ID, Complete: true, ObservedAt: time.Now().UTC(), Items: []inventory.Item{
+		{SourceID: d.ID, SourceItemID: album, MediaType: domain.MediaAlbum, Title: "bfx Album " + tag},
+		{SourceID: d.ID, SourceItemID: "song:b" + tag, MediaType: domain.MediaSong, Title: "Second", ParentSourceItemID: album, Disc: 1, Position: 2},
+		{SourceID: d.ID, SourceItemID: "song:a" + tag, MediaType: domain.MediaSong, Title: "First", ParentSourceItemID: album, Disc: 1, Position: 1},
+		{SourceID: d.ID, SourceItemID: "song:c" + tag, MediaType: domain.MediaSong, Title: "Bonus disc", ParentSourceItemID: album, Disc: 2, Position: 1},
+		{SourceID: d.ID, SourceItemID: "song:x" + tag, MediaType: domain.MediaSong, Title: "Someone else's", ParentSourceItemID: "album:other"},
+	}}
+	if err := s.PersistSnapshot(ctx, d, "http://music.example.test", snap); err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.BrowseLibrary(ctx, domain.LibraryQuery{Type: domain.MediaAlbum, Search: "bfx album " + tag})
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("browse: %+v %v", page.Items, err)
+	}
+	if len(page.Items[0].Tracks) != 0 {
+		t.Fatal("the list stays light: tracks come with a single item")
+	}
+	item, err := s.LibraryItemByID(ctx, page.Items[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, tr := range item.Tracks {
+		got = append(got, tr.Title)
+	}
+	if fmt.Sprint(got) != "[First Second Bonus disc]" {
+		t.Fatalf("tracks = %v", got)
+	}
+}

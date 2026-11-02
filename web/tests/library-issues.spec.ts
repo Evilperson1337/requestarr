@@ -113,6 +113,25 @@ test('a series report can name a season and episode, a game offers game kinds, a
     await expect(page.getByRole('dialog').getByRole('radio', { name: 'Subtitles' })).toHaveCount(0)
 })
 
+test('an album report can name the tracks, which load with the single item', async ({ page }) => {
+    const calls = await mock(page, 'viewer', (path, _u, method) => {
+        if (path === '/library/items') return { json: { items: [item('al', 'Kid A', 'album', { year: 2000 })], nextCursor: null } }
+        if (path === '/library/items/al') return { json: item('al', 'Kid A', 'album', { tracks: [{ id: 't1', title: 'Everything in Its Right Place', position: 1 }, { id: 't2', title: 'Kid A', position: 2 }] }) }
+        if (path === '/issues' && method === 'POST') return { status: 201, json: { issue: issue('i1', 'Kid A'), joined: false } }
+        return undefined
+    })
+    await page.goto('/library')
+    await page.getByRole('button', { name: 'Music', exact: true }).click()
+    await page.getByRole('button', { name: /Kid A/ }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Report an issue' }).click()
+    await dialog.getByRole('checkbox', { name: /^2 Kid A$/ }).check()
+    await dialog.getByRole('radio', { name: 'Audio' }).check()
+    await dialog.getByRole('button', { name: 'Send report' }).click()
+    await expect(dialog.getByText('Thanks, your report was sent.')).toBeVisible()
+    expect(calls.find(c => c.method === 'POST')!.body).toEqual({ libraryItemId: 'al', kind: 'audio', part: { tracks: [{ id: 't2', position: 2, title: 'Kid A' }] } })
+})
+
 test('hitting the report limit is explained', async ({ page }) => {
     await mock(page, 'viewer', (path, _u, method) => {
         if (path === '/library/items') return { json: { items: [item('a', 'Arrival', 'movie')], nextCursor: null } }

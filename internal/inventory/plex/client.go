@@ -79,6 +79,10 @@ type container struct {
 			Year      int    `json:"year"`
 			AddedAt   int64  `json:"addedAt"`
 			Thumb     string `json:"thumb"`
+			// A track's album and its place in it.
+			ParentRatingKey string `json:"parentRatingKey"`
+			Index           int    `json:"index"`
+			ParentIndex     int    `json:"parentIndex"`
 			// Plex sends both "guid" (a string) and "Guid" (an array). encoding/json
 			// matches names case-insensitively, so without this field the string
 			// would be decoded into the array and fail.
@@ -202,6 +206,15 @@ func (c *Client) library(ctx context.Context, key string, media domain.MediaType
 			}
 			if thumbPattern.MatchString(m.Thumb) {
 				item.ArtworkRef = m.Thumb
+			}
+			if media == domain.MediaSong && ratingKeyPattern.MatchString(m.ParentRatingKey) {
+				item.ParentSourceItemID = m.ParentRatingKey
+				if m.Index > 0 && m.Index < 100000 {
+					item.Position = m.Index
+				}
+				if m.ParentIndex > 0 && m.ParentIndex < 1000 {
+					item.Disc = m.ParentIndex
+				}
 			}
 			items = append(items, item)
 		}
