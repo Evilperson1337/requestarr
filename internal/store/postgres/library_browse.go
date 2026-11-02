@@ -31,7 +31,7 @@ func scanLibraryItem(row pgx.Row) (domain.LibraryItem, error) {
 	if err := row.Scan(&it.ID, &it.Title, &it.Year, &it.MediaType, &it.Source, &it.SourceKind, &added, &it.Detail, &hasArt, &link, &open); err != nil {
 		return domain.LibraryItem{}, err
 	}
-	it.AddedAt, it.OpenIssues = added.UTC(), int(open)
+	it.AddedAt, it.OpenIssues, it.IssueKinds = added.UTC(), int(open), domain.IssueKindOptions(it.MediaType)
 	if hasArt {
 		it.ArtworkURL = "/api/v1/library/items/" + it.ID + "/artwork"
 	}

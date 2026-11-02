@@ -33,6 +33,23 @@ type LibraryItem struct {
 	Link string `json:"link,omitempty"`
 	// OpenIssues counts the Issues about this item that are still open.
 	OpenIssues int `json:"openIssues"`
+	// IssueKinds are the kinds of Issue that can be reported about this item.
+	IssueKinds []IssueKindOption `json:"issueKinds"`
+}
+
+// IssueKindOption is one choice in the report form.
+type IssueKindOption struct {
+	Kind  IssueKind `json:"kind"`
+	Label string    `json:"label"`
+}
+
+// IssueKindOptions lists the kinds offered for a media type, for the report form.
+func IssueKindOptions(media MediaType) []IssueKindOption {
+	out := []IssueKindOption{}
+	for _, k := range IssueKindsFor(media) {
+		out = append(out, IssueKindOption{Kind: k, Label: k.Label()})
+	}
+	return out
 }
 
 // LibraryQuery filters the Library page. Type is required.

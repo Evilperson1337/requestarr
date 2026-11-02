@@ -2027,3 +2027,192 @@ a.tag-available:hover {
 .railCard.plain:hover .railCover {
     outline: none;
 }
+
+/* Library and Issues (D030). */
+.navCount {
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--raised);
+    color: var(--text);
+    font-size: .8rem;
+}
+
+.libraryFilters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 0 22px;
+}
+
+.libraryFilters input[type="search"] {
+    flex: 1 1 240px;
+    min-width: 0;
+}
+
+.libraryGrid {
+    margin-bottom: 24px;
+}
+
+.libraryCard {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.libModal {
+    position: relative;
+    width: min(640px, 100%);
+    max-height: 90dvh;
+    overflow: auto;
+    padding: 28px;
+    border-radius: 20px;
+    background: var(--surface);
+    color-scheme: dark;
+}
+
+.libItem {
+    display: grid;
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 22px;
+    margin-bottom: 18px;
+}
+
+.libCover {
+    width: 160px;
+}
+
+.libItemBody h2 {
+    margin: 0 0 6px;
+    padding-right: 36px;
+    overflow-wrap: anywhere;
+}
+
+.libFacts {
+    margin: 0 0 6px;
+    color: var(--muted);
+}
+
+.libReport .picker,
+.libReport .field {
+    margin-top: 16px;
+}
+
+.libPart {
+    display: flex;
+    gap: 14px;
+    margin-top: 16px;
+}
+
+.libPart label {
+    display: grid;
+    gap: 6px;
+}
+
+.libPart input {
+    width: 8em;
+}
+
+.libDone {
+    margin-top: 8px;
+}
+
+.issueList {
+    list-style: none;
+    margin: 18px 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+}
+
+.issueRow {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px 20px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: var(--surface);
+    color: var(--text);
+    text-decoration: none;
+}
+
+.issueRow:hover {
+    background: #1a1a1a;
+}
+
+.issueMain {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.issueMain span {
+    color: var(--muted);
+}
+
+.issueMeta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    color: var(--muted);
+}
+
+.issueHead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.issueHead h1 {
+    margin: 0;
+}
+
+.timeline {
+    list-style: none;
+    margin: 0 0 20px;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+}
+
+.timeline p {
+    margin: 4px 0 0;
+    color: var(--muted);
+}
+
+.issueComment {
+    margin: 18px 0;
+}
+
+@media (max-width: 600px) {
+    .libItem {
+        grid-template-columns: 110px minmax(0, 1fr);
+        gap: 14px;
+    }
+
+    .libCover {
+        width: 110px;
+    }
+
+    .libModal {
+        padding: 20px;
+    }
+}
+
+.libModal .draftActions,
+.issuePage .draftActions,
+.issuesPage .draftActions,
+.libraryPage .draftActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 16px;
+}
