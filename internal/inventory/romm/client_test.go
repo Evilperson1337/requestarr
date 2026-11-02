@@ -198,6 +198,9 @@ func TestGamesCarryTheirAddedDatePlatformNameAndAWellFormedCover(t *testing.T) {
 		t.Fatalf("snapshot %v %d", err, len(snap.Items))
 	}
 	good := snap.Items[0]
+	if !strings.HasSuffix(good.ExternalURL, "/rom/10") {
+		t.Fatalf("link = %q", good.ExternalURL)
+	}
 	if good.AddedAt.Year() != 2026 || good.ArtworkRef != "/assets/romm/resources/roms/1/10/cover/big.png" || good.Detail != "Windows" {
 		t.Fatalf("good = %+v", good)
 	}

@@ -66,9 +66,10 @@ type library struct{ key, kind string }
 
 type container struct {
 	MediaContainer struct {
-		TotalSize *int `json:"totalSize"`
-		Offset    *int `json:"offset"`
-		Directory []struct {
+		MachineIdentifier string `json:"machineIdentifier"`
+		TotalSize         *int   `json:"totalSize"`
+		Offset            *int   `json:"offset"`
+		Directory         []struct {
 			Key  string `json:"key"`
 			Type string `json:"type"`
 		} `json:"Directory"`
@@ -108,6 +109,8 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 	if len(libs) == 0 {
 		return inventory.Snapshot{}, fmt.Errorf("Plex has no movie, TV or music libraries visible to this token")
 	}
+	// Plex Web opens an item by server id and key, so the server's id is read once. Without it items simply carry no link.
+	machine := c.machineID(ctx)
 	items := []inventory.Item{}
 	for _, lib := range libs {
 		// A music library is read twice: its albums and its tracks are separate
@@ -129,6 +132,9 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 			got, err := c.library(ctx, lib.key, pass.media, pass.plexType)
 			if err != nil {
 				return inventory.Snapshot{}, err
+			}
+			for i := range got {
+				got[i].ExternalURL = c.webLink(machine, got[i].SourceItemID)
 			}
 			items = append(items, got...)
 		}

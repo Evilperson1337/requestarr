@@ -300,3 +300,37 @@ func TestArtworkIsFetchedWithTheTokenInAHeaderAndOnlyForAWellFormedReference(t *
 		t.Fatal("a non-image answer must be refused")
 	}
 }
+
+func TestItemsLinkToPlexWebWhenTheServerIdentifiesItself(t *testing.T) {
+	for _, identified := range []bool{true, false} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/identity":
+				if !identified {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = w.Write([]byte(`{"MediaContainer":{"machineIdentifier":"abc123def456abc123def456abc123def456abcd"}}`))
+			case "/library/sections":
+				_, _ = w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"1","type":"movie"}]}}`))
+			default:
+				_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":1,"offset":0,"Metadata":[{"ratingKey":"4242","title":"Linked"}]}}`))
+			}
+		}))
+		c, _ := New(server.URL, testToken)
+		snap, err := c.Snapshot(context.Background())
+		server.Close()
+		if err != nil || len(snap.Items) != 1 {
+			t.Fatalf("snapshot %v", err)
+		}
+		got := snap.Items[0].ExternalURL
+		if identified {
+			if !strings.HasPrefix(got, server.URL+"/web/index.html#!/server/abc123def456abc123def456abc123def456abcd/details?key=%2Flibrary%2Fmetadata%2F4242") || strings.Contains(got, testToken) {
+				t.Fatalf("link = %q", got)
+			}
+		} else if got != "" {
+			t.Fatalf("a server that will not identify itself must not break the sync or invent a link: %q", got)
+		}
+	}
+}

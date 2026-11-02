@@ -95,6 +95,9 @@ func TestSnapshotPaginationAndAuth(t *testing.T) {
 	if !snap.Complete || snap.SourceID != "source" || len(snap.Items) != 501 || requests != 2 {
 		t.Fatalf("snapshot=%+v over %d requests", snap, requests)
 	}
+	if want := ts.URL + "/web/index.html#!/details?id=0"; snap.Items[0].ExternalURL != want {
+		t.Fatalf("link = %q, want %q", snap.Items[0].ExternalURL, want)
+	}
 }
 
 func TestSnapshotFailuresNeverReturnPartial(t *testing.T) {

@@ -129,7 +129,9 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 			if r.IGDBID != nil && *r.IGDBID > 0 {
 				ids["igdb"] = strconv.Itoa(*r.IGDBID)
 			}
-			item := inventory.Item{SourceID: SourceID, SourceItemID: strconv.Itoa(*r.ID), MediaType: domain.MediaGame, Title: r.Name, PlatformKey: platformKey, ExternalIDs: ids}
+			item := inventory.Item{SourceID: SourceID, SourceItemID: strconv.Itoa(*r.ID), MediaType: domain.MediaGame, Title: r.Name, PlatformKey: platformKey, ExternalIDs: ids,
+				// RomM's own page for the game.
+				ExternalURL: c.baseURL + "/rom/" + strconv.Itoa(*r.ID)}
 			if added, err := time.Parse(time.RFC3339, r.CreatedAt); err == nil && added.Unix() > 0 {
 				item.AddedAt = added.UTC()
 			}

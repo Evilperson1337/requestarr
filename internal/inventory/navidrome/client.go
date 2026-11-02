@@ -151,6 +151,7 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 				return inventory.Snapshot{}, fmt.Errorf("Navidrome inventory exceeds item limit")
 			}
 			albumItem := makeItem(SourceID, "album:"+full.ID, domain.MediaAlbum, full.Name, full.Year, full.MusicBrainzID)
+			albumItem.ExternalURL = c.baseURL + "/app/#/album/" + url.PathEscape(full.ID) + "/show"
 			if _, duplicate := seen[albumItem.SourceItemID]; duplicate {
 				return inventory.Snapshot{}, fmt.Errorf("duplicate Navidrome inventory item")
 			}

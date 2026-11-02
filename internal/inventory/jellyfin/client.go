@@ -143,7 +143,7 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 			if tmdb != "" {
 				ids["tmdb"] = tmdb
 			}
-			all = append(all, inventory.Item{SourceID: c.sourceID, SourceItemID: raw.ID, MediaType: media, Title: raw.Name, Year: raw.Year, ExternalIDs: ids, LastSeenAt: time.Now().UTC()})
+			all = append(all, inventory.Item{SourceID: c.sourceID, SourceItemID: raw.ID, MediaType: media, Title: raw.Name, Year: raw.Year, ExternalIDs: ids, LastSeenAt: time.Now().UTC(), ExternalURL: c.baseURL + "/web/index.html#!/details?id=" + url.QueryEscape(raw.ID)})
 		}
 		if offset+len(result.Items) == total {
 			return inventory.Snapshot{SourceID: c.sourceID, Items: all, Complete: true, ObservedAt: time.Now().UTC()}, nil
