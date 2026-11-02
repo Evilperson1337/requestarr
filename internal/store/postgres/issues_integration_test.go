@@ -10,14 +10,21 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
-	"github.com/evilperson1337/requestarr/internal/inventory/plex"
 	"github.com/evilperson1337/requestarr/internal/issues"
 )
+
+// issueSource is a Source of its own, so these tests never change what another
+// test's Source "latest snapshot" says.
+var issueSourceID = newUUID()
+
+func issueSource() inventory.Descriptor {
+	return inventory.Descriptor{ID: issueSourceID, Kind: "navidrome", Name: "Issue fixture library", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV, domain.MediaAlbum}}
+}
 
 // libraryItem stores one Plex item and returns its inventory id.
 func libraryItem(t *testing.T, ctx context.Context, s *Store, sourceItemID string, media domain.MediaType) string {
 	t.Helper()
-	d := inventory.Descriptor{ID: plex.SourceID, Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV, domain.MediaAlbum}}
+	d := issueSource()
 	snap := inventory.Snapshot{SourceID: d.ID, Complete: true, ObservedAt: time.Now().UTC(), Items: []inventory.Item{{SourceID: d.ID, SourceItemID: sourceItemID, MediaType: media, Title: "Issue fixture " + sourceItemID}}}
 	if err := s.PersistSnapshot(ctx, d, "http://plex.example.test", snap); err != nil {
 		t.Fatal(err)
@@ -84,7 +91,7 @@ func TestIssuesAreSharedPerItemKindAndPartAndSurviveTheItemLeavingIntegration(t 
 		t.Fatalf("reopening into a slot another open Issue now holds must be refused cleanly, got %+v %v", reopened, err)
 	}
 	// The item leaves its library: the Issue stays open and says so.
-	d := inventory.Descriptor{ID: plex.SourceID, Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaTV}}
+	d := issueSource()
 	if err := s.PersistSnapshot(ctx, d, "http://plex.example.test", inventory.Snapshot{SourceID: d.ID, Complete: true, ObservedAt: time.Now().Add(time.Second).UTC(), Items: []inventory.Item{{SourceID: d.ID, SourceItemID: "another-" + newUUID()[:8], MediaType: domain.MediaTV, Title: "Other"}}}); err != nil {
 		t.Fatal(err)
 	}
