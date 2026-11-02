@@ -50,7 +50,7 @@ func (q ListQuery) Normalize() (ListQuery, error) {
 		return ListQuery{}, ErrInvalidQuery
 	}
 	switch q.MediaType {
-	case "", domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong, domain.MediaGame:
+	case "", domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong, domain.MediaGame, domain.MediaAudiobook:
 	default:
 		return ListQuery{}, ErrInvalidQuery
 	}

@@ -401,7 +401,7 @@ func (d Draft) pendingBlockers(now time.Time) []Blocker {
 
 func validMedia(media domain.MediaType) bool {
 	switch media {
-	case domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong, domain.MediaGame:
+	case domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong, domain.MediaGame, domain.MediaAudiobook:
 		return true
 	}
 	return false

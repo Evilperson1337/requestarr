@@ -192,7 +192,7 @@ paths:
           schema: { type: string, enum: [requested, approved, available, denied, cancelled] }
         - in: query
           name: mediaType
-          schema: { type: string, enum: [movie, tv, album, song, game] }
+          schema: { type: string, enum: [movie, tv, album, song, game, audiobook] }
         - in: query
           name: mine
           schema: { type: boolean, default: false }
@@ -534,7 +534,7 @@ paths:
       parameters:
         - { in: query, name: status, schema: { type: string, enum: [open, in_progress, resolved, closed] } }
         - { in: query, name: kind, schema: { $ref: '#/components/schemas/IssueKind' } }
-        - { in: query, name: mediaType, schema: { type: string, enum: [movie, tv, album, song, game] } }
+        - { in: query, name: mediaType, schema: { type: string, enum: [movie, tv, album, song, game, audiobook] } }
         - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
         - { in: query, name: cursor, schema: { type: string } }
       responses:
@@ -1261,7 +1261,7 @@ components:
           description: Canonical catalog item; existing PascalCase fields are preserved.
           properties:
             ID: { type: string, format: uuid }
-            MediaType: { type: string, enum: [movie, tv, album, song, game] }
+            MediaType: { type: string, enum: [movie, tv, album, song, game, audiobook] }
             Title: { type: string }
             Year: { type: integer }
             Provider: { type: string }
@@ -1351,7 +1351,7 @@ components:
         id: { type: string, format: uuid }
         libraryItemId: { type: string, format: uuid }
         title: { type: string }
-        mediaType: { type: string, enum: [movie, tv, album, song, game] }
+        mediaType: { type: string, enum: [movie, tv, album, song, game, audiobook] }
         source: { type: string }
         kind: { $ref: '#/components/schemas/IssueKind' }
         kindLabel: { type: string }
@@ -1600,7 +1600,7 @@ components:
           additionalProperties: false
           required: [autoApproveMediaTypes]
           properties:
-            autoApproveMediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game] }, description: "Media types that skip administrator approval; empty means all requests await approval" }
+            autoApproveMediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game, audiobook] }, description: "Media types that skip administrator approval; empty means all requests await approval" }
     SecretStatus:
       type: object
       required: [name, label, envVar, configured, source, unreadable, pendingRestart]
@@ -1619,7 +1619,7 @@ components:
       properties:
         enabled: { type: boolean }
         url: { type: string, maxLength: 2048, description: "Empty while drafting or an absolute origin" }
-        mediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game] } }
+        mediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game, audiobook] } }
         tokenEnv: { type: string, enum: ["", REQUESTARR_JELLYFIN_API_KEY, REQUESTARR_PLEX_TOKEN, REQUESTARR_ROMM_TOKEN] }
         username: { type: string, maxLength: 256, description: "Navidrome account name, an ordinary non-secret draft field; must be empty for other Sources. Drafts saved with the retired usernameEnv still load, and an empty value takes the environment-configured username" }
         passwordEnv: { type: string, enum: ["", REQUESTARR_NAVIDROME_PASSWORD] }
@@ -1676,7 +1676,7 @@ components:
         catalogYear: { type: integer, description: Zero when unknown }
         inventoryTitle: { type: string }
         inventoryYear: { type: integer, description: Zero when unknown }
-        mediaType: { type: string, enum: [movie, tv, album, song, game] }
+        mediaType: { type: string, enum: [movie, tv, album, song, game, audiobook] }
         platformKey: { type: string, description: Observed platform key; empty when not applicable or unknown }
         sourceName: { type: string }
         sourceItemId: { type: string }

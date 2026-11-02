@@ -41,8 +41,8 @@ func (s *Store) Upsert(ctx context.Context, resolved domain.ResolvedItem) (domai
 	if i.MediaType == "" || i.Provider == "" || i.ProviderID == "" || i.Title == "" || len(i.Title) > 512 || len(i.ProviderID) > 128 || len(i.ArtworkURL) > 2048 || len(i.ExternalURL) > 2048 {
 		return domain.CatalogItem{}, fmt.Errorf("invalid catalog item")
 	}
-	if (i.MediaType != domain.MediaMovie && i.MediaType != domain.MediaTV && i.MediaType != domain.MediaAlbum && i.MediaType != domain.MediaSong && i.MediaType != domain.MediaGame) ||
-		(i.Provider != "tmdb" && i.Provider != "musicbrainz" && i.Provider != "igdb") {
+	if (i.MediaType != domain.MediaMovie && i.MediaType != domain.MediaTV && i.MediaType != domain.MediaAlbum && i.MediaType != domain.MediaSong && i.MediaType != domain.MediaGame && i.MediaType != domain.MediaAudiobook) ||
+		(i.Provider != "tmdb" && i.Provider != "musicbrainz" && i.Provider != "igdb" && i.Provider != "audible") {
 		return domain.CatalogItem{}, fmt.Errorf("invalid catalog item type or provider")
 	}
 	if len(resolved.Platforms) > 250 {
@@ -54,7 +54,7 @@ func (s *Store) Upsert(ctx context.Context, resolved domain.ResolvedItem) (domai
 		}
 	}
 	if i.ArtworkKind == "" {
-		if i.MediaType == domain.MediaAlbum || i.MediaType == domain.MediaSong {
+		if i.MediaType == domain.MediaAlbum || i.MediaType == domain.MediaSong || i.MediaType == domain.MediaAudiobook {
 			i.ArtworkKind = domain.ArtworkSquare
 		} else {
 			i.ArtworkKind = domain.ArtworkPoster

@@ -10,6 +10,8 @@ const (
 	MediaAlbum MediaType = "album"
 	MediaSong  MediaType = "song"
 	MediaGame  MediaType = "game"
+	// MediaAudiobook is identified by its ASIN (D031).
+	MediaAudiobook MediaType = "audiobook"
 )
 
 type ArtworkKind string
