@@ -1,6 +1,6 @@
 # Issue domain, kinds and store
 
-Status: ready-for-agent
+Status: resolved
 Blocked by:
 
 - `domain.Issue`, `IssueKind` lists per media type, part via `Selection` (validated against the item's media type), statuses open/resolved/closed.
@@ -9,3 +9,7 @@ Blocked by:
 - Per-user report rate limit.
 
 Acceptance: unit tests for kind validation and merge; integration tests including 'item leaves library keeps Issue open and labelled'.
+
+## Answer
+
+Built: `domain.Issue`, kinds per media type, `internal/issues` service, `issues` / `issue_reporters` / `issue_events` (migration 28), hourly limit of 10, shared open Issue per item/kind/part, admin-only transitions, "gone from library" flag. HTTP is ticket 04.

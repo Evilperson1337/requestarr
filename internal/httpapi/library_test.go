@@ -73,3 +73,48 @@ func TestArtworkIsServedAsAnImageAndNeverEchoesLibraryErrors(t *testing.T) {
 		t.Fatalf("library error leaked: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func (f fakeLibrary) Browse(_ context.Context, q domain.LibraryQuery) (domain.LibraryPage, error) {
+	if q.After == "bad" {
+		return domain.LibraryPage{}, ErrBadLibraryCursor
+	}
+	next := "next"
+	return domain.LibraryPage{Items: []domain.LibraryItem{{ID: "i1", Title: string(q.Type) + "|" + q.Search + "|" + q.Source, MediaType: q.Type}}, NextCursor: &next}, nil
+}
+func (f fakeLibrary) Item(_ context.Context, id string) (domain.LibraryItem, error) {
+	if id == "missing" {
+		return domain.LibraryItem{}, ErrLibraryItemNotFound
+	}
+	return domain.LibraryItem{ID: id, Title: "Arrival", OpenIssues: 2}, nil
+}
+
+func TestLibraryBrowseValidatesItsQueryAndPassesItThrough(t *testing.T) {
+	w := libraryRequest("viewer", "/library/items?type=movie&q=arr&source=plex&limit=10", fakeLibrary{})
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"movie|arr|plex"`) || !strings.Contains(w.Body.String(), `"nextCursor":"next"`) {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	for name, path := range map[string]string{
+		"no type":         "/library/items",
+		"a song":          "/library/items?type=song",
+		"unknown source":  "/library/items?type=movie&source=emby",
+		"limit too big":   "/library/items?type=movie&limit=101",
+		"limit not a num": "/library/items?type=movie&limit=x",
+		"huge search":     "/library/items?type=movie&q=" + strings.Repeat("a", 101),
+	} {
+		if w := libraryRequest("viewer", path, fakeLibrary{}); w.Code != 400 {
+			t.Errorf("%s: %d", name, w.Code)
+		}
+	}
+	if w := libraryRequest("viewer", "/library/items?type=movie&cursor=bad", fakeLibrary{}); w.Code != 400 || !strings.Contains(w.Body.String(), "invalid_cursor") {
+		t.Fatalf("bad cursor: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestLibraryItemDetail(t *testing.T) {
+	if w := libraryRequest("viewer", "/library/items/abc", fakeLibrary{}); w.Code != 200 || !strings.Contains(w.Body.String(), `"openIssues":2`) {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	if w := libraryRequest("viewer", "/library/items/missing", fakeLibrary{}); w.Code != 404 {
+		t.Fatalf("missing = %d", w.Code)
+	}
+}

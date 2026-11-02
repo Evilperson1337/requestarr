@@ -304,3 +304,10 @@ func (absentLibrary) RecentlyAdded(context.Context, int, []domain.MediaType) ([]
 func (absentLibrary) Artwork(context.Context, string) (inventory.Artwork, error) {
 	return inventory.Artwork{}, errAbsent
 }
+
+func (absentLibrary) Browse(context.Context, domain.LibraryQuery) (domain.LibraryPage, error) {
+	return domain.LibraryPage{}, errAbsent
+}
+func (absentLibrary) Item(context.Context, string) (domain.LibraryItem, error) {
+	return domain.LibraryItem{}, errAbsent
+}

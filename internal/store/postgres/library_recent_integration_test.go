@@ -37,7 +37,7 @@ func TestRecentlyAddedOrdersByAddedDateSkipsSongsAndRemovedItemsIntegration(t *t
 	if err := s.PersistSnapshot(ctx, d, "http://plex.example.test", second); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.RecentlyAdded(ctx, 10, nil)
+	got, err := s.RecentlyAdded(ctx, 50, []domain.MediaType{domain.MediaMovie, domain.MediaAlbum})
 	if err != nil {
 		t.Fatal(err)
 	}

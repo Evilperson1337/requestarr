@@ -494,6 +494,50 @@ paths:
                         artworkUrl: { type: string }
         '401': { description: Authentication required }
         '500': { description: library_recent_failed }
+  /library/items:
+    get:
+      operationId: browseLibrary
+      summary: Browse what the libraries hold, one media type at a time
+      description: >-
+        D030. The Library page's list: items in each enabled Source's latest complete snapshot, newest
+        added first (the library's own added date, else first sighting). One title in two libraries of the
+        same Source is one entry. Songs are not listed. Cursor pagination, 48 per page by default.
+        Any signed-in role; private, cached for 30 seconds.
+      parameters:
+        - { in: query, name: type, required: true, schema: { type: string, enum: [movie, tv, album, game] } }
+        - { in: query, name: q, description: Case-insensitive title search (100 characters at most), schema: { type: string, maxLength: 100 } }
+        - { in: query, name: source, description: A Source kind slug, schema: { type: string, enum: [jellyfin, plex, romm, navidrome] } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 48 } }
+        - { in: query, name: cursor, description: The nextCursor of the previous page, schema: { type: string } }
+      responses:
+        '200':
+          description: One page of Library items
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/LibraryItem' } }
+                  nextCursor: { type: [string, 'null'] }
+        '400': { description: invalid_query or invalid_cursor }
+        '401': { description: Authentication required }
+        '500': { description: library_browse_failed }
+  /library/items/{id}:
+    get:
+      operationId: getLibraryItem
+      summary: One Library item, with how many open Issues it has
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The item
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryItem' }
+        '401': { description: Authentication required }
+        '404': { description: library_item_not_found }
+        '500': { description: library_browse_failed }
   /library/items/{id}/artwork:
     get:
       operationId: getLibraryItemArtwork
@@ -1155,6 +1199,22 @@ components:
               character: { type: string, maxLength: 256 }
               profileUrl: { type: string, format: uri, description: Approved TMDB image origin only }
         detailsUnavailable: { type: boolean, description: Secondary enrichment failed; ordinary absent credits are not a failure }
+    LibraryItem:
+      type: object
+      additionalProperties: false
+      required: [id, title, mediaType, source, sourceKind, addedAt, openIssues]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        year: { type: integer }
+        mediaType: { type: string, enum: [movie, tv, album, game] }
+        source: { type: string, description: The library's name }
+        sourceKind: { type: string, enum: [jellyfin, plex, romm, navidrome] }
+        addedAt: { type: string, format: date-time }
+        detail: { type: string, description: A short note from the library, such as a game's platform }
+        artworkUrl: { type: string }
+        link: { type: string, format: uri, description: Opens the item in its media server; present only when safe }
+        openIssues: { type: integer, minimum: 0 }
     LibraryConnection:
       type: object
       additionalProperties: false

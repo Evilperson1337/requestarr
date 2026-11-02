@@ -14,6 +14,8 @@ import (
 type libraryStore interface {
 	RecentlyAdded(context.Context, int, []domain.MediaType) ([]domain.RecentLibraryItem, error)
 	LibraryArtworkRef(context.Context, string) (string, string, error)
+	BrowseLibrary(context.Context, domain.LibraryQuery) (domain.LibraryPage, error)
+	LibraryItemByID(context.Context, string) (domain.LibraryItem, error)
 }
 
 // libraryService serves what libraries recently gained and their covers. A cover
@@ -44,4 +46,20 @@ func (s *libraryService) Artwork(ctx context.Context, itemID string) (inventory.
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return source.Artwork(ctx, ref)
+}
+
+func (s *libraryService) Browse(ctx context.Context, q domain.LibraryQuery) (domain.LibraryPage, error) {
+	page, err := s.store.BrowseLibrary(ctx, q)
+	if errors.Is(err, postgres.ErrBadLibraryCursor) {
+		return domain.LibraryPage{}, httpapi.ErrBadLibraryCursor
+	}
+	return page, err
+}
+
+func (s *libraryService) Item(ctx context.Context, id string) (domain.LibraryItem, error) {
+	item, err := s.store.LibraryItemByID(ctx, id)
+	if errors.Is(err, postgres.ErrLibraryItemNotFound) {
+		return domain.LibraryItem{}, httpapi.ErrLibraryItemNotFound
+	}
+	return item, err
 }
