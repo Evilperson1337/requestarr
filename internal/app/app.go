@@ -56,6 +56,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	var workers sync.WaitGroup
 	defer func() { cancelWorkers(); workers.Wait() }()
 	logger.Info("database ready")
+	envCfg := cfg
 	boot, err := resolveBoot(ctx, cfg, store, logger)
 	if err != nil {
 		return err
@@ -80,40 +81,39 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	runner := jobs.NewRunner(store)
 	runner.Logger = logger
 	aliaser := musicbrainz.NewAliaser(nil, musicbrainz.DefaultMinInterval)
-	rt, err := Build(boot, Adapters{
+	adapters := Adapters{
 		SyncStore: store,
 		Logger:    logger,
 		NewSource: func(cfg config.Config, kind sources.Kind) (inventory.Source, sourceDecorator, error) {
 			return newInventorySource(cfg, kind, func(ctx context.Context) { refreshMusicAliases(ctx, logger, store, aliaser) })
 		},
-	})
+	}
+	rt, err := Build(boot, adapters)
 	if err != nil {
 		return err
 	}
-	syncSources := map[string]syncSource{}
-	for _, source := range rt.Jobs {
-		syncSources[source.Slug] = syncSource{id: source.ID, job: source.Job}
-		workers.Add(1)
-		go func(source SourceJob) {
-			defer workers.Done()
-			runner.Schedule(workerCtx, sourceSyncInterval, source.ID, source.Job)
-		}(source)
-	}
-	syncer := newSourceSyncer(workerCtx, runner, &workers, syncSources)
+	syncer := newSourceSyncer(workerCtx, runner, &workers, map[string]syncSource{})
 	ops := opstatus.New(rt.Providers, rt.Sources, store)
+	manager := &sourceManager{
+		ctx: workerCtx, workers: &workers, runner: runner, logger: logger, envCfg: envCfg, store: store, adapters: adapters,
+		syncer: syncer, ops: ops, secrets: secretsService, running: map[string]*running{},
+	}
+	manager.adopt(rt.Jobs)
 	setupRuntime := rt.Setup
 	var logs *devlogs.Recorder
 	if cfg.DevelopmentLogs { // cfg.Validate above rejects this outside development.
 		logs = &devlogs.Recorder{}
 	}
-	setupService := setup.NewService(store, checks.New(checks.Config{Diagnostics: logs, Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, Secrets: secretsService}), setupRuntime)
+	checker := checks.New(checks.Config{Diagnostics: logs, Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, Secrets: secretsService})
+	setupService := setup.NewService(store, checker, setupRuntime)
+	connections := &connectionsService{store: store, boot: store, envCfg: envCfg, manager: manager, secrets: secretsService, checker: checker, logger: logger}
 
 	handler, err := httpapi.NewRouter(httpapi.Deps{
 		Logger: logger, Build: build, Readiness: store, Auth: authHandler,
 		Requests: requests.New(store), Resolver: metadataService, Inbox: store, MatchReview: store,
 		MoviePreview: store,
 		JobRuns:      store, Status: ops, Users: store, SetupState: store, Syncer: syncer,
-		Wizard: setupService, Secrets: secretsService, DevelopmentLogs: logs,
+		Wizard: setupService, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, DevelopmentLogs: logs,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize HTTP API: %w", err)
@@ -200,7 +200,32 @@ type sourceSyncer struct {
 	ctx     context.Context
 	runner  *jobs.Runner
 	workers *sync.WaitGroup
+
+	mu      sync.RWMutex
 	sources map[string]syncSource
+}
+
+func (s *sourceSyncer) set(slug string, source syncSource) {
+	s.mu.Lock()
+	s.sources[slug] = source
+	s.mu.Unlock()
+}
+
+func (s *sourceSyncer) remove(slug string) {
+	s.mu.Lock()
+	delete(s.sources, slug)
+	s.mu.Unlock()
+}
+
+// snapshot copies the current Sources for operational status.
+func (s *sourceSyncer) snapshot() map[string]syncSource {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]syncSource, len(s.sources))
+	for slug, source := range s.sources {
+		out[slug] = source
+	}
+	return out
 }
 
 // newSourceSyncer's ctx outlives any request: it bounds manual runs, which
@@ -210,7 +235,9 @@ func newSourceSyncer(ctx context.Context, runner *jobs.Runner, workers *sync.Wai
 }
 
 func (s *sourceSyncer) SyncNow(_ context.Context, slug string) (jobs.Run, error) {
+	s.mu.RLock()
 	source, ok := s.sources[slug]
+	s.mu.RUnlock()
 	if !ok {
 		return jobs.Run{}, jobs.ErrUnknownSource
 	}

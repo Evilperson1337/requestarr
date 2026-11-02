@@ -450,6 +450,125 @@ paths:
         '403': { description: Administrator role required }
         '404': { description: User not found }
         '409': { description: Cannot change your own role, or cannot demote the last administrator; nothing is changed }
+  /admin/library-connections:
+    get:
+      operationId: listLibraryConnections
+      summary: Where each library Source lives, with its credential status (administrator only)
+      description: >-
+        D028. Lists Jellyfin, Plex, RomM and Navidrome with their saved address, whether the
+        address comes from an environment variable (which wins and cannot be changed here),
+        whether the Source is scheduled to sync, what a half-set Source is missing, and the
+        status of each credential. Credential values are never returned. No-store.
+      responses:
+        '200':
+          description: Connections
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [connections]
+                properties:
+                  connections:
+                    type: array
+                    items: { $ref: '#/components/schemas/LibraryConnection' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '500': { description: connection_update_failed }
+  /admin/library-connections/{slug}:
+    parameters:
+      - in: path
+        name: slug
+        required: true
+        schema: { type: string, enum: [jellyfin, plex, romm, navidrome] }
+    put:
+      operationId: saveLibraryConnection
+      summary: Save a Source's address (and username) and apply it immediately (administrator only)
+      description: >-
+        Stores the address, then rebuilds the Source's sync from the environment, the saved
+        address and the stored credentials without a restart. A Source with an address but no
+        credential stays inactive and reports what is missing. 409 set_by_environment when the
+        address comes from its environment variable. Requires CSRF and a same-origin Origin header.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url]
+              properties:
+                url: { type: string, maxLength: 2048, description: An http or https address with no username, query or fragment }
+                username: { type: string, maxLength: 256, description: Only for Sources that sign in with a username (Navidrome) }
+      responses:
+        '200':
+          description: The saved connection as now applied
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryConnection' }
+        '400': { description: invalid_connection_input }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: unknown_source }
+        '409': { description: set_by_environment }
+        '422': { description: invalid_connection }
+    delete:
+      operationId: removeLibraryConnection
+      summary: Remove a saved address and stop the Source's sync (administrator only)
+      description: >-
+        Deletes the saved address; the Source stops syncing unless an environment address
+        remains. Inventory already observed is kept. Requires CSRF and a same-origin Origin header.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The connection as now applied
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryConnection' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: unknown_source }
+  /admin/library-connections/{slug}/test:
+    parameters:
+      - in: path
+        name: slug
+        required: true
+        schema: { type: string, enum: [jellyfin, plex, romm, navidrome] }
+    post:
+      operationId: testLibraryConnection
+      summary: Probe a Source with its current address and credentials (administrator only)
+      description: >-
+        An explicit check of this exact Source: one short read-only request, the same probe the
+        setup wizard uses. The message never contains a credential. Requires CSRF and a
+        same-origin Origin header.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Result of the probe
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, code, message]
+                properties:
+                  ok: { type: boolean }
+                  code: { type: string, enum: [connected, connection_failed, authentication_failed, environment_required, incomplete_settings, disabled] }
+                  message: { type: string }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: unknown_source }
   /admin/secrets:
     get:
       operationId: listStoredSecrets
@@ -969,6 +1088,33 @@ components:
               character: { type: string, maxLength: 256 }
               profileUrl: { type: string, format: uri, description: Approved TMDB image origin only }
         detailsUnavailable: { type: boolean, description: Secondary enrichment failed; ordinary absent credits are not a failure }
+    LibraryConnection:
+      type: object
+      additionalProperties: false
+      required: [slug, name, url, urlFromEnvironment, urlEnv, saved, takesUsername, username, active, missing, credentials]
+      properties:
+        slug: { type: string, enum: [jellyfin, plex, romm, navidrome] }
+        name: { type: string }
+        url: { type: string, description: The address in effect, empty when none }
+        urlFromEnvironment: { type: boolean }
+        urlEnv: { type: string, description: The environment variable that would set the address }
+        saved: { type: boolean, description: A connection is saved here (it may be shadowed by the environment) }
+        takesUsername: { type: boolean }
+        username: { type: string }
+        active: { type: boolean, description: The Source is scheduled to sync }
+        missing: { type: array, items: { type: string }, description: What a half-set Source still needs }
+        credentials:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [secret, label, configured, source, unreadable]
+            properties:
+              secret: { type: string, description: The stored-secret name, for PUT /admin/secrets/{name} }
+              label: { type: string }
+              configured: { type: boolean }
+              source: { type: string, description: "none, stored, environment, shadowed or unreadable" }
+              unreadable: { type: boolean }
     Selection:
       type: object
       additionalProperties: false

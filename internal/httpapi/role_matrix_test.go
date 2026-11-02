@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"github.com/evilperson1337/requestarr/internal/sources"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -58,6 +59,9 @@ func mutationCases() []mutationCase {
 		{"finish setup", "POST /admin/setup/finish", "/admin/setup/finish", `{"expectedRevision":1}`, "admin", 200, "setup.finish"},
 		{"set stored secret", "PUT /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", `{"value":"matrix-secret-value"}`, "admin", 204, "secret.set"},
 		{"clear stored secret", "DELETE /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", "", "admin", 204, "secret.clear"},
+		{"save library connection", "PUT /admin/library-connections/{slug}", "/admin/library-connections/plex", `{"url":"https://plex.example.test"}`, "admin", 200, "connection.save"},
+		{"remove library connection", "DELETE /admin/library-connections/{slug}", "/admin/library-connections/plex", "", "admin", 200, "connection.remove"},
+		{"test library connection", "POST /admin/library-connections/{slug}/test", "/admin/library-connections/plex/test", "", "admin", 200, "connection.test"},
 		{"validate library", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"library:plex"}`, "admin", 200, "setup.validate"},
 	}
 }
@@ -205,6 +209,20 @@ func (b *matrixBackend) Set(_ context.Context, actor string, _ secrets.Name, _ s
 func (b *matrixBackend) Clear(_ context.Context, actor string, _ secrets.Name) error {
 	b.record("secret.clear", actor)
 	return nil
+}
+
+func (b *matrixBackend) ListConnections(context.Context) ([]Connection, error) { return nil, nil }
+func (b *matrixBackend) SaveConnection(_ context.Context, actor string, c sources.Connection) (Connection, error) {
+	b.record("connection.save", actor)
+	return Connection{Slug: c.Slug}, nil
+}
+func (b *matrixBackend) RemoveConnection(_ context.Context, slug string) (Connection, error) {
+	b.record("connection.remove", matrixUserID)
+	return Connection{Slug: slug}, nil
+}
+func (b *matrixBackend) TestConnection(context.Context, string) (ConnectionTest, error) {
+	b.record("connection.test", matrixUserID)
+	return ConnectionTest{OK: true, Code: "connected"}, nil
 }
 
 func matrixRequest(backend *matrixBackend, tc mutationCase, role, csrf, origin string) *httptest.ResponseRecorder {

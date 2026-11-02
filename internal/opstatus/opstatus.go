@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/jobs"
@@ -64,8 +65,18 @@ type Health interface {
 
 type Service struct {
 	providers []Provider
-	sources   []SourceRef
 	runs      Health
+
+	mu      sync.RWMutex
+	sources []SourceRef
+}
+
+// SetSources replaces the Source list, for Sources that are added or removed
+// while the server runs.
+func (s *Service) SetSources(sources []SourceRef) {
+	s.mu.Lock()
+	s.sources = append([]SourceRef(nil), sources...)
+	s.mu.Unlock()
 }
 
 func New(providers []Provider, sources []SourceRef, runs Health) *Service {
@@ -86,7 +97,10 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 		byID[group.SourceID] = group.Runs
 	}
 	out := Overview{Providers: append([]Provider{}, s.providers...), Sources: []SourceStatus{}, RecentErrors: []ErrorEntry{}}
-	for _, ref := range s.sources {
+	s.mu.RLock()
+	refs := append([]SourceRef(nil), s.sources...)
+	s.mu.RUnlock()
+	for _, ref := range refs {
 		status := SourceStatus{Slug: ref.Slug, Name: ref.Name, Configured: ref.ID != "", Note: ref.Note}
 		if status.Configured {
 			if at, ok := snapshots[ref.ID]; ok {

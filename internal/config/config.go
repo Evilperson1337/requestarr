@@ -115,6 +115,16 @@ func (c *Config) LibraryCredential(slug string, role sources.Role) *string {
 	return field
 }
 
+// LibraryProblems is librarySourceProblems for one Source slug, so a single
+// Source can be checked (and applied) without validating the rest.
+func (c Config) LibraryProblems(slug string) []string {
+	kind, ok := sources.Lookup(slug)
+	if !ok {
+		return []string{"unknown library source"}
+	}
+	return c.librarySourceProblems(kind)
+}
+
 // librarySourceProblems enforces that a Source's URL and every Credential field
 // are configured together, and that a configured URL is a valid origin.
 func (c Config) librarySourceProblems(kind sources.Kind) []string {

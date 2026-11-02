@@ -3,10 +3,12 @@
 package postgres
 
 import (
+	"context"
 	"testing"
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/requests"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
 func TestRequestSelectionIsStoredMergedAndFollowedIntegration(t *testing.T) {
@@ -49,4 +51,28 @@ func TestRequestSelectionIsStoredMergedAndFollowedIntegration(t *testing.T) {
 		}
 	}
 	t.Fatal("the listed Request does not carry its merged selection")
+}
+
+func TestLibraryConnectionsAreSavedReplacedAndRemovedIntegration(t *testing.T) {
+	ctx, s, _ := setupDraftStore(t)
+	t.Cleanup(func() { _ = s.DeleteLibraryConnection(context.Background(), "navidrome") })
+	if err := s.PutLibraryConnection(ctx, sources.Connection{Slug: "navidrome", URL: "https://one.example.test", Username: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutLibraryConnection(ctx, sources.Connection{Slug: "navidrome", URL: "https://two.example.test", Username: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListLibraryConnections(ctx)
+	if err != nil || got["navidrome"].URL != "https://two.example.test" || got["navidrome"].Username != "bob" {
+		t.Fatalf("got %+v err %v", got, err)
+	}
+	if err := s.PutLibraryConnection(ctx, sources.Connection{Slug: "plex", URL: "https://u:p@bad.example.test"}); err == nil {
+		t.Fatal("an address with credentials must be refused before it reaches the database")
+	}
+	if err := s.DeleteLibraryConnection(ctx, "navidrome"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ListLibraryConnections(ctx); len(got) != 0 && got["navidrome"].Slug != "" {
+		t.Fatalf("not removed: %+v", got)
+	}
 }

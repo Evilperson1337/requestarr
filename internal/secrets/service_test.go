@@ -240,3 +240,30 @@ func TestBootReturnsEffectiveValuesAndSurvivesUnreadable(t *testing.T) {
 		t.Fatal("unreadable secret produced a value")
 	}
 }
+
+// A secret an integration reloads for itself stops reporting "pending restart".
+func TestAppliedClearsPendingRestartForOnlyTheNamedSecret(t *testing.T) {
+	svc := secrets.NewService(newMemRepo(), sealer(t, 1), nil)
+	if _, err := svc.Boot(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []secrets.Name{secrets.PlexToken, secrets.TMDBReadToken} {
+		if err := svc.Set(context.Background(), "admin", name, "value-"+string(name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.Applied(context.Background(), secrets.PlexToken); err != nil {
+		t.Fatal(err)
+	}
+	statuses, _, err := svc.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := map[secrets.Name]bool{}
+	for _, st := range statuses {
+		pending[st.Name] = st.PendingRestart
+	}
+	if pending[secrets.PlexToken] || !pending[secrets.TMDBReadToken] {
+		t.Fatalf("pending = %+v", pending)
+	}
+}

@@ -110,7 +110,12 @@ func TestBuildFailsNamingTheSourceWhenAnAdapterCannotBeBuilt(t *testing.T) {
 
 type bootRepo struct {
 	fakeSecretRepo
-	savedID string
+	savedID     string
+	connections map[string]sources.Connection
+}
+
+func (r bootRepo) ListLibraryConnections(context.Context) (map[string]sources.Connection, error) {
+	return r.connections, nil
 }
 
 func (r bootRepo) LoadIGDBClientID(context.Context) (string, error) { return r.savedID, nil }

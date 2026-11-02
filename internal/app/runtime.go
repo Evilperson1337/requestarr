@@ -16,6 +16,7 @@ import (
 // bootStore is what startup resolution reads from the database.
 type bootStore interface {
 	igdbSettingsStore
+	connectionStore
 	secrets.Repository
 }
 
@@ -29,6 +30,8 @@ type booted struct {
 	// IGDBClientIDFromEnvironment is true when the operator set the client ID,
 	// as opposed to it being loaded from the saved setup draft.
 	IGDBClientIDFromEnvironment bool
+	// Connections says where each library Source's URL came from.
+	Connections map[string]connectionOrigin
 }
 
 // resolveBoot is the one place the startup order lives: the saved IGDB client
@@ -36,19 +39,33 @@ type booted struct {
 // else stored), and only then validation, so a stored secret can satisfy the
 // pairing rules.
 func resolveBoot(ctx context.Context, cfg config.Config, store bootStore, logger *slog.Logger) (booted, error) {
+	b, err := resolveConfig(ctx, cfg, store, logger)
+	if err != nil {
+		return booted{}, err
+	}
+	if err := b.Config.Validate(); err != nil {
+		return booted{}, fmt.Errorf("invalid configuration: %w", err)
+	}
+	return b, nil
+}
+
+// resolveConfig is resolveBoot without validation, so one Source can be
+// re-resolved and checked on its own while the server runs.
+func resolveConfig(ctx context.Context, cfg config.Config, store bootStore, logger *slog.Logger) (booted, error) {
 	fromEnvironment := cfg.IGDBClientID != ""
 	cfg, err := resolveIGDBClientID(ctx, cfg, store)
 	if err != nil {
 		return booted{}, fmt.Errorf("IGDB settings startup: %w", err)
 	}
+	cfg, origins, err := resolveLibraryConnections(ctx, cfg, store)
+	if err != nil {
+		return booted{}, fmt.Errorf("library connections startup: %w", err)
+	}
 	cfg, svc, unreadable, err := resolveSecrets(ctx, cfg, store, logger)
 	if err != nil {
 		return booted{}, fmt.Errorf("secrets startup: %w", err)
 	}
-	if err := cfg.Validate(); err != nil {
-		return booted{}, fmt.Errorf("invalid configuration: %w", err)
-	}
-	return booted{Config: cfg, Secrets: svc, Unreadable: unreadable, IGDBClientIDFromEnvironment: fromEnvironment}, nil
+	return booted{Config: cfg, Secrets: svc, Unreadable: unreadable, IGDBClientIDFromEnvironment: fromEnvironment, Connections: origins}, nil
 }
 
 // sourceDecorator wraps a Source's sync job, for work that belongs to one kind.

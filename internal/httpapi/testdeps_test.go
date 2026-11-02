@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"github.com/evilperson1337/requestarr/internal/sources"
 	"log/slog"
 	"net/http"
 	"time"
@@ -198,6 +199,11 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 	} else {
 		d.Secrets = absentSecrets{}
 	}
+	if v, ok := readiness.(ConnectionsService); ok {
+		d.Connections = v
+	} else {
+		d.Connections = absentConnections{}
+	}
 	if v, ok := readiness.(DevelopmentLogsSource); ok {
 		d.DevelopmentLogs = v.DevelopmentLogs()
 	}
@@ -268,3 +274,18 @@ func (absentSecrets) Status(context.Context) ([]secrets.Status, bool, error) {
 }
 func (absentSecrets) Set(context.Context, string, secrets.Name, string) error { return errAbsent }
 func (absentSecrets) Clear(context.Context, string, secrets.Name) error       { return errAbsent }
+
+type absentConnections struct{}
+
+func (absentConnections) ListConnections(context.Context) ([]Connection, error) {
+	return nil, errAbsent
+}
+func (absentConnections) SaveConnection(context.Context, string, sources.Connection) (Connection, error) {
+	return Connection{}, errAbsent
+}
+func (absentConnections) RemoveConnection(context.Context, string) (Connection, error) {
+	return Connection{}, errAbsent
+}
+func (absentConnections) TestConnection(context.Context, string) (ConnectionTest, error) {
+	return ConnectionTest{}, errAbsent
+}

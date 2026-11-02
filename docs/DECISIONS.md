@@ -157,3 +157,14 @@ A Request still belongs to one catalog item and an item still has one shared Req
 - Selections merge by union into the existing open Request and never narrow it. Whoever widens a Request is subscribed to it as `manual` and the change is recorded as a `request.selection_changed` event. Requesting the whole item absorbs any subset.
 - Availability is unchanged for now: it is still projected for the whole item. Per-track and per-episode availability needs episode/track evidence from each Source adapter and is a later step. Until then a partial Request becomes available when its item does.
 - Track lists come from MusicBrainz and season/episode lists from TMDB, fetched when the dialog opens. If either lookup fails, the dialog falls back to requesting the whole item.
+
+## D028 — Library connections are managed in Settings and apply at once
+
+Accepted. This supersedes the "library and Apprise URLs stay environment-only" part of D024 for **library Sources only** (Apprise, OIDC and the other URLs are unchanged).
+
+- A library Source's address (and Navidrome's username) can be saved in Settings (`library_connections`). Its credential stays a D024 stored secret.
+- **The environment wins.** An address from `REQUESTARR_*_URL` is used as is and the saved one is shadowed; Settings shows it as set by the environment and will not change it. This keeps every existing deployment working untouched.
+- **Changes apply immediately, with no restart.** Saving an address, saving or clearing its credential, or removing the connection rebuilds that one Source: its schedule is stopped and, when the connection is complete, started again. A Source with an address but no credential stays off and Settings says what it is missing. A failed rebuild leaves the other Sources running.
+- **Boot never fails on a half-set stored connection.** A stored credential with no address (or the reverse) leaves that Source off with a warning, as the unreadable-secret case already does. An environment credential with no address is still a configuration error.
+- **Test connection** is the setup wizard's read-only probe run against the Source as currently configured. It never returns a credential.
+- Removing a connection stops syncing; inventory already observed is kept and is replaced by the next successful sync of that Source (D015 still forbids removals from a failed one).
