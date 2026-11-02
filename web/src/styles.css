@@ -2216,3 +2216,75 @@ a.tag-available:hover {
     gap: 12px;
     margin-top: 16px;
 }
+
+.issueTop {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.issueCover {
+    width: 150px;
+}
+
+.issueThumb {
+    flex: none;
+    width: 44px;
+    height: 66px;
+    border-radius: 8px;
+    background: var(--raised);
+    overflow: hidden;
+}
+
+.issueThumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.issueRow {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 14px;
+}
+
+.issueRow .issueMain {
+    flex: 1;
+}
+
+.issueRow .issueMeta {
+    justify-content: flex-end;
+}
+
+.issueStatusForm {
+    display: grid;
+    gap: 14px;
+    max-width: 520px;
+}
+
+.issueStatusForm label {
+    display: grid;
+    gap: 6px;
+    font-weight: 600;
+}
+
+@media (max-width: 700px) {
+    .issueRow {
+        flex-wrap: wrap;
+    }
+
+    .issueRow .issueMain {
+        flex-basis: calc(100% - 60px);
+    }
+
+    .issueTop {
+        grid-template-columns: 96px minmax(0, 1fr);
+        gap: 16px;
+    }
+
+    .issueCover {
+        width: 96px;
+    }
+}

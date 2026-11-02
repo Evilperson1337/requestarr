@@ -532,7 +532,7 @@ paths:
       operationId: listIssues
       summary: Issues (administrators see all, everyone else the ones they reported)
       parameters:
-        - { in: query, name: status, schema: { type: string, enum: [open, resolved, closed] } }
+        - { in: query, name: status, schema: { type: string, enum: [open, in_progress, resolved, closed] } }
         - { in: query, name: kind, schema: { $ref: '#/components/schemas/IssueKind' } }
         - { in: query, name: mediaType, schema: { type: string, enum: [movie, tv, album, song, game] } }
         - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
@@ -553,7 +553,7 @@ paths:
   /issues/summary:
     get:
       operationId: issuesSummary
-      summary: How many Issues are open (all for an administrator, otherwise the caller's)
+      summary: How many Issues still need an administrator, open or in progress (all for an administrator, otherwise the caller's)
       responses:
         '200': { description: Count, content: { application/json: { schema: { type: object, required: [open], properties: { open: { type: integer, minimum: 0 } } } } } }
         '401': { description: Authentication required }
@@ -605,10 +605,10 @@ paths:
       - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
     post:
       operationId: setIssueStatus
-      summary: Resolve, close (won't fix) or reopen an Issue (administrator only)
+      summary: Set an Issue's status: open, in progress, resolved or closed (administrator only)
       description: >-
-        open to resolved or closed, and resolved or closed back to open. Reopening is refused (409) when another open
-        Issue already holds the same item, kind and part. Reporters are notified in-app and the global Apprise route
+        Any status other than the current one. Making an Issue active again (open or in progress) is refused (409) when another
+        active Issue already holds the same item, kind and part. Reporters are notified in-app and the global Apprise route
         hears of it. Requires CSRF and a same-origin Origin header.
       parameters:
         - { in: header, name: X-CSRF-Token, required: true, schema: { type: string } }
@@ -616,7 +616,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { type: object, additionalProperties: false, required: [status], properties: { status: { type: string, enum: [open, resolved, closed] }, comment: { type: string, maxLength: 2000 } } }
+            schema: { type: object, additionalProperties: false, required: [status], properties: { status: { type: string, enum: [open, in_progress, resolved, closed] }, comment: { type: string, maxLength: 2000 } } }
       responses:
         '200': { description: The Issue as now, content: { application/json: { schema: { type: object, required: [issue], properties: { issue: { $ref: '#/components/schemas/Issue' } } } } } }
         '401': { description: Authentication required }
@@ -1356,8 +1356,12 @@ components:
         kind: { $ref: '#/components/schemas/IssueKind' }
         kindLabel: { type: string }
         part: { $ref: '#/components/schemas/Selection' }
-        status: { type: string, enum: [open, resolved, closed] }
+        status: { type: string, enum: [open, in_progress, resolved, closed] }
         description: { type: string, description: The first reporter's note }
+        artworkUrl: { type: string, description: The item's cover from its library }
+        link: { type: string, format: uri, description: Opens the item in its media server }
+        year: { type: integer }
+        sourceKind: { type: string, enum: [jellyfin, plex, romm, navidrome] }
         reporters: { type: integer, minimum: 0, description: Reporters still following the Issue }
         goneFromLibrary: { type: boolean, description: Its Source has since synced without the item }
         createdAt: { type: string, format: date-time }

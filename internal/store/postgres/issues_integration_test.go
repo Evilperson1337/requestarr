@@ -244,3 +244,41 @@ func TestIssueListDetailAndCountsRespectWhoIsAskingIntegration(t *testing.T) {
 		t.Fatalf("bad cursor: %v", err)
 	}
 }
+
+func TestAnIssueInProgressStillHoldsItsSlotAndCountsIntegration(t *testing.T) {
+	ctx, s, _ := setupDraftStore(t)
+	admin, a, b := integrationUser(t, ctx, s), integrationUser(t, ctx, s), integrationUser(t, ctx, s)
+	svc := issues.New(s.Issues())
+	item := libraryItem(t, ctx, s, "wip-"+newUUID()[:8], domain.MediaMovie)
+	first, err := svc.Report(ctx, issues.ReportInput{Actor: issues.Actor{ID: a, Role: "viewer"}, ItemID: item, Kind: domain.IssueVideo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminActor := issues.Actor{ID: admin, Role: "admin"}
+	moved, err := svc.Transition(ctx, adminActor, first.Issue.ID, domain.IssueInProgress, "re-encoding it")
+	if err != nil || moved.Status != domain.IssueInProgress || moved.ResolvedAt != nil {
+		t.Fatalf("in progress: %+v err %v", moved, err)
+	}
+	// Someone else hitting the same problem joins it rather than opening a duplicate.
+	if again, err := svc.Report(ctx, issues.ReportInput{Actor: issues.Actor{ID: b, Role: "viewer"}, ItemID: item, Kind: domain.IssueVideo}); err != nil || !again.Joined || again.Issue.ID != first.Issue.ID {
+		t.Fatalf("an in-progress Issue must be joined: %+v %v", again, err)
+	}
+	if n, _ := svc.OpenCount(ctx, adminActor); n < 1 {
+		t.Fatalf("in-progress Issues still need an administrator: %d", n)
+	}
+	var notified int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM notification_deliveries WHERE user_id=$1 AND event_key LIKE 'issue.in_progress:%'`, a).Scan(&notified); err != nil || notified != 1 {
+		t.Fatalf("the reporter must hear it is being worked on: %d %v", notified, err)
+	}
+	if done, err := svc.Transition(ctx, adminActor, first.Issue.ID, domain.IssueResolved, ""); err != nil || done.ResolvedAt == nil {
+		t.Fatalf("resolve: %+v %v", done, err)
+	}
+	// A resolved Issue can be put straight back in progress, and the library item says so.
+	if back, err := svc.Transition(ctx, adminActor, first.Issue.ID, domain.IssueInProgress, ""); err != nil || back.ResolvedAt != nil || back.Title == "" {
+		t.Fatalf("back to work: %+v %v", back, err)
+	}
+	detail, _ := svc.Detail(ctx, adminActor, first.Issue.ID)
+	if detail.Issue.SourceKind == "" || detail.Issue.LibraryItemID == "" {
+		t.Fatalf("an Issue carries its item's source: %+v", detail.Issue)
+	}
+}

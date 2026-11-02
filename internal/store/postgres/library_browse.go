@@ -20,7 +20,7 @@ var ErrLibraryItemNotFound = errors.New("library item not found")
 var ErrBadLibraryCursor = errors.New("invalid library cursor")
 
 const libraryItemColumns = `i.id::text,i.title,COALESCE(i.year,0),i.media_type,src.name,src.kind,COALESCE(i.added_at,i.first_seen_at),i.detail,i.artwork_ref<>'',COALESCE(i.external_url,''),
-	(SELECT count(*) FROM issues iss WHERE iss.inventory_item_id=i.id AND iss.status='open')`
+	(SELECT count(*) FROM issues iss WHERE iss.inventory_item_id=i.id AND iss.status IN ('open','in_progress'))`
 
 func scanLibraryItem(row pgx.Row) (domain.LibraryItem, error) {
 	var it domain.LibraryItem

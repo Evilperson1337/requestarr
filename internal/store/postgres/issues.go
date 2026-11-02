@@ -40,7 +40,8 @@ func (st issueStore) LibraryItem(ctx context.Context, id string) (issues.Library
 const issueColumns = `iss.id::text,iss.inventory_item_id::text,i.title,i.media_type,src.name,iss.kind,iss.part,iss.status,iss.created_by::text,iss.created_at,iss.updated_at,iss.resolved_at,iss.version,
 	(SELECT count(*) FROM issue_reporters r WHERE r.issue_id=iss.id AND r.left_at IS NULL),
 	COALESCE((SELECT r.note FROM issue_reporters r WHERE r.issue_id=iss.id AND r.user_id=iss.created_by),''),
-	i.last_seen_at < COALESCE((SELECT max(observed_at) FROM source_snapshot_runs sr WHERE sr.source_id=i.source_id), i.last_seen_at)`
+	i.last_seen_at < COALESCE((SELECT max(observed_at) FROM source_snapshot_runs sr WHERE sr.source_id=i.source_id), i.last_seen_at),
+	i.id::text,i.artwork_ref<>'',COALESCE(i.external_url,''),COALESCE(i.year,0),src.kind`
 
 const issueFrom = ` FROM issues iss JOIN inventory_items i ON i.id=iss.inventory_item_id JOIN library_sources src ON src.id=i.source_id`
 
@@ -50,11 +51,19 @@ func scanIssue(row rowScanner) (domain.Issue, error) {
 	var is domain.Issue
 	var part []byte
 	var reporters int64
-	err := row.Scan(&is.ID, &is.LibraryItemID, &is.Title, &is.MediaType, &is.SourceName, &is.Kind, &part, &is.Status, &is.ReportedBy, &is.CreatedAt, &is.UpdatedAt, &is.ResolvedAt, &is.Version, &reporters, &is.Description, &is.GoneFromLibrary)
+	var itemID, link string
+	var hasArt bool
+	err := row.Scan(&is.ID, &is.LibraryItemID, &is.Title, &is.MediaType, &is.SourceName, &is.Kind, &part, &is.Status, &is.ReportedBy, &is.CreatedAt, &is.UpdatedAt, &is.ResolvedAt, &is.Version, &reporters, &is.Description, &is.GoneFromLibrary, &itemID, &hasArt, &link, &is.Year, &is.SourceKind)
 	if err != nil {
 		return domain.Issue{}, err
 	}
 	is.Reporters = int(reporters)
+	if hasArt {
+		is.ArtworkURL = "/api/v1/library/items/" + itemID + "/artwork"
+	}
+	if safeLibraryLink(link) {
+		is.Link = link
+	}
 	if is.Part, err = parseSelection(part); err != nil {
 		return domain.Issue{}, err
 	}
@@ -116,9 +125,12 @@ func notifyIssueEvent(ctx context.Context, tx pgx.Tx, issueID, eventID, eventTyp
 		}
 		heading, audience = "Update on your issue: "+title, "reporters"
 		body = shorten(comment, 400)
-	case "resolved", "closed", "reopened":
-		verb := map[string]string{"resolved": "resolved", "closed": "closed without a fix", "reopened": "reopened"}[eventType]
+	case "in_progress", "resolved", "closed", "reopened":
+		verb := map[string]string{"in_progress": "now being worked on", "resolved": "resolved", "closed": "closed without a fix", "reopened": "reopened"}[eventType]
 		heading, audience, toApprise = "Issue "+verb+": "+title, "reporters", true
+		if eventType == "in_progress" {
+			heading = "Issue " + verb + ": " + title
+		}
 		body = kind.Label() + " on " + title + " (" + source + ") was " + verb + "."
 		if comment != "" {
 			body += " " + shorten(comment, 300)
@@ -175,7 +187,7 @@ func (st issueStore) ReportOrJoin(ctx context.Context, in issues.ReportInput, li
 	}
 	var issueID string
 	joined := false
-	err = tx.QueryRow(ctx, `SELECT id::text FROM issues WHERE inventory_item_id=$1 AND kind=$2 AND part_key=$3 AND status='open' FOR UPDATE`, in.ItemID, in.Kind, partKey).Scan(&issueID)
+	err = tx.QueryRow(ctx, `SELECT id::text FROM issues WHERE inventory_item_id=$1 AND kind=$2 AND part_key=$3 AND status IN ('open','in_progress') FOR UPDATE`, in.ItemID, in.Kind, partKey).Scan(&issueID)
 	switch {
 	case err == nil:
 		joined = true
@@ -269,9 +281,9 @@ func (st issueStore) Transition(ctx context.Context, issueID string, to domain.I
 		return domain.Issue{}, issues.ErrTransition
 	}
 	now := time.Now().UTC()
-	event := map[domain.IssueStatus]string{domain.IssueResolved: "resolved", domain.IssueClosed: "closed", domain.IssueOpen: "reopened"}[to]
-	if to == domain.IssueOpen {
-		if _, err := tx.Exec(ctx, `UPDATE issues SET status='open',resolved_by=NULL,resolved_at=NULL,updated_at=$2,version=version+1 WHERE id=$1`, issueID, now); err != nil {
+	event := map[domain.IssueStatus]string{domain.IssueResolved: "resolved", domain.IssueClosed: "closed", domain.IssueOpen: "reopened", domain.IssueInProgress: "in_progress"}[to]
+	if to.Active() {
+		if _, err := tx.Exec(ctx, `UPDATE issues SET status=$3,resolved_by=NULL,resolved_at=NULL,updated_at=$2,version=version+1 WHERE id=$1`, issueID, now, to); err != nil {
 			// Another open Issue already holds this item, kind and part.
 			var pg *pgconn.PgError
 			if errors.As(err, &pg) && pg.Code == "23505" {
@@ -428,7 +440,7 @@ func (st issueStore) Detail(ctx context.Context, issueID, userID string, admin b
 
 func (st issueStore) OpenCount(ctx context.Context, userID string, admin bool) (int, error) {
 	var n int
-	q := `SELECT count(*) FROM issues WHERE status='open'`
+	q := `SELECT count(*) FROM issues WHERE status IN ('open','in_progress')`
 	args := []any{}
 	if !admin {
 		q += ` AND EXISTS (SELECT 1 FROM issue_reporters r WHERE r.issue_id=issues.id AND r.user_id=$1)`

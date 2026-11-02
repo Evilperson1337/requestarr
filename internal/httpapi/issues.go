@@ -66,6 +66,10 @@ type issueBody struct {
 	Description     string           `json:"description,omitempty"`
 	Reporters       int              `json:"reporters"`
 	GoneFromLibrary bool             `json:"goneFromLibrary"`
+	ArtworkURL      string           `json:"artworkUrl,omitempty"`
+	Link            string           `json:"link,omitempty"`
+	Year            int              `json:"year,omitempty"`
+	SourceKind      string           `json:"sourceKind,omitempty"`
 	CreatedAt       time.Time        `json:"createdAt"`
 	UpdatedAt       time.Time        `json:"updatedAt"`
 	ResolvedAt      *time.Time       `json:"resolvedAt,omitempty"`
@@ -73,7 +77,7 @@ type issueBody struct {
 
 func toIssueBody(is domain.Issue) issueBody {
 	return issueBody{ID: is.ID, LibraryItemID: is.LibraryItemID, Title: is.Title, MediaType: is.MediaType, Source: is.SourceName, Kind: is.Kind, KindLabel: is.Kind.Label(),
-		Part: is.Part, Status: string(is.Status), Description: is.Description, Reporters: is.Reporters, GoneFromLibrary: is.GoneFromLibrary, CreatedAt: is.CreatedAt.UTC(), UpdatedAt: is.UpdatedAt.UTC(), ResolvedAt: is.ResolvedAt}
+		Part: is.Part, Status: string(is.Status), Description: is.Description, Reporters: is.Reporters, GoneFromLibrary: is.GoneFromLibrary, ArtworkURL: is.ArtworkURL, Link: is.Link, Year: is.Year, SourceKind: is.SourceKind, CreatedAt: is.CreatedAt.UTC(), UpdatedAt: is.UpdatedAt.UTC(), ResolvedAt: is.ResolvedAt}
 }
 
 func writeIssueError(w http.ResponseWriter, r *http.Request, err error) {
@@ -134,7 +138,7 @@ func registerIssueRoutes(rt *routeTable, svc IssueService) {
 		q := r.URL.Query()
 		query := domain.IssueQuery{Status: domain.IssueStatus(q.Get("status")), Kind: domain.IssueKind(q.Get("kind")), MediaType: domain.MediaType(q.Get("mediaType")), After: q.Get("cursor")}
 		switch query.Status {
-		case "", domain.IssueOpen, domain.IssueResolved, domain.IssueClosed:
+		case "", domain.IssueOpen, domain.IssueInProgress, domain.IssueResolved, domain.IssueClosed:
 		default:
 			apierror.Write(w, r, 400, "invalid_query", "unknown status")
 			return

@@ -83,7 +83,8 @@ func TestIssueTransitions(t *testing.T) {
 	}{
 		{IssueOpen, IssueResolved, true}, {IssueOpen, IssueClosed, true},
 		{IssueResolved, IssueOpen, true}, {IssueClosed, IssueOpen, true},
-		{IssueResolved, IssueClosed, false}, {IssueOpen, IssueOpen, false}, {IssueClosed, IssueResolved, false},
+		{IssueOpen, IssueInProgress, true}, {IssueInProgress, IssueResolved, true}, {IssueInProgress, IssueOpen, true}, {IssueResolved, IssueClosed, true},
+		{IssueOpen, IssueOpen, false}, {IssueInProgress, IssueInProgress, false}, {IssueOpen, "nonsense", false}, {"nonsense", IssueOpen, false},
 	}
 	for _, tc := range cases {
 		if got := CanTransitionIssue(tc.from, tc.to); got != tc.ok {

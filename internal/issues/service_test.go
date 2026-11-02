@@ -91,8 +91,11 @@ func TestOnlyAdminsMoveAnIssueAndOnlyAlongAllowedEdges(t *testing.T) {
 		t.Fatalf("admin resolve: %v", err)
 	}
 	repo.status = domain.IssueResolved
-	if _, err := svc.Transition(context.Background(), admin, "i1", domain.IssueClosed, ""); !errors.Is(err, ErrTransition) {
-		t.Fatalf("resolved -> closed must be refused: %v", err)
+	if _, err := svc.Transition(context.Background(), admin, "i1", domain.IssueResolved, ""); !errors.Is(err, ErrTransition) {
+		t.Fatalf("setting the status it already has must be refused: %v", err)
+	}
+	if _, err := svc.Transition(context.Background(), admin, "i1", domain.IssueInProgress, ""); err != nil {
+		t.Fatalf("an administrator may move a decided Issue back to work: %v", err)
 	}
 }
 

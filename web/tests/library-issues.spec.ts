@@ -165,23 +165,36 @@ test('the Issues list shows status and part, filters by status, and links to the
     await expect(row).toHaveAttribute('href', '/issues?issueId=i1')
     await page.getByRole('button', { name: 'Resolved' }).click()
     await expect.poll(() => calls.some(c => c.path === '/issues' && c.search.includes('status=resolved'))).toBe(true)
+    await page.getByRole('button', { name: 'In progress' }).click()
+    await expect.poll(() => calls.some(c => c.path === '/issues' && c.search.includes('status=in_progress'))).toBe(true)
 })
 
-test('an administrator reads the timeline and resolves or reopens an issue', async ({ page }) => {
+test('an administrator sees the cover and a link to the item, and sets its status from a dropdown', async ({ page }) => {
     let status = 'open'
     const calls = await mock(page, 'admin', (path, _u, method) => {
-        if (path === '/issues/i1' && method === 'GET') return { json: { issue: issue('i1', 'Arrival', { status }), youReported: false, reporters: [{ userId: 'r1', name: 'Sam', note: 'late', at: '2026-11-01T12:00:00Z', left: false }], events: [{ id: 'e1', type: 'reported', actorName: 'Sam', comment: 'late', at: '2026-11-01T12:00:00Z' }] } }
-        if (path === '/issues/i1/status') { status = 'resolved'; return { json: { issue: issue('i1', 'Arrival', { status }) } } }
+        if (path === '/issues/i1' && method === 'GET') return { json: { issue: issue('i1', 'Arrival', { status, year: 2016, artworkUrl: '/api/v1/library/items/a/artwork', link: 'https://plex.example/web#!/a' }), youReported: false, reporters: [{ userId: 'r1', name: 'Sam', note: 'late', at: '2026-11-01T12:00:00Z', left: false }], events: [{ id: 'e1', type: 'reported', actorName: 'Sam', comment: 'late', at: '2026-11-01T12:00:00Z' }] } }
+        if (path === '/issues/i1/status') { status = _u.searchParams.get('x') ?? status; return { json: { issue: issue('i1', 'Arrival', { status }) } } }
         return undefined
     })
+    await page.route('**/api/v1/issues/i1/status', async route => { const body = route.request().postDataJSON(); status = body.status; calls.push({ method: 'POST', path: '/issues/i1/status', search: '', body }); await route.fulfill({ json: { issue: issue('i1', 'Arrival', { status }) } }) })
     await page.goto('/issues?issueId=i1')
-    await expect(page.getByRole('heading', { name: 'Arrival', level: 1 })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Arrival (2016)', level: 1 })).toBeVisible()
+    await expect(page.getByRole('img', { name: 'Cover for Arrival' })).toHaveAttribute('src', '/api/v1/library/items/a/artwork')
+    await expect(page.getByRole('link', { name: 'Open in Plex' })).toHaveAttribute('href', 'https://plex.example/web#!/a')
     await expect(page.getByRole('list').filter({ hasText: 'Sam reported this' })).toBeVisible()
     await expect(page.getByText('Sam: late')).toBeVisible()
-    await page.getByLabel('Closing note (optional)').fill('re-synced')
-    await page.getByRole('button', { name: 'Resolve' }).click()
-    await expect(page.getByRole('button', { name: 'Reopen' })).toBeVisible()
-    expect(calls.find(c => c.path === '/issues/i1/status')!.body).toEqual({ status: 'resolved', comment: 're-synced' })
+    const select = page.getByRole('combobox', { name: 'Status' })
+    await expect(select).toHaveValue('open')
+    await expect(page.getByRole('button', { name: 'Update status' })).toBeDisabled()
+    await select.selectOption('in_progress')
+    await page.getByLabel('Note (optional)').fill('re-encoding it')
+    await page.getByRole('button', { name: 'Update status' }).click()
+    await expect(page.getByRole('combobox', { name: 'Status' })).toHaveValue('in_progress')
+    await expect(page.locator('.badge')).toHaveText('in progress')
+    await page.getByRole('combobox', { name: 'Status' }).selectOption('resolved')
+    await page.getByRole('button', { name: 'Update status' }).click()
+    await expect(page.locator('.badge')).toHaveText('resolved')
+    expect(calls.filter(c => c.path === '/issues/i1/status').map(c => c.body)).toEqual([{ status: 'in_progress', comment: 're-encoding it' }, { status: 'resolved' }])
 })
 
 test('a reporter can comment and stop following but cannot decide; a stranger gets a plain not-found', async ({ page }) => {
@@ -191,7 +204,7 @@ test('a reporter can comment and stop following but cannot decide; a stranger ge
         return { status: 204, body: '' }
     })
     await page.goto('/issues?issueId=i1')
-    await expect(page.getByRole('button', { name: 'Resolve' })).toHaveCount(0)
+    await expect(page.getByRole('combobox', { name: 'Status' })).toHaveCount(0)
     await page.getByLabel('Add a comment').fill('still late')
     await page.getByRole('button', { name: 'Comment' }).click()
     await expect.poll(() => calls.some(c => c.path === '/issues/i1/comments' && c.body.text === 'still late')).toBe(true)

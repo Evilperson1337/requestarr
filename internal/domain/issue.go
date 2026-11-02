@@ -13,8 +13,10 @@ import (
 type IssueStatus string
 
 const (
-	IssueOpen     IssueStatus = "open"
-	IssueResolved IssueStatus = "resolved"
+	IssueOpen IssueStatus = "open"
+	// IssueInProgress means an administrator is working on it.
+	IssueInProgress IssueStatus = "in_progress"
+	IssueResolved   IssueStatus = "resolved"
 	// IssueClosed is "won't fix": an admin declined it without pretending it was fixed.
 	IssueClosed IssueStatus = "closed"
 )
@@ -87,6 +89,11 @@ type Issue struct {
 	ResolvedAt  *time.Time
 	Reporters   int
 	Description string
+	// ArtworkURL and Link come from the Library item: its cover, and where its media server shows it.
+	ArtworkURL string
+	Link       string
+	Year       int
+	SourceKind string
 	// GoneFromLibrary is true when the item's Source has since synced without it.
 	GoneFromLibrary bool
 	Version         int64
@@ -139,16 +146,23 @@ func (s Selection) Key() string {
 	return string(out)
 }
 
-// CanTransitionIssue encodes who may move an Issue and where: only open Issues
-// can be resolved or closed, and only a decided one can be reopened.
-func CanTransitionIssue(from, to IssueStatus) bool {
-	switch to {
-	case IssueResolved, IssueClosed:
-		return from == IssueOpen
-	case IssueOpen:
-		return from == IssueResolved || from == IssueClosed
+// Valid reports whether the status exists.
+func (s IssueStatus) Valid() bool {
+	switch s {
+	case IssueOpen, IssueInProgress, IssueResolved, IssueClosed:
+		return true
 	}
 	return false
+}
+
+// Active is true while an Issue still needs an administrator: open or in progress.
+func (s IssueStatus) Active() bool { return s == IssueOpen || s == IssueInProgress }
+
+// CanTransitionIssue lets an administrator set any status other than the one an
+// Issue already has; the store refuses to make a second active Issue for the
+// same item, kind and part.
+func CanTransitionIssue(from, to IssueStatus) bool {
+	return from.Valid() && to.Valid() && from != to
 }
 
 // IssueEvent is one thing that happened to an Issue, oldest first in a timeline.
