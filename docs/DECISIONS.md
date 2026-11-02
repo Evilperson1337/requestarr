@@ -197,3 +197,14 @@ People can browse what each Source holds (the Library page) and report a problem
 The spec and tickets are in `.scratch/library-and-issues/`.
 
 Addendum to D020: when an album is resolved, every release of its release group (already in the MusicBrainz response) is recorded as an `mbid` alias, and the item is matched against the inventory already stored (`matchExistingInventory`). A library that holds the album as any edition is therefore found at once, without waiting for a Request to exist (alias lookups for open Requests during sync remain the fallback for songs).
+
+## D031 — Audiobooks are requested by ASIN and detected through Audiobookshelf
+
+Proposed. Research: `docs/research/AUDIOBOOK_INTEGRATION.md`.
+
+- `audiobook` is a new media type (square artwork). Its identity is the **ASIN** (`Provider=audible`, `ProviderID=ASIN`). One shared Request per ASIN; two ASINs for the same book are two Requests in v1, with no title-based merging.
+- A requester supplies an Audible product URL or a bare ASIN. The marketplace region is the admin's global default (US out of the box); a pasted Audible URL's TLD overrides it. There is no per-request picker, and the region is display data, never part of the match key.
+- Metadata (title, author, narrator, cover, abridged) is resolved through a narrow resolver: Audnexus first, Audible's catalog as fallback, so AudiobookDB can replace either. If resolution fails, the Request is accepted with an unresolved placeholder title and resolution is retried later; an upstream outage never blocks a Request. Resolution happens only when a Request is created, and results are cached.
+- **Audiobookshelf** is the only audiobook Source kind in v1 (>= 2.26.0, API key held as a Stored secret, D024, sent in the Authorization header only). The adapter reads book libraries and treats an item as audio only when `numTracks > 0`; `isMissing` counts as absent; a failed or truncated enumeration yields no snapshot (D015). It never calls a write endpoint.
+- Matching is exact ASIN equality plus the existing reviewable title/author candidates. ISBN aliasing is deferred to v1.1.
+- BookOrbit is not supported: no machine API token, no ASIN in list rows, and its own request and download features overlap the acquisition boundary in AGENTS.md.
