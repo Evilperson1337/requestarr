@@ -22,7 +22,7 @@ async function openGame(page: Page, resolved: unknown = game, role = 'requester'
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link…').fill('https://www.igdb.com/games/fixture-game')
+    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill('https://www.igdb.com/games/fixture-game')
     await page.getByRole('button', { name: 'Preview', exact: true }).click()
     return page.getByRole('dialog', { name: /Fixture game/ })
 }

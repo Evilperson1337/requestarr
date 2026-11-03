@@ -43,7 +43,7 @@ test('Home says so when nothing has been requested yet', async ({ page }) => {
 test('a failing list never blocks requesting', async ({ page }) => {
     await openHome(page, () => ({ status: 500, json: { error: { code: 'requests_list_failed', message: 'could not list requests' } } }))
     await expect(page.getByText('Your recent requests could not be loaded.')).toBeVisible()
-    await expect(page.getByPlaceholder('Paste a supported link…')).toBeEnabled()
+    await expect(page.getByPlaceholder('Paste a supported link or an ASIN…')).toBeEnabled()
     await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeEnabled()
 })
 
@@ -84,7 +84,7 @@ test('Home shows what the libraries recently gained as one shelf per cover shape
     await expect(shows.locator('.railCover.square')).toHaveCount(0)
     await expect(music.locator('.railCover.square')).toHaveCount(1)
     await expect(page.getByRole('region', { name: /in your libraries/ }).getByRole('link')).toHaveCount(0)
-    expect([...new Set(calls)].sort()).toEqual(['?types=album&limit=6', '?types=game&limit=6', '?types=movie,tv&limit=6'])
+    expect([...new Set(calls)].sort()).toEqual(['?types=album&limit=6', '?types=audiobook&limit=6', '?types=game&limit=6', '?types=movie,tv&limit=6'])
 })
 
 test('Home leaves the library shelves out when libraries have nothing to show', async ({ page }) => {

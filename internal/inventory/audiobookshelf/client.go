@@ -86,13 +86,13 @@ type itemPage struct {
 		MediaType string  `json:"mediaType"`
 		Media     *struct {
 			Metadata *struct {
-				Title         string `json:"title"`
-				AuthorName    string `json:"authorName"`
-				NarratorName  string `json:"narratorName"`
-				ASIN          string `json:"asin"`
-				PublishedYear string `json:"publishedYear"`
+				Title        string `json:"title"`
+				AuthorName   string `json:"authorName"`
+				NarratorName string `json:"narratorName"`
+				ASIN         string `json:"asin"`
 			} `json:"metadata"`
-			NumTracks *int `json:"numTracks"`
+			CoverPath string `json:"coverPath"`
+			NumTracks *int   `json:"numTracks"`
 		} `json:"media"`
 	} `json:"results"`
 	Total *int `json:"total"`
@@ -173,8 +173,11 @@ func (c *Client) libraryItems(ctx context.Context, lib library, items *[]invento
 			if asin, err := domain.ParseASIN(md.ASIN); err == nil {
 				item.ExternalIDs["audible"] = asin
 			}
-			if year, err := strconv.Atoi(strings.TrimSpace(md.PublishedYear)); err == nil && year > 1800 && year < 3000 {
-				item.Year = year
+			// No Year on purpose: Audiobookshelf's publishedYear is usually the book's,
+			// Audible's release year the recording's, and a mismatch would hide the
+			// title-only suggestion that is the only way to match an item with no ASIN.
+			if ref := "/api/items/" + id + "/cover"; r.Media.CoverPath != "" && coverPattern.MatchString(ref) {
+				item.ArtworkRef = ref
 			}
 			if r.AddedAt > 0 {
 				item.AddedAt = time.UnixMilli(r.AddedAt).UTC()

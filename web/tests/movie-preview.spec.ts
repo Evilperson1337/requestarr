@@ -16,7 +16,7 @@ async function openMovie(page: Page, resolved: unknown = movie, role = 'requeste
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link…').fill('https://www.themoviedb.org/movie/1762506-band-of-brothers-legacy')
+    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill('https://www.themoviedb.org/movie/1762506-band-of-brothers-legacy')
     await page.getByRole('button', { name: 'Preview', exact: true }).click()
     return page.getByRole('dialog', { name: /Fixture movie/ })
 }
@@ -144,7 +144,7 @@ test('reopening the same movie reuses metadata and refreshes only local state', 
     await expect(dialog).toBeVisible()
     expect(providerLookups).toBe(0)
     await dialog.getByRole('button', { name: 'Close preview' }).click()
-    const input = page.getByPlaceholder('Paste a supported link…')
+    const input = page.getByPlaceholder('Paste a supported link or an ASIN…')
     await input.focus()
     await input.press('Enter')
     await expect(dialog).toBeVisible()

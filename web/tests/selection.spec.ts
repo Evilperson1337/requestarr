@@ -26,7 +26,7 @@ async function open(page: Page, resolved: unknown, link: string, posts: { body?:
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link…').fill(link)
+    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill(link)
     await page.getByRole('button', { name: 'Preview', exact: true }).click()
     return page.getByRole('dialog')
 }

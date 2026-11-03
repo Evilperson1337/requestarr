@@ -26,7 +26,7 @@ async function open(page: Page, resolved: any, role = 'requester', onRequest?: (
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link…').fill(resolved.Item.ExternalURL)
+    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill(resolved.Item.ExternalURL)
     await page.getByRole('button', { name: 'Preview', exact: true }).click()
     return page.getByRole('dialog', { name: new RegExp(resolved.Item.Title.split(' — ')[1]) })
 }
@@ -79,7 +79,7 @@ test('album whose cover art fails to load shows a placeholder and no blurred ban
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link…').fill('https://musicbrainz.org/release/x')
+    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill('https://musicbrainz.org/release/x')
     await page.getByRole('button', { name: 'Preview', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: /No Cover/ })
     await expect(dialog.getByRole('img', { name: 'Cover unavailable' })).toBeVisible()

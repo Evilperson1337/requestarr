@@ -14,7 +14,7 @@ import (
 // ErrNoArtwork means the item is unknown or has no cover reference.
 var ErrNoArtwork = errors.New("no artwork")
 
-// RecentlyAdded lists the movies, series, albums and games libraries gained most
+// RecentlyAdded lists the movies, series, albums, games and audiobooks libraries gained most
 // recently. Only items present in their source's latest complete snapshot count,
 // so something since removed never shows. Songs are left out: they would drown the row.
 func (s *Store) RecentlyAdded(ctx context.Context, limit int, types []domain.MediaType) ([]domain.RecentLibraryItem, error) {
@@ -23,12 +23,12 @@ func (s *Store) RecentlyAdded(ctx context.Context, limit int, types []domain.Med
 	}
 	wanted := []string{}
 	for _, t := range types {
-		if t == domain.MediaMovie || t == domain.MediaTV || t == domain.MediaAlbum || t == domain.MediaGame {
+		if t == domain.MediaMovie || t == domain.MediaTV || t == domain.MediaAlbum || t == domain.MediaGame || t == domain.MediaAudiobook {
 			wanted = append(wanted, string(t))
 		}
 	}
 	if len(wanted) == 0 {
-		wanted = []string{"movie", "tv", "album", "game"}
+		wanted = []string{"movie", "tv", "album", "game", "audiobook"}
 	}
 	// The same title in two libraries (a show in both Kids and TV) is one entry: the newest.
 	rows, err := s.pool.Query(ctx, `SELECT id,title,year,media_type,name,added,has_art,detail FROM (

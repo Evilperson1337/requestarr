@@ -81,6 +81,6 @@ export function LibraryItemDialog({ item, session, onClose, onReported }: { item
                 <button className="button" type="submit" disabled={busy || !kind || (needsWords && !description.trim()) || !partValid}>{busy ? 'Sending…' : 'Send report'}</button>
                 <button className="button secondary" type="button" disabled={busy} onClick={() => setReporting(false)}>Back</button>
             </div>
-        </form> : <div className="draftActions"><button className="button secondary" type="button" onClick={() => setReporting(true)}>Report an issue</button></div>}
+        </form> : item.issueKinds.length > 0 && <div className="draftActions"><button className="button secondary" type="button" onClick={() => setReporting(true)}>Report an issue</button></div>}
     </Modal>
 }

@@ -4,7 +4,7 @@ import { MovieRequestModal } from './MovieRequestModal'
 import { CatalogRequestModal } from './CatalogRequestModal'
 
 export function RequestModal({ resolved, session, onCreated, onClose }: { resolved: ResolvedItem; session: Session; onCreated: () => void; onClose: () => void }) {
-    if (['game', 'album', 'song'].includes(resolved.Item.MediaType)) return <CatalogRequestModal resolved={resolved} session={session} onCreated={onCreated} onClose={onClose} />
+    if (['game', 'album', 'song', 'audiobook'].includes(resolved.Item.MediaType)) return <CatalogRequestModal resolved={resolved} session={session} onCreated={onCreated} onClose={onClose} />
     return ['movie', 'tv'].includes(resolved.Item.MediaType) ? <MovieRequestModal resolved={resolved} session={session} onCreated={onCreated} onClose={onClose} /> : <BasicRequestModal resolved={resolved} session={session} onCreated={onCreated} onClose={onClose} />
 }
 

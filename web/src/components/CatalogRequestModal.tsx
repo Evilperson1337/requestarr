@@ -38,6 +38,7 @@ function describe(resolved: ResolvedItem): Facts {
             needsPlatforms: true,
         }
     }
+    if (item.MediaType === 'audiobook') return describeAudiobook(item)
     const music = resolved.Music
     const isSong = item.MediaType === 'song'
     const date = longDate(music?.releaseDate)
@@ -51,6 +52,29 @@ function describe(resolved: ResolvedItem): Facts {
         overview: '', credit: music?.artists?.length ? { label: music.artists.length > 1 ? 'Artists' : 'Artist', names: music.artists } : undefined,
         alsoOn: music?.appearsOn?.length ? { label: 'Appears on', names: music.appearsOn } : undefined,
         needsPlatforms: false,
+    }
+}
+
+const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string' && x !== '') : []
+
+// Audiobooks come from Audnexus or Audible; every field is optional, and a
+// title whose providers were unreachable carries only its ASIN (D031).
+function describeAudiobook(item: ResolvedItem['Item']): Facts {
+    const meta = item.Metadata ?? {}
+    const unresolved = meta.unresolved === true
+    const narrators = strings(meta.narrators)
+    const minutes = typeof meta.runtimeMinutes === 'number' ? meta.runtimeMinutes : 0
+    const region = typeof meta.region === 'string' ? meta.region.toUpperCase() : ''
+    const series = typeof meta.series === 'string' ? `${meta.series}${typeof meta.seriesPosition === 'string' && meta.seriesPosition ? ` #${meta.seriesPosition}` : ''}` : ''
+    const subtitle = typeof meta.subtitle === 'string' ? meta.subtitle : ''
+    const authors = strings(meta.authors)
+    return {
+        eyebrow: 'Audiobook preview', noun: 'audiobook', source: 'Audible', tagLabel: 'Edition', backdropUrl: undefined, needsPlatforms: false, upcoming: false,
+        badges: [meta.abridged === true ? 'Abridged' : meta.abridged === false ? 'Unabridged' : '', series, region ? `Audible ${region}` : ''].filter(Boolean),
+        lines: unresolved ? [<>Details will fill in once Audible answers. The request is by ASIN <strong>{item.ProviderID}</strong>.</>]
+            : [...(subtitle ? [subtitle] : []), ...(narrators.length ? [<><strong>Narrated by:</strong> {narrators.join(', ')}</>] : []),
+                ...(minutes ? [<><strong>Length:</strong> {Math.floor(minutes / 60)} h {minutes % 60} min</>] : [])],
+        rating: '', overview: '', credit: authors.length ? { label: authors.length > 1 ? 'Authors' : 'Author', names: authors } : undefined,
     }
 }
 

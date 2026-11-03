@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type LibraryItem, type LibraryPage as Page, type Session } from '../api'
 import { LibraryItemDialog } from '../components/LibraryItemDialog'
 
-const tabs = [['movie', 'Movies'], ['tv', 'TV'], ['album', 'Music'], ['game', 'Games']] as const
-const sources = [['', 'All libraries'], ['plex', 'Plex'], ['jellyfin', 'Jellyfin'], ['navidrome', 'Navidrome'], ['romm', 'RomM']] as const
-const cover = (type: string) => type === 'album' ? ' square' : type === 'game' ? ' game' : ''
+const tabs = [['movie', 'Movies'], ['tv', 'TV'], ['album', 'Music'], ['game', 'Games'], ['audiobook', 'Audiobooks']] as const
+const sources = [['', 'All libraries'], ['plex', 'Plex'], ['jellyfin', 'Jellyfin'], ['navidrome', 'Navidrome'], ['romm', 'RomM'], ['audiobookshelf', 'Audiobookshelf']] as const
+const cover = (type: string) => type === 'album' || type === 'audiobook' ? ' square' : type === 'game' ? ' game' : ''
 
 // What the libraries hold, one media type at a time, each with its own cover shape (D030).
 export function LibraryPage({ session }: { session: Session }) {

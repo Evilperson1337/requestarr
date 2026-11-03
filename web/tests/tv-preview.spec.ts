@@ -18,7 +18,7 @@ async function openSeries(page: Page, resolved: unknown = series, role = 'reques
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link…').fill('https://www.themoviedb.org/tv/714-fixture-series')
+    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill('https://www.themoviedb.org/tv/714-fixture-series')
     await page.getByRole('button', { name: 'Preview', exact: true }).click()
     return page.getByRole('dialog', { name: /Fixture series/ })
 }

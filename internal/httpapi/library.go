@@ -36,9 +36,9 @@ func registerLibraryRoutes(rt *routeTable, library LibraryReader) {
 		q := r.URL.Query()
 		query := domain.LibraryQuery{Type: domain.MediaType(q.Get("type")), Search: q.Get("q"), Source: q.Get("source"), After: q.Get("cursor")}
 		switch query.Type {
-		case domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaGame:
+		case domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaGame, domain.MediaAudiobook:
 		default:
-			apierror.Write(w, r, 400, "invalid_query", "type must be movie, tv, album or game")
+			apierror.Write(w, r, 400, "invalid_query", "type must be movie, tv, album, game or audiobook")
 			return
 		}
 		if _, ok := sources.Lookup(query.Source); query.Source != "" && !ok || len(query.Search) > 100 || len(query.After) > 200 {

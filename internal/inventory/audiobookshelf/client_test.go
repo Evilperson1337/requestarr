@@ -115,15 +115,15 @@ func TestSnapshotKeepsAudioItemsAndMapsASINs(t *testing.T) {
 		t.Fatalf("items=%v", byID)
 	}
 	hail := byID["li_1"]
-	if hail.MediaType != domain.MediaAudiobook || hail.Title != "Project Hail Mary" || hail.ExternalIDs["audible"] != "B08G9PRS1K" || hail.Year != 2021 ||
+	if hail.MediaType != domain.MediaAudiobook || hail.Title != "Project Hail Mary" || hail.ExternalIDs["audible"] != "B08G9PRS1K" || hail.Year != 0 || hail.ArtworkRef != "/api/items/li_1/cover" ||
 		hail.Detail != "Andy Weir · read by Ray Porter" || hail.AddedAt.IsZero() || !strings.HasSuffix(hail.ExternalURL, "/item/li_1") {
 		t.Fatalf("hail=%+v", hail)
 	}
 	// No ASIN, or an unusable one, still lists the item, with no identifier.
-	if by := byID["li_2"]; len(by.ExternalIDs) != 0 || by.Detail != "Someone" {
+	if by := byID["li_2"]; len(by.ExternalIDs) != 0 || by.Detail != "Someone" || by.ArtworkRef != "" {
 		t.Fatalf("hand-matched=%+v", by)
 	}
-	if bad := byID["li_5"]; len(bad.ExternalIDs) != 0 || bad.Year != 0 {
+	if bad := byID["li_5"]; len(bad.ExternalIDs) != 0 {
 		t.Fatalf("bad asin=%+v", bad)
 	}
 	if _, present := byID["li_3"]; present {
@@ -220,5 +220,28 @@ func TestNewRefusesAnythingButAnOrigin(t *testing.T) {
 	}
 	if _, err := New("https://abs.example/", "k"); err != nil {
 		t.Errorf("trailing slash refused: %v", err)
+	}
+}
+
+func TestArtworkFetchesOnlyAnItemCoverWithTheKeyInAHeader(t *testing.T) {
+	var got *http.Request
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Clone(context.Background())
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("\xff\xd8jpeg"))
+	}))
+	defer ts.Close()
+	c, _ := NewWithHTTPClient(ts.URL, testKey, ts.Client())
+	art, err := c.Artwork(context.Background(), "/api/items/li_1/cover")
+	if err != nil || art.ContentType != "image/jpeg" || len(art.Data) == 0 {
+		t.Fatalf("artwork %+v, err %v", art, err)
+	}
+	if got.Header.Get("Authorization") != "Bearer "+testKey || strings.Contains(got.URL.String(), testKey) || got.Method != http.MethodGet {
+		t.Fatalf("request %s %s", got.Method, got.URL)
+	}
+	for _, ref := range []string{"", "/api/items/../libraries/cover", "/api/items/a/b/cover", "/api/libraries", "//evil.example/api/items/x/cover", "/api/items/x/cover?token=1"} {
+		if _, err := c.Artwork(context.Background(), ref); err == nil {
+			t.Errorf("ref %q accepted", ref)
+		}
 	}
 }

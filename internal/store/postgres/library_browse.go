@@ -68,7 +68,7 @@ func escapeLike(s string) string {
 // title in two libraries of the same Source is one entry.
 func (s *Store) BrowseLibrary(ctx context.Context, q domain.LibraryQuery) (domain.LibraryPage, error) {
 	switch q.Type {
-	case domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaGame:
+	case domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaGame, domain.MediaAudiobook:
 	default:
 		return domain.LibraryPage{}, fmt.Errorf("unsupported library media type")
 	}
@@ -134,7 +134,7 @@ func (s *Store) LibraryItemByID(ctx context.Context, id string) (domain.LibraryI
 	if !domain.ValidUUID(id) {
 		return domain.LibraryItem{}, ErrLibraryItemNotFound
 	}
-	it, err := scanLibraryItem(s.pool.QueryRow(ctx, `SELECT `+libraryItemColumns+` FROM inventory_items i JOIN library_sources src ON src.id=i.source_id WHERE i.id=$1 AND i.media_type IN ('movie','tv','album','game')`, id))
+	it, err := scanLibraryItem(s.pool.QueryRow(ctx, `SELECT `+libraryItemColumns+` FROM inventory_items i JOIN library_sources src ON src.id=i.source_id WHERE i.id=$1 AND i.media_type IN ('movie','tv','album','game','audiobook')`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.LibraryItem{}, ErrLibraryItemNotFound
 	}

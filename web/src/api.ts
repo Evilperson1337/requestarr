@@ -20,7 +20,7 @@ export type SetupDraft = {
     blockers: { target: SetupTarget; reason: 'not_checked' | 'failed' | 'expired' }[] | null
     completedAt: string | null
 }
-export type CatalogItem = { ID: string; MediaType: string; Provider: string; Title: string; Year: number; ArtworkURL: string; ArtworkKind: string; ExternalURL: string }
+export type CatalogItem = { ID: string; MediaType: string; Provider: string; ProviderID: string; Title: string; Year: number; ArtworkURL: string; ArtworkKind: string; ExternalURL: string; Metadata?: Record<string, unknown> }
 export type Selection = { tracks?: { id: string; position?: number; title: string }[]; seasons?: number[]; episodes?: { season: number; episode: number }[] }
 export type Platform = { providerId: string; key: string; name: string }
 export type MovieDetails = { overview?: string; runtime?: number; genres?: string[]; releaseDate?: string; releaseStatus?: string; score?: number; ratingCount?: number; backdropUrl?: string; directors?: string[]; cast?: { name: string; character?: string; profileUrl?: string }[]; detailsUnavailable?: boolean }
@@ -30,9 +30,9 @@ export type MusicDetails = { artists?: string[]; primaryType?: string; secondary
 export type MoviePreviewState = { availability: 'unknown' | 'available' | 'missing'; canRequest: boolean; canSubscribe: boolean; canExtend?: boolean; request?: { id: string; status: string; subscribed: boolean; selection?: Selection }; libraries?: { name: string; url?: string }[] }
 export type ResolvedItem = { Item: CatalogItem; Platforms: Platform[]; Movie?: MovieDetails; TV?: TVDetails; Game?: GameDetails; Music?: MusicDetails; Preview?: MoviePreviewState }
 export type RequestItem = { ID: string; CatalogItemID: string; Title: string; MediaType: string; ArtworkURL: string; ArtworkKind: string; CatalogPlatforms?: Platform[]; Status: string; Version: number; RequestedBy: string; Note: string; availability: 'unknown' | 'available' | 'missing'; availabilityObservedAt?: string | null; Platforms: { any: boolean; platformKeys?: string[] }; CreatedAt: string; subscribed: boolean; subscriptionSource: 'requester' | 'manual' | ''; selection?: Selection }
-export type RecentLibraryItem = { id: string; title: string; year?: number; mediaType: 'movie' | 'tv' | 'album' | 'game'; detail?: string; source: string; addedAt: string; artworkUrl?: string }
+export type RecentLibraryItem = { id: string; title: string; year?: number; mediaType: 'movie' | 'tv' | 'album' | 'game' | 'audiobook'; detail?: string; source: string; addedAt: string; artworkUrl?: string }
 export type IssueKindOption = { kind: string; label: string }
-export type LibraryItem = { id: string; title: string; year?: number; mediaType: 'movie' | 'tv' | 'album' | 'game'; source: string; sourceKind: string; addedAt: string; detail?: string; artworkUrl?: string; link?: string; openIssues: number; issueKinds: IssueKindOption[]; tracks?: { id: string; title: string; disc?: number; position?: number }[] }
+export type LibraryItem = { id: string; title: string; year?: number; mediaType: 'movie' | 'tv' | 'album' | 'game' | 'audiobook'; source: string; sourceKind: string; addedAt: string; detail?: string; artworkUrl?: string; link?: string; openIssues: number; issueKinds: IssueKindOption[]; tracks?: { id: string; title: string; disc?: number; position?: number }[] }
 export type LibraryPage = { items: LibraryItem[]; nextCursor: string | null }
 export type IssueStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
 export type Issue = { id: string; libraryItemId: string; title: string; mediaType: string; source: string; kind: string; kindLabel: string; part: Selection; status: IssueStatus; description?: string; reporters: number; goneFromLibrary: boolean; artworkUrl?: string; link?: string; year?: number; sourceKind?: string; createdAt: string; updatedAt: string; resolvedAt?: string }

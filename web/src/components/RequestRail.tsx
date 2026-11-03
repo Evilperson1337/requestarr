@@ -1,7 +1,7 @@
 import type { RecentLibraryItem, RequestItem } from '../api'
 import { followLink } from '../navigation'
 
-const kinds: Record<string, string> = { movie: 'Movie', tv: 'TV', game: 'Game', album: 'Album', song: 'Song' }
+const kinds: Record<string, string> = { movie: 'Movie', tv: 'TV', game: 'Game', album: 'Album', song: 'Song', audiobook: 'Audiobook' }
 
 // A row of request covers: artwork, the status on its corner, the media type on the other, then title.
 export function RequestRail({ items }: { items: RequestItem[] }) {
@@ -22,7 +22,7 @@ export function RequestRail({ items }: { items: RequestItem[] }) {
 export function LibraryRail({ items }: { items: RecentLibraryItem[] }) {
     return <ul className="coverRail">{items.map(item => <li key={item.id}>
         <div className="railCard plain">
-            <span className={`railCover${item.mediaType === 'album' ? ' square' : item.mediaType === 'game' ? ' game' : ''}`}>
+            <span className={`railCover${item.mediaType === 'album' || item.mediaType === 'audiobook' ? ' square' : item.mediaType === 'game' ? ' game' : ''}`}>
                 {item.artworkUrl ? <img src={item.artworkUrl} alt={`Cover for ${item.title}`} loading="lazy" /> : <span className="railBlank" aria-hidden="true">{kinds[item.mediaType] ?? item.mediaType}</span>}
             </span>
             <span className="railTitle">{item.title}</span>
