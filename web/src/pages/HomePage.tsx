@@ -19,7 +19,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     const [recentFailed, setRecentFailed] = useState(false)
     const loadRecent = useCallback(async (signal?: AbortSignal) => {
         try {
-            const page = await api<RequestPage>('/requests?mine=true&limit=5', { cache: 'no-store', signal })
+            const page = await api<RequestPage>('/requests?mine=true&limit=12', { cache: 'no-store', signal })
             if (!signal?.aborted) { setRecent(Array.isArray(page?.items) ? page.items : []); setRecentFailed(false) }
         } catch { if (!signal?.aborted) setRecentFailed(true) }
     }, [])
@@ -32,7 +32,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     const [addedBooks, setAddedBooks] = useState<RecentLibraryItem[]>([])
     useEffect(() => {
         const controller = new AbortController()
-        api<RequestPage>('/requests?status=available&limit=6', { cache: 'no-store', signal: controller.signal })
+        api<RequestPage>('/requests?status=available&limit=12', { cache: 'no-store', signal: controller.signal })
             .then(page => { if (!controller.signal.aborted) setAvailable(Array.isArray(page?.items) ? page.items : []) })
             .catch(() => undefined)
         return () => controller.abort()
@@ -40,7 +40,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     useEffect(() => {
         const controller = new AbortController()
         // One shelf per cover shape, so every cover in a row has the same proportions.
-        const shelf = (types: string, set: (items: RecentLibraryItem[]) => void) => api<{ items: RecentLibraryItem[] }>(`/library/recent?types=${types}&limit=6`, { signal: controller.signal })
+        const shelf = (types: string, set: (items: RecentLibraryItem[]) => void) => api<{ items: RecentLibraryItem[] }>(`/library/recent?types=${types}&limit=12`, { signal: controller.signal })
             .then(result => { if (!controller.signal.aborted) set(Array.isArray(result?.items) ? result.items : []) })
             .catch(() => undefined)
         void shelf('movie,tv', setAddedVideo); void shelf('album', setAddedMusic); void shelf('game', setAddedGames); void shelf('audiobook', setAddedBooks)

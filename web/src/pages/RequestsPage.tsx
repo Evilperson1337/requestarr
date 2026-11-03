@@ -13,6 +13,8 @@ function firstPageSnapshot(userID: string, view: string): FirstPageSnapshot | nu
     return saved?.userID === userID && saved.view === view && Date.now() - saved.savedAt < 15 * 60 * 1000 ? saved : null
 }
 
+const mediaLabels: Record<string, string> = { movie: 'Movie', tv: 'TV', album: 'Album', song: 'Song', game: 'Game', audiobook: 'Audiobook' }
+
 export function RequestsPage({ user, csrfToken }: { user: User; csrfToken: string }) {
     const view = useLocation()
     const search = view.includes('?') ? view.slice(view.indexOf('?')) : ''
@@ -159,17 +161,17 @@ export function RequestsPage({ user, csrfToken }: { user: User; csrfToken: strin
             <RequestCover req={req} />
             <div className="requestInfo">
                 <h2>{req.Title}</h2>
-                <p className="requestFacts">{[req.MediaType, `requested ${new Date(req.CreatedAt).toLocaleDateString()}`, req.availability === 'available' ? 'In library' : req.availability === 'missing' ? 'Not in library' : '', req.MediaType === 'game' ? `Platforms: ${req.Platforms?.any ? 'any' : (req.Platforms?.platformKeys || []).map(key => req.CatalogPlatforms?.find(p => p.key === key)?.name || key).join(', ') || 'not specified'}` : ''].filter(Boolean).join(' · ')}</p>
+                <p className="requestFacts">{[mediaLabels[req.MediaType] ?? req.MediaType, `requested ${new Date(req.CreatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`, req.availability === 'available' ? 'In library' : req.availability === 'missing' ? 'Not in library' : '', req.MediaType === 'game' ? `Platforms: ${req.Platforms?.any ? 'any' : (req.Platforms?.platformKeys || []).map(key => req.CatalogPlatforms?.find(p => p.key === key)?.name || key).join(', ') || 'not specified'}` : ''].filter(Boolean).join(' · ')}</p>
                 {describeSelection(req.selection) && <p className="requestSelection"><strong>Requested:</strong> {describeSelection(req.selection)}</p>}
                 {req.Note && <p className="requestNote">{req.Note}</p>}
             </div>
             <div className="requestMeta"><span className={`badge status-${req.Status}`}>{req.Status}</span><span className="requester">{req.RequestedBy === user.id ? 'Yours' : 'Shared'}</span></div>
             <div className="requestActions" role="group" aria-label={`Actions for ${req.Title}`}>
                 {user.role === 'admin' && (req.Status === 'requested' || req.Status === 'approved') && <>
-                    {req.Status === 'requested' && (['approved', 'denied'] as const).map(toStatus => <button key={toStatus} className="button secondary" disabled={busy || loading} onClick={() => void transition(req, toStatus)}>{toStatus === 'approved' ? 'Approve' : 'Deny'}</button>)}
-                    <button className="button secondary" disabled={busy || loading} onClick={() => { if (confirm(`Cancel the request for ${req.Title} for everyone?`)) void transition(req, 'cancelled') }}>Cancel request</button>
+                    {req.Status === 'requested' && (['approved', 'denied'] as const).map(toStatus => <button key={toStatus} className={toStatus === 'approved' ? 'button' : 'button quiet'} disabled={busy || loading} onClick={() => void transition(req, toStatus)}>{toStatus === 'approved' ? 'Approve' : 'Deny'}</button>)}
+                    <button className="button quiet" disabled={busy || loading} onClick={() => { if (confirm(`Cancel the request for ${req.Title} for everyone?`)) void transition(req, 'cancelled') }}>Cancel request</button>
                 </>}
-                {(req.subscribed || req.Status === 'requested' || req.Status === 'approved') && <button className="button secondary" disabled={busy || loading} onClick={() => void changeSubscription(req)}>{req.subscribed ? 'Leave request' : 'Notify Me'}</button>}
+                {(req.subscribed || req.Status === 'requested' || req.Status === 'approved') && <button className="button quiet" disabled={busy || loading} onClick={() => void changeSubscription(req)}>{req.subscribed ? 'Leave request' : 'Notify Me'}</button>}
             </div>
         </li>)}</ul>}
         {!loading && !error && <nav className="requestPaging" aria-label="Request pages">

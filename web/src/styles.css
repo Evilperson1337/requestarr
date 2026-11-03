@@ -436,9 +436,10 @@ textarea:focus-visible {
 }
 
 .shell {
-    max-width: 1100px;
+    /* The canvas grows with the screen: wide enough that a 1440 or 1920 display is used, capped so lines stay readable. */
+    max-width: 1560px;
     margin: 0 auto;
-    padding: 48px 24px;
+    padding: 48px clamp(24px, 3.5vw, 56px);
     display: grid;
     gap: 24px
 }
@@ -455,6 +456,10 @@ textarea:focus-visible {
     border-radius: var(--radius-card);
     background: var(--surface);
     padding: 24px
+}
+
+.narrowShell {
+    max-width: 640px;
 }
 
 .setupShell {
@@ -659,6 +664,24 @@ p {
     color: var(--text)
 }
 
+.button.quiet {
+    background: none;
+    color: var(--muted);
+    font-weight: 500;
+    padding: 4px 10px;
+    min-height: 34px;
+}
+
+.requestActions .button.quiet:first-child {
+    /* Quiet text lines up with the details above it, not indented by its padding. */
+    margin-left: -10px;
+}
+
+.button.quiet:hover {
+    background: var(--raised);
+    color: var(--text);
+}
+
 .button.secondary:hover {
     background: #3a3a3a
 }
@@ -742,6 +765,25 @@ p {
     list-style: none;
     margin: 8px 0 0;
     padding: 0
+}
+
+/* Wide screens: two columns of rows, each with its actions under the details, so names and buttons stay close. */
+@media (min-width: 1280px) {
+    .requestsPage .requestList {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 48px;
+    }
+
+    .requestsPage .requestRow {
+        grid-template-columns: 52px minmax(0, 1fr) auto;
+        align-content: start;
+    }
+
+    .requestsPage .requestActions {
+        grid-column: 2 / -1;
+        justify-content: flex-start;
+    }
 }
 
 .badge {
@@ -1400,8 +1442,10 @@ a {
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
     gap: 18px;
+    /* Posters, squares and game covers in one row sit on one baseline, so captions line up. */
+    align-items: end;
 }
 
 .railCard {
@@ -1510,13 +1554,6 @@ a {
     margin-top: -6px;
 }
 
-@media (max-width: 900px) {
-    .coverRail { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-@media (max-width: 480px) {
-    .coverRail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 
 /* Home: the paste bar sits straight on the ground, with the supported sources as chips. */
 .card.hero {
@@ -1907,7 +1944,14 @@ a.tag-available:hover {
     margin: 0;
     padding: 0;
     display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr));
+    align-items: start;
     gap: 10px;
+}
+
+.integrations>.integration:last-child:nth-child(odd) {
+    /* A lone card spans the row instead of leaving a hole beside it. */
+    grid-column: 1 / -1;
 }
 
 .integration {
@@ -2126,6 +2170,7 @@ a.tag-available:hover {
     margin: 18px 0;
     padding: 0;
     display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr));
     gap: 8px;
 }
 

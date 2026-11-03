@@ -1,11 +1,13 @@
 import type { RecentLibraryItem, RequestItem } from '../api'
 import { followLink } from '../navigation'
+import { useRailColumns } from './useRailColumns'
 
 const kinds: Record<string, string> = { movie: 'Movie', tv: 'TV', game: 'Game', album: 'Album', song: 'Song', audiobook: 'Audiobook' }
 
 // A row of request covers: artwork, the status on its corner, the media type on the other, then title.
 export function RequestRail({ items }: { items: RequestItem[] }) {
-    return <ul className="coverRail">{items.map(req => <li key={req.ID}>
+    const { ref, columns } = useRailColumns<HTMLUListElement>()
+    return <ul ref={ref} className="coverRail" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{items.slice(0, columns).map(req => <li key={req.ID}>
         <a className="railCard" href={`/requests?requestId=${encodeURIComponent(req.ID)}`} onClick={followLink}>
             <span className={`railCover${req.ArtworkKind === 'square' ? ' square' : ''}`}>
                 {req.ArtworkURL ? <img src={req.ArtworkURL} alt={`Artwork for ${req.Title}`} loading="lazy" /> : <span className="railBlank" aria-hidden="true">{kinds[req.MediaType] ?? req.MediaType}</span>}
@@ -20,7 +22,8 @@ export function RequestRail({ items }: { items: RequestItem[] }) {
 
 // What the libraries recently gained: covers from the library itself, no status, nothing to open.
 export function LibraryRail({ items }: { items: RecentLibraryItem[] }) {
-    return <ul className="coverRail">{items.map(item => <li key={item.id}>
+    const { ref, columns } = useRailColumns<HTMLUListElement>()
+    return <ul ref={ref} className="coverRail" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{items.slice(0, columns).map(item => <li key={item.id}>
         <div className="railCard plain">
             <span className={`railCover${item.mediaType === 'album' || item.mediaType === 'audiobook' ? ' square' : item.mediaType === 'game' ? ' game' : ''}`}>
                 {item.artworkUrl ? <img src={item.artworkUrl} alt={`Cover for ${item.title}`} loading="lazy" /> : <span className="railBlank" aria-hidden="true">{kinds[item.mediaType] ?? item.mediaType}</span>}
