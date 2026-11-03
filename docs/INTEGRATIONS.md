@@ -5,6 +5,27 @@
 ### TMDB
 Movie and TV identity/metadata. V1 accepts canonical TMDB movie/TV URLs and extracts provider IDs. Prefer bearer API read token configuration.
 
+### Audible (audiobooks, D031)
+An audiobook is requested by its ASIN, given bare or as an Audible product link
+(`audible.<tld>/pd/[slug/]<ASIN>`; Amazon links are not accepted). Details (title,
+authors, narrators, cover, abridged or not, series, length) come from **Audnexus**
+(`api.audnex.us`) first and Audible's catalog endpoint second. **Neither is a
+documented, contractual API**: Audnexus is a free community service that points new
+projects to AudiobookDB, and Audible's endpoint is undocumented, so either can
+change or disappear and neither publishes terms. Because of that the ASIN is the
+identity and the details are best-effort display data: if both fail the request is
+accepted under the placeholder title `Audiobook <ASIN>` and fills in when a later
+lookup succeeds; a placeholder never replaces details already stored. One lookup is
+made per new request, never when a page renders, and answers are cached.
+
+ASINs belong to a marketplace. A bare ASIN is looked up in the marketplace named by
+`REQUESTARR_AUDIBLE_REGION` (`us` when unset; `us ca uk au fr de jp it in es`); an
+Audible link's own domain overrides it. If neither marketplace knows the ASIN the
+requester is asked to paste the link for the right one. The region is shown but is
+never part of the match key, and two ASINs for the same book are two Requests.
+AudiobookDB is not used in v1: its free tier requires attribution and forbids
+long-term caching of results. See `docs/research/AUDIOBOOK_INTEGRATION.md`.
+
 ### IGDB
 Game identity, cover metadata, and supported platforms. Authentication uses Twitch/IGDB credentials. Platform lists in the request modal come from the resolved game payload and are normalized to stable Requestarr platform keys.
 

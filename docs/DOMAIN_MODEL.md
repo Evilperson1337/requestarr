@@ -28,6 +28,6 @@ Normalized representation of an item found in an authoritative source. Each sour
 ## Artwork
 
 - `poster`: movie, TV, game;
-- `square`: album, song.
+- `square`: album, song, audiobook.
 
 Do not force all artwork into a single aspect ratio.

@@ -8,14 +8,14 @@ Requestarr is **request + availability + notification software**. It must not ac
 
 ## Accepted V1 decisions
 
-1. Link-first request entry using TMDB, MusicBrainz, and IGDB URLs.
+1. Link-first request entry using TMDB, MusicBrainz, IGDB and Audible URLs (an audiobook may also be requested by its bare ASIN, D031).
 2. One shared request per canonical item. No vote count and no duplicate per-user request rows.
 3. The creator is automatically subscribed; other authenticated users may choose **Notify Me**.
 4. Requests are visible to all authenticated users. `My Requests` is a filter only.
 5. OIDC is required. Keycloak is the primary tested provider. Do not add permanent local-password authentication as a shortcut.
 6. Apprise API is the external notification integration. In-app notifications remain native.
 7. Libraries are authoritative for availability, not metadata providers and not acquisition tools.
-8. Preserve artwork aspect ratio: posters for movie/TV/game; square for album/song.
+8. Preserve artwork aspect ratio: posters for movie/TV/game; square for album/song/audiobook.
 9. Game platform options come dynamically from IGDB and are multi-select OR semantics. `Any` is first and mutually exclusive with explicit selections.
 10. External services must not block routine UI rendering. Prefer local state, background jobs, caching, and stale-but-known data.
 11. Temporary library failures must never mass-mark previously available content missing.

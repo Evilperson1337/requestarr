@@ -9,7 +9,7 @@ This snapshot describes shipped repository behavior, not the historical target a
 | Milestone area | Delivered status |
 | --- | --- |
 | M1 — identity and request loop | OIDC login and one-time admin bootstrap (scripted Keycloak login check passes), TMDB/MusicBrainz/IGDB resolution, shared requests with subscriptions, search/filter/sort/cursor pagination, cancel and leave, admin approve/deny with audit, role matrix tests, and the full setup wizard (General through Finish). Wizard drafts are inactive: configuration is applied by editing the environment and restarting. |
-| M2 — availability | Persistent job runner with no-overlap lease and Sync now; Jellyfin, Plex (movies, TV, music), RomM (per-platform games) and Navidrome adapters behind one contract suite; positive-evidence availability, targeted reconciliation, suggested matches. Failed syncs never create absence. |
+| M2 — availability | Persistent job runner with no-overlap lease and Sync now; Jellyfin, Plex (movies, TV, music), RomM (per-platform games), Navidrome and Audiobookshelf (audiobooks by ASIN, D031) adapters behind one contract suite; positive-evidence availability, targeted reconciliation, suggested matches. Failed syncs never create absence. |
 | M3 — notifications | Durable in-app notifications and a global Apprise outbox/worker. Apprise delivery is at-least-once and can duplicate. |
 | M4 / V1 hardening | Operational status view, frontend smoke and accessibility tests, upgrade/backup notes, release pipeline that builds the UI in every path. Supply-chain policy proposed (D023) but not implemented. |
 

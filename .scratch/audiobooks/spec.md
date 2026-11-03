@@ -1,6 +1,6 @@
 # Audiobook requests via ASIN and Audiobookshelf
 
-Status: needs-triage
+Status: resolved
 
 Let people request an audiobook by ASIN and see it become Available when Audiobookshelf (ABS) holds it. Decision: D031 (Proposed). Evidence and citations: `docs/research/AUDIOBOOK_INTEGRATION.md`. Domain terms are in `GLOSSARY.md`.
 

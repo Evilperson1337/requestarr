@@ -34,6 +34,7 @@ Ran with `REQUESTARR_POSTGRES_PORT=5433` because port 5432 was in use on the tes
 | IGDB game platforms, Any / OR semantics | Done | Per-platform availability (D021) |
 | Request states incl. cancel; admin actions with audit | Done | |
 | Metadata cache / local catalog | Done (cache TTL/refresh not re-verified) | No TTL/refresh behaviour was re-verified in this pass |
+| Audiobook requests by ASIN, Audiobookshelf source (D031) | Done (fixtures) | Audnexus/Audible resolver, read-only Audiobookshelf adapter, request UI, Library tab; never run against a real Audiobookshelf, Audnexus or Audible; no retry job for unresolved ASINs; title-only (not author) suggested matches |
 | Plex, Jellyfin, Navidrome, RomM sources | Done (fixtures) | One adapter contract suite; none run against a real server |
 | Background sync into normalized inventory | Done | Persistent runner, no-overlap lease, retry, Sync now |
 | Automatic reconciliation and availability notification | Done | Failed syncs never create absence; suggested-matches review |
@@ -47,7 +48,7 @@ Tickets 01-28 delivered: documentation refresh, branch rename, AGPL licence and 
 
 ## 4. Remaining gaps (explicit)
 
-1. **No live acceptance.** TMDB, IGDB, MusicBrainz, Jellyfin, Plex, RomM, Navidrome and Apprise have only been exercised against fixtures/mocks. Real-service runs may surface contract drift.
+1. **No live acceptance.** TMDB, IGDB, MusicBrainz, Jellyfin, Plex, RomM, Navidrome, Audiobookshelf, Audnexus/Audible and Apprise have only been exercised against fixtures/mocks. Real-service runs may surface contract drift.
 2. **Wizard settings are not applied.** Saved drafts and Finish do not change runtime configuration; the operator still edits the environment and restarts.
 3. **Request policy has no effect.** The wizard records which media types skip approval, but nothing reads it; every request still awaits approval.
 4. **Release not finished.** `release.yml` has never run on a tag. The container image, SBOM, provenance and signing from D023 are proposed but not implemented, so no image is published.

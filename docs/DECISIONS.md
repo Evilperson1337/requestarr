@@ -200,7 +200,7 @@ Addendum to D020: when an album is resolved, every release of its release group 
 
 ## D031 — Audiobooks are requested by ASIN and detected through Audiobookshelf
 
-Proposed. Research: `docs/research/AUDIOBOOK_INTEGRATION.md`.
+Accepted. Research: `docs/research/AUDIOBOOK_INTEGRATION.md`.
 
 - `audiobook` is a new media type (square artwork). Its identity is the **ASIN** (`Provider=audible`, `ProviderID=ASIN`). One shared Request per ASIN; two ASINs for the same book are two Requests in v1, with no title-based merging.
 - A requester supplies an Audible product URL or a bare ASIN. The marketplace region is the admin's global default (US out of the box); a pasted Audible URL's TLD overrides it. There is no per-request picker, and the region is display data, never part of the match key.
@@ -208,3 +208,11 @@ Proposed. Research: `docs/research/AUDIOBOOK_INTEGRATION.md`.
 - **Audiobookshelf** is the only audiobook Source kind in v1 (>= 2.26.0, API key held as a Stored secret, D024, sent in the Authorization header only). The adapter reads book libraries and treats an item as audio only when `numTracks > 0`; `isMissing` counts as absent; a failed or truncated enumeration yields no snapshot (D015). It never calls a write endpoint.
 - Matching is exact ASIN equality plus the existing reviewable title/author candidates. ISBN aliasing is deferred to v1.1.
 - BookOrbit is not supported: no machine API token, no ASIN in list rows, and its own request and download features overlap the acquisition boundary in AGENTS.md.
+
+Amended (when accepted):
+
+- The Source's identifier kind is `audible`, the catalog provider name, not `asin`; that is the key the matcher uses.
+- The default marketplace is the environment setting `REQUESTARR_AUDIBLE_REGION`, not an admin UI field.
+- Suggested matches compare the normalised title only; the Audiobookshelf adapter leaves `Year` empty so Audible's recording year cannot hide a candidate for an item with no ASIN.
+- A placeholder for an unresolved ASIN is marked `metadata.unresolved`, is never cached, and never overwrites stored details. Nothing retries it in the background yet.
+- Follow-ups, not decided: ASINs of series or box-set parents against single books; skipping unchanged items by `updatedAt`; Amazon product URLs (not confirmed to carry audiobook ASINs); author-aware matching; audiobook Issue kinds; a retry job for placeholders; ISBN aliasing (v1.1); a nicer message than HTTP 400 for an ASIN no marketplace knows.
