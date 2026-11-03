@@ -473,7 +473,7 @@ textarea:focus-visible {
 }
 
 .setupCard h1 {
-    max-width: 16ch;
+    max-width: 26ch;
 }
 
 .setupSteps,
@@ -589,6 +589,9 @@ p {
 }
 
 .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
     padding: 0 10px;
     font-weight: 600;
     color: #fff;
