@@ -1177,15 +1177,19 @@ legend {
         flex-direction: row;
         justify-content: space-around;
         gap: 0;
-        padding: 6px 8px max(6px, env(safe-area-inset-bottom));
+        padding: 6px 4px max(6px, env(safe-area-inset-bottom));
         background: var(--surface);
+        /* Six or seven links do not always fit a narrow phone: the bar scrolls sideways rather than cutting a label off. */
+        overflow-x: auto;
+        scrollbar-width: none;
     }
 
     .rail .navlink {
-        flex: 1;
+        flex: 1 0 auto;
         padding: 10px 4px;
         text-align: center;
-        font-size: .85rem;
+        font-size: .76rem;
+        white-space: nowrap;
     }
 
     .account {
