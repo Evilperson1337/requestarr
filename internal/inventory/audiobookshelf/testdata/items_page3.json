@@ -1,0 +1,3 @@
+{"results":[
+{"id":"li_5","addedAt":1736035200000,"updatedAt":1736035200000,"isMissing":false,"isInvalid":false,"mediaType":"book","media":{"metadata":{"title":"Not A Real ASIN","authorName":"A","narratorName":"B","asin":"see the notes","publishedYear":"abc"},"numTracks":2,"numAudioFiles":2}}
+],"total":5,"limit":"2","page":"2","mediaType":"book","minified":true}

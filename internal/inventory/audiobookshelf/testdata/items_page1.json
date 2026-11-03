@@ -1,0 +1,4 @@
+{"results":[
+{"id":"li_1","addedAt":1735689600000,"updatedAt":1735689600000,"isMissing":false,"isInvalid":false,"mediaType":"book","media":{"metadata":{"title":"Project Hail Mary","authorName":"Andy Weir","narratorName":"Ray Porter","asin":"b08g9prs1k","isbn":null,"publishedYear":"2021","abridged":false},"numTracks":1,"numAudioFiles":1,"ebookFormat":null}},
+{"id":"li_2","addedAt":1735776000000,"updatedAt":1735776000000,"isMissing":false,"isInvalid":false,"mediaType":"book","media":{"metadata":{"title":"A Book Matched By Hand","authorName":"Someone","narratorName":"","asin":null,"isbn":null,"publishedYear":null,"abridged":false},"numTracks":12,"numAudioFiles":12,"ebookFormat":null}}
+],"total":5,"limit":"2","page":"0","mediaType":"book","minified":true}

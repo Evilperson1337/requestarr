@@ -1,0 +1,4 @@
+{"results":[
+{"id":"li_3","addedAt":1735862400000,"updatedAt":1735862400000,"isMissing":true,"isInvalid":false,"mediaType":"book","media":{"metadata":{"title":"Files Gone","authorName":"A","narratorName":"B","asin":"B002V0QK4C","publishedYear":"2009"},"numTracks":3,"numAudioFiles":3}},
+{"id":"li_4","addedAt":1735948800000,"updatedAt":1735948800000,"isMissing":false,"isInvalid":false,"mediaType":"book","media":{"metadata":{"title":"Ebook Only","authorName":"A","narratorName":"","asin":"B002V0QK4D","publishedYear":"2009"},"numTracks":0,"numAudioFiles":0,"ebookFormat":"epub"}}
+],"total":5,"limit":"2","page":"1","mediaType":"book","minified":true}

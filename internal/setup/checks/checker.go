@@ -163,6 +163,9 @@ var libraryProbes = map[string]libraryProbe{
 		return xml.Unmarshal(data, &result) == nil && result.XMLName.Local == "MediaContainer"
 	}},
 	"romm": {path: "/api/platforms", headers: func(t string) map[string]string { return map[string]string{"Authorization": "Bearer " + t} }, valid: validJSON},
+	// Audiobookshelf lists its libraries to anyone with a valid key; the check
+	// needs at least one book library, since podcasts hold no audiobooks.
+	"audiobookshelf": {path: "/api/libraries", headers: func(t string) map[string]string { return map[string]string{"Authorization": "Bearer " + t} }, valid: validAudiobookshelfLibraries},
 	"navidrome": {valid: func(data []byte) bool {
 		var result struct {
 			Response struct {
@@ -171,6 +174,23 @@ var libraryProbes = map[string]libraryProbe{
 		}
 		return json.Unmarshal(data, &result) == nil && result.Response.Status == "ok"
 	}},
+}
+
+func validAudiobookshelfLibraries(data []byte) bool {
+	var result struct {
+		Libraries []struct {
+			MediaType string `json:"mediaType"`
+		} `json:"libraries"`
+	}
+	if json.Unmarshal(data, &result) != nil {
+		return false
+	}
+	for _, l := range result.Libraries {
+		if l.MediaType == "book" {
+			return true
+		}
+	}
+	return false
 }
 
 func validJSON(data []byte) bool {

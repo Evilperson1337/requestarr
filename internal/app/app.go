@@ -18,6 +18,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/httpapi"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/inventory/audiobookshelf"
 	"github.com/evilperson1337/requestarr/internal/inventory/jellyfin"
 	"github.com/evilperson1337/requestarr/internal/inventory/navidrome"
 	"github.com/evilperson1337/requestarr/internal/inventory/plex"
@@ -330,6 +331,9 @@ func newInventorySource(cfg config.Config, kind sources.Kind, refreshAliases fun
 		return client, nil, err
 	case "navidrome":
 		client, err := navidrome.New(url, cfg.NavidromeUsername, cfg.NavidromePassword)
+		return client, nil, err
+	case "audiobookshelf":
+		client, err := audiobookshelf.New(url, cfg.AudiobookshelfAPIKey)
 		return client, nil, err
 	}
 	return nil, nil, fmt.Errorf("no inventory client for Source kind %q", kind.Slug)

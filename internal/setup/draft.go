@@ -47,6 +47,7 @@ var (
 	JellyfinAPIKeyEnv    = credentialEnv("jellyfin", sources.RoleToken)
 	PlexTokenEnv         = credentialEnv("plex", sources.RoleToken)
 	RommTokenEnv         = credentialEnv("romm", sources.RoleToken)
+	AudiobookshelfKeyEnv = credentialEnv("audiobookshelf", sources.RoleToken)
 	NavidromeUsernameEnv = credentialEnv("navidrome", sources.RoleUsername)
 	NavidromePasswordEnv = credentialEnv("navidrome", sources.RolePassword)
 )
@@ -79,10 +80,11 @@ type PolicySettings struct {
 }
 
 type LibrariesSettings struct {
-	Jellyfin  SourceSettings `json:"jellyfin"`
-	Plex      SourceSettings `json:"plex"`
-	Romm      SourceSettings `json:"romm"`
-	Navidrome SourceSettings `json:"navidrome"`
+	Jellyfin       SourceSettings `json:"jellyfin"`
+	Plex           SourceSettings `json:"plex"`
+	Romm           SourceSettings `json:"romm"`
+	Navidrome      SourceSettings `json:"navidrome"`
+	Audiobookshelf SourceSettings `json:"audiobookshelf"`
 }
 
 // Source returns the draft settings of one Source kind by slug; nil for an
@@ -97,6 +99,8 @@ func (l *LibrariesSettings) Source(slug string) *SourceSettings {
 		return &l.Romm
 	case "navidrome":
 		return &l.Navidrome
+	case "audiobookshelf":
+		return &l.Audiobookshelf
 	}
 	return nil
 }
@@ -148,6 +152,7 @@ const (
 	TargetPlex           Target = "library:plex"
 	TargetRomm           Target = "library:romm"
 	TargetNavidrome      Target = "library:navidrome"
+	TargetAudiobookshelf Target = "library:audiobookshelf"
 	TargetNotifications  Target = "notifications"
 )
 

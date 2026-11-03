@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/inventory/audiobookshelf"
 	"github.com/evilperson1337/requestarr/internal/inventory/jellyfin"
 	"github.com/evilperson1337/requestarr/internal/inventory/navidrome"
 	"github.com/evilperson1337/requestarr/internal/inventory/plex"
@@ -30,7 +31,11 @@ func descriptors(t *testing.T) map[string]inventory.Descriptor {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return map[string]inventory.Descriptor{"jellyfin": jf.Descriptor(), "plex": px.Descriptor(), "romm": rm.Descriptor(), "navidrome": nd.Descriptor()}
+	abs, err := audiobookshelf.New("https://abs.example", "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]inventory.Descriptor{"jellyfin": jf.Descriptor(), "plex": px.Descriptor(), "romm": rm.Descriptor(), "navidrome": nd.Descriptor(), "audiobookshelf": abs.Descriptor()}
 }
 
 // Each registered kind agrees with the adapter that implements it, so the

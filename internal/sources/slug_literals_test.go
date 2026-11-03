@@ -17,15 +17,16 @@ import (
 // slug as a string literal: the registry, each adapter's descriptor, and the
 // accessors that must name a struct field or a provider client per kind.
 var slugAllowed = map[string]bool{
-	"sources/sources.go":            true,
-	"inventory/jellyfin/client.go":  true,
-	"inventory/plex/client.go":      true,
-	"inventory/romm/client.go":      true,
-	"inventory/navidrome/client.go": true,
-	"config/config.go":              true, // libraryFields
-	"setup/draft.go":                true, // LibrariesSettings.Source, credential env names
-	"app/app.go":                    true, // newInventorySource
-	"setup/checks/checker.go":       true, // libraryProbes
+	"sources/sources.go":                 true,
+	"inventory/jellyfin/client.go":       true,
+	"inventory/plex/client.go":           true,
+	"inventory/romm/client.go":           true,
+	"inventory/navidrome/client.go":      true,
+	"inventory/audiobookshelf/client.go": true,
+	"config/config.go":                   true, // libraryFields
+	"setup/draft.go":                     true, // LibrariesSettings.Source, credential env names
+	"app/app.go":                         true, // newInventorySource
+	"setup/checks/checker.go":            true, // libraryProbes
 }
 
 // Adding a Source kind should mean editing the registry, not hunting for

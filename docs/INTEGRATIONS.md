@@ -128,6 +128,33 @@ mismatch fails the sync visibly. Check your RomM version's `/api/docs` if a sync
 reports an invalid response. The fixtures are hand-written to that shape, not
 captured from a live server.
 
+### Audiobookshelf
+Authoritative for audiobooks only (D031). Set `REQUESTARR_AUDIOBOOKSHELF_URL` (a
+server origin, no path) and `REQUESTARR_AUDIOBOOKSHELF_API_KEY`, or save the key
+in Settings (same URL rules and trust caveat as the other Sources). API keys need
+Audiobookshelf **2.26.0 or later**; older servers are not supported.
+
+Create a dedicated Audiobookshelf user with access to the book libraries only and
+`update`, `delete` and `upload` off (a standard `user` account has them off by
+default; Audiobookshelf has no stricter read-only type), then create an API key
+for it. The key is sent as `Authorization: Bearer` and never in a URL. Requestarr
+only issues `GET` requests: it lists libraries, then each **book** library's items
+(`minified`, paged), and never triggers a scan, match or edit. The connection
+check passes only when the key can see at least one book library.
+
+An item is an audiobook when it has at least one audio track (`numTracks > 0`);
+ebook-only items and items Audiobookshelf marks missing or invalid are not
+availability. An item is matched to an audiobook Request by its ASIN
+(`media.metadata.asin`); items with no ASIN are listed but can only be matched
+through the suggested-matches review. Run Audiobookshelf's own Match to fill ASINs.
+A server with no readable book library fails the sync rather than reading as an
+empty collection.
+
+The response fields come from Audiobookshelf's server code (its in-repo OpenAPI
+spec is out of date), and the fixtures are hand-written to that shape, not
+captured from a live server. BookOrbit is not supported: it has no machine API
+token (`docs/research/AUDIOBOOK_INTEGRATION.md`).
+
 ## Apprise API
 
 Requestarr integrates with Apprise API as one operator-managed global notification route. Configure `REQUESTARR_APPRISE_URL` and `REQUESTARR_APPRISE_CONFIG_KEY` together; delivery is disabled when both are empty. URL must use HTTPS except localhost in development. A bounded background worker sends one outbox event per source event, independent of in-app subscriptions. In-app notifications remain per-user and are created only for request subscribers. The former `notification_preferences` and user-scoped Apprise rows from migration 000010 are deprecated and are not used by the global sender.

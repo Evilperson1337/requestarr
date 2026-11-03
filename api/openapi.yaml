@@ -271,7 +271,7 @@ paths:
         - in: path
           name: source
           required: true
-          description: Source slug, jellyfin, plex or romm (whichever are configured)
+          description: Source slug, jellyfin, plex, romm or audiobookshelf (whichever are configured)
           schema: { type: string }
         - in: header
           name: X-CSRF-Token
@@ -647,7 +647,7 @@ paths:
       parameters:
         - { in: query, name: type, required: true, schema: { type: string, enum: [movie, tv, album, game] } }
         - { in: query, name: q, description: Case-insensitive title search (100 characters at most), schema: { type: string, maxLength: 100 } }
-        - { in: query, name: source, description: A Source kind slug, schema: { type: string, enum: [jellyfin, plex, romm, navidrome] } }
+        - { in: query, name: source, description: A Source kind slug, schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] } }
         - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 48 } }
         - { in: query, name: cursor, description: The nextCursor of the previous page, schema: { type: string } }
       responses:
@@ -707,7 +707,7 @@ paths:
       operationId: listLibraryConnections
       summary: Where each library Source lives, with its credential status (administrator only)
       description: >-
-        D028. Lists Jellyfin, Plex, RomM and Navidrome with their saved address, whether the
+        D028. Lists Jellyfin, Plex, RomM, Navidrome and Audiobookshelf with their saved address, whether the
         address comes from an environment variable (which wins and cannot be changed here),
         whether the Source is scheduled to sync, what a half-set Source is missing, and the
         status of each credential. Credential values are never returned. No-store.
@@ -731,7 +731,7 @@ paths:
       - in: path
         name: slug
         required: true
-        schema: { type: string, enum: [jellyfin, plex, romm, navidrome] }
+        schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
     put:
       operationId: saveLibraryConnection
       summary: Save a Source's address (and username) and apply it immediately (administrator only)
@@ -793,7 +793,7 @@ paths:
       - in: path
         name: slug
         required: true
-        schema: { type: string, enum: [jellyfin, plex, romm, navidrome] }
+        schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
     post:
       operationId: testLibraryConnection
       summary: Probe a Source with its current address and credentials (administrator only)
@@ -851,7 +851,7 @@ paths:
       - in: path
         name: name
         required: true
-        schema: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token] }
+        schema: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token, audiobookshelf_api_key] }
     put:
       operationId: setStoredSecret
       summary: Save or replace a stored secret (administrator only)
@@ -1026,7 +1026,7 @@ paths:
               required: [expectedRevision, target]
               properties:
                 expectedRevision: { type: integer, minimum: 1 }
-                target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, notifications] }
+                target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, library:audiobookshelf, notifications] }
       responses:
         '200':
           description: Draft with a revision-bound safe validation result; valid may be false
@@ -1361,7 +1361,7 @@ components:
         artworkUrl: { type: string, description: The item's cover from its library }
         link: { type: string, format: uri, description: Opens the item in its media server }
         year: { type: integer }
-        sourceKind: { type: string, enum: [jellyfin, plex, romm, navidrome] }
+        sourceKind: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
         reporters: { type: integer, minimum: 0, description: Reporters still following the Issue }
         goneFromLibrary: { type: boolean, description: Its Source has since synced without the item }
         createdAt: { type: string, format: date-time }
@@ -1383,7 +1383,7 @@ components:
         year: { type: integer }
         mediaType: { type: string, enum: [movie, tv, album, game] }
         source: { type: string, description: The library's name }
-        sourceKind: { type: string, enum: [jellyfin, plex, romm, navidrome] }
+        sourceKind: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
         addedAt: { type: string, format: date-time }
         detail: { type: string, description: A short note from the library, such as a game's platform }
         artworkUrl: { type: string }
@@ -1396,7 +1396,7 @@ components:
       additionalProperties: false
       required: [slug, name, url, urlFromEnvironment, urlEnv, saved, takesUsername, username, active, missing, credentials]
       properties:
-        slug: { type: string, enum: [jellyfin, plex, romm, navidrome] }
+        slug: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
         name: { type: string }
         url: { type: string, description: The address in effect, empty when none }
         urlFromEnvironment: { type: boolean }
@@ -1536,7 +1536,7 @@ components:
         time: { type: string, format: date-time, description: UTC completion time }
         target:
           type: string
-          enum: [general, authentication, tmdb, musicbrainz, igdb, 'library:jellyfin', 'library:plex', 'library:romm', 'library:navidrome', notifications]
+          enum: [general, authentication, tmdb, musicbrainz, igdb, 'library:jellyfin', 'library:plex', 'library:romm', 'library:navidrome', 'library:audiobookshelf', notifications]
         stage: { type: string, enum: [check, request, oauth, platforms] }
         outcome: { type: string, enum: [success, failure, skipped] }
         code:
@@ -1581,11 +1581,12 @@ components:
         libraries:
           type: object
           additionalProperties: false
-          required: [jellyfin, plex, romm, navidrome]
+          required: [jellyfin, plex, romm, navidrome, audiobookshelf]
           properties:
             jellyfin: { $ref: '#/components/schemas/SetupSource' }
             plex: { $ref: '#/components/schemas/SetupSource' }
             romm: { $ref: '#/components/schemas/SetupSource' }
+            audiobookshelf: { $ref: '#/components/schemas/SetupSource' }
             navidrome: { $ref: '#/components/schemas/SetupSource' }
         notifications:
           type: object
@@ -1605,7 +1606,7 @@ components:
       type: object
       required: [name, label, envVar, configured, source, unreadable, pendingRestart]
       properties:
-        name: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token] }
+        name: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token, audiobookshelf_api_key] }
         label: { type: string }
         envVar: { type: string, description: "Environment variable that sets this secret; it always wins over a stored value" }
         configured: { type: boolean, description: "An effective value exists. False for an unreadable stored secret, which is not the same as unconfigured" }
@@ -1620,7 +1621,7 @@ components:
         enabled: { type: boolean }
         url: { type: string, maxLength: 2048, description: "Empty while drafting or an absolute origin" }
         mediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game, audiobook] } }
-        tokenEnv: { type: string, enum: ["", REQUESTARR_JELLYFIN_API_KEY, REQUESTARR_PLEX_TOKEN, REQUESTARR_ROMM_TOKEN] }
+        tokenEnv: { type: string, enum: ["", REQUESTARR_JELLYFIN_API_KEY, REQUESTARR_PLEX_TOKEN, REQUESTARR_ROMM_TOKEN, REQUESTARR_AUDIOBOOKSHELF_API_KEY] }
         username: { type: string, maxLength: 256, description: "Navidrome account name, an ordinary non-secret draft field; must be empty for other Sources. Drafts saved with the retired usernameEnv still load, and an empty value takes the environment-configured username" }
         passwordEnv: { type: string, enum: ["", REQUESTARR_NAVIDROME_PASSWORD] }
     SetupDraft:
@@ -1640,7 +1641,7 @@ components:
             type: object
             required: [target, reason]
             properties:
-              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, notifications] }
+              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, library:audiobookshelf, notifications] }
               reason: { type: string, enum: [not_checked, failed, expired] }
         validations:
           type: array
@@ -1648,7 +1649,7 @@ components:
             type: object
             required: [target, revision, valid, code, message, checkedAt, expiresAt]
             properties:
-              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, notifications] }
+              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, library:audiobookshelf, notifications] }
               revision: { type: integer }
               valid: { type: boolean }
               code: { type: string, enum: [connected, connection_failed, authentication_failed, environment_required, incomplete_settings, disabled] }

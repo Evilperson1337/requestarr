@@ -17,9 +17,10 @@ const (
 
 // Library Source credentials. Source URLs stay environment-only (D024).
 const (
-	JellyfinAPIKey Name = "jellyfin_api_key"
-	PlexToken      Name = "plex_token"
-	RommToken      Name = "romm_token"
+	JellyfinAPIKey       Name = "jellyfin_api_key"
+	PlexToken            Name = "plex_token"
+	RommToken            Name = "romm_token"
+	AudiobookshelfAPIKey Name = "audiobookshelf_api_key"
 )
 
 // Spec describes a registered secret.
@@ -37,6 +38,7 @@ var registry = []Spec{
 	{Name: JellyfinAPIKey, EnvVar: "REQUESTARR_JELLYFIN_API_KEY", Label: "Jellyfin API key"},
 	{Name: PlexToken, EnvVar: "REQUESTARR_PLEX_TOKEN", Label: "Plex token"},
 	{Name: RommToken, EnvVar: "REQUESTARR_ROMM_TOKEN", Label: "RomM token"},
+	{Name: AudiobookshelfAPIKey, EnvVar: "REQUESTARR_AUDIOBOOKSHELF_API_KEY", Label: "Audiobookshelf API key"},
 }
 
 // All returns the registered secrets in a stable order.

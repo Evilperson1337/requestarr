@@ -1,5 +1,5 @@
-// Package sources is the registry of Source kinds: Jellyfin, Plex, RomM and
-// Navidrome. A kind fixes a Source's slug, stable ID, media types and the
+// Package sources is the registry of Source kinds: Jellyfin, Plex, RomM,
+// Navidrome and Audiobookshelf. A kind fixes a Source's slug, stable ID, media types and the
 // Credential fields it needs, so the setup wizard, configuration, startup
 // wiring and the web UI all read one table instead of switching on a string.
 //
@@ -11,10 +11,11 @@ import "github.com/evilperson1337/requestarr/internal/domain"
 
 // Stable Source IDs. V1 allows one configured Source per kind.
 const (
-	JellyfinID  = "5efcc577-5236-4ce3-b2c0-b9d58c64a718"
-	PlexID      = "8d1b6e34-5a3f-4c0e-9a57-2f0f6a9c1d42"
-	RommID      = "c2f7b0a4-6d19-4e55-8b3e-5a1f9d7e3c68"
-	NavidromeID = "b44ce1fc-fbcb-4d36-8618-52de83e84a6d"
+	JellyfinID       = "5efcc577-5236-4ce3-b2c0-b9d58c64a718"
+	PlexID           = "8d1b6e34-5a3f-4c0e-9a57-2f0f6a9c1d42"
+	RommID           = "c2f7b0a4-6d19-4e55-8b3e-5a1f9d7e3c68"
+	NavidromeID      = "b44ce1fc-fbcb-4d36-8618-52de83e84a6d"
+	AudiobookshelfID = "3a9d6f52-0c1e-4b7a-9e48-7d2b5c8f1a03"
 )
 
 // Role is what a Credential field is for.
@@ -90,6 +91,9 @@ var kinds = []Kind{
 			{Role: RoleUsername, Env: "REQUESTARR_NAVIDROME_USERNAME"},
 			{Role: RolePassword, Env: "REQUESTARR_NAVIDROME_PASSWORD", Secret: "navidrome_password", Noun: "password"},
 		}},
+	{Slug: "audiobookshelf", Name: "Audiobookshelf", ID: AudiobookshelfID, URLEnv: "REQUESTARR_AUDIOBOOKSHELF_URL",
+		MediaTypes:  []domain.MediaType{domain.MediaAudiobook},
+		Credentials: []Credential{{Role: RoleToken, Env: "REQUESTARR_AUDIOBOOKSHELF_API_KEY", Secret: "audiobookshelf_api_key", Noun: "API key"}}},
 }
 
 // All returns every Source kind in a stable order.

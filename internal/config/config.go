@@ -30,18 +30,20 @@ type Config struct {
 	IGDBClientID      string
 	IGDBClientSecret  string
 	// AudibleRegion is the marketplace assumed for a bare ASIN (D031); "us" when unset.
-	AudibleRegion     string
-	JellyfinURL       string
-	JellyfinAPIKey    string
-	PlexURL           string
-	PlexToken         string
-	RommURL           string
-	RommToken         string
-	NavidromeURL      string
-	NavidromeUsername string
-	NavidromePassword string
-	AppriseURL        string
-	AppriseConfigKey  string
+	AudibleRegion        string
+	JellyfinURL          string
+	JellyfinAPIKey       string
+	PlexURL              string
+	PlexToken            string
+	RommURL              string
+	RommToken            string
+	NavidromeURL         string
+	NavidromeUsername    string
+	NavidromePassword    string
+	AudiobookshelfURL    string
+	AudiobookshelfAPIKey string
+	AppriseURL           string
+	AppriseConfigKey     string
 	// SecretsKey is the master key for stored secrets (D024). Optional.
 	SecretsKey string
 }
@@ -92,6 +94,8 @@ func (c *Config) libraryFields(slug string) libraryRefs {
 		return libraryRefs{URL: &c.RommURL, Token: &c.RommToken}
 	case "navidrome":
 		return libraryRefs{URL: &c.NavidromeURL, Username: &c.NavidromeUsername, Password: &c.NavidromePassword}
+	case "audiobookshelf":
+		return libraryRefs{URL: &c.AudiobookshelfURL, Token: &c.AudiobookshelfAPIKey}
 	}
 	panic("config: unknown Source kind " + slug)
 }

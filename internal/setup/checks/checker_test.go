@@ -154,6 +154,7 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 		{"plex", "/library/sections", `<MediaContainer size="1"/>`, "X-Plex-Token"},
 		{"romm", "/api/platforms", `[]`, "Authorization"},
 		{"navidrome", "/rest/ping.view", `{"subsonic-response":{"status":"ok"}}`, "u"},
+		{"audiobookshelf", "/api/libraries", `{"libraries":[{"id":"l","mediaType":"book"}]}`, "Authorization"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -170,8 +171,8 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 						t.Error("Plex token absent")
 					}
 				case "Authorization":
-					if r.Header.Get(tc.wantCredential) != "Bearer romm-token" {
-						t.Error("RomM token absent")
+					if got := r.Header.Get(tc.wantCredential); got != "Bearer romm-token" && got != "Bearer abs-key" {
+						t.Error("Bearer token absent")
 					}
 				case "u":
 					if r.URL.Query().Get("u") != "music-user" || r.URL.Query().Get("p") != "" || len(r.URL.Query().Get("t")) != 32 || len(r.URL.Query().Get("s")) != 32 {
@@ -194,7 +195,7 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 			defer server.Close()
 			libraries := setup.LibrariesSettings{}
 			source := setup.SourceSettings{Enabled: true, URL: "https://library.example", MediaTypes: []domain.MediaType{domain.MediaMovie}}
-			cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, Secrets: secrets.Static{secrets.JellyfinAPIKey: "jf-token", secrets.PlexToken: "plex-token", secrets.RommToken: "romm-token", secrets.NavidromePassword: "music-pass"}}
+			cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, Secrets: secrets.Static{secrets.JellyfinAPIKey: "jf-token", secrets.PlexToken: "plex-token", secrets.RommToken: "romm-token", secrets.NavidromePassword: "music-pass", secrets.AudiobookshelfAPIKey: "abs-key"}}
 			target := setup.TargetJellyfin
 			switch tc.kind {
 			case "jellyfin":
@@ -208,6 +209,11 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 				source.TokenEnv = setup.RommTokenEnv
 				libraries.Romm = source
 				target = setup.TargetRomm
+			case "audiobookshelf":
+				source.MediaTypes = []domain.MediaType{domain.MediaAudiobook}
+				source.TokenEnv = setup.AudiobookshelfKeyEnv
+				libraries.Audiobookshelf = source
+				target = setup.TargetAudiobookshelf
 			case "navidrome":
 				source.MediaTypes = []domain.MediaType{domain.MediaAlbum}
 				source.Username = "music-user"
@@ -258,5 +264,28 @@ func TestAppriseCheckProbesOnlyTheConfiguredServiceAndNeverSendsTheKey(t *testin
 	missing.AppriseURL = ""
 	if code := notify(missing); code != setup.CheckIncomplete {
 		t.Fatalf("incomplete = %q", code)
+	}
+}
+
+// A key that can see only podcast libraries (or none) is not a working
+// audiobook connection, even though Audiobookshelf answers 200.
+func TestAudiobookshelfCheckNeedsABookLibrary(t *testing.T) {
+	for body, want := range map[string]setup.CheckCode{
+		`{"libraries":[{"id":"l","mediaType":"book"},{"id":"p","mediaType":"podcast"}]}`: setup.CheckOK,
+		`{"libraries":[{"id":"p","mediaType":"podcast"}]}`:                               setup.CheckUnavailable,
+		`{"libraries":[]}`:   setup.CheckUnavailable,
+		`<html>login</html>`: setup.CheckUnavailable,
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, body)
+		}))
+		libraries := setup.LibrariesSettings{Audiobookshelf: setup.SourceSettings{Enabled: true, URL: "https://abs.example", MediaTypes: []domain.MediaType{domain.MediaAudiobook}, TokenEnv: setup.AudiobookshelfKeyEnv}}
+		cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, Secrets: secrets.Static{secrets.AudiobookshelfAPIKey: "abs-key"}}
+		code, _ := checks.New(cfg).Check(context.Background(), setup.TargetAudiobookshelf, setup.Settings{Libraries: libraries})
+		server.Close()
+		if code != want {
+			t.Errorf("%s: code %q, want %q", body, code, want)
+		}
 	}
 }

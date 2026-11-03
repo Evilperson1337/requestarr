@@ -55,7 +55,7 @@ func TestBuildDescribesConfiguredSourcesProvidersAndSetupRuntime(t *testing.T) {
 		refs[ref.Slug] = ref.Note
 		configured[ref.Slug] = ref.ID != ""
 	}
-	if len(rt.Sources) != 4 || !configured["jellyfin"] || configured["plex"] || configured["navidrome"] {
+	if len(rt.Sources) != 5 || !configured["jellyfin"] || configured["plex"] || configured["navidrome"] {
 		t.Fatalf("source refs = %+v", rt.Sources)
 	}
 	if refs["navidrome"] != unreadableNote || refs["jellyfin"] != "" {
