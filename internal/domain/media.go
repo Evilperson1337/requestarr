@@ -10,6 +10,8 @@ const (
 	MediaAlbum MediaType = "album"
 	MediaSong  MediaType = "song"
 	MediaGame  MediaType = "game"
+	// MediaAudiobook is identified by its ASIN (D031).
+	MediaAudiobook MediaType = "audiobook"
 )
 
 type ArtworkKind string
@@ -50,18 +52,23 @@ type AvailabilityEvidence struct {
 	ObservedAt    time.Time
 }
 
-// SourceSyncStatus is sanitized operational health for an availability source.
-type SourceSyncStatus struct {
-	Configured          bool       `json:"configured"`
-	Enabled             bool       `json:"enabled"`
-	LastSyncStartedAt   *time.Time `json:"lastSyncStartedAt"`
-	LastSyncSucceededAt *time.Time `json:"lastSyncSucceededAt"`
-	LastSyncError       *string    `json:"lastSyncError"`
-}
-
 type ResolvedItem struct {
 	Item      CatalogItem
 	Platforms []Platform
+	Movie     *MovieDetails `json:"Movie,omitempty"`
+	TV        *TVDetails    `json:"TV,omitempty"`
+	Game      *GameDetails  `json:"Game,omitempty"`
+	Music     *MusicDetails `json:"Music,omitempty"`
+	Preview   *MoviePreview `json:"Preview,omitempty"`
+	// Aliases are other identifiers the provider already told us belong to this
+	// item, such as every release of an album's release group (D020). Server-side only.
+	Aliases []Alias `json:"-"`
+}
+
+// Alias is one alternate identifier of a catalog item.
+type Alias struct {
+	Kind  string
+	Value string
 }
 
 type CatalogPlatform struct {

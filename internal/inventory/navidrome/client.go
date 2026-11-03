@@ -20,9 +20,10 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
-const SourceID = "b44ce1fc-fbcb-4d36-8618-52de83e84a6d"
+const SourceID = sources.NavidromeID
 
 const (
 	apiVersion = "1.16.1"
@@ -107,6 +108,8 @@ type song struct {
 	Artist        string `json:"artist"`
 	Year          int    `json:"year"`
 	MusicBrainzID string `json:"musicBrainzId"`
+	Track         int    `json:"track"`
+	DiscNumber    int    `json:"discNumber"`
 }
 
 func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
@@ -150,6 +153,7 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 				return inventory.Snapshot{}, fmt.Errorf("Navidrome inventory exceeds item limit")
 			}
 			albumItem := makeItem(SourceID, "album:"+full.ID, domain.MediaAlbum, full.Name, full.Year, full.MusicBrainzID)
+			albumItem.ExternalURL = c.baseURL + "/app/#/album/" + url.PathEscape(full.ID) + "/show"
 			if _, duplicate := seen[albumItem.SourceItemID]; duplicate {
 				return inventory.Snapshot{}, fmt.Errorf("duplicate Navidrome inventory item")
 			}
@@ -164,6 +168,13 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 					year = full.Year
 				}
 				songItem := makeItem(SourceID, "song:"+track.ID, domain.MediaSong, track.Title, year, track.MusicBrainzID)
+				songItem.ParentSourceItemID = albumItem.SourceItemID
+				if track.Track > 0 && track.Track < 100000 {
+					songItem.Position = track.Track
+				}
+				if track.DiscNumber > 0 && track.DiscNumber < 1000 {
+					songItem.Disc = track.DiscNumber
+				}
 				if _, duplicate := seen[songItem.SourceItemID]; duplicate {
 					return inventory.Snapshot{}, fmt.Errorf("duplicate Navidrome inventory item")
 				}

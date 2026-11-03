@@ -9,7 +9,8 @@
 - URL resolver registry:
   - TMDB movie + TV URLs;
   - MusicBrainz release-group/recording URLs;
-  - IGDB game URLs.
+  - IGDB game URLs;
+  - Audible product URLs or a bare ASIN for audiobooks (D031).
 - Universal resolved-item modal.
 - One request row per canonical catalog item.
 - Shared Requests page with search/filter/sort and My Requests quick filter.
@@ -19,7 +20,7 @@
 - Request states: requested, approved, denied, available, cancelled.
 - Manual admin state actions with audit events.
 - Metadata cache/local catalog records.
-- Library sources: Plex, Jellyfin, Navidrome/OpenSubsonic, RomM.
+- Library sources: Plex, Jellyfin, Navidrome/OpenSubsonic, RomM, Audiobookshelf (audiobooks only).
 - Background source sync into normalized inventory.
 - Automatic request reconciliation and availability notification.
 - In-app notifications and Apprise API integration.
@@ -28,6 +29,7 @@
 
 ## Explicitly out of V1
 
+- Audiobook sources other than Audiobookshelf (BookOrbit is not supported), ISBN matching, and audiobook Issue kinds.
 - Native catalog search/discovery/trending/recommendations.
 - Radarr/Sonarr/Lidarr runtime integration.
 - Acquisition/download automation of any kind.

@@ -41,8 +41,8 @@ func (s *Store) Upsert(ctx context.Context, resolved domain.ResolvedItem) (domai
 	if i.MediaType == "" || i.Provider == "" || i.ProviderID == "" || i.Title == "" || len(i.Title) > 512 || len(i.ProviderID) > 128 || len(i.ArtworkURL) > 2048 || len(i.ExternalURL) > 2048 {
 		return domain.CatalogItem{}, fmt.Errorf("invalid catalog item")
 	}
-	if (i.MediaType != domain.MediaMovie && i.MediaType != domain.MediaTV && i.MediaType != domain.MediaAlbum && i.MediaType != domain.MediaSong && i.MediaType != domain.MediaGame) ||
-		(i.Provider != "tmdb" && i.Provider != "musicbrainz" && i.Provider != "igdb") {
+	if (i.MediaType != domain.MediaMovie && i.MediaType != domain.MediaTV && i.MediaType != domain.MediaAlbum && i.MediaType != domain.MediaSong && i.MediaType != domain.MediaGame && i.MediaType != domain.MediaAudiobook) ||
+		(i.Provider != "tmdb" && i.Provider != "musicbrainz" && i.Provider != "igdb" && i.Provider != "audible") {
 		return domain.CatalogItem{}, fmt.Errorf("invalid catalog item type or provider")
 	}
 	if len(resolved.Platforms) > 250 {
@@ -54,7 +54,7 @@ func (s *Store) Upsert(ctx context.Context, resolved domain.ResolvedItem) (domai
 		}
 	}
 	if i.ArtworkKind == "" {
-		if i.MediaType == domain.MediaAlbum || i.MediaType == domain.MediaSong {
+		if i.MediaType == domain.MediaAlbum || i.MediaType == domain.MediaSong || i.MediaType == domain.MediaAudiobook {
 			i.ArtworkKind = domain.ArtworkSquare
 		} else {
 			i.ArtworkKind = domain.ArtworkPoster
@@ -73,9 +73,29 @@ func (s *Store) Upsert(ctx context.Context, resolved domain.ResolvedItem) (domai
 	if i.UpdatedAt.IsZero() {
 		i.UpdatedAt = time.Now().UTC()
 	}
-	err = s.pool.QueryRow(ctx, `INSERT INTO catalog_items(id,media_type,provider,provider_id,title,year,artwork_url,artwork_kind,external_url,metadata,metadata_fetched_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),$7,$8,$9,$10,now(),now(),$11) ON CONFLICT(provider,provider_id,media_type) DO UPDATE SET title=EXCLUDED.title,year=EXCLUDED.year,artwork_url=EXCLUDED.artwork_url,artwork_kind=EXCLUDED.artwork_kind,external_url=EXCLUDED.external_url,metadata=EXCLUDED.metadata,metadata_fetched_at=now(),updated_at=EXCLUDED.updated_at RETURNING id::text,updated_at`, i.ID, i.MediaType, i.Provider, i.ProviderID, i.Title, i.Year, i.ArtworkURL, i.ArtworkKind, i.ExternalURL, metadata, i.UpdatedAt).Scan(&i.ID, &i.UpdatedAt)
+	// A placeholder for an item whose providers were unreachable must never
+	// replace metadata already resolved for it.
+	onConflict := `DO UPDATE SET title=EXCLUDED.title,year=EXCLUDED.year,artwork_url=EXCLUDED.artwork_url,artwork_kind=EXCLUDED.artwork_kind,external_url=EXCLUDED.external_url,metadata=EXCLUDED.metadata,metadata_fetched_at=now(),updated_at=EXCLUDED.updated_at`
+	if i.Unresolved() {
+		onConflict = `DO UPDATE SET updated_at=catalog_items.updated_at`
+	}
+	err = s.pool.QueryRow(ctx, `INSERT INTO catalog_items(id,media_type,provider,provider_id,title,year,artwork_url,artwork_kind,external_url,metadata,metadata_fetched_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,NULLIF($6,0),$7,$8,$9,$10,now(),now(),$11) ON CONFLICT(provider,provider_id,media_type) `+onConflict+` RETURNING id::text,updated_at`, i.ID, i.MediaType, i.Provider, i.ProviderID, i.Title, i.Year, i.ArtworkURL, i.ArtworkKind, i.ExternalURL, metadata, i.UpdatedAt).Scan(&i.ID, &i.UpdatedAt)
 	if err != nil {
 		return domain.CatalogItem{}, fmt.Errorf("upsert catalog item: %w", err)
+	}
+	if i.Unresolved() {
+		// The row may already hold real metadata; report that, not the placeholder.
+		var year *int
+		var stored []byte
+		if err := s.pool.QueryRow(ctx, `SELECT title,year,COALESCE(artwork_url,''),COALESCE(external_url,''),metadata FROM catalog_items WHERE id=$1`, i.ID).Scan(&i.Title, &year, &i.ArtworkURL, &i.ExternalURL, &stored); err != nil {
+			return domain.CatalogItem{}, fmt.Errorf("read catalog item: %w", err)
+		}
+		i.Year = 0
+		if year != nil {
+			i.Year = *year
+		}
+		i.Metadata = nil
+		_ = json.Unmarshal(stored, &i.Metadata)
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -89,6 +109,19 @@ func (s *Store) Upsert(ctx context.Context, resolved domain.ResolvedItem) (domai
 		if _, err := tx.Exec(ctx, `INSERT INTO catalog_item_platforms(catalog_item_id,provider_id,platform_key,name) VALUES($1,$2,$3,$4)`, i.ID, p.ProviderID, p.Key, p.Name); err != nil {
 			return domain.CatalogItem{}, fmt.Errorf("save catalog platform: %w", err)
 		}
+	}
+	for _, alias := range resolved.Aliases {
+		if alias.Kind == "" || alias.Value == "" || len(alias.Kind) > 32 || len(alias.Value) > 256 {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO catalog_item_aliases(catalog_item_id,kind,value) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, i.ID, alias.Kind, alias.Value); err != nil {
+			return domain.CatalogItem{}, fmt.Errorf("save catalog alias: %w", err)
+		}
+	}
+	// A title resolved after its library synced has no evidence yet: look in
+	// what the libraries already hold, so its availability is known at once.
+	if err := matchExistingInventory(ctx, tx, i.ID, string(i.MediaType), i.Provider, i.ProviderID, time.Now().UTC()); err != nil {
+		return domain.CatalogItem{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.CatalogItem{}, fmt.Errorf("commit catalog platforms: %w", err)
@@ -108,9 +141,24 @@ func (s *Store) CreateOrGet(ctx context.Context, request domain.Request, sub dom
 		return domain.Request{}, false, err
 	}
 	defer tx.Rollback(ctx)
+	// Something a library already has is not requested: it is there to watch.
+	// An existing Request is still returned (and may be extended) as before.
+	var availability string
+	if err = tx.QueryRow(ctx, `SELECT availability FROM catalog_items WHERE id=$1`, request.CatalogItemID).Scan(&availability); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return domain.Request{}, false, err
+	}
+	if availability == string(domain.AvailabilityAvailable) {
+		var existing bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM requests WHERE catalog_item_id=$1)`, request.CatalogItemID).Scan(&existing); err != nil {
+			return domain.Request{}, false, err
+		}
+		if !existing {
+			return domain.Request{}, false, requests.ErrAlreadyAvailable
+		}
+	}
 	var out domain.Request
 	scanner := requestJSON(&out)
-	err = tx.QueryRow(ctx, `INSERT INTO requests(id,catalog_item_id,status,requested_by,requester_note,acceptable_platforms,requested_at,updated_at) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,now(),now()) ON CONFLICT(catalog_item_id) DO NOTHING RETURNING id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at`, newUUID(), request.CatalogItemID, request.Status, request.RequestedBy, request.Note, mustJSON(request.Platforms)).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt)
+	err = tx.QueryRow(ctx, `INSERT INTO requests(id,catalog_item_id,status,requested_by,requester_note,acceptable_platforms,selection,requested_at,updated_at) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$7,now(),now()) ON CONFLICT(catalog_item_id) DO NOTHING RETURNING id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at`, newUUID(), request.CatalogItemID, request.Status, request.RequestedBy, request.Note, mustJSON(request.Platforms), mustJSON(request.Selection)).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt)
 	if err == nil {
 		_, err = tx.Exec(ctx, `INSERT INTO request_subscriptions(request_id,user_id,source,created_at) VALUES($1,$2,$3,now())`, out.ID, sub.UserID, sub.Source)
 		if err != nil {
@@ -123,19 +171,81 @@ func (s *Store) CreateOrGet(ctx context.Context, request domain.Request, sub dom
 		if err = tx.Commit(ctx); err != nil {
 			return domain.Request{}, false, err
 		}
+		out.Selection = request.Selection
 		return out, true, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return domain.Request{}, false, err
 	}
-	err = tx.QueryRow(ctx, `SELECT id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at FROM requests WHERE catalog_item_id=$1`, request.CatalogItemID).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt)
+	var selection []byte
+	err = tx.QueryRow(ctx, `SELECT id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at,selection FROM requests WHERE catalog_item_id=$1`, request.CatalogItemID).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt, &selection)
 	if err != nil {
+		return domain.Request{}, false, err
+	}
+	if out.Selection, err = parseSelection(selection); err != nil {
 		return domain.Request{}, false, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return domain.Request{}, false, err
 	}
 	return out, false, nil
+}
+
+func parseSelection(raw []byte) (domain.Selection, error) {
+	var selection domain.Selection
+	if len(raw) == 0 {
+		return selection, nil
+	}
+	if err := json.Unmarshal(raw, &selection); err != nil {
+		return domain.Selection{}, fmt.Errorf("invalid request selection: %w", err)
+	}
+	return selection, nil
+}
+
+// MergeSelection unions selection into an open Request under a row lock, follows
+// the Request for the user and bumps its version when the selection grew.
+func (s *Store) MergeSelection(ctx context.Context, requestID, userID string, selection domain.Selection) (domain.Request, bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.Request{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	var out domain.Request
+	var raw []byte
+	err = tx.QueryRow(ctx, `SELECT id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at,selection FROM requests WHERE id=$1 FOR UPDATE`, requestID).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, requestJSON(&out), &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt, &raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Request{}, false, requests.ErrRequestNotFound
+	}
+	if err != nil {
+		return domain.Request{}, false, err
+	}
+	if out.Selection, err = parseSelection(raw); err != nil {
+		return domain.Request{}, false, err
+	}
+	if !out.Status.IsOpen() || out.Selection.Contains(selection) {
+		return out, false, nil
+	}
+	merged := out.Selection.Merge(selection)
+	if _, err = tx.Exec(ctx, `UPDATE requests SET selection=$2,updated_at=now(),version=version+1 WHERE id=$1`, requestID, mustJSON(merged)); err != nil {
+		return domain.Request{}, false, err
+	}
+	if err = appendRequestEvent(ctx, tx, requestID, userID, "request.selection_changed", mustJSON(merged)); err != nil {
+		return domain.Request{}, false, err
+	}
+	ct, err := tx.Exec(ctx, `INSERT INTO request_subscriptions(request_id,user_id,source,created_at) VALUES($1,$2,'manual',now()) ON CONFLICT(request_id,user_id) DO NOTHING`, requestID, userID)
+	if err != nil {
+		return domain.Request{}, false, err
+	}
+	if ct.RowsAffected() == 1 {
+		if err = appendSubscriptionEvent(ctx, tx, requestID, userID, "request.subscribed"); err != nil {
+			return domain.Request{}, false, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Request{}, false, err
+	}
+	out.Selection = merged
+	return out, true, nil
 }
 
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }

@@ -9,10 +9,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
 type Config struct {
+	DevelopmentLogs   bool
+	devLogsInvalid    bool
 	Environment       string
 	HTTPAddr          string
 	PublicURL         string
@@ -25,23 +29,30 @@ type Config struct {
 	TMDBReadToken     string
 	IGDBClientID      string
 	IGDBClientSecret  string
-	JellyfinURL       string
-	JellyfinAPIKey    string
-	PlexURL           string
-	PlexToken         string
-	RommURL           string
-	RommToken         string
-	NavidromeURL      string
-	NavidromeUsername string
-	NavidromePassword string
-	AppriseURL        string
-	AppriseConfigKey  string
+	// AudibleRegion is the marketplace assumed for a bare ASIN (D031); "us" when unset.
+	AudibleRegion        string
+	JellyfinURL          string
+	JellyfinAPIKey       string
+	PlexURL              string
+	PlexToken            string
+	RommURL              string
+	RommToken            string
+	NavidromeURL         string
+	NavidromeUsername    string
+	NavidromePassword    string
+	AudiobookshelfURL    string
+	AudiobookshelfAPIKey string
+	AppriseURL           string
+	AppriseConfigKey     string
 	// SecretsKey is the master key for stored secrets (D024). Optional.
 	SecretsKey string
 }
 
 func FromEnv() Config {
-	return Config{
+	devLogs, devLogsErr := strconv.ParseBool(env("REQUESTARR_DEV_LOGS", "false"))
+	c := Config{
+		DevelopmentLogs:   devLogs,
+		devLogsInvalid:    devLogsErr != nil,
 		Environment:       env("REQUESTARR_ENV", "development"),
 		HTTPAddr:          env("REQUESTARR_HTTP_ADDR", ":8080"),
 		PublicURL:         env("REQUESTARR_PUBLIC_URL", "http://localhost:8080"),
@@ -54,19 +65,104 @@ func FromEnv() Config {
 		TMDBReadToken:     os.Getenv("REQUESTARR_TMDB_READ_TOKEN"),
 		IGDBClientID:      os.Getenv("REQUESTARR_IGDB_CLIENT_ID"),
 		IGDBClientSecret:  os.Getenv("REQUESTARR_IGDB_CLIENT_SECRET"),
-		JellyfinURL:       os.Getenv("REQUESTARR_JELLYFIN_URL"),
-		JellyfinAPIKey:    os.Getenv("REQUESTARR_JELLYFIN_API_KEY"),
-		PlexURL:           os.Getenv("REQUESTARR_PLEX_URL"),
-		PlexToken:         os.Getenv("REQUESTARR_PLEX_TOKEN"),
-		RommURL:           os.Getenv("REQUESTARR_ROMM_URL"),
-		RommToken:         os.Getenv("REQUESTARR_ROMM_TOKEN"),
-		NavidromeURL:      os.Getenv("REQUESTARR_NAVIDROME_URL"),
-		NavidromeUsername: os.Getenv("REQUESTARR_NAVIDROME_USERNAME"),
-		NavidromePassword: os.Getenv("REQUESTARR_NAVIDROME_PASSWORD"),
+		AudibleRegion:     strings.ToLower(strings.TrimSpace(os.Getenv("REQUESTARR_AUDIBLE_REGION"))),
 		AppriseURL:        os.Getenv("REQUESTARR_APPRISE_URL"),
 		AppriseConfigKey:  os.Getenv("REQUESTARR_APPRISE_CONFIG_KEY"),
 		SecretsKey:        os.Getenv(secrets.MasterKeyEnv),
 	}
+	for _, kind := range sources.All() {
+		*c.LibraryURL(kind.Slug) = os.Getenv(kind.URLEnv)
+		for _, credential := range kind.Credentials {
+			*c.LibraryCredential(kind.Slug, credential.Role) = os.Getenv(credential.Env)
+		}
+	}
+	return c
+}
+
+// libraryRefs points at one Source kind's Config fields. A nil field means the
+// kind has no such credential.
+type libraryRefs struct{ URL, Token, Username, Password *string }
+
+// libraryFields is the one place the per-kind Config fields are named.
+func (c *Config) libraryFields(slug string) libraryRefs {
+	switch slug {
+	case "jellyfin":
+		return libraryRefs{URL: &c.JellyfinURL, Token: &c.JellyfinAPIKey}
+	case "plex":
+		return libraryRefs{URL: &c.PlexURL, Token: &c.PlexToken}
+	case "romm":
+		return libraryRefs{URL: &c.RommURL, Token: &c.RommToken}
+	case "navidrome":
+		return libraryRefs{URL: &c.NavidromeURL, Username: &c.NavidromeUsername, Password: &c.NavidromePassword}
+	case "audiobookshelf":
+		return libraryRefs{URL: &c.AudiobookshelfURL, Token: &c.AudiobookshelfAPIKey}
+	}
+	panic("config: unknown Source kind " + slug)
+}
+
+// LibraryURL returns the configured URL field of a Source kind. It panics on a
+// slug that is not in the sources registry, which is a programming error.
+func (c *Config) LibraryURL(slug string) *string { return c.libraryFields(slug).URL }
+
+// LibraryCredential returns the configured value of a Source kind's credential
+// field. It panics when the kind has no such field.
+func (c *Config) LibraryCredential(slug string, role sources.Role) *string {
+	refs := c.libraryFields(slug)
+	var field *string
+	switch role {
+	case sources.RoleToken:
+		field = refs.Token
+	case sources.RoleUsername:
+		field = refs.Username
+	case sources.RolePassword:
+		field = refs.Password
+	}
+	if field == nil {
+		panic("config: " + slug + " has no " + string(role) + " credential")
+	}
+	return field
+}
+
+// LibraryProblems is librarySourceProblems for one Source slug, so a single
+// Source can be checked (and applied) without validating the rest.
+func (c Config) LibraryProblems(slug string) []string {
+	kind, ok := sources.Lookup(slug)
+	if !ok {
+		return []string{"unknown library source"}
+	}
+	return c.librarySourceProblems(kind)
+}
+
+// librarySourceProblems enforces that a Source's URL and every Credential field
+// are configured together, and that a configured URL is a valid origin.
+func (c Config) librarySourceProblems(kind sources.Kind) []string {
+	url, set := *c.LibraryURL(kind.Slug), *c.LibraryURL(kind.Slug) != ""
+	names := []string{kind.URLEnv}
+	for _, credential := range kind.Credentials {
+		names = append(names, credential.Env)
+		if *c.LibraryCredential(kind.Slug, credential.Role) != "" {
+			set = true
+		}
+	}
+	if !set {
+		return nil
+	}
+	complete := url != ""
+	for _, credential := range kind.Credentials {
+		complete = complete && *c.LibraryCredential(kind.Slug, credential.Role) != ""
+	}
+	if !complete {
+		return []string{joinNames(names) + " must be configured together"}
+	}
+	return c.sourceURLProblems(kind.URLEnv, url)
+}
+
+// joinNames renders "A and B" or "A, B, and C".
+func joinNames(names []string) string {
+	if len(names) == 2 {
+		return names[0] + " and " + names[1]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + ", and " + names[len(names)-1]
 }
 
 // ValidateBootstrap checks only what is needed to open the database and read
@@ -78,8 +174,22 @@ func (c Config) ValidateBootstrap() error {
 		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
 	}
 	problems = append(problems, c.secretsKeyProblems()...)
+	if c.AudibleRegion != "" && !domain.AudibleRegion(c.AudibleRegion).Valid() {
+		problems = append(problems, "REQUESTARR_AUDIBLE_REGION must be one of us, ca, uk, au, fr, de, jp, it, in, es")
+	}
+	problems = append(problems, c.developmentLogsProblems()...)
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+func (c Config) developmentLogsProblems() []string {
+	if c.devLogsInvalid {
+		return []string{"REQUESTARR_DEV_LOGS must be a boolean"}
+	}
+	if c.DevelopmentLogs && c.Environment != "development" {
+		return []string{"REQUESTARR_DEV_LOGS is only permitted in development"}
 	}
 	return nil
 }
@@ -109,33 +219,14 @@ func (c Config) sourceURLProblems(name, raw string) []string {
 
 func (c Config) Validate() error {
 	var problems []string
+	problems = append(problems, c.developmentLogsProblems()...)
 
 	if c.DatabaseURL == "" {
 		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
 	}
 	problems = append(problems, c.secretsKeyProblems()...)
-	if (c.JellyfinURL == "") != (c.JellyfinAPIKey == "") {
-		problems = append(problems, "REQUESTARR_JELLYFIN_URL and REQUESTARR_JELLYFIN_API_KEY must be configured together")
-	} else if c.JellyfinURL != "" {
-		problems = append(problems, c.sourceURLProblems("REQUESTARR_JELLYFIN_URL", c.JellyfinURL)...)
-	}
-	if (c.PlexURL == "") != (c.PlexToken == "") {
-		problems = append(problems, "REQUESTARR_PLEX_URL and REQUESTARR_PLEX_TOKEN must be configured together")
-	} else if c.PlexURL != "" {
-		problems = append(problems, c.sourceURLProblems("REQUESTARR_PLEX_URL", c.PlexURL)...)
-	}
-	if (c.RommURL == "") != (c.RommToken == "") {
-		problems = append(problems, "REQUESTARR_ROMM_URL and REQUESTARR_ROMM_TOKEN must be configured together")
-	} else if c.RommURL != "" {
-		problems = append(problems, c.sourceURLProblems("REQUESTARR_ROMM_URL", c.RommURL)...)
-	}
-	navidromeConfigured := c.NavidromeURL != "" || c.NavidromeUsername != "" || c.NavidromePassword != ""
-	if navidromeConfigured {
-		if c.NavidromeURL == "" || c.NavidromeUsername == "" || c.NavidromePassword == "" {
-			problems = append(problems, "REQUESTARR_NAVIDROME_URL, REQUESTARR_NAVIDROME_USERNAME, and REQUESTARR_NAVIDROME_PASSWORD must be configured together")
-		} else {
-			problems = append(problems, c.sourceURLProblems("REQUESTARR_NAVIDROME_URL", c.NavidromeURL)...)
-		}
+	for _, kind := range sources.All() {
+		problems = append(problems, c.librarySourceProblems(kind)...)
 	}
 	if (c.AppriseURL == "") != (c.AppriseConfigKey == "") {
 		problems = append(problems, "REQUESTARR_APPRISE_URL and REQUESTARR_APPRISE_CONFIG_KEY must be configured together")

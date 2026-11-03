@@ -1,0 +1,7 @@
+{
+    "id": 1762506,
+    "title": "Fixture movie",
+    "release_date": "2026-01-01",
+    "poster_path": "/fixture-movie.jpg",
+    "overview": "Deterministic movie metadata for URL resolution tests."
+}

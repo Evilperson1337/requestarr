@@ -91,7 +91,7 @@ func checkDescriptor(t *testing.T, d inventory.Descriptor) {
 	}
 	for _, m := range d.MediaTypes {
 		switch m {
-		case domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong, domain.MediaGame:
+		case domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong, domain.MediaGame, domain.MediaAudiobook:
 		default:
 			t.Errorf("descriptor declares unknown media type %q", m)
 		}

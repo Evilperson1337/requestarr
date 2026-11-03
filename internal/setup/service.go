@@ -7,6 +7,7 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
 type Repository interface {
@@ -21,6 +22,9 @@ type Repository interface {
 
 type Checker interface {
 	Check(context.Context, Target, Settings) (CheckCode, error)
+	// Describe is the message shown for a result, including which secret
+	// source was verified. Wording is the checker's, not the service's.
+	Describe(context.Context, Target, CheckCode) string
 }
 
 // SecretSources resolves the value the next restart would use for a secret and
@@ -33,54 +37,6 @@ type Service struct {
 	repo    Repository
 	checker Checker
 	runtime Runtime
-	secrets SecretSources
-}
-
-// UseSecrets lets connection-check messages name the secret source.
-func (s *Service) UseSecrets(sources SecretSources) { s.secrets = sources }
-
-// checkedSecrets maps a check target to the secret it verifies and the noun
-// used for it in messages.
-var checkedSecrets = map[Target]struct {
-	name secrets.Name
-	noun string
-}{
-	TargetTMDB:          {secrets.TMDBReadToken, "token"},
-	TargetJellyfin:      {secrets.JellyfinAPIKey, "API key"},
-	TargetPlex:          {secrets.PlexToken, "token"},
-	TargetRomm:          {secrets.RommToken, "token"},
-	TargetNavidrome:     {secrets.NavidromePassword, "password"},
-	TargetIGDB:          {secrets.IGDBClientSecret, "client secret"},
-	TargetNotifications: {secrets.AppriseConfigKey, "configuration key"},
-}
-
-// secretNote names the source of the secret a check just used, so an admin
-// knows which value was verified. It never includes the value.
-func (s *Service) secretNote(ctx context.Context, target Target, code CheckCode) string {
-	checked, ok := checkedSecrets[target]
-	if s.secrets == nil || !ok {
-		return ""
-	}
-	r, err := s.secrets.Resolve(ctx, checked.name)
-	if err != nil {
-		return ""
-	}
-	// An unreadable stored secret is always worth reporting. The other notes
-	// claim a value was checked, which is untrue when nothing was attempted.
-	if (code == CheckDisabled || code == CheckIncomplete) && r.Source != secrets.SourceUnreadable {
-		return ""
-	}
-	switch r.Source {
-	case secrets.SourceEnvironment:
-		return " Checked the " + checked.noun + " from the environment."
-	case secrets.SourceStored:
-		return " Checked the stored " + checked.noun + ", which a restart will use."
-	case secrets.SourceShadowed:
-		return " Checked the " + checked.noun + " from the environment; the stored " + checked.noun + " is shadowed by environment and is not used."
-	case secrets.SourceUnreadable:
-		return " The stored " + checked.noun + " cannot be read with the current REQUESTARR_SECRETS_KEY; enter it again or restore the key."
-	}
-	return ""
 }
 
 func NewService(repo Repository, checker Checker, runtime Runtime) *Service {
@@ -121,45 +77,33 @@ func (s *Service) decorate(d Draft) Draft {
 		{Name: OIDCSecretEnv, Secret: true, Configured: s.runtime.OIDCSecretConfigured, NeedsRestart: !s.runtime.OIDCSecretConfigured || d.Settings.Authentication.Issuer != s.runtime.OIDCIssuer || d.Settings.Authentication.ClientID != s.runtime.OIDCClientID},
 	}
 	if d.Settings.Providers.TMDBEnabled {
-		d.Environment = append(d.Environment, EnvironmentItem{Name: TMDBTokenEnv, Secret: true, Configured: s.runtime.TMDBTokenConfigured, NeedsRestart: !s.runtime.TMDBTokenConfigured})
+		d.Environment = append(d.Environment, EnvironmentItem{Name: TMDBTokenEnv, Secret: true, Configured: s.runtime.SecretConfigured(secrets.TMDBReadToken), NeedsRestart: !s.runtime.SecretConfigured(secrets.TMDBReadToken)})
 	}
 	if d.Settings.Providers.IGDBEnabled {
-		d.Environment = append(d.Environment,
-			EnvironmentItem{Name: "REQUESTARR_IGDB_CLIENT_ID", Configured: s.runtime.IGDBClientID != "", NeedsRestart: d.Settings.Providers.IGDBClientID != s.runtime.IGDBClientID, DesiredValue: d.Settings.Providers.IGDBClientID},
-			EnvironmentItem{Name: IGDBSecretEnv, Secret: true, Configured: s.runtime.IGDBSecretConfigured, NeedsRestart: !s.runtime.IGDBSecretConfigured || d.Settings.Providers.IGDBClientID != s.runtime.IGDBClientID})
+		// Without an operator override the saved ID applies at restart, not by
+		// editing the environment. Do not misleadingly list it as missing env.
+		if s.runtime.IGDBClientIDFromEnvironment {
+			d.Environment = append(d.Environment, EnvironmentItem{Name: "REQUESTARR_IGDB_CLIENT_ID", Configured: true, NeedsRestart: d.Settings.Providers.IGDBClientID != s.runtime.IGDBClientID, DesiredValue: d.Settings.Providers.IGDBClientID})
+		}
+		d.Environment = append(d.Environment, EnvironmentItem{Name: IGDBSecretEnv, Secret: true, Configured: s.runtime.SecretConfigured(secrets.IGDBClientSecret), NeedsRestart: !s.runtime.SecretConfigured(secrets.IGDBClientSecret) || d.Settings.Providers.IGDBClientID != s.runtime.IGDBClientID})
 	}
 	if n := d.Settings.Notifications; n.AppriseEnabled || s.runtime.AppriseURL != "" {
 		d.Environment = append(d.Environment,
 			EnvironmentItem{Name: "REQUESTARR_APPRISE_URL", Configured: s.runtime.AppriseURL != "", NeedsRestart: n.AppriseURL != s.runtime.AppriseURL, DesiredValue: n.AppriseURL},
-			EnvironmentItem{Name: AppriseConfigKeyEnv, Secret: true, Configured: s.runtime.AppriseKeyConfigured, NeedsRestart: n.AppriseEnabled && !s.runtime.AppriseKeyConfigured})
+			EnvironmentItem{Name: AppriseConfigKeyEnv, Secret: true, Configured: s.runtime.SecretConfigured(secrets.AppriseConfigKey), NeedsRestart: n.AppriseEnabled && !s.runtime.SecretConfigured(secrets.AppriseConfigKey)})
 	}
-	for _, entry := range []struct {
-		kind   string
-		source SourceSettings
-	}{
-		{"jellyfin", d.Settings.Libraries.Jellyfin}, {"plex", d.Settings.Libraries.Plex},
-		{"romm", d.Settings.Libraries.Romm}, {"navidrome", d.Settings.Libraries.Navidrome},
-	} {
-		kind, source := entry.kind, entry.source
-		var url, secretEnv string
-		switch kind {
-		case "jellyfin":
-			url, secretEnv = "REQUESTARR_JELLYFIN_URL", source.TokenEnv
-		case "plex":
-			url, secretEnv = "REQUESTARR_PLEX_URL", source.TokenEnv
-		case "romm":
-			url, secretEnv = "REQUESTARR_ROMM_URL", source.TokenEnv
-		case "navidrome":
-			url, secretEnv = "REQUESTARR_NAVIDROME_URL", source.PasswordEnv
-		}
-		activeURL := s.runtime.LibraryURLs[kind]
-		activeTypes := defaultSourceMediaTypes(kind)
-		needsRestart := source.URL != activeURL || source.Enabled != (activeURL != "") || source.Enabled && !sameMediaTypes(source.MediaTypes, activeTypes)
-		d.Environment = append(d.Environment, EnvironmentItem{Name: url, Configured: activeURL != "", NeedsRestart: needsRestart, DesiredValue: source.URL})
-		if kind == "navidrome" {
-			d.Environment = append(d.Environment, EnvironmentItem{Name: NavidromeUsernameEnv, Configured: s.runtime.NavidromeUsername != "", NeedsRestart: source.Enabled && source.Username != s.runtime.NavidromeUsername, DesiredValue: source.Username}, EnvironmentItem{Name: secretEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind+"Password"], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind+"Password"]})
-		} else {
-			d.Environment = append(d.Environment, EnvironmentItem{Name: secretEnv, Secret: true, Configured: s.runtime.LibrarySecrets[kind], NeedsRestart: source.Enabled && !s.runtime.LibrarySecrets[kind]})
+	for _, kind := range sources.All() {
+		source := *d.Settings.Libraries.Source(kind.Slug)
+		activeURL := s.runtime.LibraryURLs[kind.Slug]
+		needsRestart := source.URL != activeURL || source.Enabled != (activeURL != "") || source.Enabled && !sameMediaTypes(source.MediaTypes, kind.MediaTypes)
+		d.Environment = append(d.Environment, EnvironmentItem{Name: kind.URLEnv, Configured: activeURL != "", NeedsRestart: needsRestart, DesiredValue: source.URL})
+		for _, credential := range kind.Credentials {
+			if credential.Role == sources.RoleUsername {
+				d.Environment = append(d.Environment, EnvironmentItem{Name: credential.Env, Configured: s.runtime.LibraryUsername(kind.Slug) != "", NeedsRestart: source.Enabled && source.Username != s.runtime.LibraryUsername(kind.Slug), DesiredValue: source.Username})
+				continue
+			}
+			configured := s.runtime.SecretConfigured(secrets.Name(credential.Secret))
+			d.Environment = append(d.Environment, EnvironmentItem{Name: credential.Env, Secret: true, Configured: configured, NeedsRestart: source.Enabled && !configured})
 		}
 	}
 	return d
@@ -170,65 +114,58 @@ func defaultNotifications(runtime Runtime) NotificationSettings {
 }
 
 func defaultLibraries(runtime Runtime) LibrariesSettings {
-	return LibrariesSettings{
-		Jellyfin:  SourceSettings{Enabled: runtime.LibraryURLs["jellyfin"] != "", URL: runtime.LibraryURLs["jellyfin"], MediaTypes: defaultSourceMediaTypes("jellyfin"), TokenEnv: JellyfinAPIKeyEnv},
-		Plex:      SourceSettings{Enabled: runtime.LibraryURLs["plex"] != "", URL: runtime.LibraryURLs["plex"], MediaTypes: defaultSourceMediaTypes("plex"), TokenEnv: PlexTokenEnv},
-		Romm:      SourceSettings{Enabled: runtime.LibraryURLs["romm"] != "", URL: runtime.LibraryURLs["romm"], MediaTypes: defaultSourceMediaTypes("romm"), TokenEnv: RommTokenEnv},
-		Navidrome: SourceSettings{Enabled: runtime.LibraryURLs["navidrome"] != "", URL: runtime.LibraryURLs["navidrome"], MediaTypes: defaultSourceMediaTypes("navidrome"), Username: runtime.NavidromeUsername, PasswordEnv: NavidromePasswordEnv},
+	var l LibrariesSettings
+	for _, kind := range sources.All() {
+		url := runtime.LibraryURLs[kind.Slug]
+		source := SourceSettings{Enabled: url != "", URL: url, MediaTypes: kind.DefaultMediaTypes()}
+		applyCredentialDefaults(&source, kind, runtime)
+		*l.Source(kind.Slug) = source
+	}
+	return l
+}
+
+// applyCredentialDefaults fills the fixed environment names of the kind's
+// credential fields, and the environment-configured username, where the draft
+// leaves them empty.
+func applyCredentialDefaults(source *SourceSettings, kind sources.Kind, runtime Runtime) {
+	for _, credential := range kind.Credentials {
+		switch credential.Role {
+		case sources.RoleToken:
+			if source.TokenEnv == "" {
+				source.TokenEnv = credential.Env
+			}
+		case sources.RolePassword:
+			if source.PasswordEnv == "" {
+				source.PasswordEnv = credential.Env
+			}
+		case sources.RoleUsername:
+			if source.Username == "" {
+				source.Username = runtime.LibraryUsername(kind.Slug)
+			}
+		}
 	}
 }
 
 func normalizeLibraries(l LibrariesSettings, runtime Runtime) LibrariesSettings {
-	if emptySource(l.Jellyfin) && emptySource(l.Plex) && emptySource(l.Romm) && emptySource(l.Navidrome) {
+	all := true
+	for _, kind := range sources.All() {
+		all = all && emptySource(*l.Source(kind.Slug))
+	}
+	if all {
 		return defaultLibraries(runtime)
 	}
-	defaults := map[string]*SourceSettings{"jellyfin": &l.Jellyfin, "plex": &l.Plex, "romm": &l.Romm, "navidrome": &l.Navidrome}
-	for kind, source := range defaults {
+	for _, kind := range sources.All() {
+		source := l.Source(kind.Slug)
 		if source.MediaTypes == nil {
 			source.MediaTypes = []domain.MediaType{}
 		}
-		switch kind {
-		case "jellyfin":
-			if source.TokenEnv == "" {
-				source.TokenEnv = JellyfinAPIKeyEnv
-			}
-		case "plex":
-			if source.TokenEnv == "" {
-				source.TokenEnv = PlexTokenEnv
-			}
-		case "romm":
-			if source.TokenEnv == "" {
-				source.TokenEnv = RommTokenEnv
-			}
-		case "navidrome":
-			if source.Username == "" {
-				source.Username = runtime.NavidromeUsername
-			}
-			if source.PasswordEnv == "" {
-				source.PasswordEnv = NavidromePasswordEnv
-			}
-		}
+		applyCredentialDefaults(source, kind, runtime)
 	}
 	return l
 }
 
 func emptySource(s SourceSettings) bool {
 	return !s.Enabled && s.URL == "" && len(s.MediaTypes) == 0 && s.TokenEnv == "" && s.Username == "" && s.PasswordEnv == ""
-}
-
-func defaultSourceMediaTypes(kind string) []domain.MediaType {
-	switch kind {
-	case "jellyfin":
-		return []domain.MediaType{domain.MediaMovie, domain.MediaTV}
-	case "plex":
-		return []domain.MediaType{domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong}
-	case "romm":
-		return []domain.MediaType{domain.MediaGame}
-	case "navidrome":
-		return []domain.MediaType{domain.MediaAlbum, domain.MediaSong}
-	default:
-		return nil
-	}
 }
 
 func sameMediaTypes(a, b []domain.MediaType) bool {
@@ -309,20 +246,12 @@ func (s *Service) Validate(ctx context.Context, actor Actor, revision int64, tar
 	if checkErr != nil {
 		code = CheckUnavailable
 	}
-	message := "Connection check failed. Verify the service address, network access, and server environment, then retry."
 	switch code {
-	case CheckOK:
-		message = "Connection succeeded. Draft settings remain inactive."
-	case CheckDisabled:
-		message = "Provider is disabled in this draft."
-	case CheckEnvironment:
-		message = "Set the listed environment variables and restart Requestarr before checking this connection."
-	case CheckIncomplete:
-		message = "Complete this step's required non-secret fields before checking the connection."
+	case CheckOK, CheckDisabled, CheckEnvironment, CheckAuthentication, CheckIncomplete:
 	default:
 		code = CheckUnavailable
 	}
-	message += s.secretNote(ctx, target, code)
+	message := s.checker.Describe(ctx, target, code)
 	now := time.Now().UTC()
 	result := Validation{Target: target, Revision: revision, Valid: code == CheckOK || code == CheckDisabled, Code: code, Message: message, CheckedAt: now, ExpiresAt: now.Add(10 * time.Minute)}
 	d, err = s.repo.RecordSetupValidation(ctx, actor.ID, revision, result)

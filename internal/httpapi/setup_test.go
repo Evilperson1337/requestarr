@@ -53,7 +53,7 @@ func setupHTTP(service *fakeSetup, role, method, path, body string, csrf bool) *
 }
 
 func validSetupDraftBody() string {
-	return `{"expectedRevision":1,"currentStep":"general","settings":{"general":{"instanceName":"","timezone":"","publicUrl":""},"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"},"notifications":{"appriseEnabled":false,"appriseUrl":"","appriseConfigKeyEnv":"REQUESTARR_APPRISE_CONFIG_KEY"},"policy":{"autoApproveMediaTypes":[]},"libraries":{"jellyfin":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_JELLYFIN_API_KEY","username":"","passwordEnv":""},"plex":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_PLEX_TOKEN","username":"","passwordEnv":""},"romm":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_ROMM_TOKEN","username":"","passwordEnv":""},"navidrome":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"","username":"","passwordEnv":"REQUESTARR_NAVIDROME_PASSWORD"}}}}`
+	return `{"expectedRevision":1,"currentStep":"general","settings":{"general":{"instanceName":"","timezone":"","publicUrl":""},"authentication":{"issuer":"","clientId":"","clientSecretEnv":"REQUESTARR_OIDC_CLIENT_SECRET"},"providers":{"tmdbEnabled":false,"tmdbTokenEnv":"REQUESTARR_TMDB_READ_TOKEN","musicBrainzEnabled":false,"musicBrainzContact":"","igdbEnabled":false,"igdbClientId":"","igdbClientSecretEnv":"REQUESTARR_IGDB_CLIENT_SECRET"},"notifications":{"appriseEnabled":false,"appriseUrl":"","appriseConfigKeyEnv":"REQUESTARR_APPRISE_CONFIG_KEY"},"policy":{"autoApproveMediaTypes":[]},"libraries":{"jellyfin":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_JELLYFIN_API_KEY","username":"","passwordEnv":""},"plex":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_PLEX_TOKEN","username":"","passwordEnv":""},"romm":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_ROMM_TOKEN","username":"","passwordEnv":""},"navidrome":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"","username":"","passwordEnv":"REQUESTARR_NAVIDROME_PASSWORD"},"audiobookshelf":{"enabled":false,"url":"","mediaTypes":[],"tokenEnv":"REQUESTARR_AUDIOBOOKSHELF_API_KEY","username":"","passwordEnv":""}}}}`
 }
 
 func TestSetupDraftEndpointsRequireAdminAndProtectSecrets(t *testing.T) {
@@ -116,7 +116,7 @@ func TestSetupDraftRejectsMissingOrNullRequiredFields(t *testing.T) {
 	cases["policy null"] = editSetupSection(valid, "policy", true)
 	cases["libraries omitted"] = editSetupSection(valid, "libraries", false)
 	cases["libraries null"] = editSetupSection(valid, "libraries", true)
-	for _, source := range []string{"jellyfin", "plex", "romm", "navidrome"} {
+	for _, source := range []string{"jellyfin", "plex", "romm", "navidrome", "audiobookshelf"} {
 		cases[source+" source omitted"] = editLibrarySection(valid, source, false)
 		cases[source+" source null"] = editLibrarySection(valid, source, true)
 	}
@@ -160,7 +160,7 @@ func editSetupJSON(body, key string, setNull bool) string {
 		}
 	}
 	libraries := settings["libraries"].(map[string]any)
-	for _, kind := range []string{"jellyfin", "plex", "romm", "navidrome"} {
+	for _, kind := range []string{"jellyfin", "plex", "romm", "navidrome", "audiobookshelf"} {
 		fields := libraries[kind].(map[string]any)
 		if _, exists := fields[key]; exists {
 			if setNull {
@@ -236,4 +236,33 @@ func TestSetupFinishMapsServiceOutcomes(t *testing.T) {
 		assertErrorEnvelope(t, w, tc.status, tc.code)
 	}
 	assertErrorEnvelope(t, setupHTTP(&fakeSetup{}, "admin", "POST", "finish", `{"expectedRevision":1,"complete":true}`, true), 400, "invalid_setup_input")
+}
+
+func TestSourceKindsAreServedToAdministratorsOnly(t *testing.T) {
+	for _, role := range []string{"", "viewer", "requester"} {
+		if rec := setupHTTP(&fakeSetup{}, role, http.MethodGet, "source-kinds", "", false); rec.Code != http.StatusUnauthorized && rec.Code != http.StatusForbidden {
+			t.Fatalf("%q status = %d, want 401 or 403", role, rec.Code)
+		}
+	}
+	rec := setupHTTP(&fakeSetup{}, "admin", http.MethodGet, "source-kinds", "", false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Kinds []struct {
+			Slug        string
+			MediaTypes  []string
+			Credentials []struct{ Role, Env, Secret string }
+		}
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || len(body.Kinds) != 5 {
+		t.Fatalf("body = %s (%v)", rec.Body.String(), err)
+	}
+	nd := body.Kinds[3]
+	if nd.Slug != "navidrome" || len(nd.Credentials) != 2 || nd.Credentials[0].Role != "username" || nd.Credentials[0].Secret != "" || nd.Credentials[1].Secret != "navidrome_password" {
+		t.Fatalf("navidrome = %+v", nd)
+	}
+	if strings.Contains(rec.Body.String(), "secret-value") {
+		t.Fatal("registry must carry names only")
+	}
 }

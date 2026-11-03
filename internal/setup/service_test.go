@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/secrets"
 )
 
 type memoryDrafts struct {
@@ -58,6 +59,18 @@ func (c fakeChecker) Check(context.Context, Target, Settings) (CheckCode, error)
 	return CheckOK, c.err
 }
 
+func (fakeChecker) Describe(_ context.Context, _ Target, code CheckCode) string {
+	return "described: " + string(code)
+}
+
+// codeChecker returns a fixed code, whatever the target.
+type codeChecker struct{ code CheckCode }
+
+func (c codeChecker) Check(context.Context, Target, Settings) (CheckCode, error) { return c.code, nil }
+func (c codeChecker) Describe(_ context.Context, _ Target, code CheckCode) string {
+	return "described: " + string(code)
+}
+
 func TestDraftResumesAcrossServicesAndConnectionFailureKeepsSettings(t *testing.T) {
 	ctx := context.Background()
 	repo := &memoryDrafts{}
@@ -83,7 +96,7 @@ func TestDraftResumesAcrossServicesAndConnectionFailureKeepsSettings(t *testing.
 	if err != nil || len(checked.Validations) != 1 || checked.Validations[0].Valid || checked.Validations[0].Code != CheckUnavailable {
 		t.Fatalf("failed connection should produce a saved safe result: %+v err=%v", checked, err)
 	}
-	if checked.Validations[0].Message != "Connection check failed. Verify the service address, network access, and server environment, then retry." {
+	if checked.Validations[0].Message != "described: connection_failed" || strings.Contains(checked.Validations[0].Message, "upstream error") {
 		t.Fatalf("unsafe or unclear error: %q", checked.Validations[0].Message)
 	}
 	if !reflect.DeepEqual(checked.Settings, resumed.Settings) || checked.CurrentStep != StepAuthentication {
@@ -171,7 +184,7 @@ func TestLibraryDraftRestrictsAuthorityToAdapterMediaTypes(t *testing.T) {
 }
 
 func TestLibraryDraftPrefillsExistingSourcesWithoutReturningSecrets(t *testing.T) {
-	runtime := Runtime{LibraryURLs: map[string]string{"plex": "https://plex.example.test"}, LibrarySecrets: map[string]bool{"plex": true}}
+	runtime := Runtime{LibraryURLs: map[string]string{"plex": "https://plex.example.test"}, SecretsConfigured: map[secrets.Name]bool{secrets.PlexToken: true}}
 	repo := &memoryDrafts{draft: Draft{Revision: 1, CurrentStep: StepLibraries, Settings: Settings{Libraries: LibrariesSettings{}}}}
 	service := NewService(repo, fakeChecker{}, runtime)
 	draft, err := service.Load(context.Background(), Actor{ID: "admin-1", Role: "admin"})

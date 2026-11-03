@@ -35,73 +35,171 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 	// An album's identity is its release-group and a song's is its recording.
 	// A pasted release link is accepted but resolved to its release-group, since
 	// a release is only one edition of the album (never equate the two).
-	var entity, inc string
+	var inc string
 	media := domain.MediaAlbum
 	switch parts[0] {
 	case "release-group":
-		entity, inc = "release-group", "artists"
+		inc = "artists+genres+ratings+releases"
 	case "recording":
-		entity, inc, media = "recording", "artists", domain.MediaSong
+		inc, media = "artists+genres+ratings+releases", domain.MediaSong
 	case "release":
-		entity, inc = "release", "artists+release-groups"
+		return r.resolveRelease(ctx, parts[1])
 	default:
 		return domain.ResolvedItem{}, fmt.Errorf("unsupported MusicBrainz URL")
 	}
-	id := parts[1]
+	entity, id := parts[0], parts[1]
 	if !mbidPattern.MatchString(id) {
 		return domain.ResolvedItem{}, fmt.Errorf("invalid MusicBrainz identifier")
 	}
 	endpoint := "https://musicbrainz.org/ws/2/" + entity + "/" + url.PathEscape(id) + "?fmt=json&inc=" + inc
-	type credit struct {
-		Name   string `json:"name"`
-		Artist struct {
-			Name string `json:"name"`
-		} `json:"artist"`
-	}
 	var data struct {
 		ID               string   `json:"id"`
 		Title            string   `json:"title"`
+		PrimaryType      string   `json:"primary-type"`
+		SecondaryTypes   []string `json:"secondary-types"`
 		FirstReleaseDate string   `json:"first-release-date"`
-		Date             string   `json:"date"`
+		Length           int64    `json:"length"`
 		ArtistCredit     []credit `json:"artist-credit"`
-		ReleaseGroup     *struct {
-			ID               string `json:"id"`
-			Title            string `json:"title"`
-			FirstReleaseDate string `json:"first-release-date"`
-		} `json:"release-group"`
+		Genres           []struct {
+			Name string `json:"name"`
+		} `json:"genres"`
+		Rating *struct {
+			Value      *float64 `json:"value"`
+			VotesCount int64    `json:"votes-count"`
+		} `json:"rating"`
+		Releases []struct {
+			ID     string `json:"id"`
+			Title  string `json:"title"`
+			Status string `json:"status"`
+			Date   string `json:"date"`
+		} `json:"releases"`
 	}
-	if err := metadata.Fetch(ctx, r.client, endpoint, nil, &data); err != nil {
+	if err := apiSpacer.wait(ctx); err != nil {
+		return domain.ResolvedItem{}, err
+	}
+	if err := metadata.FetchRetrying(ctx, r.client, endpoint, nil, &data); err != nil {
 		return domain.ResolvedItem{}, err
 	}
 	if data.ID == "" || data.Title == "" {
 		return domain.ResolvedItem{}, fmt.Errorf("invalid MusicBrainz response")
 	}
-	canonicalID, name, date := data.ID, data.Title, data.FirstReleaseDate
-	if date == "" {
-		date = data.Date
+	title, artists := data.Title, artistNames(data.ArtistCredit)
+	if len(artists) > 0 {
+		title = artists[0] + " — " + data.Title
 	}
-	if entity == "release" {
-		if data.ReleaseGroup == nil || !mbidPattern.MatchString(data.ReleaseGroup.ID) || data.ReleaseGroup.Title == "" {
-			return domain.ResolvedItem{}, fmt.Errorf("invalid MusicBrainz response")
-		}
-		canonicalID, entity, name = data.ReleaseGroup.ID, "release-group", data.ReleaseGroup.Title
-		if data.ReleaseGroup.FirstReleaseDate != "" {
-			date = data.ReleaseGroup.FirstReleaseDate
-		}
+	item := domain.CatalogItem{MediaType: media, Provider: "musicbrainz", ProviderID: data.ID, Title: title, ArtworkKind: domain.ArtworkSquare, ExternalURL: "https://musicbrainz.org/" + entity + "/" + data.ID}
+	if len(data.FirstReleaseDate) >= 4 {
+		fmt.Sscanf(data.FirstReleaseDate[:4], "%d", &item.Year)
 	}
-	title := name
-	if len(data.ArtistCredit) > 0 {
-		artist := data.ArtistCredit[0].Name
-		if artist == "" {
-			artist = data.ArtistCredit[0].Artist.Name
-		}
-		if artist != "" {
-			title = artist + " — " + name
+	details := &domain.MusicDetails{Artists: artists, PrimaryType: clean(data.PrimaryType, 40), ReleaseDate: fullDate(data.FirstReleaseDate)}
+	for _, t := range data.SecondaryTypes {
+		if name := clean(t, 40); name != "" && len(details.SecondaryTypes) < 5 {
+			details.SecondaryTypes = append(details.SecondaryTypes, name)
 		}
 	}
-	item := domain.CatalogItem{MediaType: media, Provider: "musicbrainz", ProviderID: canonicalID, Title: title, ArtworkKind: domain.ArtworkSquare, ExternalURL: "https://musicbrainz.org/" + entity + "/" + canonicalID}
-	if len(date) >= 4 {
-		fmt.Sscanf(date[:4], "%d", &item.Year)
+	for _, g := range data.Genres {
+		if name := clean(g.Name, 80); name != "" && len(details.Genres) < 10 {
+			details.Genres = append(details.Genres, name)
+		}
 	}
-	return domain.ResolvedItem{Item: item}, nil
+	if data.Rating != nil && data.Rating.Value != nil && data.Rating.VotesCount > 0 && data.Rating.VotesCount <= 1000000000 && *data.Rating.Value >= 0 && *data.Rating.Value <= 5 {
+		score := *data.Rating.Value
+		details.Score, details.RatingCount = &score, data.Rating.VotesCount
+	}
+	if media == domain.MediaAlbum {
+		item.ArtworkURL = "https://coverartarchive.org/release-group/" + data.ID + "/front-500"
+		// Optional: without a tracklist the whole album is still requestable.
+		details.Tracks = r.tracklist(ctx, pickRelease(data.Releases, preferredRelease(ctx)))
+	} else {
+		if data.Length > 0 && data.Length <= 24*60*60*1000 {
+			details.LengthSeconds = int(data.Length / 1000)
+		}
+		for _, release := range data.Releases {
+			if name := clean(release.Title, 256); name != "" && len(details.AppearsOn) < 5 {
+				details.AppearsOn = append(details.AppearsOn, name)
+			}
+			if item.ArtworkURL == "" && mbidPattern.MatchString(release.ID) {
+				item.ArtworkURL = "https://coverartarchive.org/release/" + release.ID + "/front-500"
+			}
+		}
+	}
+	resolved := domain.ResolvedItem{Item: item, Music: details}
+	if media == domain.MediaAlbum {
+		// Libraries identify an album by one of its releases, not its release group.
+		// The group's releases were already in this response, so recording them
+		// costs nothing and lets a library match be found without a second lookup.
+		for _, release := range data.Releases {
+			if mbidPattern.MatchString(release.ID) && len(resolved.Aliases) < 200 {
+				resolved.Aliases = append(resolved.Aliases, domain.Alias{Kind: "mbid", Value: strings.ToLower(release.ID)})
+			}
+		}
+	}
+	return resolved, nil
+}
+
+// resolveRelease maps a release to its release-group, then reads the group's
+// details: the release itself carries no genres or rating for the album.
+func (r *Resolver) resolveRelease(ctx context.Context, id string) (domain.ResolvedItem, error) {
+	if !mbidPattern.MatchString(id) {
+		return domain.ResolvedItem{}, fmt.Errorf("invalid MusicBrainz identifier")
+	}
+	var data struct {
+		ReleaseGroup *struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"release-group"`
+	}
+	if err := apiSpacer.wait(ctx); err != nil {
+		return domain.ResolvedItem{}, err
+	}
+	if err := metadata.FetchRetrying(ctx, r.client, "https://musicbrainz.org/ws/2/release/"+url.PathEscape(id)+"?fmt=json&inc=release-groups", nil, &data); err != nil {
+		return domain.ResolvedItem{}, err
+	}
+	if data.ReleaseGroup == nil || !mbidPattern.MatchString(data.ReleaseGroup.ID) || data.ReleaseGroup.Title == "" {
+		return domain.ResolvedItem{}, fmt.Errorf("invalid MusicBrainz response")
+	}
+	return r.Resolve(withPreferredRelease(ctx, id), &url.URL{Scheme: "https", Host: "musicbrainz.org", Path: "/release-group/" + data.ReleaseGroup.ID})
+}
+
+type credit struct {
+	Name   string `json:"name"`
+	Artist struct {
+		Name string `json:"name"`
+	} `json:"artist"`
+}
+
+func artistNames(credits []credit) []string {
+	var out []string
+	for _, c := range credits {
+		name := c.Name
+		if name == "" {
+			name = c.Artist.Name
+		}
+		if name = clean(name, 256); name != "" && len(out) < 10 {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// fullDate keeps a MusicBrainz date only when it is a complete YYYY-MM-DD;
+// partial dates (a bare year) are shown by year alone.
+func fullDate(raw string) string {
+	if _, err := time.Parse("2006-01-02", raw); err == nil {
+		return raw
+	}
+	return ""
+}
+
+func clean(s string, limit int) string {
+	s = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s))
+	if len(s) > limit {
+		s = s[:limit]
+	}
+	return s
 }

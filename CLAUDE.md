@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Requestarr is a self-hosted shared request/availability/notification portal for movies, TV, music, and games. It is **V1-scope-complete against fixtures but not yet release-ready**: OIDC login, the TMDB/MusicBrainz/IGDB resolvers, shared requests with subscriptions, Jellyfin, Plex, RomM and Navidrome sync, in-app notifications, a global Apprise outbox, the setup wizard (inactive drafts) and an operational status view are implemented. `docs/research/PROJECT_STATUS.md` (with its explicit gap list) and `docs/IMPLEMENTATION_PLAN.md` are the status sources; the V1 build plan is in `.scratch/v1-completion/`. Read `docs/PROJECT_VISION.md` and `docs/V1_SCOPE.md` before writing feature code so you know what's actually in scope. Domain vocabulary is in `GLOSSARY.md`.
 
-**Read `AGENTS.md` first.** It contains binding product-boundary and engineering rules for any AI agent working in this repo (no acquisition/downloader behavior, OIDC-only auth, one shared request per item, domain logic isolated from HTTP/DB/provider clients, etc.). `docs/DECISIONS.md` (D001–D023) records accepted architecture/product decisions — do not silently reverse them; if one seems wrong, document the conflict in `docs/DECISIONS.md` instead of quietly diverging.
+**Read `AGENTS.md` first.** It contains binding product-boundary and engineering rules for any AI agent working in this repo (no acquisition/downloader behavior, OIDC-only auth, one shared request per item, domain logic isolated from HTTP/DB/provider clients, etc.). `docs/DECISIONS.md` (D001+) records accepted architecture/product decisions — do not silently reverse them; if one seems wrong, document the conflict in `docs/DECISIONS.md` instead of quietly diverging.
 
 The `prompts/` directory contains a numbered sequence of implementation-phase prompts (`00_MASTER_CONTEXT.md` through `10_HARDEN_RELEASE.md`) intended to be run in order for AI-driven implementation work — check `prompts/README.md` and the current state of the repo to see which phase applies.
 
@@ -38,27 +38,7 @@ The Go module and development container target Go 1.27. The web app has no third
 
 Modular monolith: one Go process serves the HTTP API, serves the embedded production UI, runs background jobs, and talks to a single PostgreSQL database. Do not split into microservices/workers prematurely. External systems (metadata providers, media libraries, notification gateway) sit behind narrow interfaces in `internal/`, never called directly from HTTP handlers or domain logic.
 
-Module boundaries (`internal/`):
-
-- `auth/oidc` — OIDC discovery/login/callback/session/role mapping.
-- `providers/metadata` (+ `tmdb`, `musicbrainz`, `igdb`) — turns a pasted URL into a canonical catalog item. Answers "what is this?".
-- `domain` — core types (`Request`, `RequestStatus`, `PlatformSelection`, catalog/media types) and pure business rules (e.g. `ValidatePlatformSelection`). Keep this free of HTTP/DB/provider imports.
-- `store` — repository interfaces close to domain use-cases, not a generic ORM; PostgreSQL is the only V1 target; SQL is explicit.
-- `inventory` (+ `plex`, `jellyfin`, `navidrome`, `romm`; all four are implemented; every adapter implements `inventory.Source` and runs the `inventorytest` contract suite) — normalized snapshots of what each authoritative library actually has. Answers "do we have it?".
-- `notifications` (+ `apprise`) — fans out domain events to in-app notifications and the Apprise API.
-- `jobs` — the D018 run recorder and no-overlap guard: `Runner` records each run (start, finish, outcome, safe error) in `job_runs`, a per-Source lease in PostgreSQL stops overlap across restarts, and `Schedule` retries failures on the next tick. Jellyfin sync runs through it (`internal/app`), on the schedule and via the admin "Sync now" action (`POST /admin/sources/{source}/sync`), which share one guard.
-- `setup` — first-run wizard draft/validation/finalization state.
-- `httpapi` — transport only; no domain policy should live in handlers (see `internal/httpapi/router.go` for the routes, and `api/openapi.yaml` for the contract).
-- `app` — wires config + logger + HTTP server lifecycle (`internal/app/app.go`).
-
-Data flow for the core loop (see README's architecture diagram and `docs/ARCHITECTURE.md`):
-
-```
-metadata provider URL -> resolver -> canonical catalog item -> request
-request + subscriptions live in Postgres
-library sync -> normalized inventory -> InventoryChanged event -> targeted reconciliation
-      -> status transition to `available` -> RequestAvailable event -> notifications (in-app + Apprise)
-```
+Module boundaries (`internal/`), the core data flow, sync and matching rules are in `docs/ARCHITECTURE.md`; read it before adding a module or moving logic between modules.
 
 Key invariants worth knowing before touching this flow:
 

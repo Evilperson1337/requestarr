@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Fast local guardrail, installed by `make hooks`. Mirrors the CI Go job without
+# the database: formatting, vet, unit tests, and the web typecheck when web
+# files are staged. Skip once with `git commit --no-verify`.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+if grep -qE '\.go$|^api/openapi\.yaml$|^go\.(mod|sum)$' <<<"$staged"; then
+	go_files="$(grep -E '\.go$' <<<"$staged" || true)"
+	unformatted=""
+	if [[ -n "$go_files" ]]; then
+		unformatted="$(gofmt -l $go_files)"
+	fi
+	if [[ -n "$unformatted" ]]; then
+		echo "pre-commit: gofmt needed:" >&2
+		echo "$unformatted" >&2
+		exit 1
+	fi
+	go vet ./...
+	go test ./...
+fi
+if grep -q '^web/' <<<"$staged" && [[ -d web/node_modules ]]; then
+	make web-check
+fi

@@ -21,7 +21,7 @@ func (b byName) Resolve(_ context.Context, n secrets.Name) (secrets.Resolved, er
 
 func TestIGDBCheckUsesTheResolvedStoredSecret(t *testing.T) {
 	token, platforms := fixture(t, "oauth.json"), fixture(t, "platforms.json")
-	var sentSecret string
+	var sentSecret, sentClientID, platformClientID string
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -29,21 +29,26 @@ func TestIGDBCheckUsesTheResolvedStoredSecret(t *testing.T) {
 		if calls == 1 {
 			_ = r.ParseForm()
 			sentSecret = r.PostForm.Get("client_secret")
+			sentClientID = r.PostForm.Get("client_id")
 			_, _ = w.Write(token)
 			return
 		}
+		platformClientID = r.Header.Get("Client-ID")
 		_, _ = w.Write(platforms)
 	}))
 	defer server.Close()
 	client := &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}
 	settings := setup.Settings{Providers: setup.ProviderSettings{IGDBEnabled: true, IGDBClientID: "igdb-client", IGDBClientSecretEnv: setup.IGDBSecretEnv}}
 
-	// The client ID is boot config; the secret was stored after boot.
-	checker := checks.New(checks.Config{Runtime: setup.Runtime{IGDBClientID: "igdb-client"}, Client: client,
+	// Both the client ID and secret were saved through Setup after boot.
+	checker := checks.New(checks.Config{Client: client,
 		Secrets: byName{secrets.IGDBClientSecret: {Value: "stored-igdb", Source: secrets.SourceStored}}})
 	code, err := checker.Check(context.Background(), setup.TargetIGDB, settings)
 	if err != nil || code != setup.CheckOK || sentSecret != "stored-igdb" {
 		t.Fatalf("code %q err %v secret %q", code, err, sentSecret)
+	}
+	if calls != 2 || sentClientID != "igdb-client" || platformClientID != "igdb-client" {
+		t.Fatalf("calls=%d OAuth client=%q platform client=%q", calls, sentClientID, platformClientID)
 	}
 }
 

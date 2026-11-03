@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, type RequestItem, type RequestPage, type User } from '../api'
 import { followBackLink, followLink, navigate, useLocation } from '../navigation'
+import { RequestCover } from '../components/RequestCover'
+import { describeSelection } from '../selection'
 
 const statuses = [['', 'All'], ['requested', 'Requested'], ['approved', 'Approved'], ['available', 'Available'], ['denied', 'Denied'], ['cancelled', 'Cancelled']] as const
 
@@ -87,7 +89,7 @@ export function RequestsPage({ user, csrfToken }: { user: User; csrfToken: strin
     }
     const previous = history.state?.requestPrevious
     const previousPage = typeof previous === 'string' && (previous === '/requests' || previous.startsWith('/requests?')) ? previous : null
-    const hasFilters = !!(params.get('q') || params.get('status') || params.get('mediaType') || mine)
+    const hasFilters = !!(params.get('q') || params.get('requestId') || params.get('status') || params.get('mediaType') || mine)
     function updateRequest(id: string, patch: Partial<RequestItem>) {
         const update = (items: RequestItem[]) => items.map(item => item.ID === id ? { ...item, ...patch } : item)
         setItems(update)
@@ -135,31 +137,33 @@ export function RequestsPage({ user, csrfToken }: { user: User; csrfToken: strin
             return req.subscribed ? `You left the request for ${req.Title}.` : `Notifications are on for ${req.Title}.`
         })
     }
-    return <main className="shell requestsPage"><section className="card"><div className="pageHeading"><div><p className="eyebrow">Availability tracking</p><h1 ref={heading} tabIndex={-1}>Requests</h1><p>One shared queue for everyone. My Requests shows requests you subscribe to.</p></div><label className="toggle"><input type="checkbox" checked={mine} onChange={e => changeFilters({ mine: e.target.checked ? 'true' : null })} /> My Requests</label></div>
-        <form className="requestSearch" role="search" onSubmit={event => { event.preventDefault(); changeFilters({ q: searchDraft.trim() }) }}>
-            <label htmlFor="request-search">Search titles</label>
-            <div><input id="request-search" type="search" value={searchDraft} maxLength={200} onChange={event => setSearchDraft(event.target.value)} /><button className="button" type="submit">Search</button></div>
-        </form>
-        <div className="statusFilters" role="group" aria-label="Request status">{statuses.map(([status, label]) => <button key={status} className="button secondary" aria-pressed={(params.get('status') || '') === status} onClick={() => changeFilters({ status })}>{label}</button>)}</div>
-        <div className="requestFilters">
-            <label>Media type<select value={params.get('mediaType') || ''} onChange={event => changeFilters({ mediaType: event.target.value })}><option value="">All types</option><option value="movie">Movie</option><option value="tv">TV</option><option value="album">Album</option><option value="song">Song</option><option value="game">Game</option></select></label>
-            <label>Sort by<select value={params.get('sort') || 'newest'} onChange={event => changeFilters({ sort: event.target.value === 'newest' ? null : event.target.value })}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="status">Status</option></select></label>
-            <label>Requests per page<select value={params.get('limit') || '100'} onChange={event => changeFilters({ limit: event.target.value })}>{params.has('limit') && !['25', '50', '100'].includes(params.get('limit')!) && <option value={params.get('limit')!}>{params.get('limit')}</option>}<option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
-            <button className="button secondary" onClick={() => navigate('/requests')}>Clear filters</button>
+    return <main className="shell requestsPage"><section className="queue"><div className="queueHeader"><h1 ref={heading} tabIndex={-1}>Requests</h1><label className="toggle" title="Show only the requests you subscribe to"><input type="checkbox" checked={mine} onChange={e => changeFilters({ mine: e.target.checked ? 'true' : null })} /> My Requests</label></div>
+        <div className="queueTools">
+            <form className="requestSearch" role="search" onSubmit={event => { event.preventDefault(); changeFilters({ q: searchDraft.trim() }) }}>
+                <label htmlFor="request-search" className="sr-only">Search titles</label>
+                <div><input id="request-search" type="search" placeholder="Search titles" value={searchDraft} maxLength={200} onChange={event => setSearchDraft(event.target.value)} /><button className="button" type="submit">Search</button></div>
+            </form>
+            <div className="statusFilters" role="group" aria-label="Request status">{statuses.map(([status, label]) => <button key={status} className="button secondary" aria-pressed={(params.get('status') || '') === status} onClick={() => changeFilters({ status })}>{label}</button>)}</div>
+            <div className="requestFilters">
+                <label>Media type<select value={params.get('mediaType') || ''} onChange={event => changeFilters({ mediaType: event.target.value })}><option value="">All types</option><option value="movie">Movie</option><option value="tv">TV</option><option value="album">Album</option><option value="song">Song</option><option value="game">Game</option></select></label>
+                <label>Sort by<select value={params.get('sort') || 'newest'} onChange={event => changeFilters({ sort: event.target.value === 'newest' ? null : event.target.value })}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="status">Status</option></select></label>
+                <label>Requests per page<select value={params.get('limit') || '100'} onChange={event => changeFilters({ limit: event.target.value })}>{params.has('limit') && !['25', '50', '100'].includes(params.get('limit')!) && <option value={params.get('limit')!}>{params.get('limit')}</option>}<option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
+                {hasFilters && <button className="button secondary" onClick={() => navigate('/requests')}>Clear filters</button>}
+            </div>
         </div>
         {actionError && <p role="alert" className="errorBox">{actionError}</p>}
         {restored && <p role="status">Restored the original first page. Details are from its last load; use Refresh view to update the view.</p>}
         {notice && <p role="status">{notice}</p>}{loading && <p role="status" aria-busy="true">Loading requests…</p>}{error && <div role="alert" className="errorBox"><p>{error}</p>{errorCode === 'cursor_expired' || errorCode === 'invalid_cursor' ? <button className="button secondary" onClick={() => changeFilters({})}>Restart from first page</button> : <button className="button secondary" onClick={() => void load()}>Retry</button>}</div>}
         {!loading && !error && items.length === 0 && <div className="empty"><h2>{hasFilters ? 'No matching requests' : 'No requests yet'}</h2><p>{hasFilters ? 'Try a different title, status, media type, or turn off My Requests.' : 'Be the first to request something for the shared library.'}</p></div>}
         {!error && items.length > 0 && <ul className="requestList" aria-label="Requests" aria-busy={loading || busy}>{items.map(req => <li className="requestRow" key={req.ID}>
-            {req.ArtworkURL && <img src={req.ArtworkURL} alt={`Artwork for ${req.Title}`} className={`art small${req.ArtworkKind === 'square' ? ' square' : ''}`} />}
+            <RequestCover req={req} />
             <div className="requestInfo">
-                <h2>{req.Title}</h2><p>{req.MediaType} · requested {new Date(req.CreatedAt).toLocaleDateString()}</p>
-                <p>Availability: <strong>{req.availability === 'available' ? 'Available in library' : req.availability === 'missing' ? 'Not currently observed' : 'Unknown'}</strong>{req.availabilityObservedAt && <> · last observed {new Date(req.availabilityObservedAt).toLocaleString()}</>}</p>
-                {req.Note && <p>{req.Note}</p>}
-                <p>Platforms: {req.Platforms?.any ? 'Any' : (req.Platforms?.platformKeys || []).map(key => req.CatalogPlatforms?.find(p => p.key === key)?.name || key).join(', ') || 'Not specified'}</p>
+                <h2>{req.Title}</h2>
+                <p className="requestFacts">{[req.MediaType, `requested ${new Date(req.CreatedAt).toLocaleDateString()}`, req.availability === 'available' ? 'In library' : req.availability === 'missing' ? 'Not in library' : '', req.MediaType === 'game' ? `Platforms: ${req.Platforms?.any ? 'any' : (req.Platforms?.platformKeys || []).map(key => req.CatalogPlatforms?.find(p => p.key === key)?.name || key).join(', ') || 'not specified'}` : ''].filter(Boolean).join(' · ')}</p>
+                {describeSelection(req.selection) && <p className="requestSelection"><strong>Requested:</strong> {describeSelection(req.selection)}</p>}
+                {req.Note && <p className="requestNote">{req.Note}</p>}
             </div>
-            <div className="requestMeta"><span className={`badge status-${req.Status}`}>{req.Status}</span><span className="requester">{req.RequestedBy === user.id ? 'Requested by you' : 'Shared request'}</span></div>
+            <div className="requestMeta"><span className={`badge status-${req.Status}`}>{req.Status}</span><span className="requester">{req.RequestedBy === user.id ? 'Yours' : 'Shared'}</span></div>
             <div className="requestActions" role="group" aria-label={`Actions for ${req.Title}`}>
                 {user.role === 'admin' && (req.Status === 'requested' || req.Status === 'approved') && <>
                     {req.Status === 'requested' && (['approved', 'denied'] as const).map(toStatus => <button key={toStatus} className="button secondary" disabled={busy || loading} onClick={() => void transition(req, toStatus)}>{toStatus === 'approved' ? 'Approve' : 'Deny'}</button>)}

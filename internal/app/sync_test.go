@@ -11,6 +11,7 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/inventory/jellyfin"
 	"github.com/evilperson1337/requestarr/internal/jobs"
 )
 
@@ -36,7 +37,7 @@ type fakeSource struct {
 }
 
 func (fakeSource) Descriptor() inventory.Descriptor {
-	return inventory.Descriptor{ID: jellyfinSourceID, Kind: "jellyfin", Name: "Jellyfin"}
+	return inventory.Descriptor{ID: jellyfin.SourceID, Kind: "jellyfin", Name: "Jellyfin"}
 }
 func (f fakeSource) Snapshot(context.Context) (inventory.Snapshot, error) { return f.snap, f.err }
 
@@ -44,7 +45,7 @@ var discardLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 func TestSourceSyncJobPersistsTheSourcesCompleteSnapshot(t *testing.T) {
 	store := &fakeSyncStore{}
-	snap := inventory.Snapshot{SourceID: jellyfinSourceID, Complete: true, Items: []inventory.Item{{SourceID: jellyfinSourceID, SourceItemID: "1"}}}
+	snap := inventory.Snapshot{SourceID: jellyfin.SourceID, Complete: true, Items: []inventory.Item{{SourceID: jellyfin.SourceID, SourceItemID: "1"}}}
 	if err := sourceSyncJob(discardLogger, store, fakeSource{snap: snap}, "http://jellyfin.example")(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestSourceSyncJobReportsOnlySafeErrorsAndChangesNothingOnFailure(t *testing
 		t.Fatalf("persisted=%d failures=%v", len(store.persisted), store.failures)
 	}
 	store = &fakeSyncStore{persistErr: errors.New("pq: connection string postgres://u:p@db")}
-	err = sourceSyncJob(discardLogger, store, fakeSource{snap: inventory.Snapshot{SourceID: jellyfinSourceID, Complete: true}}, "http://jellyfin.example")(context.Background())
+	err = sourceSyncJob(discardLogger, store, fakeSource{snap: inventory.Snapshot{SourceID: jellyfin.SourceID, Complete: true}}, "http://jellyfin.example")(context.Background())
 	if err == nil || err.Error() != "snapshot persistence failed" {
 		t.Fatalf("error=%v, want the generic safe message", err)
 	}
@@ -71,7 +72,7 @@ func TestSourceSyncJobReportsOnlySafeErrorsAndChangesNothingOnFailure(t *testing
 
 func TestSourceSyncJobRefusesASnapshotThatIsNotComplete(t *testing.T) {
 	store := &fakeSyncStore{}
-	partial := inventory.Snapshot{SourceID: jellyfinSourceID, Complete: false, Items: []inventory.Item{{SourceItemID: "1"}}}
+	partial := inventory.Snapshot{SourceID: jellyfin.SourceID, Complete: false, Items: []inventory.Item{{SourceItemID: "1"}}}
 	if err := sourceSyncJob(discardLogger, store, fakeSource{snap: partial}, "http://jellyfin.example")(context.Background()); err == nil {
 		t.Fatal("an incomplete snapshot was treated as a successful sync")
 	}
@@ -116,13 +117,13 @@ func TestSyncNowStartsManualRunOnceAndRejectsUnknownSources(t *testing.T) {
 	release := make(chan struct{})
 	ran := make(chan struct{}, 1)
 	syncer := newSourceSyncer(context.Background(), jobs.NewRunner(store), &workers, map[string]syncSource{
-		"jellyfin": {id: jellyfinSourceID, job: func(context.Context) error { ran <- struct{}{}; <-release; return nil }},
+		"jellyfin": {id: jellyfin.SourceID, job: func(context.Context) error { ran <- struct{}{}; <-release; return nil }},
 	})
 	if _, err := syncer.SyncNow(context.Background(), "plex"); !errors.Is(err, jobs.ErrUnknownSource) {
 		t.Fatalf("unknown source err=%v", err)
 	}
 	run, err := syncer.SyncNow(context.Background(), "jellyfin")
-	if err != nil || run.Trigger != jobs.TriggerManual || run.SourceID != jellyfinSourceID {
+	if err != nil || run.Trigger != jobs.TriggerManual || run.SourceID != jellyfin.SourceID {
 		t.Fatalf("run=%+v err=%v", run, err)
 	}
 	<-ran
@@ -139,11 +140,11 @@ func TestManualSyncIsBlockedByARunningScheduledRun(t *testing.T) {
 	runner := jobs.NewRunner(store)
 	release, started := make(chan struct{}), make(chan struct{})
 	job := func(context.Context) error { close(started); <-release; return nil }
-	syncer := newSourceSyncer(context.Background(), runner, &workers, map[string]syncSource{"jellyfin": {id: jellyfinSourceID, job: job}})
+	syncer := newSourceSyncer(context.Background(), runner, &workers, map[string]syncSource{"jellyfin": {id: jellyfin.SourceID, job: job}})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = runner.Run(context.Background(), jellyfinSourceID, jobs.TriggerSchedule, job)
+		_, _ = runner.Run(context.Background(), jellyfin.SourceID, jobs.TriggerSchedule, job)
 	}()
 	<-started
 	if _, err := syncer.SyncNow(context.Background(), "jellyfin"); !errors.Is(err, jobs.ErrAlreadyRunning) {

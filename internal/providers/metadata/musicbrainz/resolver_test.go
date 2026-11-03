@@ -37,16 +37,12 @@ func TestResolveUsesReleaseGroupForAlbumsAndRecordingForSongs(t *testing.T) {
 		wantTitle                     string
 		wantYear                      int
 	}{
-		{"release-group", "/release-group/" + id, "/ws/2/release-group/" + id + "?fmt=json&inc=artists",
+		{"release-group", "/release-group/" + id, "/ws/2/release-group/" + id + "?fmt=json&inc=artists+genres+ratings+releases",
 			`{"id":"` + id + `","title":"Title","first-release-date":"1999-05-01","artist-credit":[{"name":"Artist"}]}`,
 			domain.MediaAlbum, id, "https://musicbrainz.org/release-group/" + id, "Artist — Title", 1999},
-		{"recording", "/recording/" + id, "/ws/2/recording/" + id + "?fmt=json&inc=artists",
+		{"recording", "/recording/" + id, "/ws/2/recording/" + id + "?fmt=json&inc=artists+genres+ratings+releases",
 			`{"id":"` + id + `","title":"Song","first-release-date":"2001-02-03","artist-credit":[{"name":"Artist"}]}`,
 			domain.MediaSong, id, "https://musicbrainz.org/recording/" + id, "Artist — Song", 2001},
-		// A pasted release link is accepted, but the request's identity is its release-group.
-		{"release resolves to its group", "/release/" + id, "/ws/2/release/" + id + "?fmt=json&inc=artists+release-groups",
-			`{"id":"` + id + `","title":"Deluxe Edition","artist-credit":[{"name":"Artist"}],"release-group":{"id":"` + group + `","title":"Group Title","first-release-date":"1999-05-01"}}`,
-			domain.MediaAlbum, group, "https://musicbrainz.org/release-group/" + group, "Artist — Group Title", 1999},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

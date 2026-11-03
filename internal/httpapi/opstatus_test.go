@@ -59,7 +59,6 @@ func TestOperationalStatusIsAdminOnly(t *testing.T) {
 }
 
 func TestOperationalStatusFailuresAreSafe(t *testing.T) {
-	assertErrorEnvelope(t, getOperationalStatus(fakeReadiness{}, "admin"), http.StatusServiceUnavailable, "status_unavailable")
 	rec := getOperationalStatus(&opStatusReadiness{err: errors.New("pq: password=hunter2")}, "admin")
 	assertErrorEnvelope(t, rec, http.StatusInternalServerError, "status_failed")
 	if strings.Contains(rec.Body.String(), "hunter2") {

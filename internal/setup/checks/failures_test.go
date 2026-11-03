@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
 	"github.com/evilperson1337/requestarr/internal/setup/checks"
 )
 
 func readyConfig() checks.Config {
-	return checks.Config{Runtime: setup.Runtime{PublicURL: "https://requestarr.example", OIDCIssuer: "https://identity.example/realm", OIDCClientID: "client", IGDBClientID: "client", OIDCSecretConfigured: true, TMDBTokenConfigured: true, IGDBSecretConfigured: true}, OIDCClientSecret: "oidc-secret", TMDBReadToken: "tmdb-secret", IGDBClientSecret: "igdb-secret"}
+	return checks.Config{Runtime: setup.Runtime{PublicURL: "https://requestarr.example", OIDCIssuer: "https://identity.example/realm", OIDCClientID: "client", IGDBClientID: "client", OIDCSecretConfigured: true}, OIDCClientSecret: "oidc-secret", Secrets: secrets.Static{secrets.TMDBReadToken: "tmdb-secret", secrets.IGDBClientSecret: "igdb-secret"}}
 }
 
 func readySettings() setup.Settings {
@@ -56,6 +57,12 @@ func TestUntrustedResponses(t *testing.T) {
 				config := readyConfig()
 				config.Client = &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}
 				code, err := checks.New(config).Check(context.Background(), target, readySettings())
+				if target == setup.TargetTMDB && failure.status == http.StatusUnauthorized {
+					if code != setup.CheckAuthentication || err != nil || calls != 1 {
+						t.Fatalf("authentication rejection = %q, %v; calls = %d", code, err, calls)
+					}
+					return
+				}
 				if code != setup.CheckUnavailable || err == nil || err.Error() != "setup connection check failed" || calls != 1 {
 					t.Fatalf("Check = %q, %v; calls = %d", code, err, calls)
 				}
@@ -85,8 +92,9 @@ func TestPrerequisitesNeverMakeRequests(t *testing.T) {
 		{"oidc-client", setup.TargetAuthentication, func(_ *checks.Config, s *setup.Settings) { s.Authentication.ClientID = "" }, setup.CheckIncomplete},
 		{"oidc-env-allowlist", setup.TargetAuthentication, func(_ *checks.Config, s *setup.Settings) { s.Authentication.ClientSecretEnv = "ARBITRARY" }, setup.CheckEnvironment},
 		{"disabled-tmdb", setup.TargetTMDB, func(_ *checks.Config, s *setup.Settings) { s.Providers.TMDBEnabled = false }, setup.CheckDisabled},
-		{"tmdb-token", setup.TargetTMDB, func(c *checks.Config, _ *setup.Settings) { c.TMDBReadToken = "" }, setup.CheckEnvironment},
-		{"tmdb-flag", setup.TargetTMDB, func(c *checks.Config, _ *setup.Settings) { c.Runtime.TMDBTokenConfigured = false }, setup.CheckEnvironment},
+		{"tmdb-token", setup.TargetTMDB, func(c *checks.Config, _ *setup.Settings) {
+			c.Secrets = secrets.Static{secrets.IGDBClientSecret: "igdb-secret"}
+		}, setup.CheckEnvironment},
 		{"tmdb-env-allowlist", setup.TargetTMDB, func(_ *checks.Config, s *setup.Settings) { s.Providers.TMDBTokenEnv = "ARBITRARY" }, setup.CheckEnvironment},
 		{"disabled-musicbrainz", setup.TargetMusicBrainz, func(_ *checks.Config, s *setup.Settings) { s.Providers.MusicBrainzEnabled = false }, setup.CheckDisabled},
 		{"missing-contact", setup.TargetMusicBrainz, func(_ *checks.Config, s *setup.Settings) { s.Providers.MusicBrainzContact = "" }, setup.CheckIncomplete},
@@ -96,9 +104,13 @@ func TestPrerequisitesNeverMakeRequests(t *testing.T) {
 		}, setup.CheckIncomplete},
 		{"disabled-igdb", setup.TargetIGDB, func(_ *checks.Config, s *setup.Settings) { s.Providers.IGDBEnabled = false }, setup.CheckDisabled},
 		{"igdb-client", setup.TargetIGDB, func(_ *checks.Config, s *setup.Settings) { s.Providers.IGDBClientID = "" }, setup.CheckIncomplete},
-		{"igdb-secret", setup.TargetIGDB, func(c *checks.Config, _ *setup.Settings) { c.IGDBClientSecret = "" }, setup.CheckEnvironment},
-		{"igdb-flag", setup.TargetIGDB, func(c *checks.Config, _ *setup.Settings) { c.Runtime.IGDBSecretConfigured = false }, setup.CheckEnvironment},
-		{"igdb-runtime-client", setup.TargetIGDB, func(c *checks.Config, _ *setup.Settings) { c.Runtime.IGDBClientID = "different" }, setup.CheckEnvironment},
+		{"igdb-secret", setup.TargetIGDB, func(c *checks.Config, _ *setup.Settings) {
+			c.Secrets = secrets.Static{secrets.TMDBReadToken: "tmdb-secret"}
+		}, setup.CheckEnvironment},
+		{"igdb-runtime-client", setup.TargetIGDB, func(c *checks.Config, _ *setup.Settings) {
+			c.Runtime.IGDBClientID = "different"
+			c.Runtime.IGDBClientIDFromEnvironment = true
+		}, setup.CheckEnvironment},
 		{"igdb-env-allowlist", setup.TargetIGDB, func(_ *checks.Config, s *setup.Settings) { s.Providers.IGDBClientSecretEnv = "ARBITRARY" }, setup.CheckEnvironment},
 		{"unknown-target", setup.Target("unknown"), func(_ *checks.Config, _ *setup.Settings) {}, setup.CheckUnavailable},
 	} {

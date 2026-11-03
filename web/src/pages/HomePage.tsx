@@ -1,24 +1,99 @@
-import { useState, type FormEvent } from 'react'
-import { api, type ResolvedItem, type Session } from '../api'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { api, type MoviePreviewState, type RecentLibraryItem, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
+import { LibraryRail, RequestRail } from '../components/RequestRail'
 import { RequestModal } from '../components/RequestModal'
+import { followLink } from '../navigation'
 
 export function HomePage({ session, onCreated }: { session: Session; onCreated: () => void }) {
     const [url, setURL] = useState('')
     const [item, setItem] = useState<ResolvedItem | null>(null)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+    const previewButton = useRef<HTMLButtonElement>(null)
+    const returnFocus = useRef<HTMLElement | null>(null)
+    const lookup = useRef<AbortController | null>(null)
+    const cached = useRef<{ key: string; item: ResolvedItem } | null>(null)
+    useEffect(() => () => lookup.current?.abort(), [])
+    // The requests this person follows, newest first: the screen's second question after "what do I want".
+    const [recent, setRecent] = useState<RequestItem[] | null>(null)
+    const [recentFailed, setRecentFailed] = useState(false)
+    const loadRecent = useCallback(async (signal?: AbortSignal) => {
+        try {
+            const page = await api<RequestPage>('/requests?mine=true&limit=5', { cache: 'no-store', signal })
+            if (!signal?.aborted) { setRecent(Array.isArray(page?.items) ? page.items : []); setRecentFailed(false) }
+        } catch { if (!signal?.aborted) setRecentFailed(true) }
+    }, [])
+    useEffect(() => { const controller = new AbortController(); void loadRecent(controller.signal); return () => controller.abort() }, [session.user.id, loadRecent])
+    // Shared and optional: what has just become available. A failure simply leaves the row out.
+    const [available, setAvailable] = useState<RequestItem[]>([])
+    const [addedVideo, setAddedVideo] = useState<RecentLibraryItem[]>([])
+    const [addedMusic, setAddedMusic] = useState<RecentLibraryItem[]>([])
+    const [addedGames, setAddedGames] = useState<RecentLibraryItem[]>([])
+    const [addedBooks, setAddedBooks] = useState<RecentLibraryItem[]>([])
+    useEffect(() => {
+        const controller = new AbortController()
+        api<RequestPage>('/requests?status=available&limit=6', { cache: 'no-store', signal: controller.signal })
+            .then(page => { if (!controller.signal.aborted) setAvailable(Array.isArray(page?.items) ? page.items : []) })
+            .catch(() => undefined)
+        return () => controller.abort()
+    }, [session.user.id])
+    useEffect(() => {
+        const controller = new AbortController()
+        // One shelf per cover shape, so every cover in a row has the same proportions.
+        const shelf = (types: string, set: (items: RecentLibraryItem[]) => void) => api<{ items: RecentLibraryItem[] }>(`/library/recent?types=${types}&limit=6`, { signal: controller.signal })
+            .then(result => { if (!controller.signal.aborted) set(Array.isArray(result?.items) ? result.items : []) })
+            .catch(() => undefined)
+        void shelf('movie,tv', setAddedVideo); void shelf('album', setAddedMusic); void shelf('game', setAddedGames); void shelf('audiobook', setAddedBooks)
+        return () => controller.abort()
+    }, [session.user.id])
     async function resolve(e: FormEvent) {
+        if (busy) { e.preventDefault(); return }
+        returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : previewButton.current
         e.preventDefault(); setBusy(true); setError(''); setItem(null)
-        try { setItem(await api<ResolvedItem>('/resolve', { method: 'POST', body: JSON.stringify({ url }) }, session.csrfToken)) }
-        catch (e) { setError(e instanceof Error ? e.message : 'Could not resolve that link') }
-        finally { setBusy(false) }
+        lookup.current?.abort()
+        const controller = new AbortController(); lookup.current = controller
+        const key = `${session.user.id}:${session.user.role}:${url.trim()}`
+        try {
+            let result: ResolvedItem
+            if (cached.current?.key === key && ['movie', 'tv'].includes(cached.current.item.Item.MediaType)) {
+                const state = await api<MoviePreviewState>(`/catalog/${encodeURIComponent(cached.current.item.Item.ID)}/preview`, { signal: controller.signal, cache: 'no-store' })
+                result = { ...cached.current.item, Preview: state }
+            } else result = await api<ResolvedItem>('/resolve', { method: 'POST', signal: controller.signal, body: JSON.stringify({ url }) }, session.csrfToken)
+            if (!controller.signal.aborted) { cached.current = { key, item: result }; setItem(result) }
+        }
+        catch (e) { if (!controller.signal.aborted) { setError(e instanceof Error ? e.message : 'Could not resolve that link'); cached.current = null } }
+        finally { if (!controller.signal.aborted) setBusy(false) }
     }
     return <main className="shell">
-        <section className="card hero"><p className="eyebrow">Requestarr · Your shared library</p><h1>Request Something</h1><p>Paste a TMDB, MusicBrainz, or IGDB link to preview it before requesting.</p>
-            <form onSubmit={resolve}><label className="urlBox"><span aria-hidden="true">↗</span><span className="sr-only">TMDB, MusicBrainz, or IGDB URL</span><input type="url" required value={url} onChange={e => setURL(e.target.value)} placeholder="Paste a supported link…" /></label><button className="button" disabled={busy}>{busy ? 'Resolving…' : 'Preview'}</button></form>
+        <section className="card hero"><h1>Request Something</h1><p>Paste a TMDB, MusicBrainz, IGDB or Audible link, or an audiobook ASIN, to preview it before requesting.</p>
+            <form onSubmit={resolve}><label className="urlBox"><span aria-hidden="true">↗</span><span className="sr-only">TMDB, MusicBrainz, IGDB or Audible URL, or an audiobook ASIN</span><input type="text" inputMode="url" autoComplete="off" spellCheck={false} maxLength={2048} required value={url} onChange={e => setURL(e.target.value)} placeholder="Paste a supported link or an ASIN…" /></label><button ref={previewButton} className="button" disabled={busy} onClick={event => { if (event.detail > 0) event.currentTarget.focus() }}>{busy ? 'Resolving…' : 'Preview'}</button></form>
             {busy && <p role="status">Looking up metadata…</p>}{error && <p role="alert" className="error">{error}</p>}
-            <div className="providers"><span>TMDB · Movies &amp; TV</span><span>MusicBrainz · Music</span><span>IGDB · Games</span></div>
+            <ul className="providers" aria-label="Supported links"><li>TMDB · Movies &amp; TV</li><li>MusicBrainz · Music</li><li>IGDB · Games</li><li>Audible · Audiobooks (link or ASIN)</li></ul>
         </section>
-        {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => setItem(null)} />}
+        <section className="recent" aria-labelledby="recent-heading">
+            <div className="recentHeader"><h2 id="recent-heading">Your recent requests</h2><a href="/requests?mine=true" onClick={followLink}>Open the full queue</a></div>
+            {recent === null ? <p>{recentFailed ? 'Your recent requests could not be loaded.' : 'Loading…'}</p> : recent.length === 0 ? <p>Nothing yet. Paste a link above to make your first request.</p> : <RequestRail items={recent} />}
+        </section>
+        {available.length > 0 && <section className="recent" aria-labelledby="available-heading">
+            <div className="recentHeader"><h2 id="available-heading">Recently available</h2><a href="/requests?status=available" onClick={followLink}>All available</a></div>
+            <RequestRail items={available} />
+        </section>}
+        {addedVideo.length > 0 && <section className="recent" aria-labelledby="added-video-heading">
+            <div className="recentHeader"><h2 id="added-video-heading">New movies and shows in your libraries</h2></div>
+            <LibraryRail items={addedVideo} />
+        </section>}
+        {addedMusic.length > 0 && <section className="recent" aria-labelledby="added-music-heading">
+            <div className="recentHeader"><h2 id="added-music-heading">New music in your libraries</h2></div>
+            <LibraryRail items={addedMusic} />
+        </section>}
+        {addedGames.length > 0 && <section className="recent" aria-labelledby="added-games-heading">
+            <div className="recentHeader"><h2 id="added-games-heading">New games in your libraries</h2></div>
+            <LibraryRail items={addedGames} />
+        </section>}
+        {addedBooks.length > 0 && <section className="recent" aria-labelledby="added-books-heading">
+            <div className="recentHeader"><h2 id="added-books-heading">New audiobooks in your libraries</h2></div>
+            <LibraryRail items={addedBooks} />
+        </section>}
+        {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus()) }} />}
     </main>
 }

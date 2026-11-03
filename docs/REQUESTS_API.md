@@ -15,6 +15,7 @@ envelope. The encoded query string is bounded to 4096 bytes.
 | Parameter | Meaning | Default |
 | --- | --- | --- |
 | `q` | Case-insensitive literal title substring; at most 200 Unicode characters; surrounding whitespace trimmed. `%`, `_`, quotes, and backslashes are literal, not pattern/SQL syntax. | All titles |
+| `requestId` | Exact shared Request UUID used by View request. Combines with other filters and is part of cursor identity. | All Requests |
 | `status` | One of `requested`, `approved`, `available`, `denied`, `cancelled`. This is request lifecycle, not catalog availability. | All statuses |
 | `mediaType` | One of `movie`, `tv`, `album`, `song`, `game`. | All types |
 | `mine` | Exactly `true` or `false`; filters by the current user's subscriptions, including Notify Me. Not a creator-only filter. | `false` |
@@ -82,3 +83,32 @@ still change. No long-running database transaction is held between HTTP calls.
 
 Errors use `{ "error": { "code", "message", "requestId" } }`. Branch on `code`,
 not message. Quote the request ID when reporting a failure.
+
+## Movie and TV preview contracts
+
+Authenticated metadata resolution includes **Movie** for movie details or **TV**
+for whole-series details, plus **Preview** local state, alongside the existing
+catalog item and platforms. The media-specific detail object is a
+bounded typed metadata object, not the raw TMDB payload. It is persisted with the
+catalog's existing JSON metadata, so no database migration is needed. Old sparse
+catalog rows remain compatible. Optional credits use a 1.5-second sub-budget
+inside a nine-second total TMDB lookup; a secondary failure retains core metadata.
+
+TV details include first/last air dates, series status, per-episode runtime,
+season/episode counts, and creators from TMDB's series-level created-by data.
+TV details also list the seasons (and, from one optional appended request, their
+episodes) so a Request can select part of the series (D027). Albums carry an
+optional tracklist from one MusicBrainz release. A Request has a `selection`
+(`tracks`, `seasons`, `episodes`; empty means the whole item). `POST /requests`
+accepts it, merges it by union into an existing open Request (`Merged: true`,
+the caller is subscribed) and never narrows it; the preview's `canExtend` says
+when that is possible. Availability is still projected for the whole item.
+Movie and TV numeric provider IDs remain separate catalog namespaces, and a TV
+Request uses one canonical series ID.
+
+The local catalog preview endpoint returns availability, the shared Request and
+current user's subscription if one exists, usable library links when known
+available, and role-appropriate canRequest/canSubscribe flags. The response is
+no-store and performs no provider or library calls. The flags are advisory:
+transactional writes still enforce roles, open/closed state, and idempotency.
+The exact endpoint and field schemas are documented in OpenAPI.

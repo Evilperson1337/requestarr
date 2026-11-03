@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/db/migrations"
+	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
 )
 
@@ -37,6 +38,36 @@ func initialSetupDraft() setup.Draft {
 		Authentication: setup.AuthenticationSettings{Issuer: "https://issuer.test", ClientID: "requestarr", ClientSecretEnv: setup.OIDCSecretEnv},
 		Providers:      setup.ProviderSettings{TMDBEnabled: true, TMDBTokenEnv: setup.TMDBTokenEnv, IGDBClientSecretEnv: setup.IGDBSecretEnv},
 	}, Environment: []setup.EnvironmentItem{{Name: "runtime-only", DesiredValue: "never-persist-this"}}}
+}
+
+func TestSavedIGDBClientIDSurvivesRestartWithoutChangingTheDraftIntegration(t *testing.T) {
+	ctx, s, actor := setupDraftStore(t)
+	if id, err := s.LoadIGDBClientID(ctx); err != nil || id != "" {
+		t.Fatalf("fresh client ID=%q error=%v", id, err)
+	}
+	draft, err := s.LoadSetupDraft(ctx, initialSetupDraft(), actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := draft.Settings
+	settings.Providers.IGDBClientID = "saved-twitch-client"
+	saved, err := s.SaveSetupDraft(ctx, actor, draft.Revision, setup.StepProviders, settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	reopened, err := Open(ctx, testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if id, err := reopened.LoadIGDBClientID(ctx); err != nil || id != "saved-twitch-client" {
+		t.Fatalf("restarted client ID=%q error=%v", id, err)
+	}
+	after, err := reopened.LoadSetupDraft(ctx, initialSetupDraft(), actor)
+	if err != nil || !reflect.DeepEqual(saved, after) {
+		t.Fatalf("loading the client ID changed the draft: %+v error=%v", after, err)
+	}
 }
 
 func TestSetupDraftInitializesAndResumesIntegration(t *testing.T) {
@@ -195,12 +226,16 @@ func (setupFailingChecker) Check(context.Context, setup.Target, setup.Settings) 
 	return setup.CheckUnavailable, errors.New("upstream credential=never-persist-this")
 }
 
+func (setupFailingChecker) Describe(context.Context, setup.Target, setup.CheckCode) string {
+	return "Connection check failed."
+}
+
 func TestSetupDraftStoresOnlyTypedConfigurationIntegration(t *testing.T) {
 	ctx, s, actorID := setupDraftStore(t)
 	actor := setup.Actor{ID: actorID, Role: "admin"}
 	service := setup.NewService(s, setupFailingChecker{}, setup.Runtime{
 		PublicURL: "https://requestarr.test", OIDCIssuer: "https://issuer.test", OIDCClientID: "requestarr",
-		OIDCSecretConfigured: true, TMDBTokenConfigured: true, IGDBSecretConfigured: true,
+		OIDCSecretConfigured: true, SecretsConfigured: map[secrets.Name]bool{secrets.TMDBReadToken: true, secrets.IGDBClientSecret: true},
 	})
 	draft, err := service.Load(ctx, actor)
 	if err != nil {

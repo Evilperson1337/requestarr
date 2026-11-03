@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/evilperson1337/requestarr/internal/domain"
@@ -90,9 +91,18 @@ func TestSnapshotNormalizesMusicBrainzIdentifiersAndMusicOnlyDescriptor(t *testi
 	for _, item := range snap.Items {
 		if item.MediaType == domain.MediaAlbum && item.ExternalIDs["musicbrainz"] == "release-group-1" {
 			album = true
+			if !strings.Contains(item.ExternalURL, "/app/#/album/") || !strings.HasSuffix(item.ExternalURL, "/show") {
+				t.Fatalf("album link = %q", item.ExternalURL)
+			}
+		}
+		if item.MediaType == domain.MediaSong && item.ExternalURL != "" {
+			t.Fatalf("a song has no page of its own: %q", item.ExternalURL)
 		}
 		if item.MediaType == domain.MediaSong && item.ExternalIDs["musicbrainz"] == "recording-1" {
 			song = true
+			if !strings.HasPrefix(item.ParentSourceItemID, "album:") {
+				t.Fatalf("a song must name its album: %+v", item)
+			}
 		}
 	}
 	if !album || !song {

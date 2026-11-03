@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { sourceKinds } from './fixtures'
 
 function draft() {
     return {
@@ -31,10 +32,12 @@ function draft() {
 async function mockSetup(page: Page, role = 'admin') {
     const state = {
         saved: draft(), calls: [] as { method: string; path: string; body: any }[], conflict: false,
-        secrets: { enabled: true, secrets: [{ name: 'tmdb_read_token', label: 'TMDB read token', envVar: 'REQUESTARR_TMDB_READ_TOKEN', configured: false, source: 'none', unreadable: false, pendingRestart: false },
+        secrets: {
+            enabled: true, secrets: [{ name: 'tmdb_read_token', label: 'TMDB read token', envVar: 'REQUESTARR_TMDB_READ_TOKEN', configured: false, source: 'none', unreadable: false, pendingRestart: false },
             { name: 'igdb_client_secret', label: 'IGDB client secret', envVar: 'REQUESTARR_IGDB_CLIENT_SECRET', configured: false, source: 'none', unreadable: false, pendingRestart: false },
             { name: 'apprise_config_key', label: 'Apprise configuration key', envVar: 'REQUESTARR_APPRISE_CONFIG_KEY', configured: false, source: 'none', unreadable: false, pendingRestart: false },
-            { name: 'navidrome_password', label: 'Navidrome password', envVar: 'REQUESTARR_NAVIDROME_PASSWORD', configured: false, source: 'none', unreadable: false, pendingRestart: false }] } as any,
+            { name: 'navidrome_password', label: 'Navidrome password', envVar: 'REQUESTARR_NAVIDROME_PASSWORD', configured: false, source: 'none', unreadable: false, pendingRestart: false }]
+        } as any,
     }
     await page.route('**/api/v1/**', async route => {
         const request = route.request()
@@ -53,6 +56,7 @@ async function mockSetup(page: Page, role = 'admin') {
             if (method === 'DELETE') Object.assign(entry, { configured: false, source: 'none', pendingRestart: false })
             return route.fulfill({ status: 204 })
         }
+        if (path.endsWith('/admin/setup/source-kinds')) return route.fulfill({ json: sourceKinds })
         if (path.endsWith('/admin/setup/draft')) {
             if (method === 'GET') return route.fulfill({ json: state.saved })
             expect(request.headers()['x-csrf-token']).toBe('csrf-token')
@@ -76,6 +80,78 @@ async function mockSetup(page: Page, role = 'admin') {
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
     return state
+}
+
+for (const status of [401, 403]) {
+    const fields = [
+        ['providers', 'tmdb_read_token', 'TMDb read token'],
+        ['providers', 'igdb_client_secret', 'IGDB client secret'],
+        ['libraries', 'jellyfin_api_key', 'Jellyfin API key'],
+        ['libraries', 'plex_token', 'Plex token'],
+        ['libraries', 'romm_token', 'RomM token'],
+        ['libraries', 'navidrome_password', 'Navidrome password'],
+        ['notifications', 'apprise_config_key', 'Apprise configuration key'],
+        ['review', 'tmdb_read_token', 'TMDB read token'],
+    ] as const
+    for (const [step, name, label] of fields) {
+        for (const action of step === 'review' ? ['status', 'clear'] : ['status', 'save', 'clear']) {
+            test(`Setup ${step} ${name} ${action} denied ${status} clears logs and rejects a pending response`, async ({ page }) => {
+                const state = await mockSetup(page)
+                state.saved.currentStep = step
+                const entry = { name, label, envVar: 'TEST_SECRET', configured: true, source: 'stored (shadowed by environment)', unreadable: false, pendingRestart: false }
+                const denied = (route: import('@playwright/test').Route) => route.fulfill({ status, json: { error: { code: 'not_an_auth_code', message: 'RAW_SECRET_ERROR_MUST_NOT_RENDER' } } })
+                let releaseStatus!: () => void
+                const statusGate = new Promise<void>(resolve => { releaseStatus = resolve })
+                await page.route('**/api/v1/admin/secrets', async route => {
+                    if (action === 'status') { await statusGate; return denied(route) }
+                    return route.fulfill({ json: { enabled: true, secrets: [entry] } })
+                })
+                await page.route(`**/api/v1/admin/secrets/${name}`, denied)
+                await page.route('**/api/v1/admin/status', route => route.fulfill({ json: { developmentLogsEnabled: true } }))
+                const record = { seq: 1, time: '2026-10-27T12:00:00Z', target: 'igdb', stage: 'oauth', outcome: 'failure', code: 'http_status', httpStatus: 401, durationMs: 24 }
+                let pending = false
+                let logCalls = 0
+                let releaseLogs!: () => void
+                const logsGate = new Promise<void>(resolve => { releaseLogs = resolve })
+                let completedLogs!: () => void
+                const logsCompleted = new Promise<void>(resolve => { completedLogs = resolve })
+                await page.route('**/api/v1/admin/development-logs', async route => {
+                    logCalls++
+                    if (pending) await logsGate
+                    await route.fulfill({ json: { entries: [record], capacity: 200 } }).catch(() => undefined)
+                    if (pending) completedLogs()
+                })
+                await page.goto('/setup')
+                const summary = page.locator('summary').filter({ hasText: 'Development connection logs' })
+                await summary.click()
+                await expect(page.getByRole('cell', { name: 'igdb', exact: true })).toBeVisible()
+                pending = true
+                let aborted = false
+                page.on('requestfailed', request => { if (request.url().endsWith('/admin/development-logs')) aborted = true })
+                await page.getByRole('button', { name: 'Refresh logs' }).click()
+                await expect.poll(() => logCalls).toBe(2)
+                if (action === 'status') releaseStatus()
+                else if (step === 'review') await page.getByRole('button', { name: `Clear stored ${label}`, exact: true }).click()
+                else {
+                    const field = page.locator('.secretField').filter({ has: page.getByLabel(label, { exact: true }) })
+                    if (action === 'save') {
+                        await field.getByLabel(label, { exact: true }).fill('test-only-value')
+                        await field.getByRole('button', { name: `Save ${label}`, exact: true }).click()
+                        await expect(field.getByLabel(label, { exact: true })).toHaveValue('')
+                    } else await field.getByRole('button', { name: 'Clear stored value', exact: true }).click()
+                }
+                await expect(summary).toHaveCount(0)
+                await expect(page.getByRole('region', { name: 'Development connection records' })).toHaveCount(0)
+                await expect.poll(() => aborted).toBe(true)
+                releaseLogs()
+                await logsCompleted
+                await expect(summary).toHaveCount(0)
+                await expect(page.getByRole('cell', { name: 'igdb', exact: true })).toHaveCount(0)
+                await expect(page.getByText('RAW_SECRET_ERROR_MUST_NOT_RENDER')).toHaveCount(0)
+                expect(logCalls).toBe(2)
+            })
+        }
+    }
 }
 
 test('admin explicitly saves non-secret fields and resumes the saved step after reload', async ({ page }) => {
@@ -116,6 +192,33 @@ test('explicit connection check saves first; a failed check leaves settings save
     await expect(page.getByRole('status')).toContainText('Draft saved')
     await expect(page.getByRole('alert')).toHaveCount(0)
     expect(state.saved.validations).toEqual([])
+})
+
+test('development diagnostics help troubleshoot failed checks before Finish and clear on check authorization loss', async ({ page }) => {
+    const state = await mockSetup(page)
+    state.saved.currentStep = 'authentication'
+    await page.route('**/api/v1/admin/status', route => route.fulfill({ json: { developmentLogsEnabled: true } }))
+    let reads = 0
+    await page.route('**/api/v1/admin/development-logs', route => {
+        reads++
+        return route.fulfill({ json: { capacity: 200, entries: [{ seq: 1, time: '2026-10-27T12:00:00Z', target: 'authentication', stage: 'request', outcome: 'failure', code: 'network_timeout', durationMs: 10000 }] } })
+    })
+    await page.goto('/setup')
+    await page.getByRole('button', { name: 'Check connection', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('connection_failed')
+    expect(state.saved.completedAt).toBeNull()
+    expect(reads).toBe(0)
+    await page.locator('summary').filter({ hasText: 'Development connection logs' }).click()
+    await expect(page.getByRole('cell', { name: 'network_timeout', exact: true })).toBeVisible()
+    const checks = state.calls.filter(call => call.path.endsWith('/admin/setup/validate')).length
+    await page.getByRole('button', { name: 'Refresh logs' }).click()
+    await expect.poll(() => reads).toBe(2)
+    expect(state.calls.filter(call => call.path.endsWith('/admin/setup/validate'))).toHaveLength(checks)
+    await page.route('**/api/v1/admin/setup/validate', route => route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Administrator access required.' } } }))
+    await page.getByRole('button', { name: 'Check connection', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('Administrator access required.')
+    await expect(page.locator('summary').filter({ hasText: 'Development connection logs' })).toHaveCount(0)
+    await expect(page.getByRole('cell', { name: 'network_timeout', exact: true })).toHaveCount(0)
 })
 
 test('providers save only non-secret settings, check enabled providers, and configure a Source in Libraries', async ({ page }) => {
@@ -172,6 +275,22 @@ test('providers save only non-secret settings, check enabled providers, and conf
     await expect(page.getByLabel('Plex URL')).toHaveValue('https://plex.example.test')
     await page.getByRole('button', { name: 'Save and back' }).click()
     await expect(page.getByLabel('IGDB client ID')).toHaveValue('public-client-id')
+})
+
+test('provider setup explains the TMDB token and saved IGDB client ID', async ({ page }) => {
+    const state = await mockSetup(page)
+    state.saved.currentStep = 'providers'
+    state.saved.settings.providers.igdbEnabled = true
+    state.saved.settings.providers.igdbClientId = 'saved-client-id'
+    state.saved.validations = [{ target: 'tmdb', revision: 1, valid: false, code: 'authentication_failed', message: 'TMDB rejected the credential. Use the API Read Access Token, not the v3 API key.', checkedAt: '2026-10-01T12:00:00Z', expiresAt: '2026-10-01T12:10:00Z' }]
+    await page.goto('/setup')
+    await expect(page.getByLabel('TMDb read token')).toHaveAccessibleDescription(/API Read Access Token.*not the v3 API key.*without a Bearer prefix/)
+    await expect(page.getByLabel('IGDB client ID')).toHaveAccessibleDescription(/saved client ID.*after a restart.*overrides it/)
+    await expect(page.getByRole('region', { name: 'Connection check results' })).toContainText('authentication_failed')
+    await expect(page.getByRole('region', { name: 'Connection check results' })).toContainText('API Read Access Token')
+    state.saved.currentStep = 'review'
+    await page.reload()
+    await expect(page.getByRole('region', { name: 'Draft summary' })).toContainText('saved-client-id · Saved ID applies after restart')
 })
 
 test('revision conflict keeps unsaved fields until the admin chooses Reload saved draft', async ({ page }) => {

@@ -14,7 +14,6 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
-	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
 )
 
@@ -106,13 +105,47 @@ func TestProductAPIRoutesFailClosedWithoutAuthentication(t *testing.T) {
 	}
 }
 
-func TestProtectedMutationRouteAllowlist(t *testing.T) {
-	for _, tc := range []struct {
-		method, path string
-		want         bool
-	}{{http.MethodPost, "/requests", true}, {http.MethodPut, "/admin/users/id/role", true}, {http.MethodPut, "/requests/id/subscription", true}, {http.MethodDelete, "/requests/id/subscription", true}, {http.MethodPost, "/requests/id/transition", true}, {http.MethodPost, "/setup/claim-admin", true}, {http.MethodPost, "/admin/sources/jellyfin/sync", true}, {http.MethodGet, "/admin/sources/jellyfin/status", false}, {http.MethodPost, "/auth/callback", false}, {http.MethodGet, "/requests", false}, {http.MethodPost, "/requests/id/subscription/extra", false}} {
-		if got := protectedMutation(tc.method, tc.path); got != tc.want {
-			t.Errorf("protectedMutation(%q, %q)=%v want %v", tc.method, tc.path, got, tc.want)
+// The route table is the single source of access and CSRF policy: every route
+// that changes state is CSRF-protected (the auth routes that check it
+// themselves excepted) and no administrator route is public.
+func TestRouteTablePolicy(t *testing.T) {
+	_, rt := newRouter(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, &fakeSetup{}, &auth.Handler{Secret: "test-secret"})
+	policies := rt.Policies()
+	if len(policies) < 25 {
+		t.Fatalf("only %d routes registered", len(policies))
+	}
+	want := map[string]routePolicy{
+		"POST /requests":                         {Access: accessSession, CSRF: true},
+		"GET /requests":                          {Access: accessSession},
+		"PUT /requests/{requestID}/subscription": {Access: accessSession, CSRF: true},
+		"POST /requests/{requestID}/transition":  {Access: accessSession, CSRF: true},
+		"POST /admin/sources/{source}/sync":      {Access: accessAdmin, CSRF: true},
+		"PUT /admin/users/{userID}/role":         {Access: accessAdmin, CSRF: true},
+		"PUT /admin/setup/draft":                 {Access: accessAdmin, CSRF: true},
+		"GET /admin/setup/draft":                 {Access: accessAdmin},
+		"POST /setup/claim-admin":                {Access: accessSession, CSRF: true},
+		"POST /auth/logout":                      {Access: accessSession},
+		"GET /auth/login":                        {Access: accessPublic},
+		"GET /version":                           {Access: accessPublic},
+		"GET /setup/status":                      {Access: accessPublic},
+	}
+	byPattern := map[string]routePolicy{}
+	for _, p := range policies {
+		byPattern[p.Pattern] = p
+		if strings.HasPrefix(p.Pattern, "GET /admin/") && p.Access != accessAdmin || strings.Contains(p.Pattern, " /admin/") && p.Access != accessAdmin {
+			t.Errorf("%s is not administrator-only", p.Pattern)
+		}
+		if mutating(p.Pattern) && p.Access != accessPublic && !p.CSRF && p.Pattern != "POST /auth/logout" {
+			t.Errorf("%s changes state without CSRF protection", p.Pattern)
+		}
+		if p.CSRF && !mutating(p.Pattern) {
+			t.Errorf("%s needs CSRF but does not change state", p.Pattern)
+		}
+	}
+	for pattern, policy := range want {
+		got, ok := byPattern[pattern]
+		if !ok || got.Access != policy.Access || got.CSRF != policy.CSRF {
+			t.Errorf("%s = %+v (registered %v), want access %v csrf %v", pattern, got, ok, policy.Access, policy.CSRF)
 		}
 	}
 }
@@ -166,11 +199,6 @@ func TestKnownProtectedAPIEndpointFailsClosedWithoutAuthentication(t *testing.T)
 	}
 }
 
-type jellyfinStatusReadiness struct {
-	fakeReadiness
-	status domain.SourceSyncStatus
-}
-
 type statusAuthRepo struct{ user auth.User }
 
 func (statusAuthRepo) SaveTransaction(context.Context, string, string, string, string, time.Time) error {
@@ -189,43 +217,6 @@ func (f statusAuthRepo) GetSession(context.Context, []byte, time.Time) (auth.Use
 	return f.user, []byte("csrf"), time.Now().Add(time.Hour), nil
 }
 func (statusAuthRepo) RevokeSession(context.Context, []byte, time.Time) error { return nil }
-
-func (f jellyfinStatusReadiness) JellyfinSyncStatus(context.Context) (domain.SourceSyncStatus, error) {
-	return f.status, nil
-}
-
-func TestJellyfinStatusEndpointRequiresAdminAndDoesNotExposeSecrets(t *testing.T) {
-	unauth := New(testLogger(), buildinfo.Info{}, jellyfinStatusReadiness{}, &auth.Handler{Repo: statusAuthRepo{user: auth.User{ID: "user-1", Role: "admin"}}, Secret: "test-secret"})
-	noSession := httptest.NewRecorder()
-	unauth.ServeHTTP(noSession, httptest.NewRequest(http.MethodGet, "/api/v1/admin/sources/jellyfin/status", nil))
-	if noSession.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthorized status=%d want=401", noSession.Code)
-	}
-	for _, role := range []string{"viewer", "admin"} {
-		t.Run(role, func(t *testing.T) {
-			repo := statusAuthRepo{user: auth.User{ID: "user-1", Role: role}}
-			authHandler := &auth.Handler{Repo: repo, Secret: "test-secret"}
-			ready := jellyfinStatusReadiness{status: domain.SourceSyncStatus{Configured: true, Enabled: true, LastSyncError: ptrString("sync unavailable")}}
-			h := New(testLogger(), buildinfo.Info{}, ready, authHandler)
-			r := httptest.NewRequest(http.MethodGet, "/api/v1/admin/sources/jellyfin/status", nil)
-			r.AddCookie(&http.Cookie{Name: "requestarr_session", Value: "valid"})
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, r)
-			want := http.StatusForbidden
-			if role == "admin" {
-				want = http.StatusOK
-			}
-			if rec.Code != want {
-				t.Fatalf("status=%d want=%d body=%s", rec.Code, want, rec.Body.String())
-			}
-			if role == "admin" && strings.Contains(rec.Body.String(), "apiKey") {
-				t.Fatal("status included credential field")
-			}
-		})
-	}
-}
-
-func ptrString(s string) *string { return &s }
 
 type roleChangeReadiness struct {
 	fakeReadiness
@@ -275,5 +266,21 @@ func TestRoleChangeEndpointAcceptsViewerAndReportsGuards(t *testing.T) {
 				t.Fatalf("status=%d want=%d calls=%v body=%s", rec.Code, tc.want, ready.calls, rec.Body.String())
 			}
 		})
+	}
+}
+
+// A missing dependency stops startup instead of leaving a route that answers
+// 503 later.
+func TestNewRouterNamesEveryMissingDependency(t *testing.T) {
+	if _, err := NewRouter(Deps{}); err == nil || !strings.Contains(err.Error(), "Logger") || !strings.Contains(err.Error(), "Wizard") || !strings.Contains(err.Error(), "Secrets") {
+		t.Fatalf("err = %v", err)
+	}
+	full := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, &auth.Handler{Secret: "test-secret"})
+	if _, err := NewRouter(full); err != nil {
+		t.Fatalf("complete Deps rejected: %v", err)
+	}
+	full.Inbox = nil
+	if _, err := NewRouter(full); err == nil || !strings.Contains(err.Error(), "Inbox") || strings.Contains(err.Error(), "Logger") {
+		t.Fatalf("err = %v, want only Inbox missing", err)
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
-	"mime"
 	"net"
 	"net/http"
 	"net/mail"
@@ -19,31 +18,29 @@ import (
 	"strings"
 	"time"
 
+	"github.com/evilperson1337/requestarr/internal/devlogs"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
 const maxResponse = 1 << 20
 
 var errCheck = errors.New("setup connection check failed")
+var errAuthentication = errors.New("setup authentication rejected")
 
 // Config holds server-only credentials. Never serialize or log this value.
 // Client is optional; injected transports must enforce their own dial policy.
 type Config struct {
-	Runtime          setup.Runtime
+	// Diagnostics is optional and records only allowlisted connection-check facts.
+	Diagnostics *devlogs.Recorder
+	Runtime     setup.Runtime
+	// OIDCClientSecret is environment-only; it is not a stored secret.
 	OIDCClientSecret string
-	TMDBReadToken    string
-	// Secrets, when set, supplies the TMDB token, IGDB client secret and Apprise key (environment, else stored)
-	// that the next restart would use; TMDBReadToken and the runtime flag are
-	// then ignored for that check.
-	Secrets           setup.SecretSources
-	IGDBClientSecret  string
-	JellyfinAPIKey    string
-	PlexToken         string
-	RommToken         string
-	NavidromeUsername string
-	NavidromePassword string
-	Client            *http.Client
+	// Secrets supplies every stored-capable secret (environment, else stored):
+	// the value the next restart would use. Without it no secret is configured.
+	Secrets setup.SecretSources
+	Client  *http.Client
 	// Resolver optionally replaces DNS for the production transport (e.g. local
 	// DNS fixtures). It is ignored when Client supplies its own transport.
 	Resolver *net.Resolver
@@ -72,7 +69,12 @@ func New(config Config) *Checker {
 	return &Checker{config: config, client: &client}
 }
 
-func (c *Checker) Check(ctx context.Context, target setup.Target, settings setup.Settings) (setup.CheckCode, error) {
+func (c *Checker) Check(ctx context.Context, target setup.Target, settings setup.Settings) (code setup.CheckCode, err error) {
+	started := time.Now()
+	defer func() {
+		c.config.Diagnostics.Record(target, devlogs.StageCheck, devlogs.Code(code), 0, time.Since(started))
+	}()
+	ctx = context.WithValue(ctx, diagnosticTargetKey{}, target)
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if target == setup.TargetAuthentication {
@@ -126,36 +128,83 @@ func (c *Checker) apprise(ctx context.Context, n setup.NotificationSettings) (se
 		return setup.CheckIncomplete, nil
 	}
 	runtime := c.config.Runtime
-	_, keyConfigured, err := c.secret(ctx, secrets.AppriseConfigKey, "", runtime.AppriseKeyConfigured)
+	key, err := c.secret(ctx, secrets.AppriseConfigKey)
 	if err != nil {
 		return setup.CheckUnavailable, errCheck
 	}
-	if n.AppriseConfigKeyEnv != setup.AppriseConfigKeyEnv || n.AppriseURL != runtime.AppriseURL || !keyConfigured {
+	if n.AppriseConfigKeyEnv != setup.AppriseConfigKeyEnv || n.AppriseURL != runtime.AppriseURL || key == "" {
 		return setup.CheckEnvironment, nil
 	}
 	if !setup.ValidServiceURL(n.AppriseURL, runtime.Development) {
 		return setup.CheckIncomplete, nil
 	}
-	ctx = context.WithValue(ctx, trustedDialKey{}, true)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(n.AppriseURL, "/")+"/status", nil)
-	if err != nil {
-		return setup.CheckUnavailable, errCheck
-	}
-	req.Header.Set("User-Agent", "Requestarr/setup-check")
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return setup.CheckUnavailable, errCheck
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if err := c.fetch(ctx, fetchSpec{stage: devlogs.StageRequest, method: http.MethodGet, endpoint: strings.TrimRight(n.AppriseURL, "/") + "/status", trusted: true, maxBytes: 64 << 10, discard: true}); err != nil {
 		return setup.CheckUnavailable, errCheck
 	}
 	return setup.CheckOK, nil
 }
 
-func (c *Checker) library(ctx context.Context, kind string, libraries setup.LibrariesSettings) (setup.CheckCode, error) {
-	source := map[string]setup.SourceSettings{"jellyfin": libraries.Jellyfin, "plex": libraries.Plex, "romm": libraries.Romm, "navidrome": libraries.Navidrome}[kind]
+// libraryProbe is what a connection check does for one Source kind: where to
+// ask, how to authenticate, and what a healthy answer looks like. The kind's
+// slug, credential fields and URL come from the sources registry.
+type libraryProbe struct {
+	path        string
+	acceptedXML bool // the response is XML, not JSON
+	headers     func(token string) map[string]string
+	valid       func(data []byte) bool
+}
+
+var libraryProbes = map[string]libraryProbe{
+	"jellyfin": {path: "/System/Info", headers: func(t string) map[string]string { return map[string]string{"X-Emby-Token": t} }, valid: validJSON},
+	"plex": {path: "/library/sections", acceptedXML: true, headers: func(t string) map[string]string { return map[string]string{"X-Plex-Token": t} }, valid: func(data []byte) bool {
+		var result struct {
+			XMLName xml.Name `xml:"MediaContainer"`
+		}
+		return xml.Unmarshal(data, &result) == nil && result.XMLName.Local == "MediaContainer"
+	}},
+	"romm": {path: "/api/platforms", headers: func(t string) map[string]string { return map[string]string{"Authorization": "Bearer " + t} }, valid: validJSON},
+	// Audiobookshelf lists its libraries to anyone with a valid key; the check
+	// needs at least one book library, since podcasts hold no audiobooks.
+	"audiobookshelf": {path: "/api/libraries", headers: func(t string) map[string]string { return map[string]string{"Authorization": "Bearer " + t} }, valid: validAudiobookshelfLibraries},
+	"navidrome": {valid: func(data []byte) bool {
+		var result struct {
+			Response struct {
+				Status string `json:"status"`
+			} `json:"subsonic-response"`
+		}
+		return json.Unmarshal(data, &result) == nil && result.Response.Status == "ok"
+	}},
+}
+
+func validAudiobookshelfLibraries(data []byte) bool {
+	var result struct {
+		Libraries []struct {
+			MediaType string `json:"mediaType"`
+		} `json:"libraries"`
+	}
+	if json.Unmarshal(data, &result) != nil {
+		return false
+	}
+	for _, l := range result.Libraries {
+		if l.MediaType == "book" {
+			return true
+		}
+	}
+	return false
+}
+
+func validJSON(data []byte) bool {
+	var result any
+	return json.Unmarshal(data, &result) == nil && result != nil
+}
+
+func (c *Checker) library(ctx context.Context, slug string, libraries setup.LibrariesSettings) (setup.CheckCode, error) {
+	kind, known := sources.Lookup(slug)
+	probeSpec, hasProbe := libraryProbes[slug]
+	if !known || !hasProbe {
+		return setup.CheckUnavailable, errCheck
+	}
+	source := *libraries.Source(slug)
 	if !source.Enabled {
 		return setup.CheckDisabled, nil
 	}
@@ -164,52 +213,28 @@ func (c *Checker) library(ctx context.Context, kind string, libraries setup.Libr
 	}
 	var endpoint string
 	headers := map[string]string{}
-	query := ""
-	switch kind {
-	case "jellyfin":
-		token, _, err := c.secret(ctx, secrets.JellyfinAPIKey, c.config.JellyfinAPIKey, c.config.JellyfinAPIKey != "")
+	if token, hasToken := kind.Credential(sources.RoleToken); hasToken {
+		value, err := c.secret(ctx, secrets.Name(token.Secret))
 		if err != nil {
 			return setup.CheckUnavailable, errCheck
 		}
-		if source.TokenEnv != setup.JellyfinAPIKeyEnv || token == "" {
+		if source.TokenEnv != token.Env || value == "" {
 			return setup.CheckEnvironment, nil
 		}
-		endpoint = strings.TrimRight(source.URL, "/") + "/System/Info"
-		headers["X-Emby-Token"] = token
-	case "plex":
-		token, _, err := c.secret(ctx, secrets.PlexToken, c.config.PlexToken, c.config.PlexToken != "")
-		if err != nil {
-			return setup.CheckUnavailable, errCheck
-		}
-		if source.TokenEnv != setup.PlexTokenEnv || token == "" {
-			return setup.CheckEnvironment, nil
-		}
-		endpoint = strings.TrimRight(source.URL, "/") + "/library/sections"
-		headers["X-Plex-Token"] = token
-	case "romm":
-		token, _, err := c.secret(ctx, secrets.RommToken, c.config.RommToken, c.config.RommToken != "")
-		if err != nil {
-			return setup.CheckUnavailable, errCheck
-		}
-		if source.TokenEnv != setup.RommTokenEnv || token == "" {
-			return setup.CheckEnvironment, nil
-		}
-		endpoint = strings.TrimRight(source.URL, "/") + "/api/platforms"
-		headers["Authorization"] = "Bearer " + token
-	case "navidrome":
+		endpoint = strings.TrimRight(source.URL, "/") + probeSpec.path
+		headers = probeSpec.headers(value)
+	} else {
+		// Username and password: the Subsonic ping with a salted token.
 		username := source.Username
 		if username == "" {
-			username = c.config.NavidromeUsername
+			username = c.config.Runtime.LibraryUsername(slug)
 		}
-		password := c.config.NavidromePassword
-		if c.config.Secrets != nil {
-			resolved, err := c.config.Secrets.Resolve(ctx, secrets.NavidromePassword)
-			if err != nil {
-				return setup.CheckUnavailable, errCheck
-			}
-			password = resolved.Value
+		passwordCredential, _ := kind.Credential(sources.RolePassword)
+		password, err := c.secret(ctx, secrets.Name(passwordCredential.Secret))
+		if err != nil {
+			return setup.CheckUnavailable, errCheck
 		}
-		if source.PasswordEnv != setup.NavidromePasswordEnv || username == "" || password == "" {
+		if source.PasswordEnv != passwordCredential.Env || username == "" || password == "" {
 			return setup.CheckEnvironment, nil
 		}
 		saltBytes := make([]byte, 16)
@@ -220,72 +245,39 @@ func (c *Checker) library(ctx context.Context, kind string, libraries setup.Libr
 		token := md5.Sum([]byte(password + salt))
 		q := url.Values{"u": {username}, "t": {hex.EncodeToString(token[:])}, "s": {salt}, "v": {"1.16.1"}, "c": {"Requestarr/setup-check"}, "f": {"json"}}
 		endpoint = strings.TrimRight(source.URL, "/") + "/rest/ping.view?" + q.Encode()
-	default:
-		return setup.CheckUnavailable, errCheck
 	}
 	if !setup.ValidSourceURL(source.URL, c.config.Runtime.Development) {
 		return setup.CheckIncomplete, nil
 	}
-	ctx = context.WithValue(ctx, trustedDialKey{}, true) // Explicit admin check of this exact operator-supplied Source.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+query, nil)
-	if err != nil {
+	// An explicit admin check of this exact operator-supplied Source.
+	types := []string{"application/json"}
+	accept := "application/json, application/xml"
+	if probeSpec.acceptedXML {
+		// This probe parses Plex's XML sections response, unlike the JSON
+		// inventory client. Plex answers in JSON whenever JSON is acceptable, so
+		// the request must ask for XML alone. Both standard XML media types occur.
+		accept = "application/xml"
+		types = []string{"application/xml", "text/xml"}
+	}
+	if err := c.fetch(ctx, fetchSpec{stage: devlogs.StageRequest, method: http.MethodGet, endpoint: endpoint, headers: headers, accept: accept,
+		trusted: true, types: types, maxBytes: 64 << 10, validate: probeSpec.valid}); err != nil {
 		return setup.CheckUnavailable, errCheck
-	}
-	req.Header.Set("User-Agent", "Requestarr/setup-check")
-	req.Header.Set("Accept", "application/json, application/xml")
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return setup.CheckUnavailable, errCheck
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return setup.CheckUnavailable, errCheck
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (64<<10)+1))
-	if err != nil || len(data) == 0 || len(data) > 64<<10 {
-		return setup.CheckUnavailable, errCheck
-	}
-	switch kind {
-	case "jellyfin", "romm":
-		var result any
-		if json.Unmarshal(data, &result) != nil || result == nil {
-			return setup.CheckUnavailable, errCheck
-		}
-	case "plex":
-		var result struct {
-			XMLName xml.Name `xml:"MediaContainer"`
-		}
-		if xml.Unmarshal(data, &result) != nil || result.XMLName.Local != "MediaContainer" {
-			return setup.CheckUnavailable, errCheck
-		}
-	case "navidrome":
-		var result struct {
-			Response struct {
-				Status string `json:"status"`
-			} `json:"subsonic-response"`
-		}
-		if json.Unmarshal(data, &result) != nil || result.Response.Status != "ok" {
-			return setup.CheckUnavailable, errCheck
-		}
 	}
 	return setup.CheckOK, nil
 }
 
-// secret returns the value the next restart would use for name. When a
-// resolver is wired it is authoritative (environment, else stored); otherwise
-// the boot value and flag apply.
-func (c *Checker) secret(ctx context.Context, name secrets.Name, boot string, bootConfigured bool) (string, bool, error) {
+// secret returns the value the next restart would use for name, from the
+// resolver (environment, else stored). It is empty when nothing is configured
+// or no resolver is wired.
+func (c *Checker) secret(ctx context.Context, name secrets.Name) (string, error) {
 	if c.config.Secrets == nil {
-		return boot, bootConfigured, nil
+		return "", nil
 	}
 	r, err := c.config.Secrets.Resolve(ctx, name)
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
-	return r.Value, r.Value != "", nil
+	return r.Value, nil
 }
 
 func (c *Checker) igdb(ctx context.Context, s setup.ProviderSettings) (setup.CheckCode, error) {
@@ -295,11 +287,12 @@ func (c *Checker) igdb(ctx context.Context, s setup.ProviderSettings) (setup.Che
 	if strings.TrimSpace(s.IGDBClientID) == "" {
 		return setup.CheckIncomplete, nil
 	}
-	secret, configured, err := c.secret(ctx, secrets.IGDBClientSecret, c.config.IGDBClientSecret, c.config.Runtime.IGDBSecretConfigured)
+	secret, err := c.secret(ctx, secrets.IGDBClientSecret)
 	if err != nil {
 		return setup.CheckUnavailable, errCheck
 	}
-	if s.IGDBClientSecretEnv != setup.IGDBSecretEnv || s.IGDBClientID != c.config.Runtime.IGDBClientID || !configured || secret == "" {
+	if s.IGDBClientSecretEnv != setup.IGDBSecretEnv || secret == "" ||
+		c.config.Runtime.IGDBClientIDFromEnvironment && s.IGDBClientID != c.config.Runtime.IGDBClientID {
 		return setup.CheckEnvironment, nil
 	}
 	form := url.Values{"client_id": {s.IGDBClientID}, "client_secret": {secret}, "grant_type": {"client_credentials"}}
@@ -308,13 +301,13 @@ func (c *Checker) igdb(ctx context.Context, s setup.ProviderSettings) (setup.Che
 		ExpiresIn   int64  `json:"expires_in"`
 		TokenType   string `json:"token_type"`
 	}
-	if err := c.request(ctx, http.MethodPost, "https://id.twitch.tv/oauth2/token", strings.NewReader(form.Encode()), map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, &token); err != nil || token.AccessToken == "" || len(token.AccessToken) > 4096 || strings.ContainsAny(token.AccessToken, "\r\n\x00") || !strings.EqualFold(token.TokenType, "bearer") || token.ExpiresIn <= 0 || token.ExpiresIn > 365*24*60*60 {
+	if err := c.requestStage(ctx, devlogs.StageOAuth, http.MethodPost, "https://id.twitch.tv/oauth2/token", strings.NewReader(form.Encode()), map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, &token); err != nil || token.AccessToken == "" || len(token.AccessToken) > 4096 || strings.ContainsAny(token.AccessToken, "\r\n\x00") || !strings.EqualFold(token.TokenType, "bearer") || token.ExpiresIn <= 0 || token.ExpiresIn > 365*24*60*60 {
 		return setup.CheckUnavailable, errCheck
 	}
 	var platforms []struct {
 		ID int64 `json:"id"`
 	}
-	if err := c.request(ctx, http.MethodPost, "https://api.igdb.com/v4/platforms", strings.NewReader("fields id; limit 1;"), map[string]string{"Content-Type": "text/plain", "Authorization": "Bearer " + token.AccessToken, "Client-ID": s.IGDBClientID}, &platforms); err != nil || len(platforms) == 0 {
+	if err := c.requestStage(ctx, devlogs.StagePlatforms, http.MethodPost, "https://api.igdb.com/v4/platforms", strings.NewReader("fields id; limit 1;"), map[string]string{"Content-Type": "text/plain", "Authorization": "Bearer " + token.AccessToken, "Client-ID": s.IGDBClientID}, &platforms); err != nil || len(platforms) == 0 {
 		return setup.CheckUnavailable, errCheck
 	}
 	for _, platform := range platforms {
@@ -347,16 +340,11 @@ func (c *Checker) tmdb(ctx context.Context, s setup.ProviderSettings) (setup.Che
 	if !s.TMDBEnabled {
 		return setup.CheckDisabled, nil
 	}
-	token := c.config.TMDBReadToken
-	configured := c.config.Runtime.TMDBTokenConfigured
-	if c.config.Secrets != nil {
-		resolved, err := c.config.Secrets.Resolve(ctx, secrets.TMDBReadToken)
-		if err != nil {
-			return setup.CheckUnavailable, errCheck
-		}
-		token, configured = resolved.Value, resolved.Value != ""
+	token, err := c.secret(ctx, secrets.TMDBReadToken)
+	if err != nil {
+		return setup.CheckUnavailable, errCheck
 	}
-	if s.TMDBTokenEnv != setup.TMDBTokenEnv || !configured || token == "" {
+	if s.TMDBTokenEnv != setup.TMDBTokenEnv || token == "" {
 		return setup.CheckEnvironment, nil
 	}
 	var result struct {
@@ -364,7 +352,11 @@ func (c *Checker) tmdb(ctx context.Context, s setup.ProviderSettings) (setup.Che
 			SecureBaseURL string `json:"secure_base_url"`
 		} `json:"images"`
 	}
-	if err := c.request(ctx, http.MethodGet, "https://api.themoviedb.org/3/configuration", nil, map[string]string{"Authorization": "Bearer " + token}, &result); err != nil || !setup.ValidServiceURL(result.Images.SecureBaseURL, false) {
+	err = c.request(ctx, http.MethodGet, "https://api.themoviedb.org/3/configuration", nil, map[string]string{"Authorization": "Bearer " + token}, &result)
+	if errors.Is(err, errAuthentication) {
+		return setup.CheckAuthentication, nil
+	}
+	if err != nil || !setup.ValidServiceURL(result.Images.SecureBaseURL, false) {
 		return setup.CheckUnavailable, errCheck
 	}
 	return setup.CheckOK, nil
@@ -408,32 +400,14 @@ func (c *Checker) authentication(ctx context.Context, s setup.AuthenticationSett
 }
 
 func (c *Checker) request(ctx context.Context, method, endpoint string, body io.Reader, headers map[string]string, result any) error {
+	return c.requestStage(ctx, devlogs.StageRequest, method, endpoint, body, headers, result)
+}
+
+func (c *Checker) requestStage(ctx context.Context, stage devlogs.Stage, method, endpoint string, body io.Reader, headers map[string]string, result any) error {
 	// Only the exact configured issuer discovery URL and configured public origin
 	// receive the operator-trusted private-address exception at the dial boundary.
-	if endpoint == strings.TrimRight(c.config.Runtime.OIDCIssuer, "/")+"/.well-known/openid-configuration" || sameOrigin(endpoint, c.config.Runtime.PublicURL) {
-		ctx = context.WithValue(ctx, trustedDialKey{}, true)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
-	if err != nil {
-		return errCheck
-	}
-	req.Header.Set("User-Agent", "Requestarr/setup-check")
-	req.Header.Set("Accept", "application/json")
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return errCheck
-	}
-	defer resp.Body.Close()
-	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/json" || resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return errCheck
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
-	if err != nil || len(data) > maxResponse || json.Unmarshal(data, result) != nil {
-		return errCheck
-	}
-	return nil
+	trusted := endpoint == strings.TrimRight(c.config.Runtime.OIDCIssuer, "/")+"/.well-known/openid-configuration" || sameOrigin(endpoint, c.config.Runtime.PublicURL)
+	return c.fetch(ctx, fetchSpec{stage: stage, method: method, endpoint: endpoint, body: body, headers: headers, accept: "application/json",
+		trusted: trusted, types: []string{"application/json"}, maxBytes: maxResponse,
+		validate: func(data []byte) bool { return json.Unmarshal(data, result) == nil }})
 }

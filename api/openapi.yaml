@@ -124,6 +124,22 @@ paths:
         '204': { description: Admin role granted and setup atomically completed }
         '401': { description: Authentication required }
         '403': { description: Generic claim failure }
+  /catalog/{catalogID}/preview:
+    get:
+      operationId: moviePreviewState
+      summary: Read local shared Request, subscription, and library availability state
+      parameters:
+        - { in: path, name: catalogID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Local preview state and role-appropriate actions; no provider calls; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MoviePreviewState' }
+        '400': { description: Invalid catalog ID }
+        '401': { description: Authentication required }
+        '404': { description: Catalog item not found }
+        '503': { description: Local preview state unavailable }
   /resolve:
     post:
       operationId: resolveUrl
@@ -136,11 +152,17 @@ paths:
               type: object
               required: [url]
               properties:
-                url: { type: string, format: uri, maxLength: 2048 }
+                url: { type: string, maxLength: 2048, description: "A TMDB, MusicBrainz, IGDB or Audible product URL, or a bare audiobook ASIN (resolved in the administrator's default Audible marketplace)" }
       responses:
-        '200': { description: Resolved canonical catalog item and dynamic platforms }
-        '400': { description: Unsupported URL or provider resolution failure }
+        '200':
+          description: Resolved canonical catalog item; movies and TV include typed details and local action state; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResolvedPreview' }
+        '400': { description: Unsupported URL, or the item was not found at the provider (metadata_resolution_failed) }
         '401': { description: Authentication required }
+        '502': { description: The provider rejected Requestarr's credentials; an administrator must fix them (metadata_provider_credentials) }
+        '503': { description: "The provider is busy (metadata_provider_busy, with Retry-After), its credentials are not set (metadata_provider_not_configured), or local preview state is unavailable; retry without discarding the pasted URL" }
   /requests:
     get:
       operationId: listRequests
@@ -158,6 +180,10 @@ paths:
         starting a sixth expires the oldest. No upstream service calls are made.
       parameters:
         - in: query
+          name: requestId
+          schema: { type: string, format: uuid }
+          description: Exact shared Request ID for View request navigation; combines with other filters and participates in cursor identity.
+        - in: query
           name: q
           description: Title substring; trimmed; at most 200 Unicode characters
           schema: { type: string, maxLength: 200 }
@@ -166,7 +192,7 @@ paths:
           schema: { type: string, enum: [requested, approved, available, denied, cancelled] }
         - in: query
           name: mediaType
-          schema: { type: string, enum: [movie, tv, album, song, game] }
+          schema: { type: string, enum: [movie, tv, album, song, game, audiobook] }
         - in: query
           name: mine
           schema: { type: boolean, default: false }
@@ -205,6 +231,34 @@ paths:
         '422': { description: query_too_large; more than 10000 matching requests; narrow the filters }
         '500': { description: requests_list_failed; safe generic error }
         '503': { description: requests_unavailable }
+    post:
+      operationId: createRequest
+      summary: Create the one canonical shared request for an item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platforms]
+              properties:
+                catalogId: { type: string, format: uuid }
+                url: { type: string, maxLength: 2048, description: Supported TMDB, MusicBrainz, IGDB or Audible metadata URL, or a bare audiobook ASIN. Mutually exclusive with catalogId. }
+                note: { type: string, maxLength: 2000 }
+                platforms:
+                  type: object
+                  required: [any]
+                  properties:
+                    any: { type: boolean }
+                    platformKeys: { type: array, items: { type: string } }
+                selection: { $ref: '#/components/schemas/Selection' }
+      responses:
+        '201': { description: Canonical request created with creator subscription and event }
+        '200': { description: Existing shared request returned. When it was open and the selection added to it, Merged is true, the selection was widened (never narrowed) and the caller now follows it. }
+        '400': { description: Invalid request }
+        '409': { description: already_available; a library already has the item and no Request exists, so none is created }
+        '403': { description: User role cannot create requests }
+        '401': { description: Authentication required }
   /admin/sources/{source}/sync:
     post:
       operationId: syncSourceNow
@@ -217,7 +271,7 @@ paths:
         - in: path
           name: source
           required: true
-          description: Source slug, jellyfin, plex or romm (whichever are configured)
+          description: Source slug, jellyfin, plex, romm or audiobookshelf (whichever are configured)
           schema: { type: string }
         - in: header
           name: X-CSRF-Token
@@ -238,6 +292,41 @@ paths:
         '404': { description: Source is not configured (code source_not_configured) }
         '409': { description: A sync for this source is already running (code sync_in_progress) }
         '503': { description: Sync unavailable }
+  /admin/development-logs:
+    get:
+      operationId: getDevelopmentLogs
+      summary: Recent connection-check diagnostics (development administrator only)
+      description: >-
+        Available only when REQUESTARR_DEV_LOGS is explicitly enabled and REQUESTARR_ENV is
+        development; enabling it outside development is a startup configuration error. The route
+        is not registered otherwise. Normal API authentication still applies to unknown routes.
+        Returns a whole in-memory snapshot, oldest first, with at most 200 entries; refresh manually.
+        Entries are lost on restart and seq is process-local. Only allowlisted connection-check
+        facts are retained, never general logs, errors/messages, URLs, headers, query parameters,
+        usernames, credentials, or provider bodies. A request-stage connected record means the HTTP
+        and parse step succeeded; the final check record reports the target's validation outcome.
+        IGDB uses separate oauth and platforms stages. No external calls are made to read this
+        snapshot. All responses, including authorization errors and disabled-route misses, are no-store.
+      responses:
+        '200':
+          description: Bounded recent snapshot
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [entries, capacity]
+                properties:
+                  entries:
+                    type: array
+                    maxItems: 200
+                    items: { $ref: '#/components/schemas/DevelopmentLogEntry' }
+                  capacity: { type: integer, const: 200 }
+        '401': { description: Authentication required (including when disabled) }
+        '403': { description: Administrator role required }
+        '404': { description: Development logs disabled; authenticated request to absent route }
   /admin/status:
     get:
       operationId: getOperationalStatus
@@ -256,6 +345,10 @@ paths:
                 type: object
                 required: [providers, sources, recentErrors]
                 properties:
+                  developmentLogsEnabled:
+                    type: boolean
+                    const: true
+                    description: Runtime capability for the development-logs endpoint; omitted when disabled. Administrator only.
                   providers:
                     type: array
                     items:
@@ -270,13 +363,14 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [slug, name, configured, lastRun, lastSuccessAt, lastError]
+                      required: [slug, name, configured, lastRun, lastSuccessAt, lastSnapshotAt, lastError]
                       properties:
                         slug: { type: string }
                         name: { type: string }
                         configured: { type: boolean }
                         lastRun: { oneOf: [{ $ref: '#/components/schemas/JobRun' }, { type: 'null' }] }
                         lastSuccessAt: { type: [string, 'null'], format: date-time }
+                        lastSnapshotAt: { type: [string, 'null'], format: date-time, description: When the Source last completed a full enumeration; a failed run never moves it }
                         lastError: { type: string }
                         note: { type: string, description: "Short fixed status such as 'stored secret unreadable'; absent when there is nothing to add" }
                   recentErrors:
@@ -357,6 +451,376 @@ paths:
         '403': { description: Administrator role required }
         '404': { description: User not found }
         '409': { description: Cannot change your own role, or cannot demote the last administrator; nothing is changed }
+  /library/recent:
+    get:
+      operationId: listRecentlyAddedToLibraries
+      summary: Movies, series and albums the libraries gained most recently
+      description: >-
+        D029. Newest first by the library's own added date (first sighting when it gives none),
+        from each source's latest complete snapshot, so a removed item never shows. Songs are
+        left out. artworkUrl is present only when the owning library can supply a cover.
+        Any signed-in role; private, cached for a minute.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 50, default: 12 }
+        - in: query
+          name: types
+          description: Comma-separated media types to include; default all five (movie, tv, album, game, audiobook). Home asks for movie,tv, for album and for game separately so each shelf has one cover shape.
+          schema: { type: string, example: 'movie,tv' }
+      responses:
+        '200':
+          description: Recently added items
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [id, title, mediaType, source, addedAt]
+                      properties:
+                        id: { type: string, format: uuid }
+                        title: { type: string }
+                        year: { type: integer }
+                        mediaType: { type: string, enum: [movie, tv, album, game, audiobook] }
+                        detail: { type: string, description: A short note from the library, such as a game's platform }
+                        source: { type: string, description: The library's name }
+                        addedAt: { type: string, format: date-time }
+                        artworkUrl: { type: string }
+        '401': { description: Authentication required }
+        '500': { description: library_recent_failed }
+  /issues:
+    post:
+      operationId: reportIssue
+      summary: Report a problem with a Library item
+      description: >-
+        D030. Any signed-in role, Viewers included. The kinds offered depend on the item's media type
+        (movie and series: video, audio, subtitles, wrong_item, other; album and song: audio, missing_tracks,
+        wrong_tags, other; game: no_boot, wrong_region, wrong_version, missing_files, other). other needs a
+        description. part (Selection) names a season, episode or track; movies and games have none. A report of
+        the same item, kind and part as an open Issue joins it (200, joined true) instead of opening another (201).
+        Limited to 10 new reports an hour per user (429). Requires CSRF and a same-origin Origin header.
+      parameters:
+        - { in: header, name: X-CSRF-Token, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [libraryItemId, kind]
+              properties:
+                libraryItemId: { type: string, format: uuid }
+                kind: { $ref: '#/components/schemas/IssueKind' }
+                description: { type: string, maxLength: 2000 }
+                part: { $ref: '#/components/schemas/Selection' }
+      responses:
+        '201': { description: A new Issue was opened, content: { application/json: { schema: { $ref: '#/components/schemas/IssueResult' } } } }
+        '200': { description: Joined the open Issue for the same item, kind and part, content: { application/json: { schema: { $ref: '#/components/schemas/IssueResult' } } } }
+        '400': { description: invalid_json }
+        '401': { description: Authentication required }
+        '404': { description: issue_not_found; no such library item }
+        '422': { description: invalid_issue; the kind, description or part does not fit the item }
+        '429': { description: rate_limited; Retry-After is sent }
+    get:
+      operationId: listIssues
+      summary: Issues (administrators see all, everyone else the ones they reported)
+      parameters:
+        - { in: query, name: status, schema: { type: string, enum: [open, in_progress, resolved, closed] } }
+        - { in: query, name: kind, schema: { $ref: '#/components/schemas/IssueKind' } }
+        - { in: query, name: mediaType, schema: { type: string, enum: [movie, tv, album, song, game, audiobook] } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { in: query, name: cursor, schema: { type: string } }
+      responses:
+        '200':
+          description: Newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Issue' } }
+                  nextCursor: { type: [string, 'null'] }
+        '400': { description: invalid_query or invalid_cursor }
+        '401': { description: Authentication required }
+  /issues/summary:
+    get:
+      operationId: issuesSummary
+      summary: How many Issues still need an administrator, open or in progress (all for an administrator, otherwise the caller's)
+      responses:
+        '200': { description: Count, content: { application/json: { schema: { type: object, required: [open], properties: { open: { type: integer, minimum: 0 } } } } } }
+        '401': { description: Authentication required }
+  /issues/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getIssue
+      summary: An Issue with its timeline
+      description: An administrator sees every reporter and note; a reporter sees only their own. Anyone else gets 404.
+      responses:
+        '200':
+          description: The Issue
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [issue, events, reporters, youReported]
+                properties:
+                  issue: { $ref: '#/components/schemas/Issue' }
+                  events: { type: array, items: { type: object, required: [id, type, actorName, at], properties: { id: { type: string }, type: { type: string }, actorName: { type: string }, comment: { type: string }, at: { type: string, format: date-time } } } }
+                  reporters: { type: array, items: { type: object, required: [userId, name, at, left], properties: { userId: { type: string }, name: { type: string }, note: { type: string }, at: { type: string, format: date-time }, left: { type: boolean } } } }
+                  youReported: { type: boolean }
+        '401': { description: Authentication required }
+        '404': { description: issue_not_found }
+  /issues/{id}/comments:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: commentOnIssue
+      summary: Add a note (administrators on any Issue, others on Issues they reported)
+      description: An administrator's comment tells the Issue's reporters in-app. Requires CSRF and a same-origin Origin header.
+      parameters:
+        - { in: header, name: X-CSRF-Token, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [text], properties: { text: { type: string, minLength: 1, maxLength: 2000 } } }
+      responses:
+        '204': { description: Added }
+        '400': { description: invalid_json }
+        '401': { description: Authentication required }
+        '403': { description: Not a reporter of this Issue }
+        '404': { description: issue_not_found }
+        '422': { description: invalid_issue; empty or too long }
+  /issues/{id}/status:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: setIssueStatus
+      summary: Set an Issue's status: open, in progress, resolved or closed (administrator only)
+      description: >-
+        Any status other than the current one. Making an Issue active again (open or in progress) is refused (409) when another
+        active Issue already holds the same item, kind and part. Reporters are notified in-app and the global Apprise route
+        hears of it. Requires CSRF and a same-origin Origin header.
+      parameters:
+        - { in: header, name: X-CSRF-Token, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [status], properties: { status: { type: string, enum: [open, in_progress, resolved, closed] }, comment: { type: string, maxLength: 2000 } } }
+      responses:
+        '200': { description: The Issue as now, content: { application/json: { schema: { type: object, required: [issue], properties: { issue: { $ref: '#/components/schemas/Issue' } } } } } }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: issue_not_found }
+        '409': { description: invalid_transition }
+  /issues/{id}/reporter:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    delete:
+      operationId: leaveIssue
+      summary: Stop hearing about an Issue you reported (it stays open)
+      parameters:
+        - { in: header, name: X-CSRF-Token, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Left, or already had }
+        '401': { description: Authentication required }
+        '404': { description: issue_not_found }
+  /library/items:
+    get:
+      operationId: browseLibrary
+      summary: Browse what the libraries hold, one media type at a time
+      description: >-
+        D030. The Library page's list: items in each enabled Source's latest complete snapshot, newest
+        added first (the library's own added date, else first sighting). One title in two libraries of the
+        same Source is one entry. Songs are not listed. Cursor pagination, 48 per page by default.
+        Any signed-in role; private, cached for 30 seconds.
+      parameters:
+        - { in: query, name: type, required: true, schema: { type: string, enum: [movie, tv, album, game, audiobook] } }
+        - { in: query, name: q, description: Case-insensitive title search (100 characters at most), schema: { type: string, maxLength: 100 } }
+        - { in: query, name: source, description: A Source kind slug, schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 48 } }
+        - { in: query, name: cursor, description: The nextCursor of the previous page, schema: { type: string } }
+      responses:
+        '200':
+          description: One page of Library items
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/LibraryItem' } }
+                  nextCursor: { type: [string, 'null'] }
+        '400': { description: invalid_query or invalid_cursor }
+        '401': { description: Authentication required }
+        '500': { description: library_browse_failed }
+  /library/items/{id}:
+    get:
+      operationId: getLibraryItem
+      summary: One Library item, with how many open Issues it has
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The item
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryItem' }
+        '401': { description: Authentication required }
+        '404': { description: library_item_not_found }
+        '500': { description: library_browse_failed }
+  /library/items/{id}/artwork:
+    get:
+      operationId: getLibraryItemArtwork
+      summary: A library item's cover, fetched by the library's own adapter
+      description: >-
+        The library's credentials stay in the server. The reference is validated to one item's
+        cover path before any request is made; the response is an image (jpeg, png or webp) with
+        nosniff, private and cached for a day. Library errors are never echoed.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The cover image
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        '401': { description: Authentication required }
+        '404': { description: artwork_not_found }
+        '502': { description: artwork_unavailable }
+  /admin/library-connections:
+    get:
+      operationId: listLibraryConnections
+      summary: Where each library Source lives, with its credential status (administrator only)
+      description: >-
+        D028. Lists Jellyfin, Plex, RomM, Navidrome and Audiobookshelf with their saved address, whether the
+        address comes from an environment variable (which wins and cannot be changed here),
+        whether the Source is scheduled to sync, what a half-set Source is missing, and the
+        status of each credential. Credential values are never returned. No-store.
+      responses:
+        '200':
+          description: Connections
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [connections]
+                properties:
+                  connections:
+                    type: array
+                    items: { $ref: '#/components/schemas/LibraryConnection' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '500': { description: connection_update_failed }
+  /admin/library-connections/{slug}:
+    parameters:
+      - in: path
+        name: slug
+        required: true
+        schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
+    put:
+      operationId: saveLibraryConnection
+      summary: Save a Source's address (and username) and apply it immediately (administrator only)
+      description: >-
+        Stores the address, then rebuilds the Source's sync from the environment, the saved
+        address and the stored credentials without a restart. A Source with an address but no
+        credential stays inactive and reports what is missing. 409 set_by_environment when the
+        address comes from its environment variable. Requires CSRF and a same-origin Origin header.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url]
+              properties:
+                url: { type: string, maxLength: 2048, description: An http or https address with no username, query or fragment }
+                username: { type: string, maxLength: 256, description: Only for Sources that sign in with a username (Navidrome) }
+      responses:
+        '200':
+          description: The saved connection as now applied
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryConnection' }
+        '400': { description: invalid_connection_input }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: unknown_source }
+        '409': { description: set_by_environment }
+        '422': { description: invalid_connection }
+    delete:
+      operationId: removeLibraryConnection
+      summary: Remove a saved address and stop the Source's sync (administrator only)
+      description: >-
+        Deletes the saved address; the Source stops syncing unless an environment address
+        remains. Inventory already observed is kept. Requires CSRF and a same-origin Origin header.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The connection as now applied
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryConnection' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: unknown_source }
+  /admin/library-connections/{slug}/test:
+    parameters:
+      - in: path
+        name: slug
+        required: true
+        schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
+    post:
+      operationId: testLibraryConnection
+      summary: Probe a Source with its current address and credentials (administrator only)
+      description: >-
+        An explicit check of this exact Source: one short read-only request, the same probe the
+        setup wizard uses. The message never contains a credential. Requires CSRF and a
+        same-origin Origin header.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Result of the probe
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, code, message]
+                properties:
+                  ok: { type: boolean }
+                  code: { type: string, enum: [connected, connection_failed, authentication_failed, environment_required, incomplete_settings, disabled] }
+                  message: { type: string }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: unknown_source }
   /admin/secrets:
     get:
       operationId: listStoredSecrets
@@ -387,7 +851,7 @@ paths:
       - in: path
         name: name
         required: true
-        schema: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token] }
+        schema: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token, audiobookshelf_api_key] }
     put:
       operationId: setStoredSecret
       summary: Save or replace a stored secret (administrator only)
@@ -439,6 +903,45 @@ paths:
         '403': { description: "Administrator role or CSRF/Origin failure" }
         '404': { description: "unknown_secret" }
         '500': { description: "secret_update_failed; safe generic message" }
+  /admin/setup/source-kinds:
+    get:
+      operationId: listSourceKinds
+      summary: List the Source kinds the setup wizard can configure (administrator only)
+      description: >-
+        The registry the wizard renders from: for each kind its slug, name, URL
+        environment variable, default media types and ordered credential fields.
+        A credential with a secret name is write-only and may be a stored secret.
+      responses:
+        '200':
+          description: Source kinds in a stable order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kinds]
+                properties:
+                  kinds:
+                    type: array
+                    items:
+                      type: object
+                      required: [slug, name, urlEnv, mediaTypes, credentials]
+                      properties:
+                        slug: { type: string }
+                        name: { type: string }
+                        urlEnv: { type: string }
+                        mediaTypes: { type: array, items: { type: string } }
+                        credentials:
+                          type: array
+                          items:
+                            type: object
+                            required: [role, env]
+                            properties:
+                              role: { type: string, enum: [token, username, password] }
+                              env: { type: string }
+                              secret: { type: string, description: Stored secret name; absent for a plain field }
+                              label: { type: string, description: Label for the secret field; absent for a plain field }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
   /admin/setup/draft:
     get:
       operationId: getSetupDraft
@@ -523,7 +1026,7 @@ paths:
               required: [expectedRevision, target]
               properties:
                 expectedRevision: { type: integer, minimum: 1 }
-                target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, notifications] }
+                target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, library:audiobookshelf, notifications] }
       responses:
         '200':
           description: Draft with a revision-bound safe validation result; valid may be false
@@ -654,222 +1157,6 @@ paths:
         '409': { description: Suggestion already accepted }
         '500': { description: Review failed; transaction rolled back }
         '503': { description: Match review unavailable }
-  /admin/sources/jellyfin/status:
-    get:
-      operationId: getJellyfinSyncStatus
-      summary: Get sanitized Jellyfin sync health (administrator only)
-      responses:
-        '200': { description: Configured state, sync timestamps, and safe error; excludes URLs, credentials, and inventory }
-        '401': { description: Authentication required }
-        '403': { description: Administrator role required }
-    post:
-      operationId: createRequest
-      summary: Create the one canonical shared request for an item
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [platforms]
-              properties:
-                catalogId: { type: string, format: uuid }
-                url: { type: string, format: uri, maxLength: 2048, description: Supported TMDB, MusicBrainz, or IGDB metadata URL. Mutually exclusive with catalogId. }
-                note: { type: string, maxLength: 2000 }
-                platforms:
-                  type: object
-                  required: [any]
-                  properties:
-                    any: { type: boolean }
-                    platformKeys: { type: array, items: { type: string } }
-      responses:
-        '201': { description: Canonical request created with creator subscription and event }
-        '200': { description: Existing shared request returned }
-        '400': { description: Invalid request }
-        '403': { description: User role cannot create requests }
-        '401': { description: Authentication required }
-components:
-  headers:
-    RequestId:
-      description: >-
-        Unique ID assigned to every response; also logged by the server as
-        request_id. Client-supplied values are ignored. Quote it when reporting problems.
-      schema: { type: string }
-  schemas:
-    SetupSettings:
-      type: object
-      additionalProperties: false
-      required: [general, authentication, providers, libraries, notifications, policy]
-      properties:
-        general:
-          type: object
-          additionalProperties: false
-          required: [instanceName, timezone, publicUrl]
-          properties:
-            instanceName: { type: string, maxLength: 120 }
-            timezone: { type: string, maxLength: 128, description: "Empty while drafting or a valid IANA timezone" }
-            publicUrl: { type: string, maxLength: 2048, description: "Empty while drafting or HTTPS URL without credentials/query/fragment; HTTP allowed only in development" }
-        authentication:
-          type: object
-          additionalProperties: false
-          required: [issuer, clientId, clientSecretEnv]
-          properties:
-            issuer: { type: string, maxLength: 2048, description: "OIDC discovery issuer; same URL safety rules as publicUrl" }
-            clientId: { type: string, maxLength: 256 }
-            clientSecretEnv: { type: string, enum: [REQUESTARR_OIDC_CLIENT_SECRET] }
-        providers:
-          type: object
-          additionalProperties: false
-          required: [tmdbEnabled, tmdbTokenEnv, musicBrainzEnabled, musicBrainzContact, igdbEnabled, igdbClientId, igdbClientSecretEnv]
-          properties:
-            tmdbEnabled: { type: boolean }
-            tmdbTokenEnv: { type: string, enum: [REQUESTARR_TMDB_READ_TOKEN] }
-            musicBrainzEnabled: { type: boolean }
-            musicBrainzContact: { type: string, maxLength: 254, description: "Empty while drafting or a contact email for the explicit check user-agent" }
-            igdbEnabled: { type: boolean }
-            igdbClientId: { type: string, maxLength: 256 }
-            igdbClientSecretEnv: { type: string, enum: [REQUESTARR_IGDB_CLIENT_SECRET] }
-        libraries:
-          type: object
-          additionalProperties: false
-          required: [jellyfin, plex, romm, navidrome]
-          properties:
-            jellyfin: { $ref: '#/components/schemas/SetupSource' }
-            plex: { $ref: '#/components/schemas/SetupSource' }
-            romm: { $ref: '#/components/schemas/SetupSource' }
-            navidrome: { $ref: '#/components/schemas/SetupSource' }
-        notifications:
-          type: object
-          additionalProperties: false
-          required: [appriseEnabled, appriseUrl, appriseConfigKeyEnv]
-          properties:
-            appriseEnabled: { type: boolean }
-            appriseUrl: { type: string, maxLength: 2048, description: "Empty while drafting or an Apprise API URL; must equal REQUESTARR_APPRISE_URL for the check to pass" }
-            appriseConfigKeyEnv: { type: string, enum: [REQUESTARR_APPRISE_CONFIG_KEY] }
-        policy:
-          type: object
-          additionalProperties: false
-          required: [autoApproveMediaTypes]
-          properties:
-            autoApproveMediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game] }, description: "Media types that skip administrator approval; empty means all requests await approval" }
-    SecretStatus:
-      type: object
-      required: [name, label, envVar, configured, source, unreadable, pendingRestart]
-      properties:
-        name: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token] }
-        label: { type: string }
-        envVar: { type: string, description: "Environment variable that sets this secret; it always wins over a stored value" }
-        configured: { type: boolean, description: "An effective value exists. False for an unreadable stored secret, which is not the same as unconfigured" }
-        source: { type: string, enum: [none, environment, stored, "stored (shadowed by environment)", "stored secret unreadable"] }
-        unreadable: { type: boolean, description: "A stored row exists but cannot be opened with the current master key" }
-        pendingRestart: { type: boolean, description: "The value a restart would use differs from the one in effect now" }
-    SetupSource:
-      type: object
-      additionalProperties: false
-      required: [enabled, url, mediaTypes, tokenEnv, username, passwordEnv]
-      properties:
-        enabled: { type: boolean }
-        url: { type: string, maxLength: 2048, description: "Empty while drafting or an absolute origin" }
-        mediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game] } }
-        tokenEnv: { type: string, enum: ["", REQUESTARR_JELLYFIN_API_KEY, REQUESTARR_PLEX_TOKEN, REQUESTARR_ROMM_TOKEN] }
-        username: { type: string, maxLength: 256, description: "Navidrome account name, an ordinary non-secret draft field; must be empty for other Sources. Drafts saved with the retired usernameEnv still load, and an empty value takes the environment-configured username" }
-        passwordEnv: { type: string, enum: ["", REQUESTARR_NAVIDROME_PASSWORD] }
-    SetupDraft:
-      type: object
-      required: [revision, currentStep, settings, validations, updatedAt, inactive, environment, blockers, completedAt]
-      properties:
-        revision: { type: integer, minimum: 1 }
-        currentStep: { type: string, enum: [general, authentication, providers, libraries, notifications, policy, review] }
-        settings: { $ref: '#/components/schemas/SetupSettings' }
-        updatedAt: { type: string, format: date-time }
-        inactive: { type: boolean, const: true }
-        completedAt: { type: [string, 'null'], format: date-time, description: "Set once an administrator finished setup" }
-        blockers:
-          type: array
-          description: Required checks that are missing, failed or expired for this revision; Finish needs this empty
-          items:
-            type: object
-            required: [target, reason]
-            properties:
-              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, notifications] }
-              reason: { type: string, enum: [not_checked, failed, expired] }
-        validations:
-          type: array
-          items:
-            type: object
-            required: [target, revision, valid, code, message, checkedAt, expiresAt]
-            properties:
-              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, notifications] }
-              revision: { type: integer }
-              valid: { type: boolean }
-              code: { type: string, enum: [connected, connection_failed, environment_required, incomplete_settings, disabled] }
-              message: { type: string, description: "Fixed safe result; never raw upstream errors or payloads. A TMDB check names the secret source it used (D024) and runs against the value the next restart would use" }
-              checkedAt: { type: string, format: date-time }
-              expiresAt: { type: string, format: date-time }
-        environment:
-          type: array
-          items:
-            type: object
-            required: [name, secret, configured, needsRestart]
-            properties:
-              name: { type: string }
-              secret: { type: boolean }
-              configured: { type: boolean, description: "Presence only, not proof credentials work" }
-              needsRestart: { type: boolean }
-              desiredValue: { type: string, description: "Non-secret values only; absent for every secret reference" }
-    MatchSuggestion:
-      type: object
-      required: [id, catalogItemId, catalogTitle, catalogYear, inventoryTitle, inventoryYear, mediaType, platformKey, sourceName, sourceItemId, confidence, reason, observedAt]
-      properties:
-        id: { type: string, format: uuid }
-        catalogItemId: { type: string, format: uuid }
-        catalogTitle: { type: string }
-        catalogYear: { type: integer, description: Zero when unknown }
-        inventoryTitle: { type: string }
-        inventoryYear: { type: integer, description: Zero when unknown }
-        mediaType: { type: string, enum: [movie, tv, album, song, game] }
-        platformKey: { type: string, description: Observed platform key; empty when not applicable or unknown }
-        sourceName: { type: string }
-        sourceItemId: { type: string }
-        confidence: { type: string, enum: [title_year, title_only] }
-        reason: { type: string }
-        observedAt: { type: string, format: date-time }
-    JobRun:
-      type: object
-      required: [id, sourceId, trigger, status, startedAt, finishedAt]
-      properties:
-        id: { type: string, format: uuid }
-        sourceId: { type: string, format: uuid }
-        trigger: { type: string, enum: [schedule, manual] }
-        status: { type: string, enum: [running, succeeded, failed] }
-        startedAt: { type: string, format: date-time }
-        finishedAt: { type: [string, 'null'], format: date-time }
-        error: { type: string, description: Present on failed runs; fixed admin-safe text }
-    Error:
-      type: object
-      description: >-
-        The single error shape for every 4xx/5xx response under /api/v1, including
-        unknown paths (404) and wrong methods (405). Responses also carry the
-        X-Request-Id header, equal to error.requestId. Branch on code, never message.
-      required: [error]
-      properties:
-        error:
-          type: object
-          required: [code, message, requestId]
-          properties:
-            code: { type: string, description: Stable machine-readable identifier, example: authentication_required }
-            message: { type: string, description: Human-readable summary; not for programmatic use }
-            requestId: { type: string, description: Same value as the X-Request-Id response header }
-    Notification:
-      type: object
-      additionalProperties: false
-      required: [id, title, body, createdAt, readAt]
-      properties:
-        id: { type: string, format: uuid }
-        title: { type: string }
-        body: { type: string }
-        createdAt: { type: string, format: date-time }
-        readAt: { type: [string, 'null'], format: date-time }
   /requests/{requestId}/subscription:
     put:
       operationId: subscribeToRequest
@@ -957,3 +1244,479 @@ components:
         '403': { description: Administrator role required }
         '404': { description: Request not found }
         '409': { description: Stale request version }
+components:
+  headers:
+    RequestId:
+      description: >-
+        Unique ID assigned to every response; also logged by the server as
+        request_id. Client-supplied values are ignored. Quote it when reporting problems.
+      schema: { type: string }
+  schemas:
+    ResolvedPreview:
+      type: object
+      required: [Item, Platforms]
+      properties:
+        Item:
+          type: object
+          description: Canonical catalog item; existing PascalCase fields are preserved.
+          properties:
+            ID: { type: string, format: uuid }
+            MediaType: { type: string, enum: [movie, tv, album, song, game, audiobook] }
+            Title: { type: string }
+            Year: { type: integer }
+            Provider: { type: string }
+            ProviderID: { type: string }
+            ArtworkURL: { type: string }
+            ArtworkKind: { type: string, enum: [poster, square] }
+            ExternalURL: { type: string }
+        Platforms: { type: array, items: { type: object } }
+        Movie: { $ref: '#/components/schemas/MovieDetails' }
+        TV: { $ref: '#/components/schemas/TVDetails' }
+        Game: { $ref: '#/components/schemas/GameDetails' }
+        Music: { $ref: '#/components/schemas/MusicDetails' }
+        Preview: { $ref: '#/components/schemas/MoviePreviewState' }
+    MusicDetails:
+      type: object
+      additionalProperties: false
+      description: MusicBrainz details of an album or song, shown on the request preview. Every field is optional. Album art comes from the Cover Art Archive.
+      properties:
+        artists: { type: array, maxItems: 10, items: { type: string, maxLength: 256 } }
+        primaryType: { type: string, maxLength: 40, description: "For an album, such as Album, EP or Single" }
+        secondaryTypes: { type: array, maxItems: 5, items: { type: string, maxLength: 40 } }
+        releaseDate: { type: string, format: date, description: Present only when MusicBrainz has a complete date }
+        genres: { type: array, maxItems: 10, items: { type: string, maxLength: 80 } }
+        lengthSeconds: { type: integer, minimum: 1, description: A song's duration }
+        appearsOn: { type: array, maxItems: 5, items: { type: string, maxLength: 256 }, description: Releases a song appears on }
+        tracks:
+          type: array
+          maxItems: 200
+          description: An album's tracklist from one release, for choosing tracks to request. Absent when MusicBrainz could not supply it.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, position, title]
+            properties:
+              id: { type: string, maxLength: 64 }
+              position: { type: integer, minimum: 1, description: Counts across discs }
+              title: { type: string, maxLength: 512 }
+              lengthSeconds: { type: integer, minimum: 1 }
+        score: { type: number, minimum: 0, maximum: 5, description: MusicBrainz community rating on a 0-5 scale }
+        ratingCount: { type: integer, minimum: 1 }
+    GameDetails:
+      type: object
+      additionalProperties: false
+      description: IGDB details of a game, shown on the request preview. Every field is optional.
+      properties:
+        overview: { type: string, maxLength: 10000 }
+        genres: { type: array, maxItems: 20, items: { type: string, maxLength: 80 } }
+        releaseDate: { type: string, format: date }
+        developers: { type: array, maxItems: 10, items: { type: string, maxLength: 256 } }
+        score: { type: number, minimum: 0, maximum: 100, description: IGDB rating on a 0-100 scale }
+        ratingCount: { type: integer, minimum: 1 }
+        backdropUrl: { type: string, description: An IGDB screenshot }
+    MovieDetails:
+      type: object
+      additionalProperties: false
+      description: Movie-only validated metadata persisted in the existing catalog JSON; omitted facts are unknown. Credits have a 1.5-second sub-budget within a nine-second total lookup.
+      properties:
+        overview: { type: string, maxLength: 10000 }
+        runtime: { type: integer, minimum: 1, maximum: 1440 }
+        genres: { type: array, maxItems: 20, items: { type: string, maxLength: 80 } }
+        releaseDate: { type: string, format: date }
+        releaseStatus: { type: string, enum: [Rumored, Planned, In Production, Post Production, Released, Canceled] }
+        score: { type: number, minimum: 0, maximum: 10, description: Present only with a positive ratingCount; not Requestarr votes }
+        ratingCount: { type: integer, minimum: 1, maximum: 1000000000 }
+        backdropUrl: { type: string, format: uri, description: Approved TMDB image origin only }
+        directors: { type: array, maxItems: 10, items: { type: string, maxLength: 256 } }
+        cast:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            additionalProperties: false
+            required: [name]
+            properties:
+              name: { type: string, maxLength: 256 }
+              character: { type: string, maxLength: 256 }
+              profileUrl: { type: string, format: uri, description: Approved TMDB image origin only }
+        detailsUnavailable: { type: boolean, description: Secondary enrichment failed; ordinary absent credits are not a failure }
+    IssueKind:
+      type: string
+      enum: [video, audio, subtitles, wrong_item, missing_tracks, wrong_tags, no_boot, wrong_region, wrong_version, missing_files, other]
+    Issue:
+      type: object
+      additionalProperties: false
+      required: [id, libraryItemId, title, mediaType, source, kind, kindLabel, part, status, reporters, goneFromLibrary, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        libraryItemId: { type: string, format: uuid }
+        title: { type: string }
+        mediaType: { type: string, enum: [movie, tv, album, song, game, audiobook] }
+        source: { type: string }
+        kind: { $ref: '#/components/schemas/IssueKind' }
+        kindLabel: { type: string }
+        part: { $ref: '#/components/schemas/Selection' }
+        status: { type: string, enum: [open, in_progress, resolved, closed] }
+        description: { type: string, description: The first reporter's note }
+        artworkUrl: { type: string, description: The item's cover from its library }
+        link: { type: string, format: uri, description: Opens the item in its media server }
+        year: { type: integer }
+        sourceKind: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
+        reporters: { type: integer, minimum: 0, description: Reporters still following the Issue }
+        goneFromLibrary: { type: boolean, description: Its Source has since synced without the item }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time }
+    IssueResult:
+      type: object
+      required: [issue, joined]
+      properties:
+        issue: { $ref: '#/components/schemas/Issue' }
+        joined: { type: boolean }
+    LibraryItem:
+      type: object
+      additionalProperties: false
+      required: [id, title, mediaType, source, sourceKind, addedAt, openIssues, issueKinds]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        year: { type: integer }
+        mediaType: { type: string, enum: [movie, tv, album, game, audiobook] }
+        source: { type: string, description: The library's name }
+        sourceKind: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
+        addedAt: { type: string, format: date-time }
+        detail: { type: string, description: A short note from the library, such as a game's platform }
+        artworkUrl: { type: string }
+        link: { type: string, format: uri, description: Opens the item in its media server; present only when safe }
+        openIssues: { type: integer, minimum: 0 }
+        tracks: { type: array, description: An album's tracks when its library reports them (single-item reads only), items: { type: object, required: [id, title], properties: { id: { type: string, format: uuid, description: The track's Library item id; a report's part names it }, title: { type: string }, disc: { type: integer }, position: { type: integer } } } }
+        issueKinds: { type: array, description: The kinds of Issue that can be reported about this item, items: { type: object, required: [kind, label], properties: { kind: { $ref: '#/components/schemas/IssueKind' }, label: { type: string } } } }
+    LibraryConnection:
+      type: object
+      additionalProperties: false
+      required: [slug, name, url, urlFromEnvironment, urlEnv, saved, takesUsername, username, active, missing, credentials]
+      properties:
+        slug: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
+        name: { type: string }
+        url: { type: string, description: The address in effect, empty when none }
+        urlFromEnvironment: { type: boolean }
+        urlEnv: { type: string, description: The environment variable that would set the address }
+        saved: { type: boolean, description: A connection is saved here (it may be shadowed by the environment) }
+        takesUsername: { type: boolean }
+        username: { type: string }
+        active: { type: boolean, description: The Source is scheduled to sync }
+        missing: { type: array, items: { type: string }, description: What a half-set Source still needs }
+        credentials:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [secret, label, configured, source, unreadable]
+            properties:
+              secret: { type: string, description: The stored-secret name, for PUT /admin/secrets/{name} }
+              label: { type: string }
+              configured: { type: boolean }
+              source: { type: string, description: "none, stored, environment, shadowed or unreadable" }
+              unreadable: { type: boolean }
+    Selection:
+      type: object
+      additionalProperties: false
+      description: >-
+        The part of an item a Request covers (D027). Empty or omitted is the whole item. An album
+        selects tracks; a series selects whole seasons and single episodes of seasons that are not
+        selected whole. Selections merge by union into the one shared Request and never narrow it.
+      properties:
+        tracks:
+          type: array
+          maxItems: 500
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, title]
+            properties:
+              id: { type: string, maxLength: 64 }
+              position: { type: integer, minimum: 0, maximum: 10000 }
+              title: { type: string, maxLength: 512 }
+        seasons: { type: array, maxItems: 1000, items: { type: integer, minimum: 0, maximum: 999 } }
+        episodes:
+          type: array
+          maxItems: 5000
+          items:
+            type: object
+            additionalProperties: false
+            required: [season, episode]
+            properties:
+              season: { type: integer, minimum: 0, maximum: 999 }
+              episode: { type: integer, minimum: 1, maximum: 100000 }
+    TVDetails:
+      type: object
+      additionalProperties: false
+      description: Whole-series TMDB details persisted in catalog JSON; counts never select seasons or episodes for a Request. Cast uses the same bounded optional enrichment budget as movies.
+      properties:
+        overview: { type: string, maxLength: 10000 }
+        episodeRuntime: { type: integer, minimum: 1, maximum: 1440, description: "Per-episode minutes, not the total series length" }
+        genres: { type: array, maxItems: 20, items: { type: string, maxLength: 80 } }
+        firstAirDate: { type: string, format: date }
+        lastAirDate: { type: string, format: date }
+        seriesStatus: { type: string, enum: [Returning Series, Planned, In Production, Ended, Canceled, Pilot] }
+        seasons: { type: integer, minimum: 1, maximum: 1000 }
+        episodes: { type: integer, minimum: 1, maximum: 100000 }
+        score: { type: number, minimum: 0, maximum: 10 }
+        ratingCount: { type: integer, minimum: 1, maximum: 1000000000 }
+        backdropUrl: { type: string, format: uri }
+        creators: { type: array, maxItems: 10, items: { type: string, maxLength: 256 }, description: "Series creators from TMDB created_by, not episode directors" }
+        cast:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string, maxLength: 256 }
+              character: { type: string, maxLength: 256 }
+              profileUrl: { type: string, format: uri, description: Approved TMDB image origin only }
+        seasonList:
+          type: array
+          maxItems: 50
+          description: The series' seasons, for choosing seasons or episodes to request. Episodes are absent when TMDB's episode lists could not be read.
+          items:
+            type: object
+            additionalProperties: false
+            required: [number]
+            properties:
+              number: { type: integer, minimum: 0, maximum: 999, description: Season 0 is Specials }
+              name: { type: string, maxLength: 256 }
+              episodeCount: { type: integer, minimum: 1 }
+              airDate: { type: string, format: date }
+              episodes:
+                type: array
+                maxItems: 500
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [number]
+                  properties:
+                    number: { type: integer, minimum: 1 }
+                    name: { type: string, maxLength: 256 }
+                    airDate: { type: string, format: date }
+        detailsUnavailable: { type: boolean }
+    MoviePreviewState:
+      type: object
+      additionalProperties: false
+      required: [availability, canRequest, canSubscribe, canExtend]
+      properties:
+        availability: { type: string, enum: [unknown, available, missing] }
+        canRequest: { type: boolean, description: Role permits creation and no shared Request or known availability exists; writes remain authoritative }
+        canSubscribe: { type: boolean, description: Shared Request is open and the current user is not subscribed }
+        canExtend: { type: boolean, description: Role permits creation and the open shared Request covers only part of the item, so more of it can be added }
+        request:
+          type: object
+          required: [id, status, subscribed]
+          properties:
+            id: { type: string, format: uuid }
+            status: { type: string, enum: [requested, approved, available, denied, cancelled] }
+            subscribed: { type: boolean }
+            selection: { $ref: '#/components/schemas/Selection' }
+        libraries:
+          type: array
+          maxItems: 10
+          description: The libraries holding the item, each named; a link is included only when it is usable and carries no credential.
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+              url: { type: string, format: uri, description: Present only when the library supplies a usable link without credentials }
+    DevelopmentLogEntry:
+      type: object
+      additionalProperties: false
+      required: [seq, time, target, stage, outcome, code, durationMs]
+      properties:
+        seq: { type: integer, minimum: 1, description: Process-local monotonically increasing sequence }
+        time: { type: string, format: date-time, description: UTC completion time }
+        target:
+          type: string
+          enum: [general, authentication, tmdb, musicbrainz, igdb, 'library:jellyfin', 'library:plex', 'library:romm', 'library:navidrome', 'library:audiobookshelf', notifications]
+        stage: { type: string, enum: [check, request, oauth, platforms] }
+        outcome: { type: string, enum: [success, failure, skipped] }
+        code:
+          type: string
+          enum: [connected, connection_failed, authentication_failed, environment_required, incomplete_settings, disabled, http_status, network, network_timeout, network_dns, content_type, response_size, malformed_response]
+          description: Safe classification only. The protected production dial path may collapse network failures to network.
+        httpStatus: { type: integer, minimum: 100, maximum: 599, description: Present only when an HTTP response was received }
+        durationMs: { type: integer, minimum: 0 }
+    SetupSettings:
+      type: object
+      additionalProperties: false
+      required: [general, authentication, providers, libraries, notifications, policy]
+      properties:
+        general:
+          type: object
+          additionalProperties: false
+          required: [instanceName, timezone, publicUrl]
+          properties:
+            instanceName: { type: string, maxLength: 120 }
+            timezone: { type: string, maxLength: 128, description: "Empty while drafting or a valid IANA timezone" }
+            publicUrl: { type: string, maxLength: 2048, description: "Empty while drafting or HTTPS URL without credentials/query/fragment; HTTP allowed only in development" }
+        authentication:
+          type: object
+          additionalProperties: false
+          required: [issuer, clientId, clientSecretEnv]
+          properties:
+            issuer: { type: string, maxLength: 2048, description: "OIDC discovery issuer; same URL safety rules as publicUrl" }
+            clientId: { type: string, maxLength: 256 }
+            clientSecretEnv: { type: string, enum: [REQUESTARR_OIDC_CLIENT_SECRET] }
+        providers:
+          type: object
+          additionalProperties: false
+          required: [tmdbEnabled, tmdbTokenEnv, musicBrainzEnabled, musicBrainzContact, igdbEnabled, igdbClientId, igdbClientSecretEnv]
+          properties:
+            tmdbEnabled: { type: boolean }
+            tmdbTokenEnv: { type: string, enum: [REQUESTARR_TMDB_READ_TOKEN] }
+            musicBrainzEnabled: { type: boolean }
+            musicBrainzContact: { type: string, maxLength: 254, description: "Empty while drafting or a contact email for the explicit check user-agent" }
+            igdbEnabled: { type: boolean }
+            igdbClientId: { type: string, maxLength: 256 }
+            igdbClientSecretEnv: { type: string, enum: [REQUESTARR_IGDB_CLIENT_SECRET] }
+        libraries:
+          type: object
+          additionalProperties: false
+          required: [jellyfin, plex, romm, navidrome, audiobookshelf]
+          properties:
+            jellyfin: { $ref: '#/components/schemas/SetupSource' }
+            plex: { $ref: '#/components/schemas/SetupSource' }
+            romm: { $ref: '#/components/schemas/SetupSource' }
+            audiobookshelf: { $ref: '#/components/schemas/SetupSource' }
+            navidrome: { $ref: '#/components/schemas/SetupSource' }
+        notifications:
+          type: object
+          additionalProperties: false
+          required: [appriseEnabled, appriseUrl, appriseConfigKeyEnv]
+          properties:
+            appriseEnabled: { type: boolean }
+            appriseUrl: { type: string, maxLength: 2048, description: "Empty while drafting or an Apprise API URL; must equal REQUESTARR_APPRISE_URL for the check to pass" }
+            appriseConfigKeyEnv: { type: string, enum: [REQUESTARR_APPRISE_CONFIG_KEY] }
+        policy:
+          type: object
+          additionalProperties: false
+          required: [autoApproveMediaTypes]
+          properties:
+            autoApproveMediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game, audiobook] }, description: "Media types that skip administrator approval; empty means all requests await approval" }
+    SecretStatus:
+      type: object
+      required: [name, label, envVar, configured, source, unreadable, pendingRestart]
+      properties:
+        name: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token, audiobookshelf_api_key] }
+        label: { type: string }
+        envVar: { type: string, description: "Environment variable that sets this secret; it always wins over a stored value" }
+        configured: { type: boolean, description: "An effective value exists. False for an unreadable stored secret, which is not the same as unconfigured" }
+        source: { type: string, enum: [none, environment, stored, "stored (shadowed by environment)", "stored secret unreadable"] }
+        unreadable: { type: boolean, description: "A stored row exists but cannot be opened with the current master key" }
+        pendingRestart: { type: boolean, description: "The value a restart would use differs from the one in effect now" }
+    SetupSource:
+      type: object
+      additionalProperties: false
+      required: [enabled, url, mediaTypes, tokenEnv, username, passwordEnv]
+      properties:
+        enabled: { type: boolean }
+        url: { type: string, maxLength: 2048, description: "Empty while drafting or an absolute origin" }
+        mediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game, audiobook] } }
+        tokenEnv: { type: string, enum: ["", REQUESTARR_JELLYFIN_API_KEY, REQUESTARR_PLEX_TOKEN, REQUESTARR_ROMM_TOKEN, REQUESTARR_AUDIOBOOKSHELF_API_KEY] }
+        username: { type: string, maxLength: 256, description: "Navidrome account name, an ordinary non-secret draft field; must be empty for other Sources. Drafts saved with the retired usernameEnv still load, and an empty value takes the environment-configured username" }
+        passwordEnv: { type: string, enum: ["", REQUESTARR_NAVIDROME_PASSWORD] }
+    SetupDraft:
+      type: object
+      required: [revision, currentStep, settings, validations, updatedAt, inactive, environment, blockers, completedAt]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        currentStep: { type: string, enum: [general, authentication, providers, libraries, notifications, policy, review] }
+        settings: { $ref: '#/components/schemas/SetupSettings' }
+        updatedAt: { type: string, format: date-time }
+        inactive: { type: boolean, const: true }
+        completedAt: { type: [string, 'null'], format: date-time, description: "Set once an administrator finished setup" }
+        blockers:
+          type: array
+          description: Required checks that are missing, failed or expired for this revision; Finish needs this empty
+          items:
+            type: object
+            required: [target, reason]
+            properties:
+              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, library:audiobookshelf, notifications] }
+              reason: { type: string, enum: [not_checked, failed, expired] }
+        validations:
+          type: array
+          items:
+            type: object
+            required: [target, revision, valid, code, message, checkedAt, expiresAt]
+            properties:
+              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, library:audiobookshelf, notifications] }
+              revision: { type: integer }
+              valid: { type: boolean }
+              code: { type: string, enum: [connected, connection_failed, authentication_failed, environment_required, incomplete_settings, disabled] }
+              message: { type: string, description: "Fixed safe result; never raw upstream errors or payloads. A TMDB check names the secret source it used (D024) and runs against the value the next restart would use" }
+              checkedAt: { type: string, format: date-time }
+              expiresAt: { type: string, format: date-time }
+        environment:
+          type: array
+          items:
+            type: object
+            required: [name, secret, configured, needsRestart]
+            properties:
+              name: { type: string }
+              secret: { type: boolean }
+              configured: { type: boolean, description: "Presence only, not proof credentials work" }
+              needsRestart: { type: boolean }
+              desiredValue: { type: string, description: "Non-secret values only; absent for every secret reference" }
+    MatchSuggestion:
+      type: object
+      required: [id, catalogItemId, catalogTitle, catalogYear, inventoryTitle, inventoryYear, mediaType, platformKey, sourceName, sourceItemId, confidence, reason, observedAt]
+      properties:
+        id: { type: string, format: uuid }
+        catalogItemId: { type: string, format: uuid }
+        catalogTitle: { type: string }
+        catalogYear: { type: integer, description: Zero when unknown }
+        inventoryTitle: { type: string }
+        inventoryYear: { type: integer, description: Zero when unknown }
+        mediaType: { type: string, enum: [movie, tv, album, song, game, audiobook] }
+        platformKey: { type: string, description: Observed platform key; empty when not applicable or unknown }
+        sourceName: { type: string }
+        sourceItemId: { type: string }
+        confidence: { type: string, enum: [title_year, title_only] }
+        reason: { type: string }
+        observedAt: { type: string, format: date-time }
+    JobRun:
+      type: object
+      required: [id, sourceId, trigger, status, startedAt, finishedAt]
+      properties:
+        id: { type: string, format: uuid }
+        sourceId: { type: string, format: uuid }
+        trigger: { type: string, enum: [schedule, manual] }
+        status: { type: string, enum: [running, succeeded, failed] }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        error: { type: string, description: Present on failed runs; fixed admin-safe text }
+    Error:
+      type: object
+      description: >-
+        The single error shape for every 4xx/5xx response under /api/v1, including
+        unknown paths (404) and wrong methods (405). Responses also carry the
+        X-Request-Id header, equal to error.requestId. Branch on code, never message.
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code: { type: string, description: Stable machine-readable identifier, example: authentication_required }
+            message: { type: string, description: Human-readable summary; not for programmatic use }
+            requestId: { type: string, description: Same value as the X-Request-Id response header }
+    Notification:
+      type: object
+      additionalProperties: false
+      required: [id, title, body, createdAt, readAt]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        readAt: { type: [string, 'null'], format: date-time }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"github.com/evilperson1337/requestarr/internal/issues"
+	"github.com/evilperson1337/requestarr/internal/sources"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -58,6 +60,13 @@ func mutationCases() []mutationCase {
 		{"finish setup", "POST /admin/setup/finish", "/admin/setup/finish", `{"expectedRevision":1}`, "admin", 200, "setup.finish"},
 		{"set stored secret", "PUT /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", `{"value":"matrix-secret-value"}`, "admin", 204, "secret.set"},
 		{"clear stored secret", "DELETE /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", "", "admin", 204, "secret.clear"},
+		{"save library connection", "PUT /admin/library-connections/{slug}", "/admin/library-connections/plex", `{"url":"https://plex.example.test"}`, "admin", 200, "connection.save"},
+		{"remove library connection", "DELETE /admin/library-connections/{slug}", "/admin/library-connections/plex", "", "admin", 200, "connection.remove"},
+		{"test library connection", "POST /admin/library-connections/{slug}/test", "/admin/library-connections/plex/test", "", "admin", 200, "connection.test"},
+		{"report an issue", "POST /issues", "/issues", `{"libraryItemId":"` + matrixItemID + `","kind":"video"}`, "authenticated", 201, "issue.report"},
+		{"comment on an issue", "POST /issues/{id}/comments", "/issues/" + matrixItemID + "/comments", `{"text":"still broken"}`, "authenticated", 204, "issue.comment"},
+		{"resolve an issue", "POST /issues/{id}/status", "/issues/" + matrixItemID + "/status", `{"status":"resolved","comment":"fixed"}`, "admin", 200, "issue.status"},
+		{"leave an issue", "DELETE /issues/{id}/reporter", "/issues/" + matrixItemID + "/reporter", "", "authenticated", 204, "issue.leave"},
 		{"validate library", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"library:plex"}`, "admin", 200, "setup.validate"},
 	}
 }
@@ -100,6 +109,10 @@ func (b *matrixBackend) CreateOrGet(_ context.Context, request domain.Request, s
 	}
 	request.ID = matrixItemID
 	return request, true, nil
+}
+
+func (b *matrixBackend) MergeSelection(context.Context, string, string, domain.Selection) (domain.Request, bool, error) {
+	return domain.Request{}, false, nil
 }
 
 func (b *matrixBackend) ResolveAndUpsert(context.Context, string) (domain.ResolvedItem, error) {
@@ -203,6 +216,20 @@ func (b *matrixBackend) Clear(_ context.Context, actor string, _ secrets.Name) e
 	return nil
 }
 
+func (b *matrixBackend) ListConnections(context.Context) ([]Connection, error) { return nil, nil }
+func (b *matrixBackend) SaveConnection(_ context.Context, actor string, c sources.Connection) (Connection, error) {
+	b.record("connection.save", actor)
+	return Connection{Slug: c.Slug}, nil
+}
+func (b *matrixBackend) RemoveConnection(_ context.Context, slug string) (Connection, error) {
+	b.record("connection.remove", matrixUserID)
+	return Connection{Slug: slug}, nil
+}
+func (b *matrixBackend) TestConnection(context.Context, string) (ConnectionTest, error) {
+	b.record("connection.test", matrixUserID)
+	return ConnectionTest{OK: true, Code: "connected"}, nil
+}
+
 func matrixRequest(backend *matrixBackend, tc mutationCase, role, csrf, origin string) *httptest.ResponseRecorder {
 	repo := matrixAuthRepo{csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: role, Issuer: "https://issuer.example", Subject: "subject-1"}}}, backend}
 	h := NewWithSetup(testLogger(), buildinfo.Info{}, backend, backend, backend, backend, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
@@ -301,3 +328,27 @@ func TestBootstrapClaimRequiresIdentityAndTokenNotExistingAdminRole(t *testing.T
 		}
 	}
 }
+
+func (b *matrixBackend) ReportIssue(_ context.Context, in issues.ReportInput) (issues.ReportResult, error) {
+	b.record("issue.report", in.Actor.ID)
+	return issues.ReportResult{Issue: domain.Issue{ID: matrixItemID, Status: domain.IssueOpen}}, nil
+}
+func (b *matrixBackend) ListIssues(context.Context, issues.Actor, domain.IssueQuery) (domain.IssuePage, error) {
+	return domain.IssuePage{}, nil
+}
+func (b *matrixBackend) IssueDetail(context.Context, issues.Actor, string) (domain.IssueDetail, error) {
+	return domain.IssueDetail{}, nil
+}
+func (b *matrixBackend) CommentOnIssue(_ context.Context, actor issues.Actor, _, _ string) error {
+	b.record("issue.comment", actor.ID)
+	return nil
+}
+func (b *matrixBackend) TransitionIssue(_ context.Context, actor issues.Actor, _ string, to domain.IssueStatus, _ string) (domain.Issue, error) {
+	b.record("issue.status", actor.ID)
+	return domain.Issue{ID: matrixItemID, Status: to}, nil
+}
+func (b *matrixBackend) LeaveIssue(_ context.Context, actor issues.Actor, _ string) error {
+	b.record("issue.leave", actor.ID)
+	return nil
+}
+func (b *matrixBackend) OpenIssueCount(context.Context, issues.Actor) (int, error) { return 0, nil }

@@ -14,7 +14,11 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
+
+// SourceID is the stable ID of the single configured Jellyfin source (V1 allows one per kind).
+const SourceID = sources.JellyfinID
 
 const (
 	userAgent = "Requestarr/1.0 (+https://github.com/example/requestarr)"
@@ -139,7 +143,7 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 			if tmdb != "" {
 				ids["tmdb"] = tmdb
 			}
-			all = append(all, inventory.Item{SourceID: c.sourceID, SourceItemID: raw.ID, MediaType: media, Title: raw.Name, Year: raw.Year, ExternalIDs: ids, LastSeenAt: time.Now().UTC()})
+			all = append(all, inventory.Item{SourceID: c.sourceID, SourceItemID: raw.ID, MediaType: media, Title: raw.Name, Year: raw.Year, ExternalIDs: ids, LastSeenAt: time.Now().UTC(), ExternalURL: c.baseURL + "/web/index.html#!/details?id=" + url.QueryEscape(raw.ID)})
 		}
 		if offset+len(result.Items) == total {
 			return inventory.Snapshot{SourceID: c.sourceID, Items: all, Complete: true, ObservedAt: time.Now().UTC()}, nil

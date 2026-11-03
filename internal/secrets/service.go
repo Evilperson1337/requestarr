@@ -162,6 +162,27 @@ func (s *Service) Boot(ctx context.Context) (map[Name]string, error) {
 	return values, nil
 }
 
+// Applied records that the running process now uses the current value of each
+// named secret, so it is no longer reported as "saved, pending restart". It is
+// for integrations that reload themselves when their secret changes.
+func (s *Service) Applied(ctx context.Context, names ...Name) error {
+	rows, err := s.rows(ctx)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.boot == nil {
+		return nil
+	}
+	for _, name := range names {
+		if _, ok := Lookup(name); ok {
+			s.boot[name] = s.resolve(name, rows[name]).fingerprint
+		}
+	}
+	return nil
+}
+
 // Status lists every registered secret's source and presence, and whether any
 // secret changes will only apply after a restart.
 func (s *Service) Status(ctx context.Context) ([]Status, bool, error) {
@@ -222,4 +243,19 @@ func (s *Service) Clear(ctx context.Context, actorID string, name Name) error {
 		return ErrUnknownSecret
 	}
 	return s.repo.DeleteStoredSecret(ctx, actorID, name)
+}
+
+// Static resolves from fixed environment values only, with no stored rows. It
+// stands in for a Service where no database is wired (tests, tools).
+type Static map[Name]string
+
+// Resolve returns the fixed value, as an environment value when present.
+func (s Static) Resolve(_ context.Context, name Name) (Resolved, error) {
+	if _, ok := Lookup(name); !ok {
+		return Resolved{}, ErrUnknownSecret
+	}
+	if value := s[name]; value != "" {
+		return Resolved{Value: value, Source: SourceEnvironment}, nil
+	}
+	return Resolved{Source: SourceNone}, nil
 }

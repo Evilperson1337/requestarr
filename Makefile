@@ -5,7 +5,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: help fmt test test-integration check-login check-container vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down migrate-up snapshot release-check references
+.PHONY: hooks help fmt test test-integration check-login check-container vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down stack-up stack-up-dev stack-start stack-down stack-logs stack-admin-token migrate-up snapshot release-check references
 
 # Load .env into the recipe's environment when present, without requiring it
 # to be sourced into the caller's shell first.
@@ -29,6 +29,11 @@ help:
 	  'make web-test       Run focused browser tests (Chromium required)' \
 	  'make dev-up         Start dev dependencies with Docker Compose' \
 	  'make dev-down       Stop dev dependencies' \
+	  'make stack-up       Build/run the test stack and print first-admin setup details' \
+	  'make stack-up-dev   Same stack, with development-only connection diagnostics in Setup/Settings' \
+	  'make stack-down     Stop the test stack (STACK_PURGE=1 also deletes its data)' \
+	  'make stack-logs     Follow the test stack logs' \
+	  'make stack-admin-token  Print the issuer, subject and one-time token for the first-admin claim (ROTATE=1 replaces an expired token)' \
 	  'make snapshot       Build GoReleaser snapshot' \
 	  'make release-check  Validate GoReleaser config' \
 	  'make references     Fetch reference source trees'
@@ -51,6 +56,12 @@ test-integration:
 	@set -e; \
 	if [ -z "$$REQUESTARR_TEST_DATABASE_URL" ]; then \
 	  export REQUESTARR_OIDC_ISSUER=unused REQUESTARR_OIDC_CLIENT_ID=unused REQUESTARR_OIDC_CLIENT_SECRET=unused REQUESTARR_SESSION_HMAC_SECRET=unused; \
+	  mapped="$$(docker compose -f compose.dev.yaml port postgres 5432 2>/dev/null || true)"; \
+	  if [ "$${mapped##*:}" != "$(REQUESTARR_POSTGRES_PORT)" ] && (exec 3<>/dev/tcp/127.0.0.1/$(REQUESTARR_POSTGRES_PORT)) 2>/dev/null; then \
+	    echo "Port $(REQUESTARR_POSTGRES_PORT) is taken by something other than the dev compose Postgres." >&2; \
+	    echo "Rerun with a free port, e.g. REQUESTARR_POSTGRES_PORT=55432 make test-integration" >&2; \
+	    exit 1; \
+	  fi; \
 	  docker compose -f compose.dev.yaml up -d --wait postgres; \
 	  docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -tc "select 1 from pg_database where datname='requestarr_test'" | grep -q 1 \
 	    || docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -c 'create database requestarr_test'; \
@@ -103,6 +114,33 @@ dev-up:
 dev-down:
 	docker compose -f compose.dev.yaml down
 
+stack-up: override STACK_DEV_LOGS := false
+stack-up-dev: override STACK_DEV_LOGS := true
+stack-up stack-up-dev: stack-start
+
+# Export explicit Make overrides, but leave an unset variable absent so Compose
+# can still read REQUESTARR_STACK_HTTP_PORT from .env.
+ifneq ($(origin REQUESTARR_STACK_HTTP_PORT),undefined)
+export REQUESTARR_STACK_HTTP_PORT
+endif
+
+stack-start:
+	@scripts/stack-secrets-key.sh
+	REQUESTARR_DEV_LOGS=$(or $(STACK_DEV_LOGS),false) docker compose -f compose.test.yaml up -d --build --wait
+	@url="$$(bash scripts/stack-http-url.sh)" && printf '\n%s\n' \
+	  "Requestarr:  $$url  (sign in as requestarr-admin / requestarr-admin)" \
+	  'Keycloak:    http://localhost:8081  (admin / admin)'
+	@REQUESTARR_DEV_LOGS=$(or $(STACK_DEV_LOGS),false) scripts/stack-admin-token.sh --startup
+
+stack-down:
+	docker compose -f compose.test.yaml down $(if $(STACK_PURGE),-v)
+
+stack-logs:
+	docker compose -f compose.test.yaml logs -f
+
+stack-admin-token:
+	@scripts/stack-admin-token.sh
+
 snapshot:
 	goreleaser release --snapshot --clean
 
@@ -111,3 +149,7 @@ release-check:
 
 references:
 	./scripts/fetch-references.sh
+
+# Install the repository's git hooks (.githooks/pre-commit) for this clone.
+hooks:
+	git config core.hooksPath .githooks

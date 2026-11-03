@@ -1,0 +1,67 @@
+# Self-contained stack for trying the built image locally: Postgres, the dev
+# Keycloak realm and Requestarr itself. Run it with `make stack-up`.
+#
+# Requestarr uses host networking so the OIDC issuer is the same URL
+# (http://localhost:8081/realms/requestarr) for the browser and the server.
+# Requestarr defaults to host port 18080 (REQUESTARR_STACK_HTTP_PORT). Keycloak
+# shares port 8081 with compose.dev.yaml, so stop that stack first. Postgres is
+# published on 15432 (REQUESTARR_STACK_POSTGRES_PORT). Credentials are dev-only.
+name: requestarr-stack
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: requestarr
+      POSTGRES_USER: requestarr
+      POSTGRES_PASSWORD: requestarr
+    ports:
+      - "${REQUESTARR_STACK_POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - requestarr-stack-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U requestarr -d requestarr" ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    command: [ "start-dev", "--import-realm" ]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./.devcontainer/keycloak/requestarr-realm.json:/opt/keycloak/data/import/requestarr-realm.json:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /realms/requestarr/.well-known/openid-configuration HTTP/1.0\\r\\nHost: localhost:8081\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q 200" ]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+
+  requestarr:
+    build:
+      context: .
+    network_mode: host
+    environment:
+      REQUESTARR_ENV: development
+      REQUESTARR_DEV_LOGS: ${REQUESTARR_DEV_LOGS:-false}
+      REQUESTARR_HTTP_ADDR: 0.0.0.0:${REQUESTARR_STACK_HTTP_PORT:-18080}
+      REQUESTARR_PUBLIC_URL: http://localhost:${REQUESTARR_STACK_HTTP_PORT:-18080}
+      REQUESTARR_DATABASE_URL: postgres://requestarr:requestarr@localhost:${REQUESTARR_STACK_POSTGRES_PORT:-15432}/requestarr?sslmode=disable
+      REQUESTARR_OIDC_ISSUER: http://localhost:8081/realms/requestarr
+      REQUESTARR_OIDC_CLIENT_ID: requestarr
+      REQUESTARR_OIDC_CLIENT_SECRET: requestarr-dev-secret
+      REQUESTARR_SESSION_HMAC_SECRET: stack-session-secret-0123456789abcdef0123
+      REQUESTARR_SECRETS_KEY: ${REQUESTARR_SECRETS_KEY:?run make stack-up to create a local development key}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+volumes:
+  requestarr-stack-postgres:

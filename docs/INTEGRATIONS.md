@@ -5,6 +5,27 @@
 ### TMDB
 Movie and TV identity/metadata. V1 accepts canonical TMDB movie/TV URLs and extracts provider IDs. Prefer bearer API read token configuration.
 
+### Audible (audiobooks, D031)
+An audiobook is requested by its ASIN, given bare or as an Audible product link
+(`audible.<tld>/pd/[slug/]<ASIN>`; Amazon links are not accepted). Details (title,
+authors, narrators, cover, abridged or not, series, length) come from **Audnexus**
+(`api.audnex.us`) first and Audible's catalog endpoint second. **Neither is a
+documented, contractual API**: Audnexus is a free community service that points new
+projects to AudiobookDB, and Audible's endpoint is undocumented, so either can
+change or disappear and neither publishes terms. Because of that the ASIN is the
+identity and the details are best-effort display data: if both fail the request is
+accepted under the placeholder title `Audiobook <ASIN>` and fills in when a later
+lookup succeeds; a placeholder never replaces details already stored. One lookup is
+made per new request, never when a page renders, and answers are cached.
+
+ASINs belong to a marketplace. A bare ASIN is looked up in the marketplace named by
+`REQUESTARR_AUDIBLE_REGION` (`us` when unset; `us ca uk au fr de jp it in es`); an
+Audible link's own domain overrides it. If neither marketplace knows the ASIN the
+requester is asked to paste the link for the right one. The region is shown but is
+never part of the match key, and two ASINs for the same book are two Requests.
+AudiobookDB is not used in v1: its free tier requires attribution and forbids
+long-term caching of results. See `docs/research/AUDIOBOOK_INTEGRATION.md`.
+
 ### IGDB
 Game identity, cover metadata, and supported platforms. Authentication uses Twitch/IGDB credentials. Platform lists in the request modal come from the resolved game payload and are normalized to stable Requestarr platform keys.
 
@@ -72,9 +93,10 @@ availability. Absence is tracked per Source: an item stays available until
 every enabled Source covering its media type has completed a sync without it
 (D015), so Jellyfin dropping an item never hides it while Plex still has it. Availability
 events and notifications are committed atomically with the transition, and
-request lifecycle status is never changed. The administrator-only `GET /api/v1/admin/sources/jellyfin/status`
-endpoint reports source configuration/enabled state, sync timestamps, and a
-bounded safe error message. It excludes the server URL, API key, and inventory
+request lifecycle status is never changed. The administrator-only `GET /api/v1/admin/status`
+endpoint reports, for every Source, whether it is configured, its latest run,
+the time of its last successful snapshot and a bounded safe error message. It
+excludes the server URL, API key, and inventory
 contents. Request list items expose catalog availability separately from request
 lifecycle and include the latest positive evidence observation time. Jellyfin
 outages do not cause availability to be marked missing.
@@ -126,6 +148,33 @@ visible in the docs available when this was built, so decoding is strict and a
 mismatch fails the sync visibly. Check your RomM version's `/api/docs` if a sync
 reports an invalid response. The fixtures are hand-written to that shape, not
 captured from a live server.
+
+### Audiobookshelf
+Authoritative for audiobooks only (D031). Set `REQUESTARR_AUDIOBOOKSHELF_URL` (a
+server origin, no path) and `REQUESTARR_AUDIOBOOKSHELF_API_KEY`, or save the key
+in Settings (same URL rules and trust caveat as the other Sources). API keys need
+Audiobookshelf **2.26.0 or later**; older servers are not supported.
+
+Create a dedicated Audiobookshelf user with access to the book libraries only and
+`update`, `delete` and `upload` off (a standard `user` account has them off by
+default; Audiobookshelf has no stricter read-only type), then create an API key
+for it. The key is sent as `Authorization: Bearer` and never in a URL. Requestarr
+only issues `GET` requests: it lists libraries, then each **book** library's items
+(`minified`, paged), and never triggers a scan, match or edit. The connection
+check passes only when the key can see at least one book library.
+
+An item is an audiobook when it has at least one audio track (`numTracks > 0`);
+ebook-only items and items Audiobookshelf marks missing or invalid are not
+availability. An item is matched to an audiobook Request by its ASIN
+(`media.metadata.asin`); items with no ASIN are listed but can only be matched
+through the suggested-matches review. Run Audiobookshelf's own Match to fill ASINs.
+A server with no readable book library fails the sync rather than reading as an
+empty collection.
+
+The response fields come from Audiobookshelf's server code (its in-repo OpenAPI
+spec is out of date), and the fixtures are hand-written to that shape, not
+captured from a live server. BookOrbit is not supported: it has no machine API
+token (`docs/research/AUDIOBOOK_INTEGRATION.md`).
 
 ## Apprise API
 

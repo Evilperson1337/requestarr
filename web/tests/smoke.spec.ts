@@ -23,24 +23,46 @@ test('home resolves a link, previews it in a labelled dialog, and creates a requ
     const calls: { path: string; body: any }[] = []
     await mockApp(page, (path, method, body) => {
         if (path === '/resolve') return resolved('movie')
-        if (path === '/requests' && method === 'POST') { calls.push({ path, body }); return {} }
+        if (path === '/requests' && method === 'POST') { calls.push({ path, body }); return { Created: true, Request: { ID: '22222222-2222-4222-8222-222222222222', Status: 'requested' } } }
+        if (path.startsWith('/catalog/')) return { availability: 'unknown', canRequest: false, canSubscribe: false, request: { id: '22222222-2222-4222-8222-222222222222', status: 'requested', subscribed: true } }
         if (path === '/requests') return { items: [], nextCursor: null }
     })
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link…').fill('https://www.themoviedb.org/movie/11')
+    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill('https://www.themoviedb.org/movie/11')
     await page.getByRole('button', { name: 'Preview' }).click()
     const dialog = page.getByRole('dialog', { name: /Outer Wilds/ })
     await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Add a note' }).click()
     await dialog.getByLabel('Note (optional)').fill('Please add')
-    await dialog.getByRole('button', { name: 'Create request' }).click()
-    await expect(page).toHaveURL(/\/requests/)
+    await dialog.getByRole('button', { name: 'Request movie', exact: true }).click()
+    await expect(dialog).toContainText('Movie requested')
+    await expect(page).toHaveURL('http://127.0.0.1:4173/')
     expect(calls).toEqual([{ path: '/requests', body: { catalogId: 'catalog-1', note: 'Please add', platforms: { any: true } } }])
+})
+
+for (const mediaType of ['album', 'song']) test(`${mediaType} previews like the other media types and keeps the note`, async ({ page }) => {
+    const calls: unknown[] = []
+    await mockApp(page, (path, method, body) => {
+        if (path === '/resolve') return resolved(mediaType)
+        if (path === '/requests' && method === 'POST') { calls.push(body); return { Created: true, Request: { ID: 'request-1', Status: 'requested' } } }
+        if (path.includes('/preview')) return { availability: 'unknown', canRequest: false, canSubscribe: false, request: { id: 'request-1', status: 'requested', subscribed: true } }
+        if (path === '/requests') return { items: [], nextCursor: null }
+    })
+    await page.goto('/')
+    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill(`https://musicbrainz.org/${mediaType === 'album' ? 'release-group' : 'recording'}/11111111-1111-4111-8111-111111111111`)
+    await page.getByRole('button', { name: 'Preview', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Add a note' }).click()
+    await dialog.getByLabel('Note (optional)').fill('Please add')
+    await dialog.getByRole('button', { name: 'Create request', exact: true }).click()
+    await expect(dialog).toContainText(`${mediaType === 'album' ? 'Album' : 'Song'} requested`)
+    expect(calls).toEqual([{ catalogId: 'catalog-1', note: 'Please add', platforms: { any: true } }])
 })
 
 test('game request modal enforces Any-or-explicit platforms and can be cancelled', async ({ page }) => {
     await mockApp(page, path => path === '/resolve' ? resolved('game') : undefined)
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link…').fill('https://www.igdb.com/games/outer-wilds')
+    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill('https://www.igdb.com/games/outer-wilds')
     await page.getByRole('button', { name: 'Preview' }).click()
     const dialog = page.getByRole('dialog')
     await dialog.getByLabel('PC').check()
@@ -49,7 +71,7 @@ test('game request modal enforces Any-or-explicit platforms and can be cancelled
     await expect(dialog.getByRole('button', { name: 'Create request' })).toBeDisabled()
     await dialog.getByLabel('Any platform').check()
     await expect(dialog.getByRole('button', { name: 'Create request' })).toBeEnabled()
-    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await dialog.getByRole('button', { name: 'Close preview' }).click()
     await expect(dialog).toHaveCount(0)
 })
 
@@ -57,7 +79,7 @@ test('resolve failure is announced without opening the dialog', async ({ page })
     await mockApp(page, () => undefined)
     await page.route('**/api/v1/resolve', route => route.fulfill({ status: 422, json: { error: { code: 'unsupported', message: 'That link is not supported.' } } }))
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link…').fill('https://example.test/x')
+    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill('https://example.test/x')
     await page.getByRole('button', { name: 'Preview' }).click()
     await expect(page.getByRole('alert')).toContainText('not supported')
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -65,10 +87,12 @@ test('resolve failure is announced without opening the dialog', async ({ page })
 
 test('notifications list unread items and mark one read with CSRF', async ({ page }) => {
     const reads: (string | undefined)[] = []
-    await mockApp(page, path => path === '/notifications' ? { items: [
-        { id: 'n1', title: 'Arrival is available', body: 'Now in Jellyfin', createdAt: '2026-10-01T12:00:00Z' },
-        { id: 'n2', title: 'Old news', body: 'Seen', createdAt: '2026-09-01T12:00:00Z', readAt: '2026-09-02T00:00:00Z' },
-    ] } : undefined)
+    await mockApp(page, path => path === '/notifications' ? {
+        items: [
+            { id: 'n1', title: 'Arrival is available', body: 'Now in Jellyfin', createdAt: '2026-10-01T12:00:00Z' },
+            { id: 'n2', title: 'Old news', body: 'Seen', createdAt: '2026-09-01T12:00:00Z', readAt: '2026-09-02T00:00:00Z' },
+        ]
+    } : undefined)
     await page.route('**/api/v1/notifications/*/read', route => {
         reads.push(route.request().headers()['x-csrf-token'])
         return route.fulfill({ status: 204 })

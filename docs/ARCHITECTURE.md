@@ -6,15 +6,30 @@ Requestarr should begin as a modular monolith. A single Go process exposes the H
 
 ## Modules
 
-- **auth** — OIDC discovery/login/callback/session/role mapping.
-- **metadata** — provider URL recognition and normalization.
-- **catalog** — cached canonical item records.
-- **requests** — request lifecycle and subscriptions.
-- **inventory** — normalized library snapshots.
-- **notifications** — event fan-out to in-app + Apprise.
-- **jobs** — persistent background task coordination.
-- **setup** — first-run draft/validation/finalization.
-- **web/API** — transport only; no domain policy buried in handlers.
+Packages under `internal/`:
+
+- `auth/oidc` — OIDC discovery/login/callback/session/role mapping.
+- `providers/metadata` (+ `tmdb`, `musicbrainz`, `igdb`) — turns a pasted URL into a canonical catalog item. Answers "what is this?".
+- `sources` — the registry of Source kinds (slug, ID, media types, credential fields); plain data, imports only `domain`.
+- `secrets` — stored integration secrets (D024): registry, sealing, resolver. `opstatus` — the operational status overview.
+- `domain` — core types (`Request`, `RequestStatus`, `PlatformSelection`, catalog/media types) and pure business rules (e.g. `ValidatePlatformSelection`). Keep this free of HTTP/DB/provider imports.
+- `store` — repository interfaces close to domain use-cases, not a generic ORM; PostgreSQL is the only V1 target; SQL is explicit. `store/snapshottest` is the snapshot-persistence contract both the store and an in-memory adapter run.
+- `inventory` (+ `plex`, `jellyfin`, `navidrome`, `romm`; all four are implemented; every adapter implements `inventory.Source` and runs the `inventorytest` contract suite) — normalized snapshots of what each authoritative library actually has. Answers "do we have it?".
+- `notifications` (+ `apprise`) — fans out domain events to in-app notifications and the Apprise API.
+- `jobs` — the D018 run recorder and no-overlap guard: `Runner` records each run (start, finish, outcome, safe error) in `job_runs`, a per-Source lease in PostgreSQL stops overlap across restarts, and `Schedule` retries failures on the next tick. Every Source's sync runs through it (`internal/app`), on the schedule and via the admin "Sync now" action (`POST /admin/sources/{source}/sync`), which share one guard.
+- `setup` — first-run wizard draft/validation/finalization state.
+- `httpapi` — transport only; no domain policy should live in handlers. `NewRouter(Deps)` takes every dependency explicitly; `access.go` is the route table holding each route's access and CSRF policy; `api/openapi.yaml` is the contract, and a test keeps the two in step.
+- `app` — startup: `resolveBoot` (saved IGDB ID, secrets, validation), `Build` (derives the runtime from the resolved config), and `Run` (starts the server and jobs).
+- `devlogs` — the development-only connection-check recorder.
+
+Data flow for the core loop:
+
+```
+metadata provider URL -> resolver -> canonical catalog item -> request
+request + subscriptions live in Postgres
+library sync -> normalized inventory -> InventoryChanged event -> targeted reconciliation
+      -> status transition to `available` -> RequestAvailable event -> notifications (in-app + Apprise)
+```
 
 ## Fast-path principle
 

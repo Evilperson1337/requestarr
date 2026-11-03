@@ -35,7 +35,7 @@ func jellyfinServer(t *testing.T, tmdbID string, failing bool) *httptest.Server 
 }
 
 func jellyfinSyncThroughRunner(ctx context.Context, s *Store, runner *jobs.Runner, ts *httptest.Server) (jobs.Run, error) {
-	client, err := jellyfin.NewWithHTTPClient(ts.URL, "token", jellyfinSourceID, ts.Client())
+	client, err := jellyfin.NewWithHTTPClient(ts.URL, "token", jellyfin.SourceID, ts.Client())
 	if err != nil {
 		return jobs.Run{}, err
 	}
@@ -55,7 +55,7 @@ func TestJellyfinSourceContractDrivesAvailabilityAndFailureChangesNothing(t *tes
 	defer cancel()
 	s := openJobStore(t, ctx)
 	t.Cleanup(func() {
-		_, _ = s.pool.Exec(context.Background(), `DELETE FROM job_runs WHERE source_id=$1`, jellyfinSourceID)
+		_, _ = s.pool.Exec(context.Background(), `DELETE FROM job_runs WHERE source_id=$1`, jellyfin.SourceID)
 	})
 	catalogID, requestID, _ := newMovieWithRequest(t, ctx, s, domain.RequestRequested)
 	before := readRequestEvidence(t, ctx, s, catalogID, requestID)

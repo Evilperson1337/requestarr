@@ -105,7 +105,6 @@ func TestSuggestionRoutesReturnSafeActionableErrors(t *testing.T) {
 		status                   int
 	}{
 		{"invalid ID", "POST", "/not-an-id/accept", "invalid_suggestion_id", &suggestionBackend{}, 400},
-		{"unavailable", "GET", "", "match_review_unavailable", fakeReadiness{}, 503},
 		{"missing", "POST", "/" + suggestionID + "/accept", "suggestion_not_found", &suggestionBackend{err: domain.ErrMatchNotFound}, 404},
 		{"reviewed", "POST", "/" + suggestionID + "/dismiss", "suggestion_already_reviewed", &suggestionBackend{err: domain.ErrMatchAlreadyReviewed}, 409},
 		{"stale", "POST", "/" + suggestionID + "/accept", "suggestion_stale", &suggestionBackend{err: domain.ErrMatchStale}, 409},

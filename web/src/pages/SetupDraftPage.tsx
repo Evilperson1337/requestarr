@@ -1,14 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { SecretField } from '../components/SecretField'
 import { SecretsReview } from '../components/SecretsReview'
-import { api, ApiError, type Session, type SetupDraft, type SetupSettings, type SetupStep, type SetupTarget, type SetupSource } from '../api'
-
-// Library credentials that can be stored (D024). Navidrome joins in its own ticket.
-const libraryCredential: Partial<Record<'jellyfin' | 'plex' | 'romm' | 'navidrome', { name: string; label: string }>> = {
-    jellyfin: { name: 'jellyfin_api_key', label: 'Jellyfin API key' },
-    plex: { name: 'plex_token', label: 'Plex token' },
-    romm: { name: 'romm_token', label: 'RomM token' },
-}
+import { DevelopmentLogsPanel } from '../components/DevelopmentLogs'
+import { api, ApiError, type Session, type SetupDraft, type SetupSettings, type SetupStep, type SetupTarget, type SetupSource, type SourceKind } from '../api'
 
 const steps: { key: SetupStep; label: string }[] = [
     { key: 'general', label: 'General' }, { key: 'authentication', label: 'Authentication' },
@@ -26,8 +20,15 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
     const [error, setError] = useState('')
     const [conflict, setConflict] = useState(false)
     const [notice, setNotice] = useState('')
+    const [authorizationLost, setAuthorizationLost] = useState(false)
+    const [kinds, setKinds] = useState<SourceKind[] | null>(null)
+    const [kindsError, setKindsError] = useState('')
     const active = useRef<AbortController | null>(null)
     const heading = useRef<HTMLHeadingElement>(null)
+
+    const checkAuthorization = useCallback((error: unknown) => {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) setAuthorizationLost(true)
+    }, [])
 
     function begin() {
         active.current?.abort()
@@ -45,12 +46,20 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
             const result = await api<SetupDraft>('/admin/setup/draft', { cache: 'no-store', signal: controller.signal })
             if (active.current === controller && !controller.signal.aborted) accept(result)
         } catch (e) {
-            if (!controller.signal.aborted && active.current === controller) setError(e instanceof Error ? e.message : 'Could not load setup draft.')
+            if (!controller.signal.aborted && active.current === controller) {
+                checkAuthorization(e)
+                setError(e instanceof Error ? e.message : 'Could not load setup draft.')
+            }
         } finally {
             if (!controller.signal.aborted && active.current === controller) setBusy(false)
         }
     }
     useEffect(() => { void load(); return () => active.current?.abort() }, [session.user.id, session.csrfToken])
+    useEffect(() => {
+        const controller = new AbortController()
+        api<{ kinds: SourceKind[] }>('/admin/setup/source-kinds', { signal: controller.signal }).then(result => setKinds(result.kinds)).catch(e => { if (!controller.signal.aborted) { checkAuthorization(e); setKindsError('Could not load the Source kinds.') } })
+        return () => controller.abort()
+    }, [session.user.id, session.csrfToken, checkAuthorization])
 
     async function save(step: SetupStep, targets: SetupTarget[] = []) {
         if (!draft || !settings || busy) return
@@ -75,6 +84,7 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
             if (!controller.signal.aborted && active.current === controller) {
                 setConflict(e instanceof ApiError && e.code === 'setup_revision_conflict')
                 setError(e instanceof ApiError ? e.message : 'Could not save draft or complete checks. Your fields are still here; try again.')
+                checkAuthorization(e)
             }
         } finally {
             if (!controller.signal.aborted && active.current === controller) setBusy(false)
@@ -94,6 +104,7 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
             if (!controller.signal.aborted && active.current === controller) {
                 setConflict(e instanceof ApiError && e.code === 'setup_revision_conflict')
                 setError(e instanceof ApiError ? e.message : 'Could not finish setup. Your draft is unchanged; try again.')
+                checkAuthorization(e)
                 void api<SetupDraft>('/admin/setup/draft', { cache: 'no-store' }).then(result => { if (active.current === controller) setDraft(result) }, () => undefined)
             }
         } finally {
@@ -147,8 +158,8 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
     const completed = !!draft?.completedAt
     const editable = !completed && (step === 'general' || step === 'authentication' || step === 'providers' || step === 'libraries' || step === 'notifications' || step === 'policy')
     const blockers = draft?.blockers ?? []
-    return <main className="shell draftWizard"><section className="card">
-        <p className="eyebrow">Administrator · Shared setup draft</p>
+    return <main className="shell draftWizard">{!authorizationLost && <DevelopmentLogsPanel session={session} />}<section className="card">
+        
         <h1>Setup · Inactive draft</h1>
         <p>Saving a draft does not activate or apply configuration. Server environment changes require an operator restart. Setup completes only when you finish the Review step with every required check passing.</p>
         {busy && !draft && <p role="status">Loading saved draft…</p>}
@@ -178,7 +189,7 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                     {step === 'providers' && <>
                         <div className="draftProvider"><h3>TMDb</h3>
                             <label className="draftToggle"><input type="checkbox" checked={settings.providers.tmdbEnabled} onChange={e => provider('tmdbEnabled', e.target.checked)} />Enable TMDb</label>
-                            <SecretField name="tmdb_read_token" label="TMDb read token" csrfToken={session.csrfToken} />
+                            <SecretField name="tmdb_read_token" label="TMDb read token" csrfToken={session.csrfToken} onRequestError={checkAuthorization} />
                             <p>Environment reference: <code>REQUESTARR_TMDB_READ_TOKEN</code></p>
                         </div>
                         <div className="draftProvider"><h3>MusicBrainz</h3>
@@ -188,33 +199,32 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                         </div>
                         <div className="draftProvider"><h3>IGDB</h3>
                             <label className="draftToggle"><input type="checkbox" checked={settings.providers.igdbEnabled} onChange={e => provider('igdbEnabled', e.target.checked)} />Enable IGDB</label>
-                            <label>IGDB client ID<input maxLength={256} value={settings.providers.igdbClientId} onChange={e => provider('igdbClientId', e.target.value)} /></label>
-                            <SecretField name="igdb_client_secret" label="IGDB client secret" csrfToken={session.csrfToken} />
+                            <label>IGDB client ID<input maxLength={256} aria-describedby="igdb-client-id-help" value={settings.providers.igdbClientId} onChange={e => provider('igdbClientId', e.target.value)} /></label>
+                            <p id="igdb-client-id-help">The saved client ID is used by connection checks and applies to game lookups after a restart. A server <code>REQUESTARR_IGDB_CLIENT_ID</code> value overrides it and must match for checks to pass.</p>
+                            <SecretField name="igdb_client_secret" label="IGDB client secret" csrfToken={session.csrfToken} onRequestError={checkAuthorization} />
                             <p>Environment reference: <code>REQUESTARR_IGDB_CLIENT_SECRET</code></p>
                         </div>
                     </>}
                     {step === 'libraries' && <>
                         <p>Choose which media types each Source is authoritative for. Draft settings remain inactive; checks do not sync inventory or change availability.</p>
-                        {(['jellyfin', 'plex', 'romm', 'navidrome'] as const).map(kind => {
-                            const media = kind === 'jellyfin' ? ['movie', 'tv'] : kind === 'plex' ? ['movie', 'tv', 'album', 'song'] : kind === 'romm' ? ['game'] : ['album', 'song']
-                            const item = settings.libraries[kind]
-                            const title = kind === 'romm' ? 'RomM' : kind[0].toUpperCase() + kind.slice(1)
-                            return <div className="draftProvider" key={kind}>
+                        {kinds === null && !kindsError && <p role="status">Loading Source kinds…</p>}
+                        {kindsError && <p role="alert" className="error">{kindsError}</p>}
+                        {kinds?.map(kind => {
+                            const slug = kind.slug as keyof SetupSettings['libraries']
+                            const item = settings.libraries[slug]
+                            const title = kind.name
+                            const username = kind.credentials.find(credential => credential.role === 'username')
+                            return <div className="draftProvider" key={kind.slug}>
                                 <h3>{title}</h3>
-                                <label className="draftToggle"><input type="checkbox" checked={item.enabled} onChange={e => source(kind, { enabled: e.target.checked })} />Enable {title}</label>
-                                <label>{title} URL<input type="url" maxLength={2048} value={item.url} onChange={e => source(kind, { url: e.target.value })} /></label>
-                                <fieldset><legend>Authoritative media types</legend>{media.map(type => <label className="draftToggle" key={type}><input type="checkbox" checked={item.mediaTypes.includes(type as SetupSource['mediaTypes'][number])} onChange={e => source(kind, { mediaTypes: e.target.checked ? [...item.mediaTypes, type as SetupSource['mediaTypes'][number]] : item.mediaTypes.filter(value => value !== type) })} />{type}</label>)}</fieldset>
-                                {kind === 'navidrome'
-                                    ? <>
-                                        <label>Navidrome username<input type="text" maxLength={256} autoComplete="off" value={item.username} onChange={e => source(kind, { username: e.target.value })} /></label>
-                                        <SecretField name="navidrome_password" label="Navidrome password" csrfToken={session.csrfToken} />
-                                        <p>Environment reference: <code>REQUESTARR_NAVIDROME_USERNAME</code> and <code>{item.passwordEnv}</code></p>
-                                    </>
-                                    : <>
-                                        {libraryCredential[kind] && <SecretField name={libraryCredential[kind]!.name} label={libraryCredential[kind]!.label} csrfToken={session.csrfToken} />}
-                                        <p>Server-side credential reference only: <code>{item.tokenEnv}</code>.</p>
-                                    </>}
-                                <button className="button secondary" type="submit" value="check-library" data-target={`library:${kind}`} disabled={!item.enabled}>Check {title} connection</button>
+                                <label className="draftToggle"><input type="checkbox" checked={item.enabled} onChange={e => source(slug, { enabled: e.target.checked })} />Enable {title}</label>
+                                <label>{title} URL<input type="url" maxLength={2048} value={item.url} onChange={e => source(slug, { url: e.target.value })} /></label>
+                                <fieldset><legend>Authoritative media types</legend>{kind.mediaTypes.map(type => <label className="draftToggle" key={type}><input type="checkbox" checked={item.mediaTypes.includes(type)} onChange={e => source(slug, { mediaTypes: e.target.checked ? [...item.mediaTypes, type] : item.mediaTypes.filter(value => value !== type) })} />{type}</label>)}</fieldset>
+                                {username && <label>{title} username<input type="text" maxLength={256} autoComplete="off" value={item.username} onChange={e => source(slug, { username: e.target.value })} /></label>}
+                                {kind.credentials.filter(credential => credential.secret).map(credential => <SecretField key={credential.secret} name={credential.secret!} label={credential.label ?? credential.secret!} csrfToken={session.csrfToken} onRequestError={checkAuthorization} />)}
+                                {username
+                                    ? <p>Environment reference: {kind.credentials.map((credential, index) => <span key={credential.env}>{index > 0 && (index === kind.credentials.length - 1 ? ' and ' : ', ')}<code>{credential.env}</code></span>)}</p>
+                                    : <p>Server-side credential reference only: <code>{item.tokenEnv}</code>.</p>}
+                                <button className="button secondary" type="submit" value="check-library" data-target={`library:${kind.slug}`} disabled={!item.enabled}>Check {title} connection</button>
                             </div>
                         })}
                     </>}
@@ -223,7 +233,7 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                         <div className="draftProvider"><h3>Apprise</h3>
                             <label className="draftToggle"><input type="checkbox" checked={settings.notifications.appriseEnabled} onChange={e => notifications('appriseEnabled', e.target.checked)} />Enable Apprise</label>
                             <label>Apprise API URL<input type="url" maxLength={2048} value={settings.notifications.appriseUrl} onChange={e => notifications('appriseUrl', e.target.value)} /></label>
-                            <SecretField name="apprise_config_key" label="Apprise configuration key" csrfToken={session.csrfToken} />
+                            <SecretField name="apprise_config_key" label="Apprise configuration key" csrfToken={session.csrfToken} onRequestError={checkAuthorization} />
                             <p>Configuration key environment reference: <code>{settings.notifications.appriseConfigKeyEnv}</code>. The URL must match <code>REQUESTARR_APPRISE_URL</code> on the server for the check to pass.</p>
                         </div>
                     </>}
@@ -239,11 +249,12 @@ export function SetupDraftPage({ session, onFinished }: { session: Session; onFi
                             <div><dt>General</dt><dd>{settings.general.instanceName} · {settings.general.timezone} · {settings.general.publicUrl}</dd></div>
                             <div><dt>Authentication</dt><dd>OIDC only · {settings.authentication.issuer} · client {settings.authentication.clientId}</dd></div>
                             <div><dt>Providers</dt><dd>TMDb {settings.providers.tmdbEnabled ? 'on' : 'off'} · MusicBrainz {settings.providers.musicBrainzEnabled ? 'on' : 'off'} · IGDB {settings.providers.igdbEnabled ? 'on' : 'off'}</dd></div>
-                            {(['jellyfin', 'plex', 'romm', 'navidrome'] as const).map(kind => <div key={kind}><dt>{kind}</dt><dd>{settings.libraries[kind].enabled ? `${settings.libraries[kind].url} · ${settings.libraries[kind].mediaTypes.join(', ') || 'no media types'}` : 'Disabled'}</dd></div>)}
+                            {settings.providers.igdbEnabled && <div><dt>IGDB client ID</dt><dd>{settings.providers.igdbClientId || 'Not set'} · Saved ID applies after restart unless overridden by the server environment.</dd></div>}
+                            {(Object.keys(settings.libraries) as (keyof SetupSettings['libraries'])[]).map(kind => <div key={kind}><dt>{kind}</dt><dd>{settings.libraries[kind].enabled ? `${settings.libraries[kind].url} · ${settings.libraries[kind].mediaTypes.join(', ') || 'no media types'}` : 'Disabled'}</dd></div>)}
                             <div><dt>Notifications</dt><dd>In-app · Apprise {settings.notifications.appriseEnabled ? settings.notifications.appriseUrl : 'off'}</dd></div>
                             <div><dt>Request policy</dt><dd>Auto-approve: {settings.policy.autoApproveMediaTypes.join(', ') || 'none (administrator approval for all)'}</dd></div>
                         </dl></section>
-                        <SecretsReview csrfToken={session.csrfToken} />
+                        <SecretsReview csrfToken={session.csrfToken} onRequestError={checkAuthorization} />
                         {blockers.length > 0 ? <div role="alert" className="errorBox"><h3>Cannot finish yet</h3><ul>{blockers.map(item => <li key={item.target}>{item.target}: {blockerReason[item.reason]}</li>)}</ul></div> : <p role="status">All required checks have passed.</p>}
                     </>}
                     {!editable && !completed && step !== 'review' && <p>This step is unavailable. Return to General to continue.</p>}

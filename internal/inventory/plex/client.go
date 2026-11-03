@@ -18,10 +18,11 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/inventory"
+	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
 // SourceID is the stable ID of the single configured Plex source (V1 allows one per kind).
-const SourceID = "8d1b6e34-5a3f-4c0e-9a57-2f0f6a9c1d42"
+const SourceID = sources.PlexID
 
 const (
 	userAgent       = "Requestarr/1.0 (+https://github.com/example/requestarr)"
@@ -65,9 +66,10 @@ type library struct{ key, kind string }
 
 type container struct {
 	MediaContainer struct {
-		TotalSize *int `json:"totalSize"`
-		Offset    *int `json:"offset"`
-		Directory []struct {
+		MachineIdentifier string `json:"machineIdentifier"`
+		TotalSize         *int   `json:"totalSize"`
+		Offset            *int   `json:"offset"`
+		Directory         []struct {
 			Key  string `json:"key"`
 			Type string `json:"type"`
 		} `json:"Directory"`
@@ -75,6 +77,12 @@ type container struct {
 			RatingKey string `json:"ratingKey"`
 			Title     string `json:"title"`
 			Year      int    `json:"year"`
+			AddedAt   int64  `json:"addedAt"`
+			Thumb     string `json:"thumb"`
+			// A track's album and its place in it.
+			ParentRatingKey string `json:"parentRatingKey"`
+			Index           int    `json:"index"`
+			ParentIndex     int    `json:"parentIndex"`
 			// Plex sends both "guid" (a string) and "Guid" (an array). encoding/json
 			// matches names case-insensitively, so without this field the string
 			// would be decoded into the array and fail.
@@ -105,6 +113,8 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 	if len(libs) == 0 {
 		return inventory.Snapshot{}, fmt.Errorf("Plex has no movie, TV or music libraries visible to this token")
 	}
+	// Plex Web opens an item by server id and key, so the server's id is read once. Without it items simply carry no link.
+	machine := c.machineID(ctx)
 	items := []inventory.Item{}
 	for _, lib := range libs {
 		// A music library is read twice: its albums and its tracks are separate
@@ -126,6 +136,9 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 			got, err := c.library(ctx, lib.key, pass.media, pass.plexType)
 			if err != nil {
 				return inventory.Snapshot{}, err
+			}
+			for i := range got {
+				got[i].ExternalURL = c.webLink(machine, got[i].SourceItemID)
 			}
 			items = append(items, got...)
 		}
@@ -156,8 +169,17 @@ func (c *Client) library(ctx context.Context, key string, media domain.MediaType
 		}
 		total = *mc.TotalSize
 		for _, m := range mc.Metadata {
-			if m.RatingKey == "" || len(m.RatingKey) > 256 || len(m.Title) > 512 || m.Title == "" {
+			if m.RatingKey == "" || len(m.RatingKey) > 256 {
 				return nil, fmt.Errorf("invalid Plex library item")
+			}
+			// Real libraries hold untitled items and absurdly long titles. Neither
+			// is a reason to discard a complete listing: an untitled item may still
+			// match by id, and a long title only needs shortening.
+			if m.Title == "" {
+				m.Title = "(untitled)"
+			}
+			if r := []rune(m.Title); len(r) > 512 {
+				m.Title = string(r[:512])
 			}
 			ids := map[string]string{}
 			guids := make([]string, 0, len(m.Guid)+1)
@@ -178,7 +200,23 @@ func (c *Client) library(ctx context.Context, key string, media domain.MediaType
 					ids["mbid"] = strings.ToLower(value)
 				}
 			}
-			items = append(items, inventory.Item{SourceID: SourceID, SourceItemID: m.RatingKey, MediaType: media, Title: m.Title, Year: m.Year, ExternalIDs: ids})
+			item := inventory.Item{SourceID: SourceID, SourceItemID: m.RatingKey, MediaType: media, Title: m.Title, Year: m.Year, ExternalIDs: ids}
+			if m.AddedAt > 0 && m.AddedAt < 1<<33 {
+				item.AddedAt = time.Unix(m.AddedAt, 0).UTC()
+			}
+			if thumbPattern.MatchString(m.Thumb) {
+				item.ArtworkRef = m.Thumb
+			}
+			if media == domain.MediaSong && ratingKeyPattern.MatchString(m.ParentRatingKey) {
+				item.ParentSourceItemID = m.ParentRatingKey
+				if m.Index > 0 && m.Index < 100000 {
+					item.Position = m.Index
+				}
+				if m.ParentIndex > 0 && m.ParentIndex < 1000 {
+					item.Disc = m.ParentIndex
+				}
+			}
+			items = append(items, item)
 		}
 		if offset+len(mc.Metadata) == total {
 			return items, nil

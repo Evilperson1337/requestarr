@@ -10,8 +10,13 @@ import (
 )
 
 type fakeRuns struct {
-	groups []jobs.SourceRuns
-	err    error
+	groups    []jobs.SourceRuns
+	snapshots map[string]time.Time
+	err       error
+}
+
+func (f fakeRuns) LastSnapshotTimes(context.Context) (map[string]time.Time, error) {
+	return f.snapshots, f.err
 }
 
 func (f fakeRuns) RecentRunsBySource(context.Context, int) ([]jobs.SourceRuns, error) {
@@ -28,7 +33,7 @@ func TestOverviewReportsEverySourceProviderAndRecentErrors(t *testing.T) {
 	svc := New(
 		[]Provider{{Key: "tmdb", Name: "TMDB", Configured: true}, {Key: "igdb", Name: "IGDB"}},
 		[]SourceRef{{Slug: "jellyfin", Name: "Jellyfin", ID: "j"}, {Slug: "plex", Name: "Plex", ID: "p"}},
-		fakeRuns{groups: []jobs.SourceRuns{
+		fakeRuns{snapshots: map[string]time.Time{"j": now.Add(-time.Hour)}, groups: []jobs.SourceRuns{
 			{SourceID: "j", Runs: []jobs.Run{
 				run("3", "j", jobs.StatusFailed, now, "library unreachable"),
 				run("2", "j", jobs.StatusSucceeded, now.Add(-time.Hour), ""),
@@ -49,6 +54,10 @@ func TestOverviewReportsEverySourceProviderAndRecentErrors(t *testing.T) {
 	}
 	if jelly.LastSuccessAt == nil || !jelly.LastSuccessAt.Equal(now.Add(-time.Hour).Add(time.Minute)) {
 		t.Fatalf("last success = %v", jelly.LastSuccessAt)
+	}
+	// A failed run leaves the last snapshot where the last success put it.
+	if jelly.LastSnapshotAt == nil || !jelly.LastSnapshotAt.Equal(now.Add(-time.Hour)) || plex.LastSnapshotAt != nil {
+		t.Fatalf("last snapshots = %v, %v", jelly.LastSnapshotAt, plex.LastSnapshotAt)
 	}
 	if plex.LastSuccessAt != nil || plex.LastError != "bad token" {
 		t.Fatalf("plex = %+v", plex)

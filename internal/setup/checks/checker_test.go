@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/evilperson1337/requestarr/internal/domain"
+	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
 	"github.com/evilperson1337/requestarr/internal/setup/checks"
 )
@@ -59,7 +60,7 @@ func TestIGDBOAuthAndPlatforms(t *testing.T) {
 		_, _ = w.Write(platforms)
 	}))
 	defer server.Close()
-	checker := checks.New(checks.Config{Runtime: setup.Runtime{IGDBClientID: "igdb-client", IGDBSecretConfigured: true}, IGDBClientSecret: "igdb-secret", Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}})
+	checker := checks.New(checks.Config{Runtime: setup.Runtime{IGDBClientID: "igdb-client"}, Secrets: secrets.Static{secrets.IGDBClientSecret: "igdb-secret"}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}})
 	code, err := checker.Check(context.Background(), setup.TargetIGDB, setup.Settings{Providers: setup.ProviderSettings{IGDBEnabled: true, IGDBClientID: "igdb-client", IGDBClientSecretEnv: setup.IGDBSecretEnv}})
 	if err != nil || code != setup.CheckOK || calls != 2 {
 		t.Fatalf("Check = %q, %v; calls %d", code, err, calls)
@@ -117,7 +118,7 @@ func TestTMDBConfiguration(t *testing.T) {
 	}))
 	defer server.Close()
 	client := &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}
-	checker := checks.New(checks.Config{Runtime: setup.Runtime{TMDBTokenConfigured: true}, TMDBReadToken: "tmdb-secret", Client: client})
+	checker := checks.New(checks.Config{Secrets: secrets.Static{secrets.TMDBReadToken: "tmdb-secret"}, Client: client})
 	settings := setup.Settings{Providers: setup.ProviderSettings{TMDBEnabled: true, TMDBTokenEnv: setup.TMDBTokenEnv}}
 	code, err := checker.Check(context.Background(), setup.TargetTMDB, settings)
 	if err != nil || code != setup.CheckOK {
@@ -153,6 +154,7 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 		{"plex", "/library/sections", `<MediaContainer size="1"/>`, "X-Plex-Token"},
 		{"romm", "/api/platforms", `[]`, "Authorization"},
 		{"navidrome", "/rest/ping.view", `{"subsonic-response":{"status":"ok"}}`, "u"},
+		{"audiobookshelf", "/api/libraries", `{"libraries":[{"id":"l","mediaType":"book"}]}`, "Authorization"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -169,8 +171,8 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 						t.Error("Plex token absent")
 					}
 				case "Authorization":
-					if r.Header.Get(tc.wantCredential) != "Bearer romm-token" {
-						t.Error("RomM token absent")
+					if got := r.Header.Get(tc.wantCredential); got != "Bearer romm-token" && got != "Bearer abs-key" {
+						t.Error("Bearer token absent")
 					}
 				case "u":
 					if r.URL.Query().Get("u") != "music-user" || r.URL.Query().Get("p") != "" || len(r.URL.Query().Get("t")) != 32 || len(r.URL.Query().Get("s")) != 32 {
@@ -179,14 +181,21 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 				}
 				w.Header().Set("Content-Type", "application/json")
 				if tc.kind == "plex" {
-					w.Header().Set("Content-Type", "application/xml")
+					// Real Plex answers in JSON whenever the client says it accepts JSON,
+					// and in XML otherwise (observed against a live server).
+					if strings.Contains(r.Header.Get("Accept"), "json") {
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = io.WriteString(w, `{"MediaContainer":{"size":1}}`)
+						return
+					}
+					w.Header().Set("Content-Type", "text/xml;charset=utf-8")
 				}
 				_, _ = io.WriteString(w, tc.body)
 			}))
 			defer server.Close()
 			libraries := setup.LibrariesSettings{}
 			source := setup.SourceSettings{Enabled: true, URL: "https://library.example", MediaTypes: []domain.MediaType{domain.MediaMovie}}
-			cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, JellyfinAPIKey: "jf-token", PlexToken: "plex-token", RommToken: "romm-token", NavidromePassword: "music-pass"}
+			cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, Secrets: secrets.Static{secrets.JellyfinAPIKey: "jf-token", secrets.PlexToken: "plex-token", secrets.RommToken: "romm-token", secrets.NavidromePassword: "music-pass", secrets.AudiobookshelfAPIKey: "abs-key"}}
 			target := setup.TargetJellyfin
 			switch tc.kind {
 			case "jellyfin":
@@ -200,6 +209,11 @@ func TestLibraryChecksUseConfiguredCredentialsAndBoundedEndpointPerSource(t *tes
 				source.TokenEnv = setup.RommTokenEnv
 				libraries.Romm = source
 				target = setup.TargetRomm
+			case "audiobookshelf":
+				source.MediaTypes = []domain.MediaType{domain.MediaAudiobook}
+				source.TokenEnv = setup.AudiobookshelfKeyEnv
+				libraries.Audiobookshelf = source
+				target = setup.TargetAudiobookshelf
 			case "navidrome":
 				source.MediaTypes = []domain.MediaType{domain.MediaAlbum}
 				source.Username = "music-user"
@@ -225,8 +239,8 @@ func TestAppriseCheckProbesOnlyTheConfiguredServiceAndNeverSendsTheKey(t *testin
 		_, _ = w.Write([]byte("OK"))
 	}))
 	defer server.Close()
-	runtime := setup.Runtime{AppriseURL: server.URL, AppriseKeyConfigured: true, Development: true}
-	checker := checks.New(checks.Config{Runtime: runtime, Client: server.Client()})
+	runtime := setup.Runtime{AppriseURL: server.URL, Development: true}
+	checker := checks.New(checks.Config{Runtime: runtime, Secrets: secrets.Static{secrets.AppriseConfigKey: "secret-key"}, Client: server.Client()})
 	notify := func(n setup.NotificationSettings) setup.CheckCode {
 		code, err := checker.Check(context.Background(), setup.TargetNotifications, setup.Settings{Notifications: n})
 		if code == setup.CheckOK && err != nil {
@@ -250,5 +264,28 @@ func TestAppriseCheckProbesOnlyTheConfiguredServiceAndNeverSendsTheKey(t *testin
 	missing.AppriseURL = ""
 	if code := notify(missing); code != setup.CheckIncomplete {
 		t.Fatalf("incomplete = %q", code)
+	}
+}
+
+// A key that can see only podcast libraries (or none) is not a working
+// audiobook connection, even though Audiobookshelf answers 200.
+func TestAudiobookshelfCheckNeedsABookLibrary(t *testing.T) {
+	for body, want := range map[string]setup.CheckCode{
+		`{"libraries":[{"id":"l","mediaType":"book"},{"id":"p","mediaType":"podcast"}]}`: setup.CheckOK,
+		`{"libraries":[{"id":"p","mediaType":"podcast"}]}`:                               setup.CheckUnavailable,
+		`{"libraries":[]}`:   setup.CheckUnavailable,
+		`<html>login</html>`: setup.CheckUnavailable,
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, body)
+		}))
+		libraries := setup.LibrariesSettings{Audiobookshelf: setup.SourceSettings{Enabled: true, URL: "https://abs.example", MediaTypes: []domain.MediaType{domain.MediaAudiobook}, TokenEnv: setup.AudiobookshelfKeyEnv}}
+		cfg := checks.Config{Runtime: setup.Runtime{Development: true}, Client: &http.Client{Transport: routeTo{server.Client().Transport, server.URL}}, Secrets: secrets.Static{secrets.AudiobookshelfAPIKey: "abs-key"}}
+		code, _ := checks.New(cfg).Check(context.Background(), setup.TargetAudiobookshelf, setup.Settings{Libraries: libraries})
+		server.Close()
+		if code != want {
+			t.Errorf("%s: code %q, want %q", body, code, want)
+		}
 	}
 }

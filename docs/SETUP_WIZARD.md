@@ -97,6 +97,7 @@ environment variable that overrides each:
 - `REQUESTARR_JELLYFIN_API_KEY`
 - `REQUESTARR_PLEX_TOKEN`
 - `REQUESTARR_ROMM_TOKEN`
+- `REQUESTARR_AUDIOBOOKSHELF_API_KEY`
 
 `REQUESTARR_OIDC_CLIENT_SECRET`, `REQUESTARR_SESSION_HMAC_SECRET` and
 `REQUESTARR_SECRETS_KEY` stay environment-only: sign-in must work before Setup is
@@ -126,11 +127,22 @@ fixed safe message, never a raw service error or credential-bearing payload.
   missing server credentials remain environment/restart items. No secret is sent
   to a draft issuer.
 - **TMDB:** checks the fixed configuration API with the token the next restart
-  would use (environment, otherwise saved).
+  would use (environment, otherwise saved). Use the **API Read Access Token**
+  from TMDB API settings, not the v3 API key; paste only the token, without a
+  `Bearer` prefix. HTTP 401/403 produces `authentication_failed` with token-specific
+  guidance rather than a generic network error. Replace a rejected stored token
+  and rerun the check; the check uses it immediately, while runtime lookups use
+  it after restart. An environment token still overrides a stored token.
 - **MusicBrainz:** checks a fixed public endpoint with an identifying user-agent
   and the draft's contact email; no secret is required.
 - **IGDB:** checks fixed Twitch client-credentials and IGDB platform endpoints
-  using the configured client ID and server-side secret.
+  using the saved draft client ID and server-side secret. The non-secret client
+  ID is saved with **Save draft** or **Check enabled providers**, and startup
+  loads it for game lookups after restart. It does not require an environment
+  edit. An explicit `REQUESTARR_IGDB_CLIENT_ID` overrides the saved ID; the draft
+  must match that override for its check to pass. The secret remains write-only,
+  with the usual environment-over-stored precedence. A local prerequisite
+  failure no longer claims that the secret was checked against IGDB.
 - **Libraries:** each enabled Source has an explicit, bounded connection check
   using server-side credentials. A passed check proves connectivity only; it is
   not an inventory sync. Selected media types are limited to adapter capabilities

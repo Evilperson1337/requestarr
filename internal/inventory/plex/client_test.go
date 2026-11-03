@@ -212,3 +212,164 @@ func TestMusicTracksFailingAfterAlbumsSucceededDiscardsEverything(t *testing.T) 
 		t.Fatalf("err=%v complete=%v items=%d: movies, shows and albums were read, but a failed tracks page must discard the lot", err, snap.Complete, len(snap.Items))
 	}
 }
+
+// A real library had one album with no title, and the strict check failed the
+// whole sync. Such an item is still inventory (it may match by id), and an
+// overlong title is shortened, never a reason to discard a complete listing.
+func TestUntitledAndOverlongTitlesDoNotFailTheSync(t *testing.T) {
+	long := strings.Repeat("é", 600)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/library/sections" {
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"1","type":"movie"}]}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":3,"offset":0,"Metadata":[
+			{"ratingKey":"1","title":"","year":2001,"Guid":[{"id":"tmdb://5"}]},
+			{"ratingKey":"2","title":"` + long + `"},
+			{"ratingKey":"3","title":"Normal"}]}}`))
+	}))
+	defer server.Close()
+	c, err := New(server.URL, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := c.Snapshot(context.Background())
+	if err != nil || len(snap.Items) != 3 || !snap.Complete {
+		t.Fatalf("snapshot err=%v items=%d", err, len(snap.Items))
+	}
+	if snap.Items[0].Title != "(untitled)" || snap.Items[0].ExternalIDs["tmdb"] != "5" {
+		t.Fatalf("untitled item = %+v", snap.Items[0])
+	}
+	if n := len([]rune(snap.Items[1].Title)); n != 512 {
+		t.Fatalf("overlong title has %d runes", n)
+	}
+}
+
+func TestItemsCarryTheirAddedDateAndOnlyAWellFormedCoverReference(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/library/sections" {
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"1","type":"movie"}]}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":2,"offset":0,"Metadata":[
+			{"ratingKey":"1","title":"A","addedAt":1700000000,"thumb":"/library/metadata/1/thumb/1699999999"},
+			{"ratingKey":"2","title":"B","addedAt":-5,"thumb":"http://evil.example/x"}]}}`))
+	}))
+	defer server.Close()
+	c, _ := New(server.URL, testToken)
+	snap, err := c.Snapshot(context.Background())
+	if err != nil || len(snap.Items) != 2 {
+		t.Fatalf("snapshot %v %d", err, len(snap.Items))
+	}
+	if snap.Items[0].AddedAt.Unix() != 1700000000 || snap.Items[0].ArtworkRef != "/library/metadata/1/thumb/1699999999" {
+		t.Fatalf("item 1 = %+v", snap.Items[0])
+	}
+	if !snap.Items[1].AddedAt.IsZero() || snap.Items[1].ArtworkRef != "" {
+		t.Fatalf("a bad date or a foreign cover URL must be dropped: %+v", snap.Items[1])
+	}
+}
+
+func TestArtworkIsFetchedWithTheTokenInAHeaderAndOnlyForAWellFormedReference(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Plex-Token") != testToken || r.URL.RawQuery == "" || strings.Contains(r.URL.RawQuery, testToken) {
+			http.Error(w, "bad", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Query().Get("url") == "/library/metadata/9/thumb" {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte("<html>"))
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("jpegbytes"))
+	}))
+	defer server.Close()
+	c, _ := New(server.URL, testToken)
+	got, err := c.Artwork(context.Background(), "/library/metadata/5/thumb/123")
+	if err != nil || got.ContentType != "image/jpeg" || string(got.Data) != "jpegbytes" {
+		t.Fatalf("artwork %+v err %v", got, err)
+	}
+	for _, bad := range []string{"/library/metadata/5/art/1", "http://evil.example/thumb", "/library/metadata/5/thumb/1?x=y", "../../etc/passwd"} {
+		if _, err := c.Artwork(context.Background(), bad); err == nil {
+			t.Errorf("%q must be refused before any request", bad)
+		}
+	}
+	if _, err := c.Artwork(context.Background(), "/library/metadata/9/thumb"); err == nil {
+		t.Fatal("a non-image answer must be refused")
+	}
+}
+
+func TestItemsLinkToPlexWebWhenTheServerIdentifiesItself(t *testing.T) {
+	for _, identified := range []bool{true, false} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/identity":
+				if !identified {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = w.Write([]byte(`{"MediaContainer":{"machineIdentifier":"abc123def456abc123def456abc123def456abcd"}}`))
+			case "/library/sections":
+				_, _ = w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"1","type":"movie"}]}}`))
+			default:
+				_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":1,"offset":0,"Metadata":[{"ratingKey":"4242","title":"Linked"}]}}`))
+			}
+		}))
+		c, _ := New(server.URL, testToken)
+		snap, err := c.Snapshot(context.Background())
+		server.Close()
+		if err != nil || len(snap.Items) != 1 {
+			t.Fatalf("snapshot %v", err)
+		}
+		got := snap.Items[0].ExternalURL
+		if identified {
+			if !strings.HasPrefix(got, server.URL+"/web/index.html#!/server/abc123def456abc123def456abc123def456abcd/details?key=%2Flibrary%2Fmetadata%2F4242") || strings.Contains(got, testToken) {
+				t.Fatalf("link = %q", got)
+			}
+		} else if got != "" {
+			t.Fatalf("a server that will not identify itself must not break the sync or invent a link: %q", got)
+		}
+	}
+}
+
+func TestTracksRememberTheirAlbumDiscAndPosition(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/library/sections":
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"6","type":"artist"}]}}`))
+		case r.URL.Query().Get("type") == "9":
+			_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":1,"offset":0,"Metadata":[{"ratingKey":"87073","title":"Breathe"}]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":3,"offset":0,"Metadata":[
+				{"ratingKey":"1","title":"One","parentRatingKey":"87073","index":1,"parentIndex":1},
+				{"ratingKey":"2","title":"Two","parentRatingKey":"87073","index":7,"parentIndex":2},
+				{"ratingKey":"3","title":"Stray","parentRatingKey":"../evil","index":-4}]}}`))
+		}
+	}))
+	defer server.Close()
+	c, _ := New(server.URL, testToken)
+	snap, err := c.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byTitle := map[string]inventory.Item{}
+	for _, it := range snap.Items {
+		byTitle[it.Title] = it
+	}
+	if one := byTitle["One"]; one.ParentSourceItemID != "87073" || one.Disc != 1 || one.Position != 1 {
+		t.Fatalf("one = %+v", one)
+	}
+	if two := byTitle["Two"]; two.Disc != 2 || two.Position != 7 {
+		t.Fatalf("two = %+v", two)
+	}
+	if stray := byTitle["Stray"]; stray.ParentSourceItemID != "" || stray.Position != 0 {
+		t.Fatalf("a malformed parent must be dropped: %+v", stray)
+	}
+	if album := byTitle["Breathe"]; album.ParentSourceItemID != "" {
+		t.Fatalf("an album has no parent: %+v", album)
+	}
+}
