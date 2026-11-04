@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -30,6 +32,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "setup-token" {
 		if err := issueSetupToken(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "requestarr: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		if err := healthcheck(os.Args[2:], config.FromEnv().HTTPAddr); err != nil {
+			fmt.Fprintf(os.Stderr, "requestarr: healthcheck: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -77,6 +86,39 @@ func main() {
 		logger.Error("requestarr stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+// healthcheck makes one bounded GET of /readyz on the local listener. It reads
+// only the listener address and never prints the response body, so it needs no
+// database, OIDC or secrets configuration and cannot leak any.
+func healthcheck(args []string, listenAddr string) error {
+	fs := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
+	timeout := fs.Duration("timeout", 3*time.Second, "overall time limit for the probe")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	host, port, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		return fmt.Errorf("invalid listener address")
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/readyz", nil)
+	if err != nil {
+		return fmt.Errorf("build request")
+	}
+	resp, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+	if err != nil {
+		return fmt.Errorf("listener unreachable or timed out")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("not ready (status %d)", resp.StatusCode)
+	}
+	return nil
 }
 
 func issueSetupToken(args []string) error {
