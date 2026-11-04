@@ -238,3 +238,5 @@ Open items, not decided:
 - The Cover Art Archive terms have not been read; they matter once search shows many album covers at once.
 - TMDB attribution (logo and non-endorsement notice) must be confirmed or added before TMDB search ships.
 - The other open questions in the research note (blended "All" type, per-user rate limits, per-provider disable) are settled in the spec's tickets, not here.
+
+Addendum (Songs, ticket 09): a Songs search row is one MusicBrainz recording, with the recording URL as its ref. The search status badge ("In library") for album and song results matches a library's items by the key's own id, by a Plex `mbid` equal to it, and through the catalog item's aliases (D020). An item nobody has opened has no catalog row and so no aliases; a copy held in Plex under a release or release-track id is then reported as unknown (no local state, no badge), never as absent. Aliases arrive when an album is previewed (its releases) or when a song has an open Request (alias job). Reading release or track ids out of the search response itself would close that gap and is a possible follow-up.

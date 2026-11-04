@@ -1,0 +1,10 @@
+{"created":"2026-11-04T14:14:45.567Z","count":31,"offset":0,"recordings":[
+{"id":"B1A9C0E9-D987-4042-AE91-78D6A3267D69","score":100,"title":"Money","length":382000,"artist-credit":[{"name":"Pink Floyd","artist":{"id":"83d91898-7763-47d7-b03b-b92132375c47","name":"Pink Floyd"}}],"first-release-date":"1973-03-01",
+ "releases":[
+  {"id":"11111111-1111-4111-8111-111111111111","title":"A Collection of Great Dance Songs","date":"1981-11-23","release-group":{"id":"22222222-2222-4222-8222-222222222222","title":"A Collection of Great Dance Songs","primary-type":"Album"}},
+  {"id":"33333333-3333-4333-8333-333333333333","title":"The Dark Side of the Moon","date":"1973-03-01","release-group":{"id":"f5093c06-23e3-404f-aeaa-40f72885ee3a","title":"The Dark Side of the Moon","primary-type":"Album"}},
+  {"id":"44444444-4444-4444-8444-444444444444","title":"Undated reissue","release-group":{"id":"55555555-5555-4555-8555-555555555555","title":"Undated reissue","primary-type":"Album"}}]},
+{"id":"cfc9ba05-3079-49d5-bd69-bf58ba306c5d","score":99,"title":"Money","artist-credit":[{"name":"Alpha","joinphrase":" feat. ","artist":{"name":"Alpha"}},{"artist":{"name":"Beta"}}],"first-release-date":"2010"},
+{"id":"not-a-uuid","score":98,"title":"Broken id","artist-credit":[{"name":"X","artist":{"name":"X"}}]},
+{"id":"d8640b95-e01e-46c1-bfbc-510bc8258fdb","score":97,"title":"Short","length":65000,"artist-credit":[{"name":"Gamma","artist":{"name":"Gamma"}}],"releases":[{"id":"66666666-6666-4666-8666-666666666666","title":"Only Release","date":"2020-05","release-group":{"id":"77777777-7777-4777-8777-777777777777","title":"Only Release"}}]}
+]}
