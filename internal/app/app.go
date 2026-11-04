@@ -75,17 +75,19 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	igdbProvider := igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil)
 	// One Audible resolver serves links and searches; both use the admin's default marketplace (D031).
 	audibleProvider := audible.New(domain.AudibleRegion(cfg.AudibleRegion), nil)
-	metadataService := metadata.NewService(store, tmdb.New(cfg.TMDBReadToken, nil), musicbrainz.New(nil), igdbProvider, audibleProvider)
+	// One instance per provider serves links, previews and searches. MusicBrainz in
+	// particular spaces its requests per instance, so a second one would double the rate.
+	tmdbProvider := tmdb.New(cfg.TMDBReadToken, nil)
+	mbProvider := musicbrainz.New(nil)
+	metadataService := metadata.NewService(store, tmdbProvider, mbProvider, igdbProvider, audibleProvider)
 	// A search type exists only when its provider is configured; it is the one switch.
 	searchers := map[string]metadata.Searcher{}
 	if cfg.TMDBReadToken != "" {
-		searchers["movie_tv"] = tmdb.New(cfg.TMDBReadToken, nil)
+		searchers["movie_tv"] = tmdbProvider
 	}
-	// MusicBrainz needs no key, so album and song search are always on. It shares the
-	// resolver's one-per-second spacer inside the package.
-	mbSearch := musicbrainz.New(nil)
-	searchers["album"] = mbSearch
-	searchers["song"] = mbSearch.SongSearcher()
+	// MusicBrainz needs no key, so album and song search are always on.
+	searchers["album"] = mbProvider
+	searchers["song"] = mbProvider.SongSearcher()
 	if cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "" {
 		searchers["game"] = igdbProvider
 	}
