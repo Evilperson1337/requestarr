@@ -6,7 +6,7 @@ Parent: `.scratch/name-search/spec.md`
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** needs-review
 
 - [ ] The Games type appears only when IGDB is configured
 - [ ] Results show title, year, cover and a short platform hint; picking one opens the existing game preview with platform selection

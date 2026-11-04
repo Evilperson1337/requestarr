@@ -8,7 +8,7 @@ One batched local query annotates each page (at most 50 results) from PostgreSQL
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** needs-review
 
 - [x] A result whose item has an open Request shows "Requested" and the status, and stays in the list (verified: store integration test plus Playwright search-status.spec.ts; the API wiring is tested with a fake lookup)
 - [x] A result whose item is in an enabled source's latest complete snapshot shows "In library" even with no catalog row (verified: store integration test on real PostgreSQL, no catalog row)

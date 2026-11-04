@@ -6,7 +6,7 @@ Parent: `.scratch/name-search/spec.md`
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** needs-review
 
 - [x] The Albums type appears only when MusicBrainz is available and searches on Enter or the button only. Verified: Playwright (`web/tests/search-albums.spec.ts`) shows no request while typing and one on Enter or the button; `app.go` registers `album` unconditionally because MusicBrainz needs no key, so "available" is always true (there is no health probe).
 - [x] Default results are albums only; the toggle adds singles and EPs; each row shows its type and year. Verified by the query-builder unit tests (`primarytype:"album"` vs album/single/ep) and by Playwright; row shows year, `Album (Live) · Artist`.

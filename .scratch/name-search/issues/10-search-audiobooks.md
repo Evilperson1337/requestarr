@@ -6,7 +6,7 @@ Parent: `.scratch/name-search/spec.md`
 
 **Blocked by:** 08
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The Audiobooks type is offered only when the server lists it in /search/types (browser test); it is registered always, since an unset marketplace means US; it searches on explicit submit only (browser test)
 - [x] Rows show narrator, runtime and abridged or unabridged; multi-part parents carry the "Series / multi-part" label (Go test on the recorded live fixture; browser test for rendering)

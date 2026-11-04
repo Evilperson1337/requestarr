@@ -6,7 +6,7 @@ Parent: `.scratch/name-search/spec.md`
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The decision log has the new entry, with the provider-terms assumption and the two unread terms (Twitch Developer Service Agreement, Cover Art Archive) listed as open items
 - [x] D002 is unchanged except for a pointer to the new entry

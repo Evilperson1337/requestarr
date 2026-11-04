@@ -16,7 +16,7 @@ Viewers can search and open a preview; request creation stays gated by `canReque
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** needs-review
 
 - [ ] Typing a title returns TMDB movie and TV results with title, year and poster; people never appear
 - [x] Pasting a TMDB link still resolves exactly as before, whatever the selector says (Playwright: a pasted TMDB link and a bare ASIN POST /resolve with the raw text and never call /search; the existing link tests pass unchanged apart from the placeholder)
