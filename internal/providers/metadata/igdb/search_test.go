@@ -61,18 +61,20 @@ func fixtureSearch(t *testing.T, page int) (domain.SearchPage, *twitchAndIGDB) {
 	return got, fake
 }
 
+// A game with no game_type at all (IGDB leaves older entries unclassified) is
+// a main game: kept in the query and in the mapping.
 func TestSearchShowsGamesAndRemakesButHidesDLCUpdatesAndBundles(t *testing.T) {
 	got, fake := fixtureSearch(t, 1)
 	var titles []string
 	for _, r := range got.Results {
 		titles = append(titles, r.Title)
 	}
-	want := []string{"The Witcher 3: Wild Hunt", "Resident Evil 4 (Remake)", "Shadow of the Colossus Remaster", "Doom 64 Port", "Skyrim Special Edition"}
+	want := []string{"The Witcher 3: Wild Hunt", "Resident Evil 4 (Remake)", "Shadow of the Colossus Remaster", "Doom 64 Port", "Skyrim Special Edition", "No Kind Field"}
 	if strings.Join(titles, "|") != strings.Join(want, "|") {
 		t.Fatalf("titles = %v\nwant %v", titles, want)
 	}
 	// The same rule is asked of IGDB, so a page is not mostly hidden rows.
-	if !strings.Contains(fake.queries[0], "where game_type = (0,8,9,10,11);") {
+	if !strings.Contains(fake.queries[0], "where (game_type = (0,8,9,10,11) | game_type = null);") {
 		t.Fatalf("kind filter missing: %s", fake.queries[0])
 	}
 }

@@ -5,6 +5,18 @@ import { RequestModal } from '../components/RequestModal'
 import { followLink, navigate, useLocation } from '../navigation'
 import { isLinkInput, locationForSearch, searchBadges, searchFromLocation, searchHints, searchTypeLabels, singlesTypes, typeaheadTypes, useSearchTypes, type SearchState } from '../search'
 
+// The switch only means something for the types that have it, so it is not part of any other search's identity.
+const searchKey = (type: string, query: string, singles: boolean) => `${type}:${query}${singles && singlesTypes.has(type) ? ':singles' : ''}`
+
+// What the search box can do, in words: only the kinds of search this server offers, then the paste path.
+function heroText(types: string[]): string {
+    const names = ['movie_tv', 'album', 'song', 'game', 'audiobook'].filter(type => types.includes(type)).map(type => heroNouns[type])
+    const list = names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+    const paste = 'a TMDB, MusicBrainz, IGDB or Audible link, or an audiobook ASIN'
+    return names.length ? `Search by name for a ${list}, or paste ${paste}, to preview it before requesting.` : `Paste ${paste} to preview it before requesting.`
+}
+const heroNouns: Record<string, string> = { movie_tv: 'movie or show', album: 'album', song: 'song', game: 'game', audiobook: 'audiobook' }
+
 export function HomePage({ session, onCreated }: { session: Session; onCreated: () => void }) {
     const here = useLocation()
     const fromUrl = useRef(searchFromLocation(here))
@@ -54,15 +66,16 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     const [search, setSearch] = useState<SearchState>({ status: 'idle', query: '', results: [], error: '' })
     const searchController = useRef<AbortController | null>(null)
     const searched = useRef('')
-    const [includeSingles, setIncludeSingles] = useState(false)
+    const [includeSingles, setIncludeSingles] = useState(fromUrl.current.singles)
+    const singlesNow = useRef(includeSingles)
     useEffect(() => () => searchController.current?.abort(), [])
     const link = isLinkInput(text)
     // The URL follows the search: the first search pushes one entry, later ones replace it, so Back is not flooded.
     // `written` is the last location this page set itself; any other change is Back/Forward and is read back in.
     const written = useRef(here)
     const urlDriven = useRef(!!fromUrl.current.q)
-    const writeUrl = useCallback((query: string, type: string) => {
-        const next = locationForSearch(query, type)
+    const writeUrl = useCallback((query: string, type: string, singles = false) => {
+        const next = locationForSearch(query, type, singles)
         if (next === location.pathname + location.search) return
         written.current = next
         navigate(next, {}, location.search.includes('q='))
@@ -73,13 +86,15 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         const wanted = searchFromLocation(here)
         urlDriven.current = !!wanted.q
         setText(wanted.q)
+        singlesNow.current = wanted.singles
+        setIncludeSingles(wanted.singles)
         if (wanted.type) chooseType(wanted.type)
     }, [here, chooseType])
     const runSearch = useCallback(async (query: string, type: string, singles = false) => {
         searchController.current?.abort()
         const controller = new AbortController(); searchController.current = controller
-        searched.current = `${type}:${query}`
-        writeUrl(query, type)
+        searched.current = searchKey(type, query, singles)
+        writeUrl(query, type, singles)
         setSearch(previous => ({ ...previous, status: 'loading', error: '' }))
         try {
             const page = await api<SearchPage>(`/search?${new URLSearchParams({ q: query, type, ...(singles && singlesTypes.has(type) ? { singles: 'true' } : {}) })}`, { signal: controller.signal, cache: 'no-store' })
@@ -114,10 +129,10 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
             setSearch(previous => previous.status === 'idle' ? previous : { status: 'idle', query: '', results: [], error: '' })
             return
         }
-        const key = `${searchType}:${query}`
+        const key = searchKey(searchType, query, singlesNow.current)
         if (searched.current === key) return
         urlDriven.current = false
-        const timer = setTimeout(() => void runSearch(query, searchType), immediate ? 0 : 300)
+        const timer = setTimeout(() => void runSearch(query, searchType, singlesNow.current), immediate ? 0 : 300)
         return () => clearTimeout(timer)
     }, [text, link, searchType, runSearch])
     // Emptying the box, or pasting a link over a search, takes the search out of the URL.
@@ -136,6 +151,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     }
     // A search option changes what the last question means, so ask it again.
     function chooseSingles(on: boolean) {
+        singlesNow.current = on
         setIncludeSingles(on)
         if (search.query && search.status !== 'idle' && searchType) void runSearch(search.query, searchType, on)
     }
@@ -162,7 +178,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         : search.status === 'error' ? 'Search unavailable'
         : ''
     return <main className="shell">
-        <section className="card hero"><h1>Request Something</h1><p>{types.includes('movie_tv') ? 'Search for a movie or show by name, or paste' : 'Paste'} a TMDB, MusicBrainz, IGDB or Audible link, or an audiobook ASIN, to preview it before requesting.</p>
+        <section className="card hero"><h1>Request Something</h1><p>{heroText(types)}</p>
             <form onSubmit={submit}><label className="urlBox"><span aria-hidden="true">↗</span><span className="sr-only">Search by name, or paste a TMDB, MusicBrainz, IGDB or Audible URL, or an audiobook ASIN</span><input type="text" inputMode="search" autoComplete="off" spellCheck={false} maxLength={2048} required aria-describedby={searchType && !typeaheadTypes.has(searchType) ? 'searchHint' : undefined} value={text} onChange={e => edit(e.target.value)} placeholder="Search or paste a link…" /></label><button ref={previewButton} className="button" disabled={busy} onClick={event => { if (event.detail > 0) event.currentTarget.focus() }}>{busy ? 'Resolving…' : link || !text.trim() ? 'Preview' : 'Search'}</button></form>
             {types.length > 0 && <fieldset className="searchTypes" role="radiogroup"><legend>Search for</legend>{types.map(type => <label key={type}><input type="radio" name="searchType" value={type} checked={searchType === type} onChange={() => chooseType(type)} />{searchTypeLabels[type] ?? type}</label>)}</fieldset>}
             {singlesTypes.has(searchType) && <label className="searchOption"><input type="checkbox" checked={includeSingles} onChange={e => chooseSingles(e.target.checked)} />Include singles &amp; EPs</label>}
@@ -198,7 +214,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
             <div className="recentHeader"><h2 id="added-books-heading">New audiobooks in your libraries</h2></div>
             <LibraryRail items={addedBooks} label="audiobooks" />
         </section>}
-        {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus({ preventScroll: true })) }} />}
+        {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); requestAnimationFrame(() => returnFocus.current?.focus({ preventScroll: true })) }} />}
     </main>
 }
 

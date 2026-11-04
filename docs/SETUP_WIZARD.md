@@ -74,6 +74,11 @@ the fields are disabled and the environment path keeps working. Rules:
 - A saved secret applies on restart, like the rest of the inactive draft; Review
   lists it as "saved, pending restart". A connection check uses the value the
   next restart would use and names its source.
+- This includes name search: the TMDB read token and the IGDB client ID and
+  secret are read once at startup, so Movies & TV and Games appear (or
+  disappear) as search types, and search uses a new TMDB token, only after a
+  restart. Albums, Songs and Audiobooks need no credential and are always
+  offered. Only library Source credentials are applied without a restart.
 - Values are never returned, logged or audited; only presence and source are
   shown. Replacing or clearing a secret stays available after **Finish**.
 - If a stored secret cannot be read (wrong or missing master key) the server

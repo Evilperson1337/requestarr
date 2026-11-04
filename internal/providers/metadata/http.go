@@ -3,10 +3,12 @@ package metadata
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -116,9 +118,22 @@ func send(ctx context.Context, client *http.Client, method, endpoint, body strin
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("metadata provider request: %w", err)
+		return nil, fmt.Errorf("metadata provider request: %w", WithoutURL(err))
 	}
 	return resp, nil
+}
+
+// WithoutURL drops the request URL from a transport error. net/http wraps
+// failures in a *url.Error whose text holds the full URL, and for a search that
+// URL carries what the person typed; callers log these errors. The underlying
+// error keeps the class (timeout, cancellation, refused connection) and stays
+// matchable with errors.Is and errors.As.
+func WithoutURL(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Err != nil {
+		return urlErr.Err
+	}
+	return err
 }
 
 func decode(resp *http.Response, dst any) error {

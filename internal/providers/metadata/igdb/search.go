@@ -20,7 +20,9 @@ const (
 	maxSearchesInFlight = 3
 	// searchKinds is the fixed visibility rule: main games, remakes, remasters,
 	// expanded games and ports. DLC, expansions, bundles, updates and the rest
-	// are hidden. The numbers are IGDB's game_type ids.
+	// are hidden. The numbers are IGDB's game_type ids. A game with no
+	// game_type is treated as a main game and kept (older entries can be
+	// unclassified); the query asks for "| game_type = null" too.
 	searchKinds  = "0,8,9,10,11"
 	searchFields = "fields slug,name,first_release_date,game_type,cover.image_id,platforms.name,platforms.abbreviation;"
 )
@@ -49,7 +51,7 @@ func escapeSearchText(text string) string {
 func searchQuery(text string, page int) string {
 	offset := (max(page, 1) - 1) * searchPageSize
 	// One extra row tells whether another page exists.
-	return fmt.Sprintf(`search "%s"; %s where game_type = (%s); limit %d; offset %d;`, escapeSearchText(text), searchFields, searchKinds, searchPageSize+1, offset)
+	return fmt.Sprintf(`search "%s"; %s where (game_type = (%s) | game_type = null); limit %d; offset %d;`, escapeSearchText(text), searchFields, searchKinds, searchPageSize+1, offset)
 }
 
 // Search finds games by name. Refs are the igdb.com page URLs the resolver reads.
@@ -74,10 +76,10 @@ func (r *Resolver) Search(ctx context.Context, q metadata.SearchQuery) (domain.S
 		if i >= searchPageSize {
 			break
 		}
-		// The query already asks for these kinds; a row without one, or with
-		// another, is dropped rather than trusted.
+		// The query already asks for these kinds; a row with another
+		// kind is dropped rather than trusted.
 		name := clean(g.Name, 256)
-		if g.ID == 0 || name == "" || !slugPattern.MatchString(g.Slug) || g.GameType == nil || !shownKind(*g.GameType) {
+		if g.ID == 0 || name == "" || !slugPattern.MatchString(g.Slug) || (g.GameType != nil && !shownKind(*g.GameType)) {
 			continue
 		}
 		res := domain.SearchResult{

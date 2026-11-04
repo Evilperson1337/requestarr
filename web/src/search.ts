@@ -68,13 +68,15 @@ export function useSearchTypes(requested = '') {
     return { types, searchType, chooseType }
 }
 
-// The search a Home URL carries: ?q=<text>&type=<kind>. A type that is not offered is
-// ignored by useSearchTypes, so a stale bookmark still lands on a working search.
-export function searchFromLocation(location: string): { q: string; type: string } {
+// The search a Home URL carries: ?q=<text>&type=<kind>[&singles=true]. A type that is not offered is
+// ignored by useSearchTypes, so a stale bookmark still lands on a working search. `singles` is the
+// Albums "include singles & EPs" switch, kept in the address so a reload or bookmark restores it.
+export function searchFromLocation(location: string): { q: string; type: string; singles: boolean } {
     const params = new URLSearchParams(location.split('?')[1] ?? '')
-    return { q: params.get('q') ?? '', type: params.get('type') ?? '' }
+    return { q: params.get('q') ?? '', type: params.get('type') ?? '', singles: params.get('singles') === 'true' }
 }
 
-export function locationForSearch(q: string, type: string): string {
-    return q ? `/?${new URLSearchParams({ q, type })}` : '/'
+export function locationForSearch(q: string, type: string, singles = false): string {
+    if (!q) return '/'
+    return `/?${new URLSearchParams({ q, type, ...(singles && singlesTypes.has(type) ? { singles: 'true' } : {}) })}`
 }

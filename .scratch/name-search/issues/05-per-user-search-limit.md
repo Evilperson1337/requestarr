@@ -17,7 +17,7 @@ Parent: `.scratch/name-search/spec.md`
 
 ## Outcome
 
-- Per-user token bucket (burst 10, one more per second), in-process, injectable clock (`internal/httpapi/searchlimit.go`). 429 `search_rate_limited` with `Retry-After`, in `api/openapi.yaml`.
+- Per-user token bucket (burst 30, one more every 250 ms; originally burst 10 and one per second, loosened after review because a typeahead typist at 300 to 400 ms per keystroke would have been limited), in-process, injectable clock (`internal/httpapi/searchlimit.go`). 429 `search_rate_limited` with `Retry-After`, in `api/openapi.yaml`.
 - Decision: every well-formed search spends a token, including fresh-cache hits and joined single-flight queries. The limit caps a client's request rate on the server; it is not a provider-call count. Invalid (400) requests cost nothing. `/search/types` and `POST /resolve` are not limited.
 - UI: keeps the last results, shows an alert, retries once by itself after the hinted wait.
 - Verified: Go tests in `searchlimit_test.go` (clock-driven), Playwright test in `web/tests/search.spec.ts`. Browser suite run on port 4273 because 4173 was held by another tree; the four specs hard-coding 4173 failed only for that reason, plus the known home-recent failure.

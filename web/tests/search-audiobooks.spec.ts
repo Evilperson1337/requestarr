@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { letTimersRun } from './fixtures'
 
 const box = 'Search or paste a link…'
 const pixel = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
@@ -25,6 +26,7 @@ async function openHome(page: Page, types: string[], search?: (url: URL) => Repl
         if (path === '/resolve') { resolves.push(route.request().postDataJSON().url); return route.fulfill({ status: 500, json: {} }) }
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
+    await page.clock.install()
     await page.goto('/')
     return { searches, resolves }
 }
@@ -41,7 +43,7 @@ test('audiobook search waits for Enter, shows narrator, runtime, format and edit
     await page.getByRole('radio', { name: 'Audiobooks' }).check()
     await expect(page.locator('#searchHint')).toContainText('own request')
     await page.getByPlaceholder(box).fill('project hail mary')
-    await page.waitForTimeout(900)
+    await letTimersRun(page, 900)
     expect(searches).toEqual([])
     await page.getByPlaceholder(box).press('Enter')
     const rows = page.getByRole('list', { name: 'Search results' }).getByRole('button')

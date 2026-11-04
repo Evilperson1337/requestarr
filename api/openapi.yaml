@@ -189,7 +189,7 @@ paths:
         '429':
           description: >-
             search_rate_limited: this user has used up the per-user search budget
-            (a burst of 10, refilling one per second; fixed, not configurable).
+            (a burst of 30, refilling four per second; fixed, not configurable).
             Retry-After gives whole seconds until the next search is accepted.
             Every well-formed search counts, including repeats answered from the
             cache; invalid (400) requests, GET /search/types and POST /resolve do not.

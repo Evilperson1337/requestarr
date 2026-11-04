@@ -58,6 +58,34 @@ func limitedSearch(t *testing.T, f *fakeSearcher) (h http.Handler, clock *limitC
 	return h, clock, func(id string) { mu.Lock(); user.ID = id; mu.Unlock() }
 }
 
+// A typeahead person at 300 to 400 ms per keystroke sends a search per
+// keystroke (the browser debounce is 300 ms). The default budget must never
+// limit that, however long they type, but must still stop a script.
+func TestDefaultSearchLimitNeverLimitsATypistButStopsABurst(t *testing.T) {
+	for _, gap := range []time.Duration{300 * time.Millisecond, 350 * time.Millisecond, 400 * time.Millisecond} {
+		clock := &limitClock{now: time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)}
+		l := NewSearchLimiter(searchLimitBurst, searchLimitRefill, clock.Now)
+		for at := time.Duration(0); at < 20*time.Second; at += gap {
+			if ok, _ := l.Allow("typist"); !ok {
+				t.Fatalf("typist at %v per keystroke limited after %v", gap, at)
+			}
+			clock.Advance(gap)
+		}
+	}
+	clock := &limitClock{now: time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)}
+	l := NewSearchLimiter(searchLimitBurst, searchLimitRefill, clock.Now)
+	limited := 0
+	for i := 0; i < 50; i++ {
+		if ok, _ := l.Allow("script"); !ok {
+			limited++
+		}
+		clock.Advance(20 * time.Millisecond) // 50 requests in one second
+	}
+	if limited == 0 {
+		t.Fatal("50 searches in one second were not limited")
+	}
+}
+
 func TestSearchOverTheLimitAnswers429WithARetryHint(t *testing.T) {
 	f := &fakeSearcher{results: duneResults}
 	h, _, _ := limitedSearch(t, f)

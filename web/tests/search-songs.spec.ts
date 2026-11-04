@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { letTimersRun } from './fixtures'
 
 const box = 'Search or paste a link…'
 const id = 'b1a9c0e9-d987-4042-ae91-78d6a3267d69'
@@ -23,6 +24,7 @@ async function openHome(page: Page) {
         if (path === '/resolve') { resolves.push(route.request().postDataJSON().url); return route.fulfill({ json: resolved }) }
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
+    await page.clock.install()
     await page.goto('/')
     await page.getByRole('radio', { name: 'Songs' }).check()
     return { searches, resolves }
@@ -32,7 +34,7 @@ test('Songs searches only on Enter or the button, never while typing, and has no
     const { searches } = await openHome(page)
     await expect(page.getByRole('checkbox', { name: 'Include singles & EPs' })).toHaveCount(0)
     await page.getByPlaceholder(box).fill('money floyd')
-    await page.waitForTimeout(900)
+    await letTimersRun(page, 900)
     expect(searches).toEqual([])
     await expect(page.locator('#searchHint')).toContainText('Songs are looked up when you press Enter')
     await page.getByPlaceholder(box).press('Enter')

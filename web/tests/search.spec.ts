@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { letTimersRun } from './fixtures'
 
 const box = 'Search or paste a link…'
 const dune = { mediaType: 'movie', provider: 'tmdb', providerId: '438631', ref: 'https://www.themoviedb.org/movie/438631', title: 'Dune', year: 2021, artworkUrl: '', artworkKind: 'poster' }
@@ -17,6 +18,7 @@ type Options = { types?: string[]; role?: string; search?: (url: URL) => Reply }
 // twice, so tests assert on distinct values, not raw counts, where that matters.
 async function openHome(page: Page, options: Options = {}) {
     const searches: string[] = []
+    const served: string[] = []
     const resolves: string[] = []
     await page.route('**/api/v1/**', async route => {
         const url = new URL(route.request().url())
@@ -28,13 +30,15 @@ async function openHome(page: Page, options: Options = {}) {
             searches.push(url.searchParams.get('q') ?? '')
             const reply = options.search?.(url) ?? { json: { results: [dune, prophecy], hasMore: false } }
             if (reply.delay) await new Promise(resolve => setTimeout(resolve, reply.delay))
+            served.push(url.searchParams.get('q') ?? '')
             return route.fulfill({ status: reply.status, json: reply.json }).catch(() => undefined)
         }
         if (path === '/resolve') { resolves.push(route.request().postDataJSON().url); return route.fulfill({ json: resolved }) }
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
+    await page.clock.install()
     await page.goto('/')
-    return { searches, resolves }
+    return { searches, resolves, served }
 }
 
 test('typing a title lists movie and TV results with year, then a click opens the same preview a link does', async ({ page }) => {
@@ -63,7 +67,7 @@ test('a search request carries the type and text, waits for two characters and f
     const { searches } = await openHome(page, { search: url => { urls.push(url); return { json: { results: [], hasMore: false } } } })
     const input = page.getByPlaceholder(box)
     await input.fill('d')
-    await page.waitForTimeout(600)
+    await letTimersRun(page, 600)
     expect(searches).toEqual([])
     await input.pressSequentially('une', { delay: 40 })
     await expect(page.getByText('No results for dune')).toBeVisible()
@@ -77,7 +81,7 @@ test('a pasted link resolves as before and never searches, whatever the type say
     await page.getByRole('button', { name: 'Preview', exact: true }).click()
     await expect(page.getByRole('dialog', { name: /Dune/ })).toBeVisible()
     expect(resolves).toEqual(['https://www.themoviedb.org/movie/438631-dune'])
-    await page.waitForTimeout(500)
+    await letTimersRun(page, 500)
     expect(searches).toEqual([])
 })
 
@@ -91,18 +95,18 @@ test('a bare audiobook ASIN is a link, not a search', async ({ page }) => {
 })
 
 test('a slow earlier search never overwrites the latest results', async ({ page }) => {
-    await openHome(page, {
+    const { searches, served } = await openHome(page, {
         search: url => url.searchParams.get('q') === 'dun'
             ? { json: { results: [{ ...dune, title: 'Slow stale answer', providerId: '1', ref: 'https://www.themoviedb.org/movie/1' }], hasMore: false }, delay: 1500 }
             : { json: { results: [{ ...dune, title: 'Fresh answer', providerId: '2', ref: 'https://www.themoviedb.org/movie/2' }], hasMore: false } },
     })
     const input = page.getByPlaceholder(box)
     await input.fill('dun')
-    await page.waitForTimeout(450) // past the debounce, so the slow call is in flight
+    await expect.poll(() => searches).toContain('dun') // past the debounce, so the slow call is in flight
     await input.fill('dune')
     const results = page.getByRole('list', { name: 'Search results' })
     await expect(results.getByRole('button', { name: /Fresh answer/ })).toBeVisible()
-    await page.waitForTimeout(1600)
+    await expect.poll(() => served).toContain('dun') // the stale answer has now been delivered
     await expect(results.getByRole('button', { name: /Slow stale answer/ })).toHaveCount(0)
     await expect(results.getByRole('button', { name: /Fresh answer/ })).toBeVisible()
 })

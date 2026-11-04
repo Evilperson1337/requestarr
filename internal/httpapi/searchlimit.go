@@ -6,12 +6,17 @@ import (
 	"time"
 )
 
-// Default search budget per person: a burst of 10 searches, then one more every
-// second (60 a minute). Typeahead at a 300 ms pause stays well inside this for ordinary
-// typing; a script or stuck client does not.
+// Default search budget per person: a burst of 30 searches, then one more every
+// 250 ms (4 a second, 240 a minute). A typeahead person pauses at least the
+// browser's 300 ms debounce between searches, so the worst ordinary typist
+// sends about 3.3 a second and never runs the bucket down, while a script
+// sending 50 in a second is stopped after the burst. The limit guards the
+// server and one client's request rate; the shared provider budgets are
+// protected separately by the search cache, single-flight and each provider's
+// own queue, so a looser limit here does not widen what reaches a provider.
 const (
-	searchLimitBurst  = 10
-	searchLimitRefill = time.Second
+	searchLimitBurst  = 30
+	searchLimitRefill = 250 * time.Millisecond
 	// Above this many tracked people, full buckets are forgotten.
 	searchLimitSweepAt = 1024
 )
