@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# Deployment-file check (seam 3 of .scratch/unraid-deployment/spec.md). Resolves
+# deploy/unraid/compose.yaml with `docker compose config` against a fixture
+# environment file; no containers are started and resolved secrets are never
+# printed. Each artifact has its own section; ticket 06 adds the template.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+command -v docker >/dev/null || { echo 'FAIL: docker is required' >&2; exit 1; }
+command -v python3 >/dev/null || { echo 'FAIL: python3 is required' >&2; exit 1; }
+unset COMPOSE_FILE COMPOSE_ENV_FILES COMPOSE_DISABLE_ENV_FILE COMPOSE_PROJECT_NAME
+unset "${!REQUESTARR_@}" POSTGRES_PASSWORD 2>/dev/null || true
+
+dir=deploy/unraid
+compose=$dir/compose.yaml
+example=$dir/requestarr.env.example
+pinned_tag=v0.1.0-rc.1
+# Independent list of what an operator must supply (the spec's settings).
+required=(REQUESTARR_TAG POSTGRES_PASSWORD REQUESTARR_PUBLIC_URL REQUESTARR_OIDC_ISSUER
+  REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
+secrets=(POSTGRES_PASSWORD REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+failures=0
+fail() { echo "FAIL: $*" >&2; failures=$((failures + 1)); }
+
+# Fixture values: shaped like real ones so resolution can be asserted; fake.
+write_fixture() { # file [omit-key]
+  local f=$1 omit=${2:-}
+  cat > "$f" <<ENV
+REQUESTARR_TAG=$pinned_tag
+POSTGRES_PASSWORD=fixturepassword0123
+REQUESTARR_PUBLIC_URL=https://requests.example.test
+REQUESTARR_OIDC_ISSUER=https://id.example.test/realms/requestarr
+REQUESTARR_OIDC_CLIENT_ID=requestarr
+REQUESTARR_OIDC_CLIENT_SECRET=fixture-client-secret
+REQUESTARR_SESSION_HMAC_SECRET=fixture-session-secret-0123456789abcdef0123
+REQUESTARR_SECRETS_KEY=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+ENV
+  if [[ -n $omit ]]; then sed -i "/^$omit=/d" "$f"; fi
+}
+
+# resolve <compose> <env> -> JSON on stdout; non-zero when compose rejects it.
+resolve() { docker compose -f "$1" --env-file "$2" config --format json 2>/dev/null; }
+
+# ---- Section: compose file -------------------------------------------------
+check_compose() { # compose-file
+  local c=$1 env="$work/fixture.env" json
+  write_fixture "$env"
+  json="$(resolve "$c" "$env")" || { fail "$c does not resolve against the fixture environment"; return; }
+  printf '%s' "$json" | PINNED="$pinned_tag" python3 -c '
+import json, os, sys
+m = json.load(sys.stdin)
+errs = []
+svc = m["services"]
+if set(svc) != {"postgres", "requestarr"}:
+    errs.append("services must be exactly postgres and requestarr, got %s" % sorted(svc))
+r, p = svc.get("requestarr", {}), svc.get("postgres", {})
+if r.get("image") != "ghcr.io/evilperson1337/requestarr:" + os.environ["PINNED"]:
+    errs.append("requestarr image is %r, want the pinned tag" % r.get("image"))
+if r.get("depends_on", {}).get("postgres", {}).get("condition") != "service_healthy":
+    errs.append("requestarr must wait for postgres to be service_healthy")
+if "healthcheck" not in p:
+    errs.append("postgres needs a healthcheck")
+if "healthcheck" in r:
+    errs.append("requestarr must use the image health check, not its own")
+vols = [v for v in p.get("volumes", []) if v.get("target") == "/var/lib/postgresql/data"]
+if not vols or vols[0].get("type") != "volume" or not vols[0].get("source"):
+    errs.append("postgres data must be on a named volume")
+for e in errs:
+    print("FAIL: " + e, file=sys.stderr)
+sys.exit(1 if errs else 0)
+' || failures=$((failures + 1))
+}
+
+# Every required setting must be refused when missing: that is what "no usable
+# default" means for secrets and for the tag. Returns non-zero (printing why)
+# when any omission still resolves.
+check_no_defaults() { # compose-file
+  local c=$1 key rc=0
+  for key in "${required[@]}"; do
+    write_fixture "$work/omit.env" "$key"
+    if resolve "$c" "$work/omit.env" >/dev/null; then
+      echo "FAIL: $c resolves without $key, so it has a default" >&2
+      rc=1
+    fi
+  done
+  return $rc
+}
+
+# The tag must resolve to the exact pre-release, never a floating one.
+check_tag_pinned() { # compose-file
+  local c=$1 image
+  write_fixture "$work/fixture.env"
+  image="$(resolve "$c" "$work/fixture.env" | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["requestarr"]["image"])')" || return 1
+  if [[ $image != "ghcr.io/evilperson1337/requestarr:$pinned_tag" ]]; then
+    echo "FAIL: requestarr image resolves to $image, want tag $pinned_tag" >&2
+    return 1
+  fi
+  if grep -Eq 'REQUESTARR_TAG:-|:latest|:main|:edge' "$c"; then
+    echo "FAIL: $c hard-codes or defaults a floating tag" >&2
+    return 1
+  fi
+}
+
+# ---- Section: example environment file -------------------------------------
+value_of() { sed -n "s/^$1=//p" "$example" | head -n1; }
+
+check_example() { # example-file
+  local ex=$1 key v rc=0
+  if [[ ! -f $ex ]]; then echo "FAIL: $ex is missing" >&2; return 1; fi
+  for key in "${required[@]}"; do
+    if ! grep -Eq "^$key=" "$ex"; then echo "FAIL: $ex has no $key= line" >&2; rc=1; fi
+  done
+  [[ $(sed -n 's/^REQUESTARR_TAG=//p' "$ex") == "$pinned_tag" ]] || { echo "FAIL: $ex must set REQUESTARR_TAG=$pinned_tag" >&2; rc=1; }
+  for key in "${secrets[@]}"; do
+    v="$(sed -n "s/^$key=//p" "$ex" | head -n1)"
+    case $v in CHANGE_ME*) ;; *) echo "FAIL: $key in $ex must be a CHANGE_ME placeholder" >&2; rc=1 ;; esac
+  done
+  # The two server-validated secrets must not pass validation as written.
+  v="$(sed -n 's/^REQUESTARR_SESSION_HMAC_SECRET=//p' "$ex" | head -n1)"
+  ((${#v} < 32)) || { echo "FAIL: session secret placeholder is long enough to be accepted" >&2; rc=1; }
+  v="$(sed -n 's/^REQUESTARR_SECRETS_KEY=//p' "$ex" | head -n1)"
+  KEY="$v" python3 -c '
+import base64, binascii, os, sys
+k = os.environ["KEY"]
+ok = False
+try: ok = len(binascii.unhexlify(k)) == 32
+except Exception: pass
+if not ok:
+    try: ok = len(base64.b64decode(k, validate=True)) == 32
+    except Exception: pass
+sys.exit(1 if ok else 0)' || { echo "FAIL: master key placeholder is accepted as a 32-byte key" >&2; rc=1; }
+  return $rc
+}
+
+# Mutations prove each guard can fail: the check must reject a broken compose.
+expect_rejected() { # description command...
+  local what=$1; shift
+  if "$@" 2>/dev/null; then fail "check accepted $what"; fi
+}
+
+check_compose "$compose"
+check_no_defaults "$compose" || failures=$((failures + 1))
+check_tag_pinned "$compose" || failures=$((failures + 1))
+check_example "$example" || failures=$((failures + 1))
+
+# mutate <in> <out> <var> <replacement>: swap ${var:?...} for the replacement.
+mutate() {
+  python3 -c 'import re, sys
+src, dst, var, rep = sys.argv[1:]
+text = open(src).read()
+out = re.sub(r"\$\{" + var + r":\?[^}]*\}", lambda _: rep, text)
+assert out != text, "mutation did not apply"
+open(dst, "w").write(out)' "$@"
+}
+for key in "${secrets[@]}"; do
+  mutate "$compose" "$work/default.yaml" "$key" "\${$key:-usable-default}"
+  expect_rejected "a usable default for $key" check_no_defaults "$work/default.yaml"
+done
+mutate "$compose" "$work/floating.yaml" REQUESTARR_TAG latest
+expect_rejected "a floating tag" check_tag_pinned "$work/floating.yaml"
+mutate "$compose" "$work/floating.yaml" REQUESTARR_TAG '${REQUESTARR_TAG:-latest}'
+expect_rejected "a defaulted tag" check_no_defaults "$work/floating.yaml"
+for key in "${required[@]}"; do
+  grep -v "^$key=" "$example" > "$work/short.env.example" 2>/dev/null || true
+  expect_rejected "an example missing $key" check_example "$work/short.env.example"
+done
+
+if ((failures)); then echo "deploy files: $failures check(s) failed" >&2; exit 1; fi
+echo 'deploy files: ok'
