@@ -1,0 +1,8 @@
+# Replace-text rules for the public export (D034), applied in order to every blob
+# and commit message by scripts/export-public.sh. Changing this file changes what
+# is published, so it is reviewed like code. The private domain is written as a
+# one-character class so this file does not itself match the publish gate.
+# The Go module path first, so imports and go.mod change as a unit.
+regex:git\.allour[m]edia\.com/evilperson1337/requestarr==>github.com/evilperson1337/requestarr
+# Every other occurrence, any case.
+regex:(?i)allour[m]edia==>example
