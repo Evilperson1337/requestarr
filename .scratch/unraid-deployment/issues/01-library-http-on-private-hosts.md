@@ -6,11 +6,11 @@
 
 **Status:** ready-for-agent
 
-- [ ] Outside development, a Source URL over `http://` is accepted for a loopback, RFC 1918, link-local or CGNAT (100.64.0.0/10) IP literal, a single-label name, and a name ending `.local`, `.lan`, `.internal` or `.home.arpa`
-- [ ] Outside development, a Source URL over `http://` on any other host (a public DNS name or public IP) is rejected, and the message says what would make it acceptable (https, or adding the network to the allowed list)
-- [ ] A new environment setting takes a comma-separated list of CIDRs and hostname suffixes and only ever adds to the built-in list; a malformed entry is a startup problem that names the entry
-- [ ] The rule is one validator shared by the environment path and the Setup "apply" path; there is no second copy
-- [ ] The public URL, OIDC issuer and Apprise URL still reject `http://` outside development; development behaviour is unchanged
-- [ ] Table-driven tests on the configuration validation cover every case above (seam 1 of the spec)
-- [ ] The integrations documentation states the new rule and that an `http://` library connection sends its token in cleartext on the network
-- [ ] `scripts/check.sh` passes
+- [x] Outside development, a Source URL over `http://` is accepted for a loopback, RFC 1918, link-local or CGNAT (100.64.0.0/10) IP literal, a single-label name, and a name ending `.local`, `.lan`, `.internal` or `.home.arpa`
+- [x] Outside development, a Source URL over `http://` on any other host (a public DNS name or public IP) is rejected, and the message says what would make it acceptable (https, or adding the network to the allowed list)
+- [x] A new environment setting takes a comma-separated list of CIDRs and hostname suffixes and only ever adds to the built-in list; a malformed entry is a startup problem that names the entry
+- [x] The rule is one validator shared by the environment path and the Setup "apply" path; there is no second copy
+- [x] The public URL, OIDC issuer and Apprise URL still reject `http://` outside development; development behaviour is unchanged
+- [x] Table-driven tests on the configuration validation cover every case above (seam 1 of the spec)
+- [x] The integrations documentation states the new rule and that an `http://` library connection sends its token in cleartext on the network
+- [ ] `scripts/check.sh` passes (not run by instruction; make fmt and vet clean, make test green except an unrelated embedded-UI router test that needs a built web dist)

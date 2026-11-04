@@ -1,5 +1,15 @@
 # Integration Contracts
 
+## Library Source URLs and `http://` (D033)
+
+A library Source URL (Plex, Jellyfin, Navidrome, RomM, Audiobookshelf), set in the environment or applied from Setup, must use `https://` outside development, except when its host is a **private host**, judged by the address alone: a loopback, RFC 1918 (10/8, 172.16/12, 192.168/16), link-local or CGNAT (100.64.0.0/10) IP literal, a single-label name such as `plex`, or a name ending `.local`, `.lan`, `.internal` or `.home.arpa`. Any other host (a public DNS name or public IP) is rejected over `http://`; the message says to use https or add the network to the allowed list.
+
+`REQUESTARR_HTTP_ALLOWED_NETWORKS` takes a comma-separated list of CIDRs and hostname suffixes (for example `203.0.113.0/24,.vpn.example`). It only ever adds to the built-in list, and a malformed entry stops startup naming the entry.
+
+**Warning:** an `http://` library connection sends its token (or password) in cleartext on the network between Requestarr and the library. The check is syntactic: a Docker name resolves only at run time. Use `https://` wherever the path is not a network you trust.
+
+`REQUESTARR_PUBLIC_URL`, `REQUESTARR_OIDC_ISSUER` and `REQUESTARR_APPRISE_URL` are unaffected and stay https-only outside development.
+
 ## Metadata providers
 
 ### TMDB
@@ -38,7 +48,7 @@ Album requests target release groups; song requests target recordings. A pasted 
 
 Set both `REQUESTARR_PLEX_URL` and `REQUESTARR_PLEX_TOKEN` to enable it. The URL
 is an origin with the same rules as Jellyfin's (no credentials, path, query or
-fragment; HTTPS outside development) and is trusted operator configuration with
+fragment; HTTPS outside development unless a private host, see above) and is trusted operator configuration with
 the same private-network caveat. The token is sent only in the `X-Plex-Token`
 header, never in a URL, and never appears in errors, logs or run history.
 
@@ -72,7 +82,7 @@ Known limit: evidence is only expired by that Source's own successful syncs. If 
 
 Set both `REQUESTARR_JELLYFIN_URL` and `REQUESTARR_JELLYFIN_API_KEY` to enable
 the optional integration. The URL must be an origin (no path/query/fragment or
-credentials); HTTP is permitted only in development, HTTPS is required otherwise.
+credentials); HTTP is permitted in development and on a private host (see above); HTTPS is required otherwise.
 This operator-configured URL is trusted configuration, not a security boundary:
 an operator can direct it to private HTTP networks, and the integration does not
 prevent requests to loopback, link-local, or other internal addresses. Treat this
@@ -108,7 +118,7 @@ Jellyfin covers movies and TV only; music comes from Plex (and later Navidrome) 
 Set `REQUESTARR_NAVIDROME_URL`, `REQUESTARR_NAVIDROME_USERNAME`, and
 `REQUESTARR_NAVIDROME_PASSWORD` together to enable the optional music source.
 The URL follows the other Source origin rules: no credentials, path, query or
-fragment; HTTPS outside development. Use a dedicated read-only account. The
+fragment; HTTPS outside development unless a private host (see above). Use a dedicated read-only account. The
 OpenSubsonic salted-token authentication is passed using standard API query
 parameters; the clear password is not sent, but intermediaries must not log
 request URLs. Redirects are disabled and responses are size-limited.

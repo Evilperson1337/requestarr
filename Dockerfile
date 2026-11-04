@@ -25,4 +25,6 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/requestarr /requestarr
 EXPOSE 8080
 USER nonroot:nonroot
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD ["/requestarr", "healthcheck"]
 ENTRYPOINT ["/requestarr"]
