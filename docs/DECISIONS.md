@@ -75,8 +75,8 @@ Availability evidence and absence streaks carry a platform key (`igdb:<id>`, or 
 ## D022 — Development OIDC issuers may use loopback HTTP
 `REQUESTARR_OIDC_ISSUER` stays HTTPS-only, except that with `REQUESTARR_ENV=development` an `http` issuer on `localhost`, `127.0.0.1` or `::1` is accepted so the dev compose Keycloak (plain HTTP) can be used. Production and non-loopback hosts still require HTTPS. OIDC remains the only sign-in path (accepted V1 decision 5). `make check-login` verifies the flow.
 
-## D023 — Supply-chain and container publishing policy (proposed)
-Releases publish a multi-arch container image to GHCR, an SPDX SBOM per archive and image, build-provenance attestations, and a keyless cosign signature on the image; `latest` tracks stable tags only. Details are in `docs/RELEASES.md`. Proposed during ticket 28; it becomes accepted when the maintainer approves it. the workflow implementation is still outstanding.
+## D023 — Supply-chain and container publishing policy
+Releases publish a multi-arch container image to GHCR, an SPDX SBOM per archive and image, build-provenance attestations, and a keyless cosign signature on the image; `latest` tracks stable tags only. Details are in `docs/RELEASES.md`. Proposed during ticket 28 and accepted with D034. The workflow implementation is still outstanding.
 
 ## D024 — Post-bootstrap integration secrets may be stored encrypted
 Partly supersedes D017. An admin may enter the TMDB token, IGDB client secret, Jellyfin/Plex/RomM credentials, the Navidrome password and the Apprise config key in Setup. They are stored in PostgreSQL encrypted with AES-256-GCM under an operator-supplied master key (`REQUESTARR_SECRETS_KEY`, 32 bytes, validated at startup); each row records its key id. Without the master key the UI refuses secret values and the environment path keeps working.
@@ -242,3 +242,22 @@ Open items, not decided:
 - The other open questions in the research note (blended "All" type, per-user rate limits, per-provider disable) are settled in the spec's tickets, not here.
 
 Addendum (Songs, ticket 09): a Songs search row is one MusicBrainz recording, with the recording URL as its ref. The search status badge ("In library") for album and song results matches a library's items by the key's own id, by a Plex `mbid` equal to it, and through the catalog item's aliases (D020). An item nobody has opened has no catalog row and so no aliases; a copy held in Plex under a release or release-track id is then reported as unknown (no local state, no badge), never as absent. Aliases arrive when an album is previewed (its releases) or when a song has an open Request (alias job). Reading release or track ids out of the search response itself would close that gap and is a possible follow-up.
+
+## D033 — Library Source URLs may use http on a private host
+
+Accepted. Amends the "HTTPS outside development" rule for library Source URLs in `docs/INTEGRATIONS.md`; it does not touch `REQUESTARR_PUBLIC_URL`, the OIDC issuer or the Apprise URL, which stay https-only outside development.
+
+A Source URL (Plex, Jellyfin, Navidrome, RomM, Audiobookshelf), from the environment or saved in Setup, may use `http://` when its host is a **private host**: a loopback, RFC 1918, link-local or CGNAT (100.64.0.0/10) IP literal, a single-label name such as `plex`, or a name ending `.local`, `.lan`, `.internal` or `.home.arpa`. An operator can extend the list with `REQUESTARR_HTTP_ALLOWED_NETWORKS`, a comma-separated list of CIDRs and hostname suffixes; it only ever adds. Any other host still needs `https://`.
+
+Why: a self-hosted library is normally reached over a LAN or a Docker network, so the https-only rule made the Unraid template unusable. The check is syntactic, because a Docker name resolves only at run time, and a library token then travels in cleartext on that network. The documentation says so.
+
+## D034 — Unraid deployment, and a scrubbed public export
+
+Accepted. Plan: `.scratch/unraid-deployment/`.
+
+- **Shape:** a Community Applications-style template XML is the target; a compose file (Requestarr and PostgreSQL only) is for first testing. Both live under `deploy/unraid/` with `docs/UNRAID.md`, and the template installs through Unraid's Template Repositories URL. A Community Applications listing is a later follow-up, after the first release and a test on a real Unraid server.
+- **Not bundled:** PostgreSQL (the template expects an external one), the identity provider and TLS. A TLS reverse proxy is a documented prerequisite; the https rule for the public URL and issuer stays (see D033 for libraries). The docs describe OIDC generically with a Keycloak worked example.
+- **Secrets:** `REQUESTARR_SESSION_HMAC_SECRET` and `REQUESTARR_SECRETS_KEY` are required, masked template fields with no default, and the field text gives the generation command. The template offers Unraid's Network Type, since container names resolve only on a user-defined network.
+- **Health:** the binary gains a `healthcheck` subcommand (a GET of `/readyz` on the local listener), because the distroless image has no `curl`. The Dockerfile and compose use it.
+- **Publishing:** accepts D023. The image goes to `ghcr.io/evilperson1337/requestarr`. The first tag is a pre-release (`v0.1.0-rc.1`), tested on a real Unraid server with the compose file pinned to it; stable `v0.1.0` follows, and the template then defaults to `latest`.
+- **Public copy:** `git.example.com` stays the source of truth. The GitHub repository is a rewritten export, not a mirror: `scripts/export-public.sh <tag>` runs `git filter-repo` over a fresh clone, changes the module path to `github.com/evilperson1337/requestarr`, replaces every other `example` string and maps all authors to a GitHub noreply identity, then refuses to publish unless no ref, commit message, author, filename or blob contains `example`. The rewrite is deterministic, so hashes are stable between runs. If the gate cannot be satisfied, fall back to one snapshot commit per release. The script is run by hand at first; CI later.

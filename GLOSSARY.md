@@ -83,3 +83,7 @@ _Avoid_: Ticket, bug, complaint
 **Issue kind**:
 The category of an Issue, such as video, audio, subtitles, wrong region or does not boot. The kinds offered depend on the item's media type.
 _Avoid_: Issue type, severity
+
+**Private host**:
+A Source address that is, by its form alone, on a local or private network: a private or loopback IP, a single-label name, or a name ending in a local suffix the operator allows. Only a Source on a private host may be reached without https.
+_Avoid_: Local server, LAN address
