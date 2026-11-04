@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { letTimersRun } from './fixtures'
 
 const box = 'Search or paste a link…'
 const pixel = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
@@ -30,6 +31,7 @@ async function openHome(page: Page, search?: (url: URL) => Reply) {
         if (path === '/resolve') { resolves.push(route.request().postDataJSON().url); return route.fulfill({ json: resolved }) }
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
+    await page.clock.install()
     await page.goto('/')
     await page.getByRole('radio', { name: 'Albums' }).check()
     return { searches, resolves }
@@ -38,7 +40,7 @@ async function openHome(page: Page, search?: (url: URL) => Reply) {
 test('Albums is offered as a type and does not search while typing, only on Enter', async ({ page }) => {
     const { searches } = await openHome(page)
     await page.getByPlaceholder(box).fill('dark side')
-    await page.waitForTimeout(900)
+    await letTimersRun(page, 900)
     expect(searches).toEqual([])
     await page.getByPlaceholder(box).press('Enter')
     const results = page.getByRole('list', { name: 'Search results' })
@@ -60,7 +62,7 @@ test('the Search button submits, and typing afterwards neither searches nor clea
     const results = page.getByRole('list', { name: 'Search results' })
     await expect(results.getByRole('button')).toHaveCount(1)
     await page.getByPlaceholder(box).fill('dark side of the')
-    await page.waitForTimeout(900)
+    await letTimersRun(page, 900)
     expect(searches).toHaveLength(1)
     await expect(results.getByRole('button')).toHaveCount(1)
 })
