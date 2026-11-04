@@ -3,7 +3,7 @@ import { api, type MoviePreviewState, type SearchPage, type SearchResult, type R
 import { LibraryRail, RequestRail } from '../components/RequestRail'
 import { RequestModal } from '../components/RequestModal'
 import { followLink } from '../navigation'
-import { isLinkInput, searchTypeLabels, typeaheadTypes, useSearchTypes, type SearchState } from '../search'
+import { isLinkInput, searchBadges, searchTypeLabels, typeaheadTypes, useSearchTypes, type SearchState } from '../search'
 
 export function HomePage({ session, onCreated }: { session: Session; onCreated: () => void }) {
     const [text, setText] = useState('')
@@ -153,5 +153,6 @@ function SearchRow({ result, onPick }: { result: SearchResult; onPick: (opener: 
     return <li><button type="button" className="searchRow" onClick={event => onPick(event.currentTarget)}>
         {result.artworkUrl ? <img className="searchPoster" src={result.artworkUrl} alt="" loading="lazy" /> : <span className="searchPoster" aria-hidden="true" />}
         <span className="searchText"><span className="searchTitle">{result.title}</span> <span className="searchMeta">{[result.year || '', kind, result.subtitle].filter(Boolean).join(' · ')}</span></span>
+        {searchBadges(result.local).map(badge => <span key={badge.key} className={`searchBadge ${badge.key}`}><span aria-hidden="true">{badge.icon}</span> {badge.label}</span>)}
     </button></li>
 }

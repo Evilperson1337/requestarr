@@ -108,6 +108,7 @@ type Deps struct {
 	Connections  ConnectionsService
 	Library      LibraryReader
 	Search       SearchService
+	SearchLocal  SearchLocalService // optional: results are unannotated without it
 	Issues       IssueService
 
 	// DevelopmentLogs is nil unless the development-only flag enabled it.
@@ -208,7 +209,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	registerSecretsRoutes(rt, d.Secrets)
 	registerConnectionRoutes(rt, d.Connections)
 	registerLibraryRoutes(rt, d.Library)
-	registerSearchRoutes(rt, d.Search, logger)
+	registerSearchRoutes(rt, d.Search, d.SearchLocal, logger)
 	registerIssueRoutes(rt, d.Issues)
 	rt.handle("GET /setup/status", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) { writeSetupStatus(w, r, d.SetupState) })
 	rt.handle("POST /admin/sources/{source}/sync", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
