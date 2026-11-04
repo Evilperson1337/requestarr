@@ -8,7 +8,11 @@ export const searchTypeLabels: Record<string, string> = { movie_tv: 'Movies & TV
 export const typeaheadTypes = new Set(['movie_tv', 'game'])
 // Slower, rate-limited providers wait for Enter or the Search button. The hint
 // is read out with the input so a keyboard or screen-reader user knows why nothing appears while typing.
-export const searchHints: Record<string, string> = { album: 'Albums are looked up when you press Enter or Search, not as you type.', song: 'Songs are looked up when you press Enter or Search, not as you type.' }
+export const searchHints: Record<string, string> = {
+    album: 'Albums are looked up when you press Enter or Search, not as you type.',
+    song: 'Songs are looked up when you press Enter or Search, not as you type.',
+    audiobook: 'Audiobooks are looked up when you press Enter or Search, in your administrator’s Audible marketplace. Each edition (narrator, abridged or unabridged) has its own listing and is its own request, so pick the one you want.',
+}
 // Types with the "include singles & EPs" switch.
 export const singlesTypes = new Set(['album'])
 

@@ -73,7 +73,9 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://")}
 	// One IGDB provider serves links and searches, so they share its token and its request cap.
 	igdbProvider := igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil)
-	metadataService := metadata.NewService(store, tmdb.New(cfg.TMDBReadToken, nil), musicbrainz.New(nil), igdbProvider, audible.New(domain.AudibleRegion(cfg.AudibleRegion), nil))
+	// One Audible resolver serves links and searches; both use the admin's default marketplace (D031).
+	audibleProvider := audible.New(domain.AudibleRegion(cfg.AudibleRegion), nil)
+	metadataService := metadata.NewService(store, tmdb.New(cfg.TMDBReadToken, nil), musicbrainz.New(nil), igdbProvider, audibleProvider)
 	// A search type exists only when its provider is configured; it is the one switch.
 	searchers := map[string]metadata.Searcher{}
 	if cfg.TMDBReadToken != "" {
@@ -87,6 +89,9 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	if cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "" {
 		searchers["game"] = igdbProvider
 	}
+	// An unset marketplace means US, so audiobook search is always on; the
+	// catalog endpoint is undocumented, so failures reach the person as errors.
+	searchers["audiobook"] = audibleProvider
 	searchService := metadata.NewSearchService(searchers)
 	if cfg.AppriseURL != "" {
 		workers.Add(1)
