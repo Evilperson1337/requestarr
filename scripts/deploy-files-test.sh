@@ -225,5 +225,29 @@ mutate_template "a description without a purpose" '/Target="REQUESTARR_PUBLIC_UR
 sed 's#^\(      REQUESTARR_PUBLIC_URL:.*\)#\1\n      REQUESTARR_NEW_SETTING: ${REQUESTARR_NEW_SETTING:-x}#' "$compose" > "$work/extra.yaml"
 expect_rejected "a compose setting with no template field" check_template "$template" "$work/extra.yaml"
 
+# ---- Section: guide ----------------------------------------------------------
+# Every REQUESTARR_* name docs/UNRAID.md mentions must be read by the configuration
+# code (REQUESTARR_TAG is the compose file's own image-tag variable, not the app's).
+guide=docs/UNRAID.md
+check_guide_names() { # guide-file
+  local g=$1 name rc=0 names
+  if [[ ! -f $g ]]; then echo "FAIL: $g is missing" >&2; return 1; fi
+  names="$(grep -Eo 'REQUESTARR_[A-Z0-9_]+' "$g" | sort -u)"
+  [[ -n $names ]] || { echo "FAIL: $g mentions no REQUESTARR_ names" >&2; return 1; }
+  for name in $names; do
+    [[ $name == REQUESTARR_TAG ]] && continue
+    if ! grep -rqF --include='*.go' --exclude='*_test.go' "\"$name\"" internal/config internal/secrets internal/sources; then
+      echo "FAIL: $g mentions $name, which the configuration code does not read" >&2
+      rc=1
+    fi
+  done
+  return $rc
+}
+check_guide_names "$guide" || failures=$((failures + 1))
+sed 's#REQUESTARR_HTTP_ALLOWED_NETWORKS#REQUESTARR_HTTP_ALLOWED_NETWORK#' "$guide" > "$work/guide-mutant.md"
+expect_rejected "a guide naming a variable the code does not read" check_guide_names "$work/guide-mutant.md"
+cp "$guide" "$work/guide-mutant.md"; echo 'Set REQUESTARR_NOT_A_SETTING=1.' >> "$work/guide-mutant.md"
+expect_rejected "a guide naming an unknown variable" check_guide_names "$work/guide-mutant.md"
+
 if ((failures)); then echo "deploy files: $failures check(s) failed" >&2; exit 1; fi
 echo 'deploy files: ok'

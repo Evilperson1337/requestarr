@@ -79,6 +79,8 @@ Before starting the stack, configure valid OIDC issuer/client values and a rando
 
 `GET /healthz` is a dependency-free liveness probe; `GET /readyz` additionally checks the database and returns `503` while it is unreachable. For the full development environment, open the repository in its Dev Container.
 
+To run Requestarr on an Unraid server (template or compose), follow the [Unraid guide](docs/UNRAID.md).
+
 For initial administrator provisioning, see [`docs/OIDC_AUTH.md`](docs/OIDC_AUTH.md): operators run `requestarr setup-token --issuer <issuer> --subject <subject>`, then the matching authenticated OIDC user claims it once.
 
 After claiming admin, use **Setup** for the resumable draft (General through Review) with explicit
