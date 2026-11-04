@@ -1,0 +1,47 @@
+# Requestarr plus PostgreSQL, for trying Requestarr on a server before using the
+# Unraid template (D034). You bring your own OIDC provider and TLS reverse proxy.
+#
+#   cp requestarr.env.example requestarr.env   # then replace every placeholder
+#   docker compose --env-file requestarr.env up -d
+#
+# Every operator value comes from the environment file. Secrets have no default:
+# Compose refuses to start until each is set. The image tag is one variable
+# (REQUESTARR_TAG), pinned in the example to an exact pre-release.
+name: requestarr
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: requestarr
+      POSTGRES_USER: requestarr
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in requestarr.env}
+    volumes:
+      - requestarr-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U requestarr -d requestarr" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  requestarr:
+    image: ghcr.io/evilperson1337/requestarr:${REQUESTARR_TAG:?set REQUESTARR_TAG in requestarr.env}
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      REQUESTARR_DATABASE_URL: postgres://requestarr:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in requestarr.env}@postgres:5432/requestarr?sslmode=disable
+      REQUESTARR_PUBLIC_URL: ${REQUESTARR_PUBLIC_URL:?set REQUESTARR_PUBLIC_URL in requestarr.env}
+      REQUESTARR_OIDC_ISSUER: ${REQUESTARR_OIDC_ISSUER:?set REQUESTARR_OIDC_ISSUER in requestarr.env}
+      REQUESTARR_OIDC_CLIENT_ID: ${REQUESTARR_OIDC_CLIENT_ID:?set REQUESTARR_OIDC_CLIENT_ID in requestarr.env}
+      REQUESTARR_OIDC_CLIENT_SECRET: ${REQUESTARR_OIDC_CLIENT_SECRET:?set REQUESTARR_OIDC_CLIENT_SECRET in requestarr.env}
+      REQUESTARR_SESSION_HMAC_SECRET: ${REQUESTARR_SESSION_HMAC_SECRET:?set REQUESTARR_SESSION_HMAC_SECRET in requestarr.env}
+      REQUESTARR_SECRETS_KEY: ${REQUESTARR_SECRETS_KEY:?set REQUESTARR_SECRETS_KEY in requestarr.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # No healthcheck here: the image's HEALTHCHECK runs `requestarr healthcheck`.
+
+volumes:
+  requestarr-postgres:

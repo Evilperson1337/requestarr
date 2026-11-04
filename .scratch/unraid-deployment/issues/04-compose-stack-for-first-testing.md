@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] The compose file runs Requestarr and PostgreSQL, with the database on a named volume, Requestarr waiting for the database to be healthy, and its own health check from the image
-- [ ] Every operator-supplied value (database URL or credentials, public URL, OIDC issuer, client ID and secret, session secret, master key) is read from an environment file; the example file has a placeholder for each and no value that would pass as a real secret
-- [ ] The Requestarr image tag is pinned to the exact pre-release `v0.1.0-rc.1` through a single variable, never a floating tag
-- [ ] A script-level check in the style of the existing stack scripts resolves the compose file with `docker compose config` against a fixture environment file without starting containers, and fails if a required setting is missing from the example, a secret has a usable default, or the tag floats (seam 3 of the spec)
+- [x] The compose file runs Requestarr and PostgreSQL, with the database on a named volume, Requestarr waiting for the database to be healthy, and its own health check from the image
+- [x] Every operator-supplied value (database URL or credentials, public URL, OIDC issuer, client ID and secret, session secret, master key) is read from an environment file; the example file has a placeholder for each and no value that would pass as a real secret
+- [x] The Requestarr image tag is pinned to the exact pre-release `v0.1.0-rc.1` through a single variable, never a floating tag
+- [x] A script-level check in the style of the existing stack scripts resolves the compose file with `docker compose config` against a fixture environment file without starting containers, and fails if a required setting is missing from the example, a secret has a usable default, or the tag floats (seam 3 of the spec)
 - [ ] The check runs in CI
 - [ ] `scripts/check.sh` passes
