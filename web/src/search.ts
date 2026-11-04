@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type SearchResult } from './api'
 
-export type SearchState = { status: 'idle' | 'loading' | 'done' | 'error'; query: string; results: SearchResult[]; hasMore?: boolean; error: string }
+export type SearchState = { status: 'idle' | 'loading' | 'done' | 'error' | 'limited'; query: string; results: SearchResult[]; hasMore?: boolean; error: string }
 
 export const searchTypeLabels: Record<string, string> = { movie_tv: 'Movies & TV', album: 'Albums', song: 'Songs', game: 'Games', audiobook: 'Audiobooks' }
 // Types that search as you type; the slower providers wait for Enter.

@@ -108,7 +108,9 @@ type Deps struct {
 	Connections  ConnectionsService
 	Library      LibraryReader
 	Search       SearchService
-	Issues       IssueService
+	// SearchLimiter is optional; nil uses the built-in per-user default.
+	SearchLimiter *SearchLimiter
+	Issues        IssueService
 
 	// DevelopmentLogs is nil unless the development-only flag enabled it.
 	DevelopmentLogs *devlogs.Recorder
@@ -208,7 +210,11 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	registerSecretsRoutes(rt, d.Secrets)
 	registerConnectionRoutes(rt, d.Connections)
 	registerLibraryRoutes(rt, d.Library)
-	registerSearchRoutes(rt, d.Search, logger)
+	limiter := d.SearchLimiter
+	if limiter == nil {
+		limiter = NewSearchLimiter(searchLimitBurst, searchLimitRefill, nil)
+	}
+	registerSearchRoutes(rt, d.Search, limiter, logger)
 	registerIssueRoutes(rt, d.Issues)
 	rt.handle("GET /setup/status", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) { writeSetupStatus(w, r, d.SetupState) })
 	rt.handle("POST /admin/sources/{source}/sync", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {

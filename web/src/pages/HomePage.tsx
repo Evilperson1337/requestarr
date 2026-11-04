@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, type MoviePreviewState, type SearchPage, type SearchResult, type RecentLibraryItem, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
+import { api, ApiError, type MoviePreviewState, type SearchPage, type SearchResult, type RecentLibraryItem, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
 import { LibraryRail, RequestRail } from '../components/RequestRail'
 import { RequestModal } from '../components/RequestModal'
 import { followLink, navigate, useLocation } from '../navigation'
@@ -84,7 +84,15 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
             const page = await api<SearchPage>(`/search?${new URLSearchParams({ q: query, type })}`, { signal: controller.signal, cache: 'no-store' })
             if (searchController.current === controller && !controller.signal.aborted) setSearch({ status: 'done', query, results: Array.isArray(page?.results) ? page.results : [], hasMore: !!page?.hasMore, error: '' })
         } catch (e) {
-            if (searchController.current === controller && !controller.signal.aborted) setSearch({ status: 'error', query, results: [], error: `${e instanceof Error ? e.message : 'The search failed.'} You can still paste a link.` })
+            if (searchController.current !== controller || controller.signal.aborted) return
+            if (e instanceof ApiError && e.code === 'search_rate_limited') {
+                // Too many searches: keep what is on screen, say so, and try once more when the server says to.
+                const wait = Math.min(Math.max(e.retryAfter || 2, 1), 30)
+                setSearch(previous => ({ ...previous, status: 'limited', error: `You are searching too fast. Trying again in ${wait} ${wait === 1 ? 'second' : 'seconds'}.` }))
+                setTimeout(() => { if (searchController.current === controller && !controller.signal.aborted) void runSearch(query, type) }, wait * 1000)
+                return
+            }
+            setSearch({ status: 'error', query, results: [], error: `${e instanceof Error ? e.message : 'The search failed.'} You can still paste a link.` })
         }
     }, [writeUrl])
     // Typeahead: search once typing pauses. Anything newer cancels what is in flight, so a slow answer can never land late.
@@ -144,7 +152,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
             <form onSubmit={submit}><label className="urlBox"><span aria-hidden="true">↗</span><span className="sr-only">Search by name, or paste a TMDB, MusicBrainz, IGDB or Audible URL, or an audiobook ASIN</span><input type="text" inputMode="search" autoComplete="off" spellCheck={false} maxLength={2048} required value={text} onChange={e => edit(e.target.value)} placeholder="Search or paste a link…" /></label><button ref={previewButton} className="button" disabled={busy} onClick={event => { if (event.detail > 0) event.currentTarget.focus() }}>{busy ? 'Resolving…' : link || !text.trim() ? 'Preview' : 'Search'}</button></form>
             {types.length > 0 && <fieldset className="searchTypes" role="radiogroup"><legend>Search for</legend>{types.map(type => <label key={type}><input type="radio" name="searchType" value={type} checked={searchType === type} onChange={() => chooseType(type)} />{searchTypeLabels[type] ?? type}</label>)}</fieldset>}
             {busy && <p role="status">Looking up metadata…</p>}{error && <p role="alert" className="error">{error}</p>}
-            {search.status === 'error' && <p role="alert" className="error">{search.error}</p>}
+            {(search.status === 'error' || search.status === 'limited') && <p role="alert" className="error">{search.error}</p>}
             <p role="status" className="searchStatus">{searchStatus}</p>
             {search.results.length > 0 && <ul className="searchResults" aria-label="Search results" aria-busy={search.status === 'loading'}>{search.results.map(result => <SearchRow key={result.ref} result={result} onPick={opener => void resolve(result.ref, opener)} />)}</ul>}
             {search.status === 'done' && search.hasMore && <p className="searchMore">There are more matches. Add more of the title to narrow them down.</p>}
