@@ -162,8 +162,9 @@ func (r *Resolver) resolveRelease(ctx context.Context, id string) (domain.Resolv
 }
 
 type credit struct {
-	Name   string `json:"name"`
-	Artist struct {
+	Name       string `json:"name"`
+	JoinPhrase string `json:"joinphrase"`
+	Artist     struct {
 		Name string `json:"name"`
 	} `json:"artist"`
 }

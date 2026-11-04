@@ -10,6 +10,7 @@ export const typeaheadTypes = new Set(['movie_tv', 'game'])
 // is read out with the input so a keyboard or screen-reader user knows why nothing appears while typing.
 export const searchHints: Record<string, string> = {
     album: 'Albums are looked up when you press Enter or Search, not as you type.',
+    song: 'Songs are looked up when you press Enter or Search, not as you type.',
     audiobook: 'Audiobooks are looked up when you press Enter or Search, in your administrator’s Audible marketplace. Each edition (narrator, abridged or unabridged) has its own listing and is its own request, so pick the one you want.',
 }
 // Types with the "include singles & EPs" switch.

@@ -109,14 +109,28 @@ func nonEmpty(parts ...string) []string {
 	return out
 }
 
-// albumQuery builds the Lucene query for a typed name. Every word becomes one
-// quoted phrase matched against the title or the artist, and the words are
+// albumQuery matches each typed word against the release group title or the
+// artist, limited to albums (or also singles and EPs).
+func albumQuery(text string, includeSingles bool) string {
+	terms := termsQuery(text, "releasegroup")
+	if terms == "" {
+		return ""
+	}
+	kinds := `primarytype:"album"`
+	if includeSingles {
+		kinds = `(primarytype:"album" OR primarytype:"single" OR primarytype:"ep")`
+	}
+	return terms + " AND " + kinds
+}
+
+// termsQuery builds the Lucene query for a typed name. Every word becomes one
+// quoted phrase matched against titleField or the artist, and the words are
 // AND-ed, so "pink floyd dark side" finds the album while the text can never
 // act as syntax: inside quotes only a backslash and a quote mean anything and
 // both are escaped, which also turns AND, OR, NOT and field names into plain
 // words. A word with no letter or digit (a lone "*", say) is dropped. An empty
 // result means there is nothing to ask.
-func albumQuery(text string, includeSingles bool) string {
+func termsQuery(text, titleField string) string {
 	var clauses []string
 	for _, word := range strings.Fields(text) {
 		if len(clauses) >= maxQueryTerms {
@@ -126,14 +140,7 @@ func albumQuery(text string, includeSingles bool) string {
 			continue
 		}
 		phrase := `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(word) + `"`
-		clauses = append(clauses, "(releasegroup:"+phrase+" OR artist:"+phrase+")")
+		clauses = append(clauses, "("+titleField+":"+phrase+" OR artist:"+phrase+")")
 	}
-	if len(clauses) == 0 {
-		return ""
-	}
-	kinds := `primarytype:"album"`
-	if includeSingles {
-		kinds = `(primarytype:"album" OR primarytype:"single" OR primarytype:"ep")`
-	}
-	return strings.Join(clauses, " AND ") + " AND " + kinds
+	return strings.Join(clauses, " AND ")
 }
