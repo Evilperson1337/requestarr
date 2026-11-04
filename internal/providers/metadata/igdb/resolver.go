@@ -80,7 +80,7 @@ func (r *Resolver) token(ctx context.Context, renew bool) (string, error) {
 	req.Header.Set("User-Agent", "Requestarr/1.0 (+https://github.com/evilperson1337/requestarr)")
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("IGDB token request: %w", err)
+		return "", fmt.Errorf("IGDB token request: %w", metadata.WithoutURL(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

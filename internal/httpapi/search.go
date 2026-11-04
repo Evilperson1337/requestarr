@@ -119,7 +119,9 @@ func registerSearchRoutes(rt *routeTable, search SearchService, local SearchLoca
 
 // writeSearchError answers a failed search with the resolve error codes. A
 // provider failure is never an empty list: whatever went wrong, the person is
-// told the search did not work. The search text is not logged.
+// told the search did not work. The search text is not logged: the logged
+// error comes from the provider clients, which strip the request URL (it holds
+// the text) from transport failures, and the text is never passed to the logger.
 func writeSearchError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {
 	logger.Warn("metadata search failed", "request_id", apierror.RequestID(r.Context()), "error", err)
 	switch {
