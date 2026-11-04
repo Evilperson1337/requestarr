@@ -175,7 +175,7 @@ paths:
         only while the provider is busy or down. Viewers may search.
       parameters:
         - { in: query, name: q, required: true, schema: { type: string, minLength: 2, maxLength: 200 }, description: "Search text, trimmed; control characters are rejected" }
-        - { in: query, name: type, required: true, schema: { type: string, enum: [movie_tv, album, song, game, audiobook] }, description: "Which provider to search. movie_tv and album are implemented so far; the others answer metadata_provider_not_configured until their provider lands. album uses MusicBrainz, which allows about one request per second for the whole instance: it queues behind previews, holds at most a few waiting searches (more answer metadata_provider_busy at once) and stops when the client disconnects" }
+        - { in: query, name: type, required: true, schema: { type: string, enum: [movie_tv, album, song, game, audiobook] }, description: "Which provider to search. movie_tv, album, song and game are implemented so far; the others answer metadata_provider_not_configured until their provider lands. album and song use MusicBrainz (a song row is one recording: artist, length and first release in the subtitle), which allows about one request per second for the whole instance: it queues behind previews, holds at most a few waiting searches (more answer metadata_provider_busy at once) and stops when the client disconnects" }
         - { in: query, name: singles, schema: { type: boolean, default: false }, description: "album only: also include singles and EPs (otherwise primary type Album only). Ignored by other types" }
         - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 10, default: 1 } }
       responses:
@@ -1328,7 +1328,11 @@ components:
       description: >-
         What this instance already knows about the item, from the local database only
         (no provider or library call). Omitted from a result never resolved here; omission
-        means "never resolved here", not "missing". Advisory: Request writes enforce everything again.
+        means "never resolved here", not "missing". For album and song results a library that
+        files music under a MusicBrainz release or release-track id (Plex) is matched through the
+        item's aliases (D020), which exist only once the item has been opened or requested: until
+        then such a library item is unknown here and the result carries no "In library" claim.
+        Advisory: Request writes enforce everything again.
       properties:
         catalogId: { type: string, format: uuid, description: Present when a catalog item exists }
         requestStatus: { type: string, enum: [requested, approved, denied, available, cancelled], description: Present when the item has a Request }
