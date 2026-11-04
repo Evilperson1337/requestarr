@@ -30,7 +30,7 @@ make release-check  # goreleaser check
 
 Single Go test: `go test ./internal/domain/... -run TestName -v`.
 
-Before opening a PR, run `scripts/check.sh` (fmt, test, vet, and web-check if `web/node_modules` exists). This mirrors what `AGENTS.md` calls "required checks before completing a change" — run all four (`make fmt test vet web-check`) after any change, not just Go changes.
+Before opening a PR, run `scripts/check.sh` (fmt, test, vet, PostgreSQL integration tests, and web typecheck plus Playwright if `web/node_modules` exists). This mirrors CI and what `AGENTS.md` calls "required checks before completing a change". Run it after any change, not just Go changes. A change under `internal/store/` or `db/migrations/` is unverified until `make test-integration` has passed; if port 5432 is taken, set `REQUESTARR_POSTGRES_PORT`.
 
 The Go module and development container target Go 1.27. The web app has no third-party runtime deps beyond React/Vite — deliberately, so the architecture can be reviewed before further libraries are added.
 
@@ -47,6 +47,8 @@ Key invariants worth knowing before touching this flow:
 - Request status and availability are conceptually separate even though V1 UI/API collapses `available` into the status enum (`internal/domain/request.go`).
 - Game requests use OR-semantics platform matching: `Any` is mutually exclusive with explicit `PlatformKeys`; `ValidatePlatformSelection` in `internal/domain/request.go` encodes this — reuse it rather than re-deriving the rule.
 - Subscriptions are `(request_id, user_id)` unique; the requester gets `source=requester` automatically, others get `source=manual` via "Notify Me" — this is not a voting system, do not add vote counts.
+
+Before parsing a media library's or provider's JSON, check its field names against its upstream source or API docs rather than recalling them: `references/source/manifest.yaml` lists the checkouts `./scripts/fetch-references.sh` fetches (RomM today); for a project it lacks, add it to the manifest or record a real response in the adapter's `testdata`. To add a field to a Library item, follow "Adding a Library item field" in `docs/ARCHITECTURE.md`.
 
 Database migrations under `db/migrations/` are append-only once merged — never edit an applied migration; add a new one.
 

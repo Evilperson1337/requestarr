@@ -65,6 +65,8 @@ test-integration:
 	  docker compose -f compose.dev.yaml up -d --wait postgres; \
 	  docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -tc "select 1 from pg_database where datname='requestarr_test'" | grep -q 1 \
 	    || docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -c 'create database requestarr_test'; \
+	  : "The tests share one database and leave rows behind, so every run starts from an empty one."; \
+	  docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -c 'drop database requestarr_test with (force)' -c 'create database requestarr_test'; \
 	fi; \
 	REQUESTARR_TEST_DATABASE_URL="$${REQUESTARR_TEST_DATABASE_URL:-$(TEST_DB_URL)}" go test -tags integration -count=1 ./internal/store/postgres/...
 

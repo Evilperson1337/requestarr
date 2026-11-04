@@ -108,3 +108,17 @@ For an IGDB game request:
 - Presence of one matching selected platform satisfies the request.
 - Evidence is tracked per platform (D021); a platform a Source cannot map to IGDB satisfies Any but never an explicit selection.
 - `Any` and explicit selections are mutually exclusive.
+
+## Adding a Library item field
+
+A fact about a Library item travels adapter, snapshot, database, API, dialog. Touch each stop; the first two checks below catch a missed one.
+
+1. `internal/domain/library.go`: the field on `LibraryItem` (or `LibraryDetails`), with its JSON tag and any bounds in `Clean`.
+2. `internal/inventory/source.go`: the field on `inventory.Item`.
+3. Each adapter under `internal/inventory/<kind>/client.go` that knows the fact, with a test in its `client_test.go`. Check the library's field names against its upstream source (`references/source/manifest.yaml`) or a real response first.
+4. `db/migrations/`: a new migration (never edit an applied one) and the upsert in `internal/store/postgres/inventory.go`. A field missing from the upsert is silently dropped.
+5. `internal/store/postgres/library_browse.go`: the select. The list stays small; single-item reads carry the heavy fields.
+6. `api/openapi.yaml`: the schema. `TestOpenAPILibrarySchemasMatchTheGoTypes` fails if it disagrees with the Go struct.
+7. `web/src/api.ts` and `web/src/components/LibraryItemDialog.tsx`, with a Playwright case in `web/tests/library-issues.spec.ts`.
+
+`TestLibraryItemDetailsRoundTripIntegration` runs steps 4 and 5 against PostgreSQL; extend it with the new field.
