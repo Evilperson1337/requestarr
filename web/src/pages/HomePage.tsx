@@ -40,7 +40,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     useEffect(() => {
         const controller = new AbortController()
         // One shelf per cover shape, so every cover in a row has the same proportions.
-        const shelf = (types: string, set: (items: RecentLibraryItem[]) => void) => api<{ items: RecentLibraryItem[] }>(`/library/recent?types=${types}&limit=12`, { signal: controller.signal })
+        const shelf = (types: string, set: (items: RecentLibraryItem[]) => void) => api<{ items: RecentLibraryItem[] }>(`/library/recent?types=${types}&limit=48`, { signal: controller.signal })
             .then(result => { if (!controller.signal.aborted) set(Array.isArray(result?.items) ? result.items : []) })
             .catch(() => undefined)
         void shelf('movie,tv', setAddedVideo); void shelf('album', setAddedMusic); void shelf('game', setAddedGames); void shelf('audiobook', setAddedBooks)
@@ -80,19 +80,19 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         </section>}
         {addedVideo.length > 0 && <section className="recent" aria-labelledby="added-video-heading">
             <div className="recentHeader"><h2 id="added-video-heading">New movies and shows in your libraries</h2></div>
-            <LibraryRail items={addedVideo} />
+            <LibraryRail items={addedVideo} label="movies and shows" />
         </section>}
         {addedMusic.length > 0 && <section className="recent" aria-labelledby="added-music-heading">
             <div className="recentHeader"><h2 id="added-music-heading">New music in your libraries</h2></div>
-            <LibraryRail items={addedMusic} />
+            <LibraryRail items={addedMusic} label="albums" />
         </section>}
         {addedGames.length > 0 && <section className="recent" aria-labelledby="added-games-heading">
             <div className="recentHeader"><h2 id="added-games-heading">New games in your libraries</h2></div>
-            <LibraryRail items={addedGames} />
+            <LibraryRail items={addedGames} label="games" />
         </section>}
         {addedBooks.length > 0 && <section className="recent" aria-labelledby="added-books-heading">
             <div className="recentHeader"><h2 id="added-books-heading">New audiobooks in your libraries</h2></div>
-            <LibraryRail items={addedBooks} />
+            <LibraryRail items={addedBooks} label="audiobooks" />
         </section>}
         {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus()) }} />}
     </main>

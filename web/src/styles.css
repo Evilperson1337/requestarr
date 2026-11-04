@@ -1451,9 +1451,34 @@ a {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
     gap: 18px;
-    /* Posters, squares and game covers in one row sit on one baseline, so captions line up. */
-    align-items: end;
+    /* Covers share one top edge; a longer title just runs further down. */
+    align-items: start;
 }
+
+.railWrap {
+    position: relative;
+}
+
+/* Page arrows sit on the cover edges, a little below the top so they stay on the art. */
+.railArrow {
+    position: absolute;
+    top: 70px;
+    z-index: 2;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 0;
+    background: #000c;
+    color: var(--text);
+    font-size: 1.6rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.railArrow.prev { left: -12px; }
+.railArrow.next { right: -12px; }
+.railArrow:hover:not(:disabled) { background: #fff; color: #000; }
+.railArrow:disabled { opacity: .35; cursor: default; }
 
 .railCard {
     display: grid;

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { RecentLibraryItem, RequestItem } from '../api'
 import { followLink } from '../navigation'
 import { useRailColumns } from './useRailColumns'
@@ -21,15 +22,22 @@ export function RequestRail({ items }: { items: RequestItem[] }) {
 }
 
 // What the libraries recently gained: covers from the library itself, no status, nothing to open.
-export function LibraryRail({ items }: { items: RecentLibraryItem[] }) {
+export function LibraryRail({ items, label }: { items: RecentLibraryItem[]; label: string }) {
     const { ref, columns } = useRailColumns<HTMLUListElement>()
-    return <ul ref={ref} className="coverRail" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{items.slice(0, columns).map(item => <li key={item.id}>
-        <div className="railCard plain">
-            <span className={`railCover${item.mediaType === 'album' || item.mediaType === 'audiobook' ? ' square' : item.mediaType === 'game' ? ' game' : ''}`}>
-                {item.artworkUrl ? <img src={item.artworkUrl} alt={`Cover for ${item.title}`} loading="lazy" /> : <span className="railBlank" aria-hidden="true">{kinds[item.mediaType] ?? item.mediaType}</span>}
-            </span>
-            <span className="railTitle">{item.title}</span>
-            <span className="railKind">{[kinds[item.mediaType] ?? item.mediaType, item.year || '', item.detail || '', item.source].filter(Boolean).join(' · ')}</span>
-        </div>
-    </li>)}</ul>
+    const [requested, setPage] = useState(0)
+    const pages = Math.max(1, Math.ceil(items.length / columns))
+    const page = Math.min(requested, pages - 1)
+    return <div className="railWrap">
+        {pages > 1 && <button type="button" className="railArrow prev" aria-label={`Newer ${label}`} disabled={page === 0} onClick={() => setPage(page - 1)}>‹</button>}
+        <ul ref={ref} className="coverRail" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{items.slice(page * columns, (page + 1) * columns).map(item => <li key={item.id}>
+            <div className="railCard plain">
+                <span className={`railCover${item.mediaType === 'album' || item.mediaType === 'audiobook' ? ' square' : item.mediaType === 'game' ? ' game' : ''}`}>
+                    {item.artworkUrl ? <img src={item.artworkUrl} alt={`Cover for ${item.title}`} loading="lazy" /> : <span className="railBlank" aria-hidden="true">{kinds[item.mediaType] ?? item.mediaType}</span>}
+                </span>
+                <span className="railTitle">{item.title}</span>
+                <span className="railKind">{[kinds[item.mediaType] ?? item.mediaType, item.year || '', item.detail || '', item.source].filter(Boolean).join(' · ')}</span>
+            </div>
+        </li>)}</ul>
+        {pages > 1 && <button type="button" className="railArrow next" aria-label={`Older ${label}`} disabled={page === pages - 1} onClick={() => setPage(page + 1)}>›</button>}
+    </div>
 }
