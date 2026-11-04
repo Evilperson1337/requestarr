@@ -2,7 +2,8 @@
 # Deployment-file check (seam 3 of .scratch/unraid-deployment/spec.md). Resolves
 # deploy/unraid/compose.yaml with `docker compose config` against a fixture
 # environment file; no containers are started and resolved secrets are never
-# printed. Each artifact has its own section; ticket 06 adds the template.
+# printed. Each artifact has its own section: compose file, example environment file,
+# Unraid template (checked by scripts/deploy-template-check.py).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 command -v docker >/dev/null || { echo 'FAIL: docker is required' >&2; exit 1; }
@@ -13,6 +14,7 @@ unset "${!REQUESTARR_@}" POSTGRES_PASSWORD 2>/dev/null || true
 dir=deploy/unraid
 compose=$dir/compose.yaml
 example=$dir/requestarr.env.example
+template=$dir/requestarr.xml
 pinned_tag=v0.1.0-rc.1
 # Independent list of what an operator must supply (the spec's settings).
 required=(REQUESTARR_TAG POSTGRES_PASSWORD REQUESTARR_PUBLIC_URL REQUESTARR_OIDC_ISSUER
@@ -134,6 +136,26 @@ sys.exit(1 if ok else 0)' || { echo "FAIL: master key placeholder is accepted as
   return $rc
 }
 
+# ---- Section: Unraid template ----------------------------------------------
+# Public addresses only (the private domain must never appear in this repo).
+template_url=https://raw.githubusercontent.com/evilperson1337/requestarr/main/deploy/unraid/requestarr.xml
+project_url=https://github.com/evilperson1337/requestarr
+# Names of the requestarr service's environment variables, from the resolved compose file.
+compose_env_names() { # compose-file
+  write_fixture "$work/fixture.env"
+  resolve "$1" "$work/fixture.env" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["services"]["requestarr"]["environment"]))'
+}
+check_template() { # template-file [compose-file]
+  local t=$1 c=${2:-$compose}
+  if [[ ! -f $t ]]; then echo "FAIL: $t is missing" >&2; return 1; fi
+  if command -v xmllint >/dev/null; then
+    xmllint --noout "$t" 2>/dev/null || { echo "FAIL: $t is not well-formed XML" >&2; return 1; }
+  fi
+  TEMPLATE="$t" PINNED="$pinned_tag" PROJECT="$project_url" TEMPLATE_URL="$template_url" \
+    COMPOSE_ENV="$(compose_env_names "$c")" REQUIRED="${required[*]}" SECRETS="${secrets[*]}" CONFIG=internal/config/config.go \
+    python3 -I "$PWD/scripts/deploy-template-check.py"
+}
+
 # Mutations prove each guard can fail: the check must reject a broken compose.
 expect_rejected() { # description command...
   local what=$1; shift
@@ -144,6 +166,7 @@ check_compose "$compose"
 check_no_defaults "$compose" || failures=$((failures + 1))
 check_tag_pinned "$compose" || failures=$((failures + 1))
 check_example "$example" || failures=$((failures + 1))
+check_template "$template" || failures=$((failures + 1))
 
 # mutate <in> <out> <var> <replacement>: swap ${var:?...} for the replacement.
 mutate() {
@@ -166,6 +189,41 @@ for key in "${required[@]}"; do
   grep -v "^$key=" "$example" > "$work/short.env.example" 2>/dev/null || true
   expect_rejected "an example missing $key" check_example "$work/short.env.example"
 done
+
+# Template mutations: each edit of a copy must be rejected.
+mutate_template() { # description sed-expression
+  local what=$1 expr=$2
+  sed -E "$expr" "$template" > "$work/mutant.xml"
+  if cmp -s "$template" "$work/mutant.xml"; then fail "template mutation did not apply: $what"; return; fi
+  expect_rejected "$what" check_template "$work/mutant.xml"
+}
+for key in REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_DATABASE_URL; do
+  mutate_template "unmasked $key" "/Target=\"$key\"/ s/Mask=\"true\"/Mask=\"false\"/"
+  mutate_template "a default for $key" "/Target=\"$key\"/ s/Default=\"\"/Default=\"usable-default\"/"
+  mutate_template "$key not required" "/Target=\"$key\"/ s/Required=\"true\"/Required=\"false\"/"
+done
+for key in REQUESTARR_PUBLIC_URL REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET \
+  REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_DATABASE_URL REQUESTARR_LOG_LEVEL \
+  REQUESTARR_HTTP_ALLOWED_NETWORKS 8080; do
+  mutate_template "a template without $key" "/Target=\"$key\"/ d"
+done
+mutate_template "a floating tag" "s#(<Repository>[^<]*):$pinned_tag#\\1:latest#"
+mutate_template "a tag-less repository" "s#(<Repository>[^<]*):$pinned_tag#\\1#"
+mutate_template "a wrong tag in Branch" "s#<Tag>$pinned_tag#<Tag>latest#"
+mutate_template "a malformed document" 's#</Container>##'
+mutate_template "a wrong root version" 's#<Container version="2">#<Container version="1">#'
+mutate_template "a variable the code does not read" 's#Target="REQUESTARR_LOG_LEVEL"#Target="REQUESTARR_LOG_LEVELS"#'
+mutate_template "a provider credential field" 's#Target="REQUESTARR_LOG_LEVEL"#Target="REQUESTARR_PLEX_TOKEN"#'
+mutate_template "a missing icon" 's#<Icon>[^<]*</Icon>#<Icon></Icon>#'
+mutate_template "the private domain in the overview" "s#Requestarr is a shared#Requestarr (git.all""our""media.com) is a shared#"
+mutate_template "a non-public project link" 's#<Project>[^<]*</Project>#<Project>http://localhost/x</Project>#'
+mutate_template "a master key command without openssl" '/REQUESTARR_SECRETS_KEY/ s/openssl rand -base64/some command/'
+mutate_template "a master key with no backup advice" '/REQUESTARR_SECRETS_KEY/ s/separately from the database/somewhere/'
+mutate_template "an appdata path" 's#</Container>#<Config Name="Data" Target="/data" Type="Path" Display="always" Required="false" Mask="false"/></Container>#'
+mutate_template "a description without a purpose" '/Target="REQUESTARR_PUBLIC_URL"/ s/Description="[^"]*"/Description="URL"/'
+# The template must also notice a compose file that gained a setting.
+sed 's#^\(      REQUESTARR_PUBLIC_URL:.*\)#\1\n      REQUESTARR_NEW_SETTING: ${REQUESTARR_NEW_SETTING:-x}#' "$compose" > "$work/extra.yaml"
+expect_rejected "a compose setting with no template field" check_template "$template" "$work/extra.yaml"
 
 if ((failures)); then echo "deploy files: $failures check(s) failed" >&2; exit 1; fi
 echo 'deploy files: ok'

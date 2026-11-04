@@ -51,7 +51,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Node versions match the Dockerfile
         run: scripts/check-node-version.sh
-      - name: Deployment files (compose and example environment)
+      - name: Deployment files (compose, example environment, Unraid template)
         run: scripts/deploy-files-test.sh
       - name: Release configuration matches D023
         run: scripts/check-release-config.sh
