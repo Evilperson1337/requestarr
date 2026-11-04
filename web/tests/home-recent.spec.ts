@@ -84,7 +84,8 @@ test('Home shows what the libraries recently gained as one shelf per cover shape
     await expect(shows.locator('.railCover.square')).toHaveCount(0)
     await expect(music.locator('.railCover.square')).toHaveCount(1)
     await expect(page.getByRole('region', { name: /in your libraries/ }).getByRole('link')).toHaveCount(0)
-    expect([...new Set(calls)].sort()).toEqual(['?types=album&limit=12', '?types=audiobook&limit=12', '?types=game&limit=12', '?types=movie,tv&limit=12'])
+    // A library shelf pages with arrows (and swipes), so it asks for several rows' worth, not one.
+    expect([...new Set(calls)].sort()).toEqual(['?types=album&limit=48', '?types=audiobook&limit=48', '?types=game&limit=48', '?types=movie,tv&limit=48'])
 })
 
 test('Home leaves the library shelves out when libraries have nothing to show', async ({ page }) => {

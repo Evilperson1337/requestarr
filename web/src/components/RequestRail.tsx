@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState, type TouchEvent } from 'react'
 import type { RecentLibraryItem, RequestItem } from '../api'
 import { followLink } from '../navigation'
 import { useRailColumns } from './useRailColumns'
@@ -27,7 +27,17 @@ export function LibraryRail({ items, label }: { items: RecentLibraryItem[]; labe
     const [requested, setPage] = useState(0)
     const pages = Math.max(1, Math.ceil(items.length / columns))
     const page = Math.min(requested, pages - 1)
-    return <div className="railWrap">
+    // A horizontal swipe pages like the arrows: left for older, right for newer. Vertical drags still scroll the page.
+    const touch = useRef<{ x: number; y: number } | null>(null)
+    const go = (to: number) => setPage(Math.max(0, Math.min(pages - 1, to)))
+    const swipeStart = (e: TouchEvent) => { touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }
+    const swipeEnd = (e: TouchEvent) => {
+        const start = touch.current; touch.current = null
+        if (!start || pages < 2) return
+        const dx = e.changedTouches[0].clientX - start.x, dy = e.changedTouches[0].clientY - start.y
+        if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? page + 1 : page - 1)
+    }
+    return <div className="railWrap" onTouchStart={swipeStart} onTouchEnd={swipeEnd} onTouchCancel={() => { touch.current = null }}>
         {pages > 1 && <button type="button" className="railArrow prev" aria-label={`Newer ${label}`} disabled={page === 0} onClick={() => setPage(page - 1)}>‹</button>}
         <ul ref={ref} className="coverRail" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{items.slice(page * columns, (page + 1) * columns).map(item => <li key={item.id}>
             <div className="railCard plain">

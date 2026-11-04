@@ -1457,6 +1457,7 @@ a {
 
 .railWrap {
     position: relative;
+    touch-action: pan-y;
 }
 
 /* Page arrows sit on the cover edges, a little below the top so they stay on the art. */
