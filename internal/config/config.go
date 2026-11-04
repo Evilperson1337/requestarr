@@ -46,6 +46,9 @@ type Config struct {
 	AppriseConfigKey     string
 	// SecretsKey is the master key for stored secrets (D024). Optional.
 	SecretsKey string
+	// HTTPAllowedNetworks extends the built-in private-host list for library
+	// Source URLs (D033): comma-separated CIDRs and hostname suffixes.
+	HTTPAllowedNetworks string
 }
 
 func FromEnv() Config {
@@ -69,6 +72,8 @@ func FromEnv() Config {
 		AppriseURL:        os.Getenv("REQUESTARR_APPRISE_URL"),
 		AppriseConfigKey:  os.Getenv("REQUESTARR_APPRISE_CONFIG_KEY"),
 		SecretsKey:        os.Getenv(secrets.MasterKeyEnv),
+
+		HTTPAllowedNetworks: os.Getenv(httpAllowedNetworksEnv),
 	}
 	for _, kind := range sources.All() {
 		*c.LibraryURL(kind.Slug) = os.Getenv(kind.URLEnv)
@@ -174,6 +179,7 @@ func (c Config) ValidateBootstrap() error {
 		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
 	}
 	problems = append(problems, c.secretsKeyProblems()...)
+	problems = append(problems, c.httpAllowedNetworksProblems()...)
 	if c.AudibleRegion != "" && !domain.AudibleRegion(c.AudibleRegion).Valid() {
 		problems = append(problems, "REQUESTARR_AUDIBLE_REGION must be one of us, ca, uk, au, fr, de, jp, it, in, es")
 	}
@@ -212,7 +218,10 @@ func (c Config) sourceURLProblems(name, raw string) []string {
 		return []string{name + " must be an absolute http(s) origin without credentials, path, query, or fragment"}
 	}
 	if c.Environment != "" && c.Environment != "development" && u.Scheme != "https" {
-		return []string{name + " must use https outside development"}
+		extra, _ := parseAllowedNetworks(c.HTTPAllowedNetworks) // malformed entries are reported by httpAllowedNetworksProblems
+		if !privateHost(u.Hostname(), extra) {
+			return []string{name + " must use https outside development, unless the host is on a private network (use https, or add the network to " + httpAllowedNetworksEnv + ")"}
+		}
 	}
 	return nil
 }
@@ -225,6 +234,7 @@ func (c Config) Validate() error {
 		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
 	}
 	problems = append(problems, c.secretsKeyProblems()...)
+	problems = append(problems, c.httpAllowedNetworksProblems()...)
 	for _, kind := range sources.All() {
 		problems = append(problems, c.librarySourceProblems(kind)...)
 	}
