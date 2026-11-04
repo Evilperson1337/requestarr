@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,12 +34,12 @@ const (
 // searchTypes are every type the API names, configured or not.
 var searchTypes = map[string]bool{"movie_tv": true, "album": true, "song": true, "game": true, "audiobook": true}
 
-func registerSearchRoutes(rt *routeTable, search SearchService, logger *slog.Logger) {
+func registerSearchRoutes(rt *routeTable, search SearchService, limiter *SearchLimiter, logger *slog.Logger) {
 	rt.handle("GET /search/types", accessSession, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, map[string][]string{"types": search.Types()})
 	})
-	rt.handle("GET /search", accessSession, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	rt.handle("GET /search", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		q := r.URL.Query()
 		text := strings.TrimSpace(q.Get("q"))
 		if n := utf8.RuneCountInString(text); n < searchMinChars || n > searchMaxChars || !utf8.ValidString(text) ||
@@ -59,6 +60,15 @@ func registerSearchRoutes(rt *routeTable, search SearchService, logger *slog.Log
 				return
 			}
 			page = n
+		}
+		// Every well-formed search spends a token, whether or not the answer is
+		// cached or shared with a concurrent identical query: the limit guards
+		// the server and the person's own request rate, not just provider calls.
+		// Malformed requests were refused above and cost nothing.
+		if ok, wait := limiter.Allow(user.ID); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+			apierror.Write(w, r, http.StatusTooManyRequests, "search_rate_limited", "You are searching too fast. Wait a moment and try again.")
+			return
 		}
 		result, err := search.Search(r.Context(), searchType, text, page)
 		if err != nil {

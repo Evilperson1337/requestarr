@@ -159,3 +159,27 @@ test('search results have no automated accessibility violations and keep a 2:3 p
     const report = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
     expect(report.violations).toEqual([])
 })
+
+test('a rate-limited search keeps the last results, says to slow down, and recovers by itself', async ({ page }) => {
+    let limited = true
+    const { searches } = await openHome(page, {
+        search: url => {
+            if (url.searchParams.get('q') === 'dunes' && limited) { limited = false; return { status: 429, json: { error: { code: 'search_rate_limited', message: 'You are searching too fast. Wait a moment and try again.' } } } }
+            return { json: { results: [url.searchParams.get('q') === 'dunes' ? prophecy : dune], hasMore: false } }
+        },
+    })
+    const input = page.getByPlaceholder(box)
+    const results = page.getByRole('list', { name: 'Search results' })
+    await input.fill('dune')
+    await expect(results.getByRole('button')).toHaveCount(1)
+    await input.fill('dunes')
+    const alert = page.getByRole('alert')
+    await expect(alert).toContainText('searching too fast')
+    await expect(alert).not.toContainText('No results')
+    // The earlier results stay put while the notice shows.
+    await expect(results.getByRole('button', { name: /^Dune 2021/ })).toBeVisible()
+    // The response carried no Retry-After, so the page waits its default and then searches again on its own.
+    await expect(results.getByRole('button', { name: /Prophecy/ })).toBeVisible({ timeout: 10_000 })
+    await expect(alert).toHaveCount(0)
+    expect(searches.filter(q => q === 'dunes').length).toBeGreaterThanOrEqual(2)
+})
