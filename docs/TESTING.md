@@ -78,7 +78,12 @@ make web-test
 
 On a minimal Linux host, Playwright may also require its documented browser OS
 dependencies. The suite starts its own loopback-only Vite server on port 4173;
-keep that port free. It never reuses an unrelated running server.
+keep that port free. It never reuses an unrelated running server. To run two
+checkouts or worktrees at once, give each its own port:
+`PLAYWRIGHT_PORT=4301 make web-test`. A fresh checkout or worktree needs
+`make bootstrap` first (it installs `web/node_modules` and builds the UI the Go
+tests embed). `scripts/check.sh` runs these browser tests when `web/node_modules`
+exists; set `REQUESTARR_SKIP_BROWSER_TESTS=1` to skip them on a host without Chromium.
 
 Tests cover bookmarked controls/reloads, URL paging and Back/Forward, cursor
 expiry recovery, role-based actions, CSRF, last-subscriber confirmation, pending
@@ -151,10 +156,12 @@ PostgreSQL, full-router, and browser seams:
   resume, save-before-check, connection failure, conflict recovery, role gating,
   secret-reference-only forms, stale requests, and phone/keyboard use.
 
-For repeated full integration runs, use a fresh dedicated disposable database
-through `REQUESTARR_TEST_DATABASE_URL`. The existing reused test database can
-accumulate open music fixtures and starve a globally limited alias lookup; do
-not delete application data to work around that pre-existing test-isolation gap.
+`make test-integration` drops and recreates the dedicated `requestarr_test`
+database on every run, so fixtures from an earlier run (open music requests that
+starve the globally limited alias lookup, fixed IDs from earlier tests) cannot
+leak in. A database you name through `REQUESTARR_TEST_DATABASE_URL` is never
+dropped for you; use a fresh disposable one for repeated runs. Never point it at
+application data.
 New setup tests never contact live OIDC/TMDB/MusicBrainz/IGDB services. Live
 interactive sign-in proof and final configuration activation are outside this
 first-step slice.

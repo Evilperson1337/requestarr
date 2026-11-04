@@ -13,6 +13,7 @@ The `prompts/` directory contains a numbered sequence of implementation-phase pr
 ## Commands
 
 ```bash
+make bootstrap      # fresh clone or worktree: npm ci + build the embedded UI (Go tests need it)
 make fmt            # gofmt the Go tree
 make test           # go test ./...
 make vet            # go vet ./...
@@ -30,7 +31,7 @@ make release-check  # goreleaser check
 
 Single Go test: `go test ./internal/domain/... -run TestName -v`.
 
-Before opening a PR, run `scripts/check.sh` (fmt, test, vet, and web-check if `web/node_modules` exists). This mirrors what `AGENTS.md` calls "required checks before completing a change" — run all four (`make fmt test vet web-check`) after any change, not just Go changes.
+Before opening a PR, run `scripts/check.sh` (fmt, test, vet, and web-check plus web-test if `web/node_modules` exists). This mirrors what `AGENTS.md` calls "required checks before completing a change" — run `make fmt test vet web-check` after any change, not just Go changes, and `make web-test` whenever `web/` changed.
 
 The Go module and development container target Go 1.27. The web app has no third-party runtime deps beyond React/Vite — deliberately, so the architecture can be reviewed before further libraries are added.
 
