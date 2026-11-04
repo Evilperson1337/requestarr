@@ -16,6 +16,8 @@ import (
 type SearchQuery struct {
 	Text string
 	Page int
+	// IncludeSingles widens an album search to singles and EPs. Other types ignore it.
+	IncludeSingles bool
 }
 
 // Searcher finds candidate items by name. It never writes and never creates
@@ -52,9 +54,11 @@ type searchEntry struct {
 }
 
 type searchFlight struct {
-	done chan struct{}
-	page domain.SearchPage
-	err  error
+	done    chan struct{}
+	waiters int
+	cancel  context.CancelFunc
+	page    domain.SearchPage
+	err     error
 }
 
 func NewSearchService(searchers map[string]Searcher) *SearchService {
@@ -82,13 +86,19 @@ func (s *SearchService) Types() []string {
 	return types
 }
 
-func (s *SearchService) Search(ctx context.Context, searchType, text string, page int) (domain.SearchPage, error) {
+// SearchOptions are the per-type switches a person can set on a search.
+type SearchOptions struct {
+	// IncludeSingles widens an album search to singles and EPs.
+	IncludeSingles bool
+}
+
+func (s *SearchService) Search(ctx context.Context, searchType, text string, page int, opts SearchOptions) (domain.SearchPage, error) {
 	searcher, ok := s.searchers[searchType]
 	if !ok {
 		return domain.SearchPage{}, ErrNotConfigured
 	}
 	text = strings.TrimSpace(text)
-	key := fmt.Sprintf("%s\x00%d\x00%s", searchType, page, strings.ToLower(strings.Join(strings.Fields(text), " ")))
+	key := fmt.Sprintf("%s\x00%d\x00%t\x00%s", searchType, page, opts.IncludeSingles, strings.ToLower(strings.Join(strings.Fields(text), " ")))
 
 	s.mu.Lock()
 	if e, ok := s.cache[key]; ok && s.now().Sub(e.at) <= searchFresh {
@@ -99,16 +109,29 @@ func (s *SearchService) Search(ctx context.Context, searchType, text string, pag
 	if !joined {
 		f = &searchFlight{done: make(chan struct{})}
 		s.flights[key] = f
-		// The call outlives any one caller: others may be waiting on it.
-		callCtx := context.WithoutCancel(ctx)
-		go s.run(callCtx, searcher, SearchQuery{Text: text, Page: page}, key, f)
+		// The call outlives any one caller, since others may be waiting on it,
+		// but stops once the last of them has given up.
+		var callCtx context.Context
+		callCtx, f.cancel = context.WithCancel(context.WithoutCancel(ctx))
+		go s.run(callCtx, searcher, SearchQuery{Text: text, Page: page, IncludeSingles: opts.IncludeSingles}, key, f)
 	}
+	f.waiters++
 	s.mu.Unlock()
 
 	select {
 	case <-f.done:
 		return f.page, f.err
 	case <-ctx.Done():
+		s.mu.Lock()
+		if f.waiters--; f.waiters == 0 {
+			// Nobody wants the answer: free the provider (for MusicBrainz, a
+			// queue slot) and stop new callers joining a call that is ending.
+			if s.flights[key] == f {
+				delete(s.flights, key)
+			}
+			f.cancel()
+		}
+		s.mu.Unlock()
 		return domain.SearchPage{}, ctx.Err()
 	}
 }
@@ -130,7 +153,9 @@ func (s *SearchService) run(ctx context.Context, searcher Searcher, q SearchQuer
 		}
 	}
 	f.page, f.err = page, err
-	delete(s.flights, key)
+	if s.flights[key] == f {
+		delete(s.flights, key)
+	}
 	close(f.done)
 }
 

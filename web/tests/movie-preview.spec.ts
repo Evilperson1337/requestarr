@@ -60,7 +60,7 @@ test('movie request preserves a failed note and confirms success without navigat
     await dialog.getByRole('button', { name: 'Request movie', exact: true }).click()
     await expect(dialog).toContainText('Movie requested')
     await expect(dialog).toContainText('Notifications On')
-    await expect(page).toHaveURL('http://127.0.0.1:4173/')
+    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:\d+\/$/)
     await expect(dialog.getByRole('button', { name: 'Request movie', exact: true })).toHaveCount(0)
     await expect(dialog.getByRole('link', { name: 'View request' })).toHaveAttribute('href', '/requests?requestId=22222222-2222-4222-8222-222222222222')
 })

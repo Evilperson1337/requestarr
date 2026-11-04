@@ -22,7 +22,7 @@ import (
 type SearchService interface {
 	// Types lists the search types whose provider is configured.
 	Types() []string
-	Search(ctx context.Context, searchType, text string, page int) (domain.SearchPage, error)
+	Search(ctx context.Context, searchType, text string, page int, opts metadata.SearchOptions) (domain.SearchPage, error)
 }
 
 // SearchLocalService reads what this instance already knows about a page of
@@ -103,7 +103,7 @@ func registerSearchRoutes(rt *routeTable, search SearchService, local SearchLoca
 			apierror.Write(w, r, http.StatusTooManyRequests, "search_rate_limited", "You are searching too fast. Wait a moment and try again.")
 			return
 		}
-		result, err := search.Search(r.Context(), searchType, text, page)
+		result, err := search.Search(r.Context(), searchType, text, page, metadata.SearchOptions{IncludeSingles: q.Get("singles") == "true"})
 		if err != nil {
 			writeSearchError(w, r, logger, err)
 			return

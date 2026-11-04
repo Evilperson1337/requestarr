@@ -3,7 +3,7 @@ import { api, ApiError, type MoviePreviewState, type SearchPage, type SearchResu
 import { LibraryRail, RequestRail } from '../components/RequestRail'
 import { RequestModal } from '../components/RequestModal'
 import { followLink, navigate, useLocation } from '../navigation'
-import { isLinkInput, locationForSearch, searchBadges, searchFromLocation, searchTypeLabels, typeaheadTypes, useSearchTypes, type SearchState } from '../search'
+import { isLinkInput, locationForSearch, searchBadges, searchFromLocation, searchHints, searchTypeLabels, singlesTypes, typeaheadTypes, useSearchTypes, type SearchState } from '../search'
 
 export function HomePage({ session, onCreated }: { session: Session; onCreated: () => void }) {
     const here = useLocation()
@@ -54,6 +54,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     const [search, setSearch] = useState<SearchState>({ status: 'idle', query: '', results: [], error: '' })
     const searchController = useRef<AbortController | null>(null)
     const searched = useRef('')
+    const [includeSingles, setIncludeSingles] = useState(false)
     useEffect(() => () => searchController.current?.abort(), [])
     const link = isLinkInput(text)
     // The URL follows the search: the first search pushes one entry, later ones replace it, so Back is not flooded.
@@ -74,14 +75,14 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         setText(wanted.q)
         if (wanted.type) chooseType(wanted.type)
     }, [here, chooseType])
-    const runSearch = useCallback(async (query: string, type: string) => {
+    const runSearch = useCallback(async (query: string, type: string, singles = false) => {
         searchController.current?.abort()
         const controller = new AbortController(); searchController.current = controller
         searched.current = `${type}:${query}`
         writeUrl(query, type)
         setSearch(previous => ({ ...previous, status: 'loading', error: '' }))
         try {
-            const page = await api<SearchPage>(`/search?${new URLSearchParams({ q: query, type })}`, { signal: controller.signal, cache: 'no-store' })
+            const page = await api<SearchPage>(`/search?${new URLSearchParams({ q: query, type, ...(singles && singlesTypes.has(type) ? { singles: 'true' } : {}) })}`, { signal: controller.signal, cache: 'no-store' })
             if (searchController.current === controller && !controller.signal.aborted) setSearch({ status: 'done', query, results: Array.isArray(page?.results) ? page.results : [], hasMore: !!page?.hasMore, error: '' })
         } catch (e) {
             if (searchController.current !== controller || controller.signal.aborted) return
@@ -89,18 +90,26 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
                 // Too many searches: keep what is on screen, say so, and try once more when the server says to.
                 const wait = Math.min(Math.max(e.retryAfter || 2, 1), 30)
                 setSearch(previous => ({ ...previous, status: 'limited', error: `You are searching too fast. Trying again in ${wait} ${wait === 1 ? 'second' : 'seconds'}.` }))
-                setTimeout(() => { if (searchController.current === controller && !controller.signal.aborted) void runSearch(query, type) }, wait * 1000)
+                setTimeout(() => { if (searchController.current === controller && !controller.signal.aborted) void runSearch(query, type, singles) }, wait * 1000)
                 return
             }
             setSearch({ status: 'error', query, results: [], error: `${e instanceof Error ? e.message : 'The search failed.'} You can still paste a link.` })
         }
     }, [writeUrl])
-    // Typeahead: search once typing pauses. Anything newer cancels what is in flight, so a slow answer can never land late.
+    // Switching type drops the previous type's answer and anything still in flight.
     useEffect(() => {
+        searchController.current?.abort(); searched.current = ''
+        setSearch(previous => previous.status === 'idle' ? previous : { status: 'idle', query: '', results: [], error: '' })
+    }, [searchType])
+    // Typeahead: search once typing pauses. Anything newer cancels what is in flight, so a slow answer can never land late.
+    // Types that are not typeahead search only on submit, so typing leaves their answer and any request in flight alone.
+    useEffect(() => {
+        // Only a search carried in the address (a shared link, Back) runs without submit for a slow provider.
+        const immediate = urlDriven.current
+        if (!searchType || (!immediate && !typeaheadTypes.has(searchType))) return
         const query = text.trim()
         searchController.current?.abort()
-        const immediate = urlDriven.current
-        if (link || [...query].length < 2 || !searchType || (!immediate && !typeaheadTypes.has(searchType))) {
+        if (link || [...query].length < 2) {
             searched.current = ''
             setSearch(previous => previous.status === 'idle' ? previous : { status: 'idle', query: '', results: [], error: '' })
             return
@@ -123,7 +132,12 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         const query = text.trim()
         if ([...query].length < 2) { setSearch({ status: 'error', query, results: [], error: 'Type at least 2 characters to search, or paste a link.' }); return }
         if (!searchType) { setSearch({ status: 'error', query, results: [], error: 'Searching by name is not set up here. You can still paste a link.' }); return }
-        void runSearch(query, searchType)
+        void runSearch(query, searchType, includeSingles)
+    }
+    // A search option changes what the last question means, so ask it again.
+    function chooseSingles(on: boolean) {
+        setIncludeSingles(on)
+        if (search.query && search.status !== 'idle' && searchType) void runSearch(search.query, searchType, on)
     }
     async function resolve(raw: string, opener: HTMLElement | null) {
         if (busy) return
@@ -149,8 +163,10 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         : ''
     return <main className="shell">
         <section className="card hero"><h1>Request Something</h1><p>{types.includes('movie_tv') ? 'Search for a movie or show by name, or paste' : 'Paste'} a TMDB, MusicBrainz, IGDB or Audible link, or an audiobook ASIN, to preview it before requesting.</p>
-            <form onSubmit={submit}><label className="urlBox"><span aria-hidden="true">↗</span><span className="sr-only">Search by name, or paste a TMDB, MusicBrainz, IGDB or Audible URL, or an audiobook ASIN</span><input type="text" inputMode="search" autoComplete="off" spellCheck={false} maxLength={2048} required value={text} onChange={e => edit(e.target.value)} placeholder="Search or paste a link…" /></label><button ref={previewButton} className="button" disabled={busy} onClick={event => { if (event.detail > 0) event.currentTarget.focus() }}>{busy ? 'Resolving…' : link || !text.trim() ? 'Preview' : 'Search'}</button></form>
+            <form onSubmit={submit}><label className="urlBox"><span aria-hidden="true">↗</span><span className="sr-only">Search by name, or paste a TMDB, MusicBrainz, IGDB or Audible URL, or an audiobook ASIN</span><input type="text" inputMode="search" autoComplete="off" spellCheck={false} maxLength={2048} required aria-describedby={searchType && !typeaheadTypes.has(searchType) ? 'searchHint' : undefined} value={text} onChange={e => edit(e.target.value)} placeholder="Search or paste a link…" /></label><button ref={previewButton} className="button" disabled={busy} onClick={event => { if (event.detail > 0) event.currentTarget.focus() }}>{busy ? 'Resolving…' : link || !text.trim() ? 'Preview' : 'Search'}</button></form>
             {types.length > 0 && <fieldset className="searchTypes" role="radiogroup"><legend>Search for</legend>{types.map(type => <label key={type}><input type="radio" name="searchType" value={type} checked={searchType === type} onChange={() => chooseType(type)} />{searchTypeLabels[type] ?? type}</label>)}</fieldset>}
+            {singlesTypes.has(searchType) && <label className="searchOption"><input type="checkbox" checked={includeSingles} onChange={e => chooseSingles(e.target.checked)} />Include singles &amp; EPs</label>}
+            {searchType && !typeaheadTypes.has(searchType) && <p id="searchHint" className="searchHint">{searchHints[searchType] ?? 'Press Enter or Search to look this up.'}</p>}
             {busy && <p role="status">Looking up metadata…</p>}{error && <p role="alert" className="error">{error}</p>}
             {(search.status === 'error' || search.status === 'limited') && <p role="alert" className="error">{search.error}</p>}
             <p role="status" className="searchStatus">{searchStatus}</p>
@@ -187,9 +203,12 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
 }
 
 function SearchRow({ result, onPick }: { result: SearchResult; onPick: (opener: HTMLElement) => void }) {
+    // A cover that will not load becomes the plain placeholder instead of a broken image.
+    const [broken, setBroken] = useState(false)
+    const shape = result.artworkKind === 'square' ? 'searchPoster searchSquare' : 'searchPoster'
     const kind = result.mediaType === 'tv' ? 'TV show' : result.mediaType === 'movie' ? 'Movie' : ''
     return <li><button type="button" className="searchRow" onClick={event => onPick(event.currentTarget)}>
-        {result.artworkUrl ? <img className="searchPoster" src={result.artworkUrl} alt="" loading="lazy" /> : <span className="searchPoster" aria-hidden="true" />}
+        {result.artworkUrl && !broken ? <img className={shape} src={result.artworkUrl} alt="" loading="lazy" onError={() => setBroken(true)} /> : <span className={shape} aria-hidden="true" />}
         <span className="searchText"><span className="searchTitle">{result.title}</span> <span className="searchMeta">{[result.year || '', kind, result.subtitle].filter(Boolean).join(' · ')}</span></span>
         {searchBadges(result.local).map(badge => <span key={badge.key} className={`searchBadge ${badge.key}`}><span aria-hidden="true">{badge.icon}</span> {badge.label}</span>)}
     </button></li>

@@ -2437,6 +2437,23 @@ a.tag-available:hover {
     background: var(--raised);
 }
 
+.searchSquare {
+    aspect-ratio: 1 / 1;
+}
+
+.searchOption {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    margin-top: 6px;
+}
+
+.searchHint {
+    margin: 4px 0 0;
+    color: var(--muted);
+}
+
 .searchText {
     min-width: 0;
 }

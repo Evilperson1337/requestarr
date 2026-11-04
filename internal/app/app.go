@@ -79,6 +79,9 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	if cfg.TMDBReadToken != "" {
 		searchers["movie_tv"] = tmdb.New(cfg.TMDBReadToken, nil)
 	}
+	// MusicBrainz needs no key, so album search is always on. It shares the
+	// resolver's one-per-second spacer inside the package.
+	searchers["album"] = musicbrainz.New(nil)
 	if cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "" {
 		searchers["game"] = igdbProvider
 	}
