@@ -128,6 +128,8 @@ func TestRouteTablePolicy(t *testing.T) {
 		"GET /auth/login":                        {Access: accessPublic},
 		"GET /version":                           {Access: accessPublic},
 		"GET /setup/status":                      {Access: accessPublic},
+		"GET /search":                            {Access: accessSession},
+		"GET /search/types":                      {Access: accessSession},
 	}
 	byPattern := map[string]routePolicy{}
 	for _, p := range policies {

@@ -1,0 +1,15 @@
+{
+  "page": 1,
+  "total_pages": 3,
+  "total_results": 52,
+  "results": [
+    {"media_type": "movie", "id": 438631, "title": "Dune", "original_title": "Dune", "release_date": "2021-09-15", "poster_path": "/d5NXSklXo0qyIYkgV94XAgMIckC.jpg", "popularity": 150.2},
+    {"media_type": "person", "id": 1234, "name": "Dune Actor", "profile_path": "/actor.jpg", "popularity": 5.0},
+    {"media_type": "tv", "id": 90000, "name": "Dune: Prophecy", "original_name": "Dune: Prophecy", "first_air_date": "2024-11-17", "poster_path": "/prophecy.jpg", "popularity": 99.1},
+    {"media_type": "movie", "id": 841, "title": "Dune", "release_date": "1984-12-14", "poster_path": null, "popularity": 40.0},
+    {"media_type": "movie", "id": 5, "title": "Undated and unposted", "release_date": "", "poster_path": "/../evil.jpg", "popularity": 1.0},
+    {"media_type": "movie", "id": 0, "title": "Bad id", "popularity": 1.0},
+    {"media_type": "tv", "id": 6, "name": "", "popularity": 1.0},
+    {"media_type": "collection", "id": 7, "name": "Not supported", "popularity": 1.0}
+  ]
+}

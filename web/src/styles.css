@@ -2366,6 +2366,89 @@ a.tag-available:hover {
     }
 }
 
+/* Home: name search. Rows are buttons; posters keep their 2:3 shape. */
+.searchTypes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin: 12px 0 0;
+    padding: 0;
+    border: 0;
+}
+
+.searchTypes legend {
+    float: left;
+    margin-right: 12px;
+    padding: 0;
+    color: var(--muted);
+}
+
+.searchTypes label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+}
+
+.searchStatus {
+    min-height: 1.4em;
+    margin: 12px 0 4px;
+    color: var(--muted);
+}
+
+.searchMore {
+    color: var(--muted);
+}
+
+.searchResults {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.searchRow {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--raised);
+    border-radius: 10px;
+    background: var(--surface);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.searchRow:hover {
+    border-color: var(--accent);
+}
+
+.searchPoster {
+    flex: none;
+    width: 48px;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    border-radius: 4px;
+    background: var(--raised);
+}
+
+.searchText {
+    min-width: 0;
+}
+
+.searchTitle {
+    font-weight: 600;
+}
+
+.searchMeta {
+    color: var(--muted);
+}
+
 /* TMDB attribution (API terms): logo kept smaller than Requestarr's own branding. */
 .attribution {
     display: flex;

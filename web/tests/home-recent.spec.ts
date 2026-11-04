@@ -43,7 +43,7 @@ test('Home says so when nothing has been requested yet', async ({ page }) => {
 test('a failing list never blocks requesting', async ({ page }) => {
     await openHome(page, () => ({ status: 500, json: { error: { code: 'requests_list_failed', message: 'could not list requests' } } }))
     await expect(page.getByText('Your recent requests could not be loaded.')).toBeVisible()
-    await expect(page.getByPlaceholder('Paste a supported link or an ASIN…')).toBeEnabled()
+    await expect(page.getByPlaceholder('Search or paste a link…')).toBeEnabled()
     await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeEnabled()
 })
 

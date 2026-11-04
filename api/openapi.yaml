@@ -163,6 +163,46 @@ paths:
         '401': { description: Authentication required }
         '502': { description: The provider rejected Requestarr's credentials; an administrator must fix them (metadata_provider_credentials) }
         '503': { description: "The provider is busy (metadata_provider_busy, with Retry-After), its credentials are not set (metadata_provider_not_configured), or local preview state is unavailable; retry without discarding the pasted URL" }
+  /search:
+    get:
+      operationId: searchByName
+      summary: Find movies and TV (more types in later phases) by name, without creating anything
+      description: >-
+        Read-only front door to the resolver. Each result carries a ref that the
+        resolver accepts, so picking a result means POST /resolve with that ref.
+        Results are never stored, and request creation still accepts only a URL
+        or catalog ID. Answers are cached in memory briefly and served stale
+        only while the provider is busy or down. Viewers may search.
+      parameters:
+        - { in: query, name: q, required: true, schema: { type: string, minLength: 2, maxLength: 200 }, description: "Search text, trimmed; control characters are rejected" }
+        - { in: query, name: type, required: true, schema: { type: string, enum: [movie_tv, album, song, game, audiobook] }, description: "Which provider to search. Only movie_tv is implemented so far; the others answer metadata_provider_not_configured until their provider lands" }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 10, default: 1 } }
+      responses:
+        '200':
+          description: One page of at most 50 results; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchPage' }
+        '400': { description: "invalid_search: text too short or long, control characters, unknown type, or page out of range" }
+        '401': { description: Authentication required }
+        '502': { description: The provider rejected Requestarr's credentials (metadata_provider_credentials) }
+        '503': { description: "The provider is busy or unreachable (metadata_provider_busy, with Retry-After) or not set up (metadata_provider_not_configured); never an empty list" }
+  /search/types:
+    get:
+      operationId: searchTypes
+      summary: Which search types have a configured provider
+      description: Session-level and non-secret, so every role can decide which types to offer. Fixed at boot; a provider configured later appears after a restart.
+      responses:
+        '200':
+          description: The configured types; Cache-Control no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [types]
+                properties:
+                  types: { type: array, items: { type: string, enum: [movie_tv, album, song, game, audiobook] } }
+        '401': { description: Authentication required }
   /requests:
     get:
       operationId: listRequests
@@ -1252,6 +1292,26 @@ components:
         request_id. Client-supplied values are ignored. Quote it when reporting problems.
       schema: { type: string }
   schemas:
+    SearchResult:
+      type: object
+      required: [mediaType, provider, providerId, ref, title]
+      description: A pointer to a provider item, not a catalog item. Nothing here is stored.
+      properties:
+        mediaType: { type: string, enum: [movie, tv, album, song, game, audiobook] }
+        provider: { type: string }
+        providerId: { type: string }
+        ref: { type: string, description: "A value the same provider's resolver accepts (for TMDB, https://www.themoviedb.org/movie/<id> or /tv/<id>)" }
+        title: { type: string }
+        year: { type: integer, description: Omitted when unknown }
+        subtitle: { type: string }
+        artworkUrl: { type: string }
+        artworkKind: { type: string }
+    SearchPage:
+      type: object
+      required: [results, hasMore]
+      properties:
+        results: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/SearchResult' } }
+        hasMore: { type: boolean, description: There is a further page. No total count is given. }
     ResolvedPreview:
       type: object
       required: [Item, Platforms]

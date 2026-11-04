@@ -19,14 +19,14 @@ Viewers can search and open a preview; request creation stays gated by `canReque
 **Status:** ready-for-agent
 
 - [ ] Typing a title returns TMDB movie and TV results with title, year and poster; people never appear
-- [ ] Pasting a TMDB link still resolves exactly as before, whatever the selector says
+- [x] Pasting a TMDB link still resolves exactly as before, whatever the selector says (Playwright: a pasted TMDB link and a bare ASIN POST /resolve with the raw text and never call /search; the existing link tests pass unchanged apart from the placeholder)
 - [ ] Clicking a result opens the existing preview and a Request can be created, with no change to the preview, `POST /requests` or Notify Me
-- [ ] A contract test asserts the TMDB resolver accepts the ref of every fixture result
-- [ ] Provider busy, credentials rejected and not configured surface as errors with the paste-a-link hint, never as an empty list
-- [ ] Invalid text (too short, too long, control characters) and an invalid media type get a 400 with the invalid-search code; unauthenticated gets 401; a Viewer can search
-- [ ] Identical concurrent queries make one provider call; a repeat within the fresh window makes none; a stale copy is served only when the provider is busy or down
-- [ ] Nothing is written to the database by a search
-- [ ] The route is in the OpenAPI contract and the access table, and the contract test passes
-- [ ] A stale slow response never overwrites a newer search's results (browser test)
+- [x] A contract test asserts the TMDB resolver accepts the ref of every fixture result (tmdb/search_test.go parses every fixture ref with metadata.ParseURL and checks CanResolve plus the /movie|tv/<digits> path)
+- [x] Provider busy, credentials rejected and not configured surface as errors with the paste-a-link hint, never as an empty list (httpapi/search_service_test.go: busy, credentials, not configured and an unreadable answer all return 503/502 with no results key; Playwright shows the alert with the paste hint and no "No results")
+- [x] Invalid text (too short, too long, control characters) and an invalid media type get a 400 with the invalid-search code; unauthenticated gets 401; a Viewer can search (httpapi/search_test.go: ten invalid inputs get 400 invalid_search without a provider call, unauthenticated gets 401, viewer/requester/admin get 200)
+- [x] Identical concurrent queries make one provider call; a repeat within the fresh window makes none; a stale copy is served only when the provider is busy or down (httpapi/search_service_test.go: five concurrent requests make one provider call (-race clean); repeat and case/space variants make none; stale serves only on busy/down, not on credentials, and not past 6 h (injected clock))
+- [x] Nothing is written to the database by a search (structural and tested: the search service and handler hold no store; a test wires a resolver that fails on any use and a search succeeds. Not checked against a real database)
+- [x] The route is in the OpenAPI contract and the access table, and the contract test passes (TestOpenAPIMatchesTheRouteTable passes with GET /search and GET /search/types; access table test lists both as session)
+- [x] A stale slow response never overwrites a newer search's results (browser test) (Playwright: a 1.5 s answer for "dun" never replaces the answer for "dune")
 - [ ] The type is hidden when TMDB is not configured
 - [ ] `make fmt test vet web-check` and the browser tests pass

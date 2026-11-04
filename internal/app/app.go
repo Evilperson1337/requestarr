@@ -72,6 +72,12 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	}
 	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://")}
 	metadataService := metadata.NewService(store, tmdb.New(cfg.TMDBReadToken, nil), musicbrainz.New(nil), igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil), audible.New(domain.AudibleRegion(cfg.AudibleRegion), nil))
+	// A search type exists only when its provider is configured; it is the one switch.
+	searchers := map[string]metadata.Searcher{}
+	if cfg.TMDBReadToken != "" {
+		searchers["movie_tv"] = tmdb.New(cfg.TMDBReadToken, nil)
+	}
+	searchService := metadata.NewSearchService(searchers)
 	if cfg.AppriseURL != "" {
 		workers.Add(1)
 		go func() {
@@ -116,7 +122,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		Requests: requests.New(store), Resolver: metadataService, Inbox: store, MatchReview: store,
 		MoviePreview: store,
 		JobRuns:      store, Status: ops, Users: store, SetupState: store, Syncer: syncer,
-		Wizard: setupService, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
+		Wizard: setupService, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: searchService, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize HTTP API: %w", err)
