@@ -14,7 +14,7 @@ Requestarr is one container. It does **not** include any of these three things, 
 
 **Why https is required.** The *public URL* (the address people type) and the identity provider's address (the *issuer*) must start with `https://`. Sign-in cookies are only marked secure when the public URL is https, and the sign-in exchange carries codes and tokens that anyone on the network path could copy over plain http. So Requestarr refuses to start with an `http://` public URL or issuer rather than run unsafely.
 
-That refusal applies only when the variable `REQUESTARR_ENV` is not `development`. The image does not set it and its default is `development`, which switches the https checks off. **Always add the variable `REQUESTARR_ENV` with the value `production`** (step 4 shows where). With it set, the library address rule in step 7 is enforced too.
+The template and the compose file set `REQUESTARR_ENV` to `production` for you. That variable switches on these https checks, and the library address rule in step 7, and it must stay `production` on a real server (the application's own default, `development`, switches them off and is for developers only).
 
 ## 2. Create the database
 
@@ -103,13 +103,13 @@ If the master key is not valid, Requestarr stops at start and the container log 
    | OIDC Issuer, Client ID, Client Secret | From step 3. |
    | Session Secret | The first generated value. |
    | Master Key | The second generated value. |
+   | Environment | Leave `production` (advanced). |
    | Log Level | Leave `info`. |
    | Extra Private Networks | Optional; see step 7. |
 
    The secret fields are masked and have no default, so the template will not accept them empty. There is no appdata folder: Requestarr stores nothing on the flash drive or array itself.
 
-4. At the bottom click **Add another Path, Port, Variable, Label or Device**, choose Variable, and add `REQUESTARR_ENV` with the value `production`.
-5. Click **Apply**. Unraid pulls the image and starts it.
+4. Click **Apply**. Unraid pulls the image and starts it.
 
 ### Path B: Docker Compose (a first try, or the Compose Manager plugin)
 
@@ -121,7 +121,7 @@ curl -fsSLO https://raw.githubusercontent.com/evilperson1337/requestarr/main/dep
 curl -fsSL https://raw.githubusercontent.com/evilperson1337/requestarr/main/deploy/unraid/requestarr.env.example -o requestarr.env
 ```
 
-Edit `requestarr.env` and replace every `CHANGE_ME` value (the example values are deliberately rejected by the server). Then add the line `REQUESTARR_ENV: production` under `requestarr` > `environment` in `compose.yaml`, next to the other `REQUESTARR_` lines. Then start it:
+Edit `requestarr.env` and replace every `CHANGE_ME` value (the example values are deliberately rejected by the server). Then start it:
 
 ```sh
 docker compose --env-file requestarr.env up -d

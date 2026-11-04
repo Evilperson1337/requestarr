@@ -49,7 +49,7 @@ resolve() { docker compose -f "$1" --env-file "$2" config --format json 2>/dev/n
 check_compose() { # compose-file
   local c=$1 env="$work/fixture.env" json
   write_fixture "$env"
-  json="$(resolve "$c" "$env")" || { fail "$c does not resolve against the fixture environment"; return; }
+  json="$(resolve "$c" "$env")" || { fail "$c does not resolve against the fixture environment"; return 1; }
   printf '%s' "$json" | PINNED="$pinned_tag" python3 -c '
 import json, os, sys
 m = json.load(sys.stdin)
@@ -66,13 +66,15 @@ if "healthcheck" not in p:
     errs.append("postgres needs a healthcheck")
 if "healthcheck" in r:
     errs.append("requestarr must use the image health check, not its own")
+if r.get("environment", {}).get("REQUESTARR_ENV") != "production":
+    errs.append("requestarr must set REQUESTARR_ENV=production, got %r" % r.get("environment", {}).get("REQUESTARR_ENV"))
 vols = [v for v in p.get("volumes", []) if v.get("target") == "/var/lib/postgresql/data"]
 if not vols or vols[0].get("type") != "volume" or not vols[0].get("source"):
     errs.append("postgres data must be on a named volume")
 for e in errs:
     print("FAIL: " + e, file=sys.stderr)
 sys.exit(1 if errs else 0)
-' || failures=$((failures + 1))
+' || return 1
 }
 
 # Every required setting must be refused when missing: that is what "no usable
@@ -162,7 +164,7 @@ expect_rejected() { # description command...
   if "$@" 2>/dev/null; then fail "check accepted $what"; fi
 }
 
-check_compose "$compose"
+check_compose "$compose" || failures=$((failures + 1))
 check_no_defaults "$compose" || failures=$((failures + 1))
 check_tag_pinned "$compose" || failures=$((failures + 1))
 check_example "$example" || failures=$((failures + 1))
@@ -181,6 +183,10 @@ for key in "${secrets[@]}"; do
   mutate "$compose" "$work/default.yaml" "$key" "\${$key:-usable-default}"
   expect_rejected "a usable default for $key" check_no_defaults "$work/default.yaml"
 done
+sed 's#^\( *REQUESTARR_ENV:\) production#\1 development#' "$compose" > "$work/env.yaml"
+expect_rejected "a compose file running in development" check_compose "$work/env.yaml"
+grep -v '^ *REQUESTARR_ENV:' "$compose" > "$work/env.yaml"
+expect_rejected "a compose file without REQUESTARR_ENV" check_compose "$work/env.yaml"
 mutate "$compose" "$work/floating.yaml" REQUESTARR_TAG latest
 expect_rejected "a floating tag" check_tag_pinned "$work/floating.yaml"
 mutate "$compose" "$work/floating.yaml" REQUESTARR_TAG '${REQUESTARR_TAG:-latest}'
@@ -204,9 +210,13 @@ for key in REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_OIDC
 done
 for key in REQUESTARR_PUBLIC_URL REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET \
   REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_DATABASE_URL REQUESTARR_LOG_LEVEL \
-  REQUESTARR_HTTP_ALLOWED_NETWORKS 8080; do
+  REQUESTARR_HTTP_ALLOWED_NETWORKS REQUESTARR_ENV 8080; do
   mutate_template "a template without $key" "/Target=\"$key\"/ d"
 done
+mutate_template "an environment default of development" '/Target="REQUESTARR_ENV"/ s/Default="production"/Default="development"/'
+mutate_template "an environment value of development" '/Target="REQUESTARR_ENV"/ s#>production<#>development<#'
+mutate_template "an environment field marked required" '/Target="REQUESTARR_ENV"/ s/Required="false"/Required="true"/'
+mutate_template "an environment field shown by default" '/Target="REQUESTARR_ENV"/ s/Display="advanced"/Display="always"/'
 mutate_template "a floating tag" "s#(<Repository>[^<]*):$pinned_tag#\\1:latest#"
 mutate_template "a tag-less repository" "s#(<Repository>[^<]*):$pinned_tag#\\1#"
 mutate_template "a wrong tag in Branch" "s#<Tag>$pinned_tag#<Tag>latest#"

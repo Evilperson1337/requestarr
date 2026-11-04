@@ -31,6 +31,10 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # Fixed, not an operator setting: production turns on the https rules for
+      # the public URL, the OIDC issuer and library Sources. The application's own
+      # default is development.
+      REQUESTARR_ENV: production
       REQUESTARR_DATABASE_URL: postgres://requestarr:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in requestarr.env}@postgres:5432/requestarr?sslmode=disable
       REQUESTARR_PUBLIC_URL: ${REQUESTARR_PUBLIC_URL:?set REQUESTARR_PUBLIC_URL in requestarr.env}
       REQUESTARR_OIDC_ISSUER: ${REQUESTARR_OIDC_ISSUER:?set REQUESTARR_OIDC_ISSUER in requestarr.env}

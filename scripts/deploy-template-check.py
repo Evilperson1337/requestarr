@@ -48,9 +48,19 @@ for c in root.findall("Config"):
 
 wanted = os.environ["REQUIRED"].split()
 needed_targets = [w for w in wanted if w.startswith("REQUESTARR_") and w != "REQUESTARR_TAG"]
-for t in needed_targets + ["REQUESTARR_DATABASE_URL", "REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS", "8080"]:
+for t in needed_targets + ["REQUESTARR_DATABASE_URL", "REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS", "REQUESTARR_ENV", "8080"]:
     if t not in configs:
         err("template has no field for %s" % t)
+
+# ---- environment: fixed to production so the https rules apply ----------------------
+c = configs.get("REQUESTARR_ENV")
+if c is not None:
+    if c.get("Default") != "production" or (c.text or "").strip() != "production":
+        err("REQUESTARR_ENV must default to production, with the value production")
+    if c.get("Display") != "advanced" or c.get("Required") != "false":
+        err("REQUESTARR_ENV must be advanced and not required to edit")
+    if "production" not in (c.get("Description") or ""):
+        err("REQUESTARR_ENV description must say why it is production")
 
 # ---- secrets: masked, required, no default, with a generation command ----------
 for name in ("REQUESTARR_OIDC_CLIENT_SECRET", "REQUESTARR_SESSION_HMAC_SECRET", "REQUESTARR_SECRETS_KEY"):
@@ -83,7 +93,7 @@ for t, c in configs.items():
 for t in needed_targets + ["REQUESTARR_DATABASE_URL", "8080"]:
     if t in configs and configs[t].get("Required") != "true":
         err("%s must be Required=true" % t)
-for t in ("REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS"):
+for t in ("REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS", "REQUESTARR_ENV"):
     if t in configs and configs[t].get("Required") == "true":
         err("%s must be optional" % t)
 
