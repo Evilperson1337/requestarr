@@ -1319,6 +1319,22 @@ components:
         subtitle: { type: string }
         artworkUrl: { type: string }
         artworkKind: { type: string }
+        local:
+          $ref: '#/components/schemas/SearchLocal'
+    SearchLocal:
+      type: object
+      required: [availability]
+      description: >-
+        What this instance already knows about the item, from the local database only
+        (no provider or library call). Omitted from a result never resolved here; omission
+        means "never resolved here", not "missing". Advisory: Request writes enforce everything again.
+      properties:
+        catalogId: { type: string, format: uuid, description: Present when a catalog item exists }
+        requestStatus: { type: string, enum: [requested, approved, denied, available, cancelled], description: Present when the item has a Request }
+        availability:
+          type: string
+          enum: [unknown, available, missing]
+          description: '"available" only when an enabled library source''s latest complete snapshot holds the item'
     SearchPage:
       type: object
       required: [results, hasMore]

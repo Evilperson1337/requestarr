@@ -108,6 +108,8 @@ type Deps struct {
 	Connections  ConnectionsService
 	Library      LibraryReader
 	Search       SearchService
+	// SearchLocal is optional: results are unannotated without it.
+	SearchLocal SearchLocalService
 	// SearchLimiter is optional; nil uses the built-in per-user default.
 	SearchLimiter *SearchLimiter
 	Issues        IssueService
@@ -214,7 +216,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	if limiter == nil {
 		limiter = NewSearchLimiter(searchLimitBurst, searchLimitRefill, nil)
 	}
-	registerSearchRoutes(rt, d.Search, limiter, logger)
+	registerSearchRoutes(rt, d.Search, d.SearchLocal, limiter, logger)
 	registerIssueRoutes(rt, d.Issues)
 	rt.handle("GET /setup/status", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) { writeSetupStatus(w, r, d.SetupState) })
 	rt.handle("POST /admin/sources/{source}/sync", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {

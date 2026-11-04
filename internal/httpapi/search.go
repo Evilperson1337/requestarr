@@ -25,6 +25,13 @@ type SearchService interface {
 	Search(ctx context.Context, searchType, text string, page int) (domain.SearchPage, error)
 }
 
+// SearchLocalService reads what this instance already knows about a page of
+// results from the local database only. Advisory: the write paths enforce
+// everything again.
+type SearchLocalService interface {
+	SearchLocalStates(ctx context.Context, keys []domain.SearchKey) (map[domain.SearchKey]domain.SearchLocal, error)
+}
+
 const (
 	searchMinChars = 2
 	searchMaxChars = 200
@@ -34,7 +41,33 @@ const (
 // searchTypes are every type the API names, configured or not.
 var searchTypes = map[string]bool{"movie_tv": true, "album": true, "song": true, "game": true, "audiobook": true}
 
-func registerSearchRoutes(rt *routeTable, search SearchService, limiter *SearchLimiter, logger *slog.Logger) {
+// annotateLocal adds local state to a copy of the page: the provider answer may
+// be a cached one shared between requests, and state must be fresh each time. A
+// failed lookup leaves results unannotated; the badge is advisory.
+func annotateLocal(ctx context.Context, local SearchLocalService, logger *slog.Logger, results []domain.SearchResult) []domain.SearchResult {
+	if local == nil || len(results) == 0 {
+		return results
+	}
+	keys := make([]domain.SearchKey, len(results))
+	for i, res := range results {
+		keys[i] = domain.SearchKey{MediaType: res.MediaType, Provider: res.Provider, ProviderID: res.ProviderID}
+	}
+	states, err := local.SearchLocalStates(ctx, keys)
+	if err != nil {
+		logger.Warn("search local state lookup failed", "request_id", apierror.RequestID(ctx), "error", err)
+		return results
+	}
+	out := make([]domain.SearchResult, len(results))
+	copy(out, results)
+	for i := range out {
+		if state, ok := states[keys[i]]; ok {
+			out[i].Local = &state
+		}
+	}
+	return out
+}
+
+func registerSearchRoutes(rt *routeTable, search SearchService, local SearchLocalService, limiter *SearchLimiter, logger *slog.Logger) {
 	rt.handle("GET /search/types", accessSession, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, map[string][]string{"types": search.Types()})
@@ -78,6 +111,7 @@ func registerSearchRoutes(rt *routeTable, search SearchService, limiter *SearchL
 		if result.Results == nil {
 			result.Results = []domain.SearchResult{}
 		}
+		result.Results = annotateLocal(r.Context(), local, logger, result.Results)
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, result)
 	})

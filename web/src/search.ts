@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type SearchResult } from './api'
+import { api, type SearchLocal, type SearchResult } from './api'
 
 export type SearchState = { status: 'idle' | 'loading' | 'done' | 'error' | 'limited'; query: string; results: SearchResult[]; hasMore?: boolean; error: string }
 
@@ -17,6 +17,22 @@ const storageKey = 'requestarr.searchType'
 export function isLinkInput(text: string): boolean {
     const value = text.trim()
     return /^[a-z][a-z0-9+.-]*:\/\//i.test(value) || /^www\./i.test(value) || /^B0[0-9A-Z]{8}$/i.test(value) || /^[0-9]{9}[0-9X]$/i.test(value)
+}
+
+export type SearchBadge = { key: 'requested' | 'library'; icon: string; label: string }
+
+// What a result's local state says, as words plus an icon (never colour alone).
+// Absent local state means "never resolved here" and has no badge. A Request
+// that is open or approved reads "Requested"; denied, cancelled and the
+// available status say nothing about a pending request, and "In library" comes
+// from availability, which only an enabled library's current snapshot sets.
+export function searchBadges(local?: SearchLocal): SearchBadge[] {
+    const badges: SearchBadge[] = []
+    if (!local) return badges
+    if (local.requestStatus === 'requested') badges.push({ key: 'requested', icon: '◔', label: 'Requested' })
+    else if (local.requestStatus === 'approved') badges.push({ key: 'requested', icon: '◔', label: 'Requested · Approved' })
+    if (local.availability === 'available') badges.push({ key: 'library', icon: '✓', label: 'In library' })
+    return badges
 }
 
 function remembered(): string {
