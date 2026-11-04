@@ -1,0 +1,53 @@
+{
+  "created": "2026-11-04T09:00:00.000Z",
+  "count": 59,
+  "offset": 0,
+  "release-groups": [
+    {
+      "id": "f5093c06-23e3-404f-aeaa-40f72885ee3a",
+      "type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+      "score": 100,
+      "primary-type": "Album",
+      "first-release-date": "1973-03-01",
+      "title": "The Dark Side of the Moon",
+      "artist-credit": [
+        { "name": "Pink Floyd", "joinphrase": "", "artist": { "id": "83d91898-7763-47d7-b03b-b92132375c47", "name": "Pink Floyd", "sort-name": "Pink Floyd" } }
+      ],
+      "releases": [ { "id": "a4864e94-6d75-3d2f-a5b3-d5d3ea4a5c29", "title": "The Dark Side of the Moon" } ]
+    },
+    {
+      "id": "0e1a8d4c-8c4b-4a46-9d7f-0d2d7f1f3a01",
+      "score": 96,
+      "primary-type": "Album",
+      "secondary-types": ["Live"],
+      "first-release-date": "1995",
+      "title": "Dark Side Live",
+      "artist-credit": [
+        { "name": "Alpha", "joinphrase": " & ", "artist": { "id": "11111111-aaaa-4aaa-8aaa-111111111111", "name": "Alpha" } },
+        { "name": "Beta", "joinphrase": "", "artist": { "id": "22222222-bbbb-4bbb-8bbb-222222222222", "name": "Beta" } }
+      ]
+    },
+    {
+      "id": "2b8c3a77-5d1e-4e0a-8f6e-6a1f0c9d2b02",
+      "score": 90,
+      "primary-type": "Single",
+      "first-release-date": "2001-06-11",
+      "title": "Dark Side Single",
+      "artist-credit": [ { "name": "Gamma", "artist": { "id": "33333333-cccc-4ccc-8ccc-333333333333", "name": "Gamma" } } ]
+    },
+    {
+      "id": "3c9d4b88-6e2f-4f1b-9a7f-7b2a1d0e3c03",
+      "score": 85,
+      "primary-type": "EP",
+      "title": "Undated Dark EP",
+      "artist-credit": []
+    },
+    {
+      "id": "not-a-valid-id",
+      "score": 80,
+      "primary-type": "Album",
+      "title": "Broken id row",
+      "artist-credit": []
+    }
+  ]
+}

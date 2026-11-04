@@ -21,7 +21,7 @@ import (
 type SearchService interface {
 	// Types lists the search types whose provider is configured.
 	Types() []string
-	Search(ctx context.Context, searchType, text string, page int) (domain.SearchPage, error)
+	Search(ctx context.Context, searchType, text string, page int, opts metadata.SearchOptions) (domain.SearchPage, error)
 }
 
 const (
@@ -60,7 +60,7 @@ func registerSearchRoutes(rt *routeTable, search SearchService, logger *slog.Log
 			}
 			page = n
 		}
-		result, err := search.Search(r.Context(), searchType, text, page)
+		result, err := search.Search(r.Context(), searchType, text, page, metadata.SearchOptions{IncludeSingles: q.Get("singles") == "true"})
 		if err != nil {
 			writeSearchError(w, r, logger, err)
 			return

@@ -8,12 +8,12 @@ Parent: `.scratch/name-search/spec.md`
 
 **Status:** ready-for-agent
 
-- [ ] The Albums type appears only when MusicBrainz is available and searches on Enter or the button only
-- [ ] Default results are albums only; the toggle adds singles and EPs; each row shows its type and year
-- [ ] The contract test asserts the MusicBrainz resolver accepts every fixture result's ref
-- [ ] Hostile query text (quotes, colons, asterisks, parentheses) neither errors nor changes the query semantics (fixture test)
-- [ ] With searches queued, a resolve is served first and a cancelled search frees its slot (test with a fake clock or spacer)
-- [ ] MusicBrainz busy or timeout shows an error with the paste hint, never "no results"
-- [ ] An album held in Navidrome or Plex shows "In library", including when the library stores a release ID
-- [ ] Explicit-submit behavior works with the keyboard and the live region (browser test)
-- [ ] `make fmt test vet web-check`, `make test-integration` and the browser tests pass
+- [x] The Albums type appears only when MusicBrainz is available and searches on Enter or the button only. Verified: Playwright (`web/tests/search-albums.spec.ts`) shows no request while typing and one on Enter or the button; `app.go` registers `album` unconditionally because MusicBrainz needs no key, so "available" is always true (there is no health probe).
+- [x] Default results are albums only; the toggle adds singles and EPs; each row shows its type and year. Verified by the query-builder unit tests (`primarytype:"album"` vs album/single/ep) and by Playwright; row shows year, `Album (Live) · Artist`.
+- [x] The contract test asserts the MusicBrainz resolver accepts every fixture result's ref (`TestEveryFixtureResultRefIsAcceptedByTheResolver`, which also runs Resolve and checks the release-group endpoint is requested). The fixture follows the shape recorded in `docs/research/SEARCH_INTEGRATION.md`; the live probe was refused with 503 twice, so the shape is not re-confirmed today.
+- [ ] Hostile query text (quotes, colons, asterisks, parentheses) neither errors nor changes the query semantics (fixture test). The fixture test pins the exact Lucene string (every word is one escaped quoted phrase, so operators and field names are plain words), but MusicBrainz itself was not reached (503 on the probe), so "does not error" is unconfirmed live.
+- [x] With searches queued, a resolve is served first and a cancelled search frees its slot (fake-clock spacer tests: priority, queue depth 3 then ErrBusy, cancel frees the slot; plus a search-level cancel test). The service now cancels a shared provider call once its last caller has gone.
+- [x] MusicBrainz busy or timeout shows an error with the paste hint, never "no results" (503/429/502 map to ErrBusy with one attempt only; Playwright checks the alert and the absence of "No results"; the API error path is the existing `writeSearchError`).
+- [ ] An album held in Navidrome or Plex shows "In library", including when the library stores a release ID. Not done: depends on ticket 04 (status query), built in parallel.
+- [x] Explicit-submit behavior works with the keyboard and the live region (browser test: Enter submits, focus stays in the input, status says "1 result for ...", the input is described by a hint, no axe violations).
+- [ ] `make fmt test vet web-check`, `make test-integration` and the browser tests pass. fmt, test, vet, web-check and the browser tests pass (only the known `home-recent` limit failure); `make test-integration` was not run (no database changes).

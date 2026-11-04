@@ -17,6 +17,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/opstatus"
+	"github.com/evilperson1337/requestarr/internal/providers/metadata"
 	"github.com/evilperson1337/requestarr/internal/requests"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup"
@@ -310,7 +311,7 @@ func (absentConnections) TestConnection(context.Context, string) (ConnectionTest
 type absentSearch struct{}
 
 func (absentSearch) Types() []string { return nil }
-func (absentSearch) Search(context.Context, string, string, int) (domain.SearchPage, error) {
+func (absentSearch) Search(context.Context, string, string, int, metadata.SearchOptions) (domain.SearchPage, error) {
 	return domain.SearchPage{}, errAbsent
 }
 

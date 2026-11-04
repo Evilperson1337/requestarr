@@ -36,7 +36,7 @@ test('home resolves a link, previews it in a labelled dialog, and creates a requ
     await dialog.getByLabel('Note (optional)').fill('Please add')
     await dialog.getByRole('button', { name: 'Request movie', exact: true }).click()
     await expect(dialog).toContainText('Movie requested')
-    await expect(page).toHaveURL('http://127.0.0.1:4173/')
+    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:\d+\/$/)
     expect(calls).toEqual([{ path: '/requests', body: { catalogId: 'catalog-1', note: 'Please add', platforms: { any: true } } }])
 })
 

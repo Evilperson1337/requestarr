@@ -6,6 +6,11 @@ export type SearchState = { status: 'idle' | 'loading' | 'done' | 'error'; query
 export const searchTypeLabels: Record<string, string> = { movie_tv: 'Movies & TV', album: 'Albums', song: 'Songs', game: 'Games', audiobook: 'Audiobooks' }
 // Types that search as you type; the slower providers wait for Enter.
 export const typeaheadTypes = new Set(['movie_tv'])
+// Slower, rate-limited providers wait for Enter or the Search button. The hint
+// is read out with the input so a keyboard or screen-reader user knows why nothing appears while typing.
+export const searchHints: Record<string, string> = { album: 'Albums are looked up when you press Enter or Search, not as you type.' }
+// Types with the "include singles & EPs" switch.
+export const singlesTypes = new Set(['album'])
 
 const storageKey = 'requestarr.searchType'
 

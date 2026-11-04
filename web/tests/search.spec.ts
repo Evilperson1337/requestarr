@@ -148,7 +148,7 @@ test('Enter searches immediately, and a Viewer can search and open a preview', a
 })
 
 test('search results have no automated accessibility violations and keep a 2:3 poster', async ({ page }) => {
-    await openHome(page, { search: () => ({ json: { results: [{ ...dune, artworkUrl: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' }], hasMore: false } }) })
+    await openHome(page, { search: () => ({ json: { results: [{ ...dune, artworkUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7' }], hasMore: false } }) })
     await page.getByPlaceholder(box).fill('dune')
     const row = page.getByRole('list', { name: 'Search results' }).getByRole('button')
     await expect(row).toHaveCount(1)
