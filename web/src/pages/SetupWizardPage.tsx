@@ -41,7 +41,7 @@ export function SetupWizardPage({ session, onComplete }: { session: Session | nu
             <ol>
                 <li>Configure the OIDC issuer, client ID, and client secret in the server environment, then restart Requestarr.</li>
                 <li>Use the configured provider below to sign in as the exact identity that will become the first administrator.</li>
-                <li>Run <code>requestarr setup-token --issuer ISSUER --subject SUBJECT</code> on the server. Enter the same exact issuer and subject here. The CLI writes the token to a protected file by default.</li>
+                <li>Run <code>requestarr setup-token --issuer ISSUER --subject SUBJECT</code> on the server. Enter the same exact issuer and subject here. Add exactly one of <code>--token-file PATH</code> (writes an owner-only file) or <code>--stdout</code> (prints the token).</li>
             </ol>
         </div>
         {!session ? <><p>Setup is still required. Sign in through your configured identity provider to continue with the admin claim.</p><a className="button" href="/api/v1/auth/login">Sign in with OIDC</a></> : session.user.role === 'admin' ? <div role="status" className="setupNotice"><h2>Administrator access is ready</h2><p>Your session is already an administrator. Continue to Requestarr.</p><button className="button" onClick={() => onComplete(session)}>Continue to app</button></div> : <>
