@@ -1,0 +1,12 @@
+[
+ {"id":1942,"slug":"the-witcher-3-wild-hunt","name":"The Witcher 3: Wild Hunt","first_release_date":1431993600,"game_type":0,"cover":{"image_id":"co1wyy"},"platforms":[{"name":"PC (Microsoft Windows)","abbreviation":"PC"},{"name":"PlayStation 4","abbreviation":"PS4"},{"name":"Xbox One","abbreviation":"XONE"},{"name":"Nintendo Switch","abbreviation":"Switch"}]},
+ {"id":2001,"slug":"the-witcher-3-wild-hunt-blood-and-wine","name":"The Witcher 3: Wild Hunt - Blood and Wine","first_release_date":1464566400,"game_type":1,"cover":{"image_id":"co2aaa"},"platforms":[{"name":"PC (Microsoft Windows)","abbreviation":"PC"}]},
+ {"id":2002,"slug":"the-witcher-3-wild-hunt-complete-edition-bundle","name":"The Witcher 3 Bundle","first_release_date":1500000000,"game_type":3,"platforms":[{"name":"PlayStation 4"}]},
+ {"id":2003,"slug":"the-witcher-3-wild-hunt-patch-4","name":"The Witcher 3 Update 4.0","first_release_date":1600000000,"game_type":14},
+ {"id":3001,"slug":"resident-evil-4","name":"Resident Evil 4 (Remake)","first_release_date":1679529600,"game_type":8,"cover":{"image_id":"co6bo0"},"platforms":[{"name":"PlayStation 5","abbreviation":"PS5"}]},
+ {"id":3002,"slug":"shadow-of-the-colossus-remaster","name":"Shadow of the Colossus Remaster","first_release_date":1380000000,"game_type":9,"platforms":[{"name":"PlayStation 3"}]},
+ {"id":3003,"slug":"doom-64-port","name":"Doom 64 Port","game_type":11,"cover":{"image_id":"bad id/../"},"platforms":[{"name":"Nintendo Switch"}]},
+ {"id":3004,"slug":"skyrim-special-edition","name":"Skyrim Special Edition","first_release_date":1478736000,"game_type":10},
+ {"id":3005,"slug":"Bad Slug\"; drop","name":"Unreachable Slug Game","game_type":0},
+ {"id":3006,"slug":"no-kind-game","name":"No Kind Field"}
+]

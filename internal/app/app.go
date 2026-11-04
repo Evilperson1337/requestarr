@@ -71,11 +71,16 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		return fmt.Errorf("initialize OIDC provider: %w", err)
 	}
 	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://")}
-	metadataService := metadata.NewService(store, tmdb.New(cfg.TMDBReadToken, nil), musicbrainz.New(nil), igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil), audible.New(domain.AudibleRegion(cfg.AudibleRegion), nil))
+	// One IGDB provider serves links and searches, so they share its token and its request cap.
+	igdbProvider := igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil)
+	metadataService := metadata.NewService(store, tmdb.New(cfg.TMDBReadToken, nil), musicbrainz.New(nil), igdbProvider, audible.New(domain.AudibleRegion(cfg.AudibleRegion), nil))
 	// A search type exists only when its provider is configured; it is the one switch.
 	searchers := map[string]metadata.Searcher{}
 	if cfg.TMDBReadToken != "" {
 		searchers["movie_tv"] = tmdb.New(cfg.TMDBReadToken, nil)
+	}
+	if cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "" {
+		searchers["game"] = igdbProvider
 	}
 	searchService := metadata.NewSearchService(searchers)
 	if cfg.AppriseURL != "" {
