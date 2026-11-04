@@ -159,7 +159,7 @@ func TestLibraryDraftRestrictsAuthorityToAdapterMediaTypes(t *testing.T) {
 	settings.Libraries.Plex.Enabled = true
 	settings.Libraries.Plex.URL = "https://plex.example.test"
 	settings.Libraries.Plex.MediaTypes = []domain.MediaType{domain.MediaMovie, domain.MediaAlbum}
-	if err := settings.Validate(false); err != nil {
+	if err := settings.Validate(Runtime{}); err != nil {
 		t.Fatalf("valid Plex types rejected: %v", err)
 	}
 	tests := []struct {
@@ -176,7 +176,7 @@ func TestLibraryDraftRestrictsAuthorityToAdapterMediaTypes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			bad := settings
 			tc.change(&bad.Libraries.Plex)
-			if err := bad.Validate(false); !errors.Is(err, ErrInvalid) {
+			if err := bad.Validate(Runtime{}); !errors.Is(err, ErrInvalid) {
 				t.Fatalf("invalid library setting accepted: %v", err)
 			}
 		})

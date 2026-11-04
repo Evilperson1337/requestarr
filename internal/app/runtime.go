@@ -140,7 +140,7 @@ func Build(b booted, a Adapters) (Runtime, error) {
 		PublicURL: cfg.PublicURL, OIDCIssuer: cfg.OIDCIssuer, OIDCClientID: cfg.OIDCClientID, IGDBClientID: cfg.IGDBClientID,
 		IGDBClientIDFromEnvironment: b.IGDBClientIDFromEnvironment,
 		OIDCSecretConfigured:        cfg.OIDCClientSecret != "",
-		AppriseURL:                  cfg.AppriseURL, Development: cfg.Environment == "development",
+		AppriseURL:                  cfg.AppriseURL, Development: cfg.Environment == "development", PrivateHosts: cfg.PrivateHosts(),
 		LibraryURLs:       setupURLs,
 		SecretsConfigured: map[secrets.Name]bool{}, LibraryUsernames: usernames,
 	}

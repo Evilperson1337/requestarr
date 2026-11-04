@@ -246,7 +246,7 @@ func (c *Checker) library(ctx context.Context, slug string, libraries setup.Libr
 		q := url.Values{"u": {username}, "t": {hex.EncodeToString(token[:])}, "s": {salt}, "v": {"1.16.1"}, "c": {"Requestarr/setup-check"}, "f": {"json"}}
 		endpoint = strings.TrimRight(source.URL, "/") + "/rest/ping.view?" + q.Encode()
 	}
-	if !setup.ValidSourceURL(source.URL, c.config.Runtime.Development) {
+	if !setup.ValidSourceURL(source.URL, c.config.Runtime) {
 		return setup.CheckIncomplete, nil
 	}
 	// An explicit admin check of this exact operator-supplied Source.

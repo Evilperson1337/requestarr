@@ -49,6 +49,9 @@ type Config struct {
 	// HTTPAllowedNetworks extends the built-in private-host list for library
 	// Source URLs (D033): comma-separated CIDRs and hostname suffixes.
 	HTTPAllowedNetworks string
+	// parsedNetworks is HTTPAllowedNetworks parsed once by
+	// SetHTTPAllowedNetworks; nil when the setting is empty.
+	parsedNetworks *parsedNetworks
 }
 
 func FromEnv() Config {
@@ -72,9 +75,8 @@ func FromEnv() Config {
 		AppriseURL:        os.Getenv("REQUESTARR_APPRISE_URL"),
 		AppriseConfigKey:  os.Getenv("REQUESTARR_APPRISE_CONFIG_KEY"),
 		SecretsKey:        os.Getenv(secrets.MasterKeyEnv),
-
-		HTTPAllowedNetworks: os.Getenv(httpAllowedNetworksEnv),
 	}
+	c.SetHTTPAllowedNetworks(os.Getenv(httpAllowedNetworksEnv))
 	for _, kind := range sources.All() {
 		*c.LibraryURL(kind.Slug) = os.Getenv(kind.URLEnv)
 		for _, credential := range kind.Credentials {
@@ -218,8 +220,7 @@ func (c Config) sourceURLProblems(name, raw string) []string {
 		return []string{name + " must be an absolute http(s) origin without credentials, path, query, or fragment"}
 	}
 	if c.Environment != "" && c.Environment != "development" && u.Scheme != "https" {
-		extra, _ := parseAllowedNetworks(c.HTTPAllowedNetworks) // malformed entries are reported by httpAllowedNetworksProblems
-		if !privateHost(u.Hostname(), extra) {
+		if !c.PrivateHosts().Contains(u.Hostname()) {
 			return []string{name + " must use https outside development, unless the host is on a private network (use https, or add the network to " + httpAllowedNetworksEnv + ")"}
 		}
 	}

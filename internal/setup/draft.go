@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/evilperson1337/requestarr/internal/config"
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/sources"
@@ -240,6 +241,9 @@ type Runtime struct {
 	LibraryURLs      map[string]string
 	AppriseURL       string
 	Development      bool
+	// PrivateHosts is the configuration package's rule for which library hosts
+	// may use http outside development (D033).
+	PrivateHosts config.PrivateHosts
 }
 
 // SecretConfigured reports whether a value for the secret is in effect.
@@ -254,7 +258,8 @@ type SaveInput struct {
 	Settings         Settings `json:"settings"`
 }
 
-func (s Settings) Validate(development bool) error {
+func (s Settings) Validate(rt Runtime) error {
+	development := rt.Development
 	for _, field := range []struct {
 		value string
 		limit int
@@ -296,7 +301,7 @@ func (s Settings) Validate(development bool) error {
 	}
 	for _, kind := range sources.All() {
 		source := *s.Libraries.Source(kind.Slug)
-		if source.URL != "" && !ValidSourceURL(source.URL, development) {
+		if source.URL != "" && !ValidSourceURL(source.URL, rt) {
 			return ErrInvalid
 		}
 		if !validMediaTypes(kind, source.MediaTypes) {
@@ -348,12 +353,17 @@ func ValidServiceURL(raw string, development bool) bool {
 }
 
 // ValidSourceURL restricts library endpoints to an origin; credentials are sent only to that origin.
-func ValidSourceURL(raw string, development bool) bool {
-	if !ValidServiceURL(raw, development) {
+// Outside development, http is allowed only to a private host, by the same
+// rule the environment configuration uses.
+func ValidSourceURL(raw string, rt Runtime) bool {
+	if !ValidServiceURL(raw, true) {
 		return false
 	}
 	u, err := url.Parse(raw)
-	return err == nil && (u.Path == "" || u.Path == "/")
+	if err != nil || (u.Path != "" && u.Path != "/") {
+		return false
+	}
+	return u.Scheme == "https" || rt.Development || rt.PrivateHosts.Contains(u.Hostname())
 }
 
 // RequiredTargets lists every check that must pass before setup can finish.

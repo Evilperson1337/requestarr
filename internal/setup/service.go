@@ -209,7 +209,7 @@ func (s *Service) Save(ctx context.Context, actor Actor, input SaveInput) (Draft
 	if input.ExpectedRevision < 1 || (input.CurrentStep != StepGeneral && input.CurrentStep != StepAuthentication && input.CurrentStep != StepProviders && input.CurrentStep != StepLibraries && input.CurrentStep != StepNotifications && input.CurrentStep != StepPolicy && input.CurrentStep != StepReview) {
 		return Draft{}, ErrInvalid
 	}
-	if err := input.Settings.Validate(s.runtime.Development); err != nil {
+	if err := input.Settings.Validate(s.runtime); err != nil {
 		return Draft{}, err
 	}
 	if err := s.rejectCompleted(ctx, actor); err != nil {

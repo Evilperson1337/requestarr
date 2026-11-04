@@ -22,16 +22,19 @@ var builtinPrivateNets = []netip.Prefix{
 
 var builtinPrivateSuffixes = []string{"local", "lan", "internal", "home.arpa"}
 
-// allowedNetworks is the operator's additions to the built-in private-host list.
-type allowedNetworks struct {
+// PrivateHosts is the one rule for which library Source hosts may be reached
+// over plain http outside development (D033): the built-in private ranges and
+// names plus the operator's additions from REQUESTARR_HTTP_ALLOWED_NETWORKS.
+// The zero value knows only the built-ins.
+type PrivateHosts struct {
 	prefixes []netip.Prefix
 	suffixes []string
 }
 
-// parseAllowedNetworks reads a comma-separated list of CIDRs and hostname
+// parsePrivateHosts reads a comma-separated list of CIDRs and hostname
 // suffixes. It returns every valid entry plus an error per malformed one.
-func parseAllowedNetworks(raw string) (allowedNetworks, []error) {
-	var out allowedNetworks
+func parsePrivateHosts(raw string) (PrivateHosts, []error) {
+	var out PrivateHosts
 	var errs []error
 	for _, entry := range strings.Split(raw, ",") {
 		entry = strings.TrimSpace(entry)
@@ -48,7 +51,7 @@ func parseAllowedNetworks(raw string) (allowedNetworks, []error) {
 			continue
 		}
 		suffix := strings.ToLower(strings.TrimPrefix(entry, "."))
-		if !validSuffix(suffix) {
+		if !validHostSuffix(suffix) {
 			errs = append(errs, fmt.Errorf("%s: %q is not a valid CIDR or hostname suffix", httpAllowedNetworksEnv, entry))
 			continue
 		}
@@ -57,7 +60,7 @@ func parseAllowedNetworks(raw string) (allowedNetworks, []error) {
 	return out, errs
 }
 
-func validSuffix(s string) bool {
+func validHostSuffix(s string) bool {
 	if s == "" || strings.HasPrefix(s, "-") || strings.Contains(s, "..") || strings.HasSuffix(s, ".") {
 		return false
 	}
@@ -69,28 +72,52 @@ func validSuffix(s string) bool {
 	return true
 }
 
+// parsedNetworks is the parse result of REQUESTARR_HTTP_ALLOWED_NETWORKS.
+type parsedNetworks struct {
+	hosts PrivateHosts
+	errs  []error
+}
+
+// SetHTTPAllowedNetworks sets the operator's additions to the private-host list
+// and parses them once. Malformed entries are skipped here and reported by name
+// by ValidateBootstrap and Validate.
+func (c *Config) SetHTTPAllowedNetworks(raw string) {
+	c.HTTPAllowedNetworks = raw
+	c.parsedNetworks = nil
+	if strings.TrimSpace(raw) == "" {
+		return
+	}
+	hosts, errs := parsePrivateHosts(raw)
+	c.parsedNetworks = &parsedNetworks{hosts: hosts, errs: errs}
+}
+
+// PrivateHosts returns the private-host rule in effect for this Config.
+func (c Config) PrivateHosts() PrivateHosts {
+	if c.parsedNetworks == nil {
+		return PrivateHosts{}
+	}
+	return c.parsedNetworks.hosts
+}
+
 func (c Config) httpAllowedNetworksProblems() []string {
-	_, errs := parseAllowedNetworks(c.HTTPAllowedNetworks)
+	if c.parsedNetworks == nil {
+		return nil
+	}
 	var out []string
-	for _, err := range errs {
+	for _, err := range c.parsedNetworks.errs {
 		out = append(out, err.Error())
 	}
 	return out
 }
 
-// privateHost reports whether a URL host is private by its form alone: a
-// private IP literal, a single-label name, or a name under a local suffix.
-func privateHost(host string, extra allowedNetworks) bool {
+// Contains reports whether a URL host is private by its form alone: a private
+// IP literal, a single-label name, or a name under a local suffix.
+func (p PrivateHosts) Contains(host string) bool {
 	host = strings.ToLower(host)
 	if addr, err := netip.ParseAddr(host); err == nil {
 		addr = addr.Unmap()
-		for _, p := range builtinPrivateNets {
-			if p.Contains(addr) {
-				return true
-			}
-		}
-		for _, p := range extra.prefixes {
-			if p.Contains(addr) {
+		for _, prefix := range append(append([]netip.Prefix{}, builtinPrivateNets...), p.prefixes...) {
+			if prefix.Contains(addr) {
 				return true
 			}
 		}
@@ -99,8 +126,8 @@ func privateHost(host string, extra allowedNetworks) bool {
 	if !strings.Contains(host, ".") {
 		return true
 	}
-	for _, s := range append(append([]string{}, builtinPrivateSuffixes...), extra.suffixes...) {
-		if host == s || strings.HasSuffix(host, "."+s) {
+	for _, suffix := range append(append([]string{}, builtinPrivateSuffixes...), p.suffixes...) {
+		if host == suffix || strings.HasSuffix(host, "."+suffix) {
 			return true
 		}
 	}

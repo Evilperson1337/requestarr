@@ -45,7 +45,7 @@ func TestLibraryURLOverHTTPAnyHostInDevelopment(t *testing.T) {
 
 func TestHTTPAllowedNetworksOnlyAdds(t *testing.T) {
 	c := productionLibrary("http://203.0.113.9:32400")
-	c.HTTPAllowedNetworks = "203.0.113.0/24, .vpn.example , 10.9.0.0/16"
+	c.SetHTTPAllowedNetworks("203.0.113.0/24, .vpn.example , 10.9.0.0/16")
 	if got := c.LibraryProblems("plex"); len(got) != 0 {
 		t.Fatalf("CIDR: %v", got)
 	}
@@ -80,11 +80,20 @@ func TestHTTPAllowedNetworksMalformedEntryNamed(t *testing.T) {
 	}
 }
 
+func TestHTTPAllowedNetworksMalformedEntryNamedByValidate(t *testing.T) {
+	c := validBase()
+	c.SetHTTPAllowedNetworks("10.0.0.0/8,bad host")
+	err := c.Validate()
+	if err == nil || !strings.Contains(err.Error(), "bad host") {
+		t.Fatalf("Validate did not name the malformed entry: %v", err)
+	}
+}
+
 func TestPublicURLIssuerAndAppriseStayHTTPSOutsideDevelopment(t *testing.T) {
 	base := validBase()
 	base.Environment = "production"
 	base.PublicURL = "https://app.example"
-	base.HTTPAllowedNetworks = "10.0.0.0/8"
+	base.SetHTTPAllowedNetworks("10.0.0.0/8")
 	if err := base.Validate(); err != nil {
 		t.Fatal(err)
 	}

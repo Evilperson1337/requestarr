@@ -117,11 +117,11 @@ func TestNotificationAndPolicySettingsAreClosed(t *testing.T) {
 	} {
 		bad := draft.Settings
 		change(&bad)
-		if err := bad.Validate(false); !errors.Is(err, ErrInvalid) {
+		if err := bad.Validate(Runtime{}); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s accepted: %v", name, err)
 		}
 	}
-	if err := draft.Settings.Validate(false); err != nil {
+	if err := draft.Settings.Validate(Runtime{}); err != nil {
 		t.Fatalf("default settings invalid: %v", err)
 	}
 }

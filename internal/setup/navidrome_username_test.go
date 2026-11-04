@@ -43,7 +43,7 @@ func TestLegacyDraftLoadsAndTakesTheEnvironmentUsername(t *testing.T) {
 	if strings.Contains(string(encoded), "usernameEnv") {
 		t.Fatalf("retired usernameEnv still emitted: %s", encoded)
 	}
-	if err := draft.Settings.Validate(false); err != nil {
+	if err := draft.Settings.Validate(Runtime{}); err != nil {
 		t.Fatalf("normalized legacy draft must validate: %v", err)
 	}
 }
@@ -59,19 +59,19 @@ func TestSavedUsernameWinsOverTheEnvironmentOne(t *testing.T) {
 func TestNavidromeUsernameIsAPlainValidatedDraftField(t *testing.T) {
 	settings := NewService(&memoryDrafts{}, fakeChecker{}, Runtime{}).initial().Settings
 	settings.Libraries.Navidrome.Username = "requestarr"
-	if err := settings.Validate(false); err != nil {
+	if err := settings.Validate(Runtime{}); err != nil {
 		t.Fatalf("plain username rejected: %v", err)
 	}
 	for name, bad := range map[string]string{"newline": "a\nb", "too long": strings.Repeat("u", 257)} {
 		s := settings
 		s.Libraries.Navidrome.Username = bad
-		if err := s.Validate(false); !errors.Is(err, ErrInvalid) {
+		if err := s.Validate(Runtime{}); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s accepted", name)
 		}
 	}
 	other := settings
 	other.Libraries.Plex.Username = "x"
-	if err := other.Validate(false); !errors.Is(err, ErrInvalid) {
+	if err := other.Validate(Runtime{}); !errors.Is(err, ErrInvalid) {
 		t.Error("a username on a non-Navidrome Source was accepted")
 	}
 }
