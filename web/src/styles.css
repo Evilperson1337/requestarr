@@ -2416,6 +2416,22 @@ a.tag-available:hover {
     min-height: 44px;
 }
 
+/* Narrow screens: a fixed three-column grid, so the first row is Movies & TV, Albums, Songs and the music types never split across lines. */
+@media (max-width: 600px) {
+    .searchTypes {
+        display: grid;
+        grid-template-columns: repeat(3, auto);
+        justify-content: start;
+        gap: 0 16px;
+    }
+
+    .searchTypes legend {
+        float: none;
+        grid-column: 1 / -1;
+        margin: 0;
+    }
+}
+
 .searchStatus {
     min-height: 1.4em;
     margin: 12px 0 4px;
