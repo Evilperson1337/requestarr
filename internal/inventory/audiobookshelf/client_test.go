@@ -245,3 +245,32 @@ func TestArtworkFetchesOnlyAnItemCoverWithTheKeyInAHeader(t *testing.T) {
 		}
 	}
 }
+
+func TestAudiobooksCarryTheirDescriptionGenresAndRuntime(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/libraries":
+			_, _ = w.Write(fixture(t, "libraries.json"))
+		default:
+			_, _ = w.Write([]byte(`{"total":2,"results":[
+				{"id":"li_a","addedAt":1700000000000,"mediaType":"book","media":{"numTracks":3,"duration":36030.4,"metadata":{"title":"Plain","descriptionPlain":"Plain words.","description":"<p>Ignored</p>","genres":["Sci-Fi","Humor"]}}},
+				{"id":"li_b","addedAt":1700000000000,"mediaType":"book","media":{"numTracks":3,"metadata":{"title":"Html","description":"<p>First &amp; best.</p><p>Second<br>line</p><script>x</script>"}}}]}`))
+		}
+	}))
+	defer ts.Close()
+	c, err := NewWithHTTPClient(ts.URL, testKey, ts.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := c.Snapshot(context.Background())
+	if err != nil || len(snap.Items) != 2 {
+		t.Fatalf("snapshot %v %d", err, len(snap.Items))
+	}
+	if d := snap.Items[0].Details; d.Synopsis != "Plain words." || d.RuntimeMinutes != 601 || len(d.Genres) != 2 {
+		t.Fatalf("details = %+v", d)
+	}
+	if d := snap.Items[1].Details; strings.Contains(d.Synopsis, "<") || !strings.HasPrefix(d.Synopsis, "First & best.") || !strings.Contains(d.Synopsis, "Second\nline") {
+		t.Fatalf("an HTML description must become text: %q", d.Synopsis)
+	}
+}

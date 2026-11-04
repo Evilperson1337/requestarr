@@ -373,3 +373,50 @@ func TestTracksRememberTheirAlbumDiscAndPosition(t *testing.T) {
 		t.Fatalf("an album has no parent: %+v", album)
 	}
 }
+
+func TestItemsCarryWhatPlexSaysAboutThem(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/library/sections" {
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"1","type":"movie"}]}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":2,"offset":0,"Metadata":[
+			{"ratingKey":"1","title":"A","summary":"A fighter.","audienceRating":7.64,"rating":9,"contentRating":"R","duration":6000000,"Genre":[{"tag":"Action"},{"tag":"Fantasy"}]},
+			{"ratingKey":"2","title":"B","rating":6.5,"audienceRating":99,"duration":-1}]}}`))
+	}))
+	defer server.Close()
+	c, _ := New(server.URL, testToken)
+	snap, err := c.Snapshot(context.Background())
+	if err != nil || len(snap.Items) != 2 {
+		t.Fatalf("snapshot %v %d", err, len(snap.Items))
+	}
+	a := snap.Items[0].Details
+	if a.Synopsis != "A fighter." || a.Rating != 7.6 || a.ContentRating != "R" || a.RuntimeMinutes != 100 || len(a.Genres) != 2 || a.Genres[0] != "Action" {
+		t.Fatalf("details = %+v", a)
+	}
+	if b := snap.Items[1].Details; b.Rating != 0 || b.RuntimeMinutes != 0 || !b.Empty() {
+		t.Fatalf("an out-of-range rating and a negative duration must be dropped: %+v", b)
+	}
+}
+
+func TestAlbumsCarryTheirArtist(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/library/sections" {
+			_, _ = w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"1","type":"artist"}]}}`))
+			return
+		}
+		if r.URL.Query().Get("type") == "10" {
+			_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":0,"offset":0,"Metadata":[]}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"MediaContainer":{"totalSize":1,"offset":0,"Metadata":[{"ratingKey":"7","title":"Album","parentTitle":"Some Artist","summary":"Liner notes."}]}}`))
+	}))
+	defer server.Close()
+	c, _ := New(server.URL, testToken)
+	snap, err := c.Snapshot(context.Background())
+	if err != nil || len(snap.Items) != 1 || snap.Items[0].Detail != "Some Artist" || snap.Items[0].Details.Synopsis != "Liner notes." {
+		t.Fatalf("snapshot %v %+v", err, snap.Items)
+	}
+}

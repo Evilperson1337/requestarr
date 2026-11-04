@@ -17,10 +17,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -90,9 +92,15 @@ type itemPage struct {
 				AuthorName   string `json:"authorName"`
 				NarratorName string `json:"narratorName"`
 				ASIN         string `json:"asin"`
+				// Newer servers send a plain-text description too; the HTML one is the fallback.
+				Description      string   `json:"description"`
+				DescriptionPlain string   `json:"descriptionPlain"`
+				Genres           []string `json:"genres"`
 			} `json:"metadata"`
-			CoverPath string `json:"coverPath"`
-			NumTracks *int   `json:"numTracks"`
+			// Duration is in seconds.
+			Duration  float64 `json:"duration"`
+			CoverPath string  `json:"coverPath"`
+			NumTracks *int    `json:"numTracks"`
 		} `json:"media"`
 	} `json:"results"`
 	Total *int `json:"total"`
@@ -179,6 +187,15 @@ func (c *Client) libraryItems(ctx context.Context, lib library, items *[]invento
 			if ref := "/api/items/" + id + "/cover"; r.Media.CoverPath != "" && coverPattern.MatchString(ref) {
 				item.ArtworkRef = ref
 			}
+			synopsis := md.DescriptionPlain
+			if strings.TrimSpace(synopsis) == "" {
+				synopsis = plainText(md.Description)
+			}
+			details := domain.LibraryDetails{Synopsis: synopsis, Genres: md.Genres}
+			if d := r.Media.Duration; d > 0 && d < 1e8 {
+				details.RuntimeMinutes = int(d/60 + 0.5)
+			}
+			item.Details = details.Clean()
 			if r.AddedAt > 0 {
 				item.AddedAt = time.UnixMilli(r.AddedAt).UTC()
 			}
@@ -207,6 +224,15 @@ func detail(author, narrator string) string {
 		return truncate("read by "+narrator, 128)
 	}
 	return ""
+}
+
+var htmlTag = regexp.MustCompile(`<[^>]*>`)
+
+// plainText turns the HTML Audiobookshelf stores in a description into text: line breaks and
+// paragraph ends become newlines, other tags go, entities are decoded.
+func plainText(s string) string {
+	s = strings.NewReplacer("<br>", "\n", "<br/>", "\n", "<br />", "\n", "</p>", "\n\n").Replace(s)
+	return strings.TrimSpace(html.UnescapeString(htmlTag.ReplaceAllString(s, "")))
 }
 
 func clean(s string) string {

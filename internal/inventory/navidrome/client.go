@@ -99,7 +99,13 @@ type album struct {
 	Year          int    `json:"year"`
 	SongCount     int    `json:"songCount"`
 	MusicBrainzID string `json:"musicBrainzId"`
-	Songs         []song `json:"song"`
+	// Duration is in seconds. Genres is the multi-genre list; Genre the single legacy field.
+	Duration int    `json:"duration"`
+	Genre    string `json:"genre"`
+	Genres   []struct {
+		Name string `json:"name"`
+	} `json:"genres"`
+	Songs []song `json:"song"`
 }
 
 type song struct {
@@ -153,6 +159,26 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 				return inventory.Snapshot{}, fmt.Errorf("Navidrome inventory exceeds item limit")
 			}
 			albumItem := makeItem(SourceID, "album:"+full.ID, domain.MediaAlbum, full.Name, full.Year, full.MusicBrainzID)
+			details := domain.LibraryDetails{Genres: []string{}}
+			for _, g := range full.Genres {
+				details.Genres = append(details.Genres, g.Name)
+			}
+			if len(details.Genres) == 0 && full.Genre != "" {
+				details.Genres = []string{full.Genre}
+			}
+			if full.Duration > 0 && full.Duration < 1<<30 {
+				details.RuntimeMinutes = (full.Duration + 30) / 60
+			}
+			albumItem.Details = details.Clean()
+			// The artist is the one fact an album's caption needs.
+			if artist := strings.TrimSpace(strings.Map(func(r rune) rune {
+				if r < 0x20 || r == 0x7f {
+					return -1
+				}
+				return r
+			}, full.Artist)); artist != "" && len(artist) <= 128 {
+				albumItem.Detail = artist
+			}
 			albumItem.ExternalURL = c.baseURL + "/app/#/album/" + url.PathEscape(full.ID) + "/show"
 			if _, duplicate := seen[albumItem.SourceItemID]; duplicate {
 				return inventory.Snapshot{}, fmt.Errorf("duplicate Navidrome inventory item")

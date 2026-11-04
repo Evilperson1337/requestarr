@@ -79,10 +79,21 @@ type container struct {
 			Year      int    `json:"year"`
 			AddedAt   int64  `json:"addedAt"`
 			Thumb     string `json:"thumb"`
+			// What Plex says about the item. Ratings are on a 0 to 10 scale; duration is in milliseconds.
+			Summary        string  `json:"summary"`
+			AudienceRating float64 `json:"audienceRating"`
+			Rating         float64 `json:"rating"`
+			ContentRating  string  `json:"contentRating"`
+			Duration       int64   `json:"duration"`
+			Genre          []struct {
+				Tag string `json:"tag"`
+			} `json:"Genre"`
 			// A track's album and its place in it.
 			ParentRatingKey string `json:"parentRatingKey"`
-			Index           int    `json:"index"`
-			ParentIndex     int    `json:"parentIndex"`
+			// An album's artist.
+			ParentTitle string `json:"parentTitle"`
+			Index       int    `json:"index"`
+			ParentIndex int    `json:"parentIndex"`
 			// Plex sends both "guid" (a string) and "Guid" (an array). encoding/json
 			// matches names case-insensitively, so without this field the string
 			// would be decoded into the array and fail.
@@ -201,6 +212,24 @@ func (c *Client) library(ctx context.Context, key string, media domain.MediaType
 				}
 			}
 			item := inventory.Item{SourceID: SourceID, SourceItemID: m.RatingKey, MediaType: media, Title: m.Title, Year: m.Year, ExternalIDs: ids}
+			if media == domain.MediaAlbum {
+				if artist := strings.TrimSpace(m.ParentTitle); artist != "" && len(artist) <= 128 && !strings.ContainsAny(artist, "\x00\r\n") {
+					item.Detail = artist
+				}
+			}
+			if media != domain.MediaSong {
+				details := domain.LibraryDetails{Synopsis: m.Summary, Rating: m.AudienceRating, ContentRating: m.ContentRating}
+				if details.Rating == 0 {
+					details.Rating = m.Rating
+				}
+				if m.Duration > 0 && m.Duration < 1<<40 {
+					details.RuntimeMinutes = int((m.Duration + 30000) / 60000)
+				}
+				for _, g := range m.Genre {
+					details.Genres = append(details.Genres, g.Tag)
+				}
+				item.Details = details.Clean()
+			}
 			if m.AddedAt > 0 && m.AddedAt < 1<<33 {
 				item.AddedAt = time.Unix(m.AddedAt, 0).UTC()
 			}

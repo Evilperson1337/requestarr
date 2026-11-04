@@ -75,7 +75,7 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 		q := u.Query()
 		q.Set("Recursive", "true")
 		q.Set("IncludeItemTypes", "Movie,Series")
-		q.Set("Fields", "ProviderIds,ProductionYear")
+		q.Set("Fields", "ProviderIds,ProductionYear,Overview,Genres")
 		q.Set("StartIndex", strconv.Itoa(offset))
 		q.Set("Limit", strconv.Itoa(pageSize))
 		u.RawQuery = q.Encode()
@@ -111,6 +111,12 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 				Name        string            `json:"Name"`
 				Year        int               `json:"ProductionYear"`
 				ProviderIDs map[string]string `json:"ProviderIds"`
+				// What Jellyfin says about the item. Runtime ticks are 100 nanoseconds each.
+				Overview        string   `json:"Overview"`
+				Genres          []string `json:"Genres"`
+				CommunityRating float64  `json:"CommunityRating"`
+				OfficialRating  string   `json:"OfficialRating"`
+				RunTimeTicks    int64    `json:"RunTimeTicks"`
 			} `json:"Items"`
 			TotalRecordCount *int `json:"TotalRecordCount"`
 			StartIndex       *int `json:"StartIndex"`
@@ -143,7 +149,11 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 			if tmdb != "" {
 				ids["tmdb"] = tmdb
 			}
-			all = append(all, inventory.Item{SourceID: c.sourceID, SourceItemID: raw.ID, MediaType: media, Title: raw.Name, Year: raw.Year, ExternalIDs: ids, LastSeenAt: time.Now().UTC(), ExternalURL: c.baseURL + "/web/index.html#!/details?id=" + url.QueryEscape(raw.ID)})
+			details := domain.LibraryDetails{Synopsis: raw.Overview, Rating: raw.CommunityRating, ContentRating: raw.OfficialRating, Genres: raw.Genres}
+			if raw.RunTimeTicks > 0 && raw.RunTimeTicks < 1<<50 {
+				details.RuntimeMinutes = int((raw.RunTimeTicks + 300_000_000) / 600_000_000)
+			}
+			all = append(all, inventory.Item{SourceID: c.sourceID, SourceItemID: raw.ID, MediaType: media, Title: raw.Name, Year: raw.Year, ExternalIDs: ids, Details: details.Clean(), LastSeenAt: time.Now().UTC(), ExternalURL: c.baseURL + "/web/index.html#!/details?id=" + url.QueryEscape(raw.ID)})
 		}
 		if offset+len(result.Items) == total {
 			return inventory.Snapshot{SourceID: c.sourceID, Items: all, Complete: true, ObservedAt: time.Now().UTC()}, nil

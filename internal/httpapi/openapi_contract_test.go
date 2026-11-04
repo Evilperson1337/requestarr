@@ -2,11 +2,14 @@ package httpapi
 
 import (
 	"bufio"
+	"encoding/json"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
@@ -87,5 +90,95 @@ func TestOpenAPIMatchesTheRouteTable(t *testing.T) {
 	}
 	if len(spec) < 20 {
 		t.Fatalf("only %d operations found under paths; is api/openapi.yaml intact?", len(spec))
+	}
+}
+
+// specProperties lists the property names of a components schema, read with the same
+// line scanner as specOperations. nested descends through named properties first, so
+// ("LibraryItem", "details") lists the properties of LibraryItem.details.
+func specProperties(t *testing.T, schema string, nested ...string) []string {
+	t.Helper()
+	raw, err := os.ReadFile("../../api/openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	indent := func(s string) int { return len(s) - len(strings.TrimLeft(s, " ")) }
+	// child returns the lines nested under the first line named key, searching from "from".
+	child := func(block []string, key string) []string {
+		for i, line := range block {
+			if strings.TrimSpace(line) == key+":" || strings.HasPrefix(strings.TrimSpace(line), key+": ") {
+				var out []string
+				for _, next := range block[i+1:] {
+					if strings.TrimSpace(next) != "" && indent(next) <= indent(line) {
+						break
+					}
+					out = append(out, next)
+				}
+				return out
+			}
+		}
+		t.Fatalf("api/openapi.yaml has no %q under schema %s", key, schema)
+		return nil
+	}
+	start := -1
+	for i, line := range lines {
+		if line == "    "+schema+":" {
+			start = i
+		}
+	}
+	if start < 0 {
+		t.Fatalf("api/openapi.yaml has no schema %s", schema)
+	}
+	block := child(lines[start:], schema)
+	for _, name := range nested {
+		block = child(child(block, "properties"), name)
+	}
+	props := child(block, "properties")
+	var names []string
+	for _, line := range props {
+		if indent(line) == indent(props[0]) && strings.Contains(line, ":") {
+			names = append(names, strings.TrimSpace(strings.SplitN(line, ":", 2)[0]))
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// jsonKeys lists the keys a fully populated value marshals to.
+func jsonKeys(t *testing.T, v any) []string {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// A schema that lists a field the server never sends, or omits one it does send, is a lie.
+// Fill every field of the Go value so omitempty cannot hide one.
+func TestOpenAPILibrarySchemasMatchTheGoTypes(t *testing.T) {
+	details := domain.LibraryDetails{Synopsis: "s", Rating: 1, ContentRating: "R", Genres: []string{"g"}, RuntimeMinutes: 1}
+	item := domain.LibraryItem{ID: "i", Title: "t", Year: 1, MediaType: domain.MediaMovie, Source: "s", SourceKind: "plex", AddedAt: time.Now(), Detail: "d", ArtworkURL: "a", Link: "l",
+		OpenIssues: 1, IssueKinds: []domain.IssueKindOption{{}}, Details: &details, Tracks: []domain.LibraryTrack{{}}}
+	for name, c := range map[string]struct {
+		got    any
+		schema []string
+	}{
+		"LibraryItem":         {item, []string{"LibraryItem"}},
+		"LibraryItem.details": {details, []string{"LibraryItem", "details"}},
+	} {
+		if want, got := specProperties(t, c.schema[0], c.schema[1:]...), jsonKeys(t, c.got); strings.Join(want, ",") != strings.Join(got, ",") {
+			t.Errorf("%s: api/openapi.yaml lists %v but the server sends %v", name, want, got)
+		}
 	}
 }

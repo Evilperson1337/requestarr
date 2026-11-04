@@ -9,6 +9,8 @@ import tmdb from '../assets/providers/themoviedatabase.svg'
 
 const logos: Record<string, string> = { apprise, igdb, jellyfin, musicbrainz, navidrome, plex, romm, tmdb }
 
+export const hasProviderLogo = (slug: string) => slug in logos
+
 // The service's own mark, decorative: its name always sits beside it.
 export function ProviderLogo({ slug, size = 32 }: { slug: string; size?: number }) {
     const src = logos[slug]

@@ -128,3 +128,35 @@ func TestAnAlbumListsItsTracksInOrderIntegration(t *testing.T) {
 		t.Fatalf("tracks = %v", got)
 	}
 }
+
+// Every field an adapter sets on an inventory.Item must survive PersistSnapshot and reach the
+// single-item read; the list leaves the heavy ones out.
+func TestLibraryItemDetailsRoundTripIntegration(t *testing.T) {
+	ctx, s, _ := setupDraftStore(t)
+	d := inventory.Descriptor{ID: newUUID(), Kind: "plex", Name: "Details fixture", MediaTypes: []domain.MediaType{domain.MediaMovie}}
+	want := domain.LibraryDetails{Synopsis: "A story.", Rating: 7.6, ContentRating: "PG-13", Genres: []string{"Drama", "Sci-Fi"}, RuntimeMinutes: 116}
+	items := []inventory.Item{
+		{SourceID: d.ID, SourceItemID: "m1", MediaType: domain.MediaMovie, Title: "dtl With", AddedAt: time.Now().UTC(), Details: want},
+		{SourceID: d.ID, SourceItemID: "m2", MediaType: domain.MediaMovie, Title: "dtl Without", AddedAt: time.Now().UTC().Add(-time.Hour)},
+	}
+	if err := s.PersistSnapshot(ctx, d, "http://plex.example.test", inventory.Snapshot{SourceID: d.ID, Complete: true, ObservedAt: time.Now().UTC(), Items: items}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.BrowseLibrary(ctx, domain.LibraryQuery{Type: domain.MediaMovie, Search: "dtl"})
+	if err != nil || len(page.Items) != 2 {
+		t.Fatalf("browse: %+v err %v", page.Items, err)
+	}
+	for _, it := range page.Items {
+		if it.Details != nil {
+			t.Fatalf("the list must not carry details: %+v", it)
+		}
+	}
+	with, err := s.LibraryItemByID(ctx, page.Items[0].ID)
+	if err != nil || with.Details == nil || with.Details.Synopsis != want.Synopsis || with.Details.Rating != want.Rating || with.Details.ContentRating != want.ContentRating || with.Details.RuntimeMinutes != want.RuntimeMinutes || len(with.Details.Genres) != 2 {
+		t.Fatalf("details = %+v err %v", with.Details, err)
+	}
+	without, err := s.LibraryItemByID(ctx, page.Items[1].ID)
+	if err != nil || without.Details != nil {
+		t.Fatalf("an item the library said nothing about has no details: %+v err %v", without.Details, err)
+	}
+}

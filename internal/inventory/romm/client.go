@@ -103,6 +103,12 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 				CreatedAt     string `json:"created_at"`
 				CoverLarge    string `json:"path_cover_large"`
 				PlatformName  string `json:"platform_display_name"`
+				Summary       string `json:"summary"`
+				// RomM's copy of IGDB's data. The rating is out of 100 and may arrive as a string.
+				IGDB struct {
+					TotalRating json.RawMessage `json:"total_rating"`
+					Genres      []string        `json:"genres"`
+				} `json:"igdb_metadata"`
 			} `json:"items"`
 			Total  *int `json:"total"`
 			Offset *int `json:"offset"`
@@ -142,6 +148,11 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 			if name := strings.TrimSpace(r.PlatformName); name != "" && len(name) <= 128 && !strings.ContainsAny(name, "\x00\r\n") {
 				item.Detail = name
 			}
+			details := domain.LibraryDetails{Synopsis: r.Summary, Genres: r.IGDB.Genres}
+			if rating, err := strconv.ParseFloat(strings.Trim(string(r.IGDB.TotalRating), `"`), 64); err == nil {
+				details.Rating = rating / 10
+			}
+			item.Details = details.Clean()
 			items = append(items, item)
 		}
 		if offset+len(res.Items) == total {

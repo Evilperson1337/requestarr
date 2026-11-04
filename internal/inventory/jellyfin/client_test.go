@@ -177,3 +177,26 @@ func TestDescriptorDeclaresMovieAndTVWithTMDBIdentifiers(t *testing.T) {
 		t.Fatalf("descriptor=%+v", d)
 	}
 }
+
+func TestItemsCarryWhatJellyfinSaysAboutThem(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if f := r.URL.Query().Get("Fields"); !strings.Contains(f, "Overview") || !strings.Contains(f, "Genres") {
+			t.Errorf("Fields = %q", f)
+		}
+		_, _ = w.Write([]byte(`{"StartIndex":0,"TotalRecordCount":1,"Items":[{"Id":"1","Type":"Movie","Name":"Film","Overview":"A story.","Genres":["Drama"],"CommunityRating":8.25,"OfficialRating":"PG","RunTimeTicks":72000000000}]}`))
+	}))
+	defer ts.Close()
+	c, err := New(ts.URL, "secret", "jellyfin-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := c.Snapshot(context.Background())
+	if err != nil || len(snap.Items) != 1 {
+		t.Fatalf("snapshot %v", err)
+	}
+	d := snap.Items[0].Details
+	if d.Synopsis != "A story." || d.Rating != 8.3 || d.ContentRating != "PG" || d.RuntimeMinutes != 120 || len(d.Genres) != 1 {
+		t.Fatalf("details = %+v", d)
+	}
+}

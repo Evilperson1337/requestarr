@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -22,13 +23,14 @@ var ErrBadLibraryCursor = errors.New("invalid library cursor")
 const libraryItemColumns = `i.id::text,i.title,COALESCE(i.year,0),i.media_type,src.name,src.kind,COALESCE(i.added_at,i.first_seen_at),i.detail,i.artwork_ref<>'',COALESCE(i.external_url,''),
 	(SELECT count(*) FROM issues iss WHERE iss.inventory_item_id=i.id AND iss.status IN ('open','in_progress'))`
 
-func scanLibraryItem(row pgx.Row) (domain.LibraryItem, error) {
+// scanLibraryItem reads libraryItemColumns, then any extra columns into extra.
+func scanLibraryItem(row pgx.Row, extra ...any) (domain.LibraryItem, error) {
 	var it domain.LibraryItem
 	var hasArt bool
 	var added time.Time
 	var link string
 	var open int64
-	if err := row.Scan(&it.ID, &it.Title, &it.Year, &it.MediaType, &it.Source, &it.SourceKind, &added, &it.Detail, &hasArt, &link, &open); err != nil {
+	if err := row.Scan(append([]any{&it.ID, &it.Title, &it.Year, &it.MediaType, &it.Source, &it.SourceKind, &added, &it.Detail, &hasArt, &link, &open}, extra...)...); err != nil {
 		return domain.LibraryItem{}, err
 	}
 	it.AddedAt, it.OpenIssues, it.IssueKinds = added.UTC(), int(open), domain.IssueKindOptions(it.MediaType)
@@ -134,11 +136,19 @@ func (s *Store) LibraryItemByID(ctx context.Context, id string) (domain.LibraryI
 	if !domain.ValidUUID(id) {
 		return domain.LibraryItem{}, ErrLibraryItemNotFound
 	}
-	it, err := scanLibraryItem(s.pool.QueryRow(ctx, `SELECT `+libraryItemColumns+` FROM inventory_items i JOIN library_sources src ON src.id=i.source_id WHERE i.id=$1 AND i.media_type IN ('movie','tv','album','game','audiobook')`, id))
+	var raw []byte
+	it, err := scanLibraryItem(s.pool.QueryRow(ctx, `SELECT `+libraryItemColumns+`,i.details FROM inventory_items i JOIN library_sources src ON src.id=i.source_id WHERE i.id=$1 AND i.media_type IN ('movie','tv','album','game','audiobook')`, id), &raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.LibraryItem{}, ErrLibraryItemNotFound
 	}
-	if err != nil || it.MediaType != domain.MediaAlbum {
+	if err != nil {
+		return it, err
+	}
+	var details domain.LibraryDetails
+	if json.Unmarshal(raw, &details) == nil && !details.Empty() {
+		it.Details = &details
+	}
+	if it.MediaType != domain.MediaAlbum {
 		return it, err
 	}
 	rows, err := s.pool.Query(ctx, `SELECT t.id::text,t.title,t.disc,t.position FROM inventory_items t JOIN inventory_items a ON a.source_id=t.source_id AND a.source_item_id=t.parent_source_item_id WHERE a.id=$1 AND t.media_type='song' AND t.parent_source_item_id<>'' ORDER BY t.disc,t.position,lower(t.title) LIMIT 500`, id)

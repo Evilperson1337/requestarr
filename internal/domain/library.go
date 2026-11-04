@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"math"
+	"strings"
+	"time"
+)
 
 // RecentLibraryItem is something a library recently gained, as the Home page shows it.
 type RecentLibraryItem struct {
@@ -15,6 +19,59 @@ type RecentLibraryItem struct {
 	Detail string `json:"detail,omitempty"`
 	// ArtworkURL is set when the library can supply a cover for the item.
 	ArtworkURL string `json:"artworkUrl,omitempty"`
+}
+
+// LibraryDetails is what a library says about an item: the facts the Library dialog shows.
+// Every field is optional because libraries differ in what they know.
+type LibraryDetails struct {
+	Synopsis string `json:"synopsis,omitempty"`
+	// Rating is the library's audience or community rating on a 0 to 10 scale.
+	Rating float64 `json:"rating,omitempty"`
+	// ContentRating is a certification such as PG-13.
+	ContentRating  string   `json:"contentRating,omitempty"`
+	Genres         []string `json:"genres,omitempty"`
+	RuntimeMinutes int      `json:"runtimeMinutes,omitempty"`
+}
+
+const (
+	maxSynopsisRunes = 4000
+	maxGenres        = 8
+	maxDetailRunes   = 64
+)
+
+// Clean drops anything out of range and shortens what is too long, so a library
+// can never store or serve more than the dialog can sensibly show.
+func (d LibraryDetails) Clean() LibraryDetails {
+	short := func(s string, n int) string {
+		s = strings.TrimSpace(strings.Map(func(r rune) rune {
+			if r == '\x00' || (r < 32 && r != '\n') {
+				return -1
+			}
+			return r
+		}, s))
+		if r := []rune(s); len(r) > n {
+			return strings.TrimSpace(string(r[:n]))
+		}
+		return s
+	}
+	out := LibraryDetails{Synopsis: short(d.Synopsis, maxSynopsisRunes), ContentRating: short(d.ContentRating, 16)}
+	if d.Rating > 0 && d.Rating <= 10 {
+		out.Rating = math.Round(d.Rating*10) / 10
+	}
+	if d.RuntimeMinutes > 0 && d.RuntimeMinutes <= 10000 {
+		out.RuntimeMinutes = d.RuntimeMinutes
+	}
+	for _, g := range d.Genres {
+		if g = short(g, maxDetailRunes); g != "" && len(out.Genres) < maxGenres {
+			out.Genres = append(out.Genres, g)
+		}
+	}
+	return out
+}
+
+// Empty reports whether the library said nothing worth showing.
+func (d LibraryDetails) Empty() bool {
+	return d.Synopsis == "" && d.Rating == 0 && d.ContentRating == "" && len(d.Genres) == 0 && d.RuntimeMinutes == 0
 }
 
 // LibraryItem is one thing a Source holds, as the Library page lists and opens it.
@@ -35,6 +92,8 @@ type LibraryItem struct {
 	OpenIssues int `json:"openIssues"`
 	// IssueKinds are the kinds of Issue that can be reported about this item.
 	IssueKinds []IssueKindOption `json:"issueKinds"`
+	// Details is what the library says about the item. Only a single item has them.
+	Details *LibraryDetails `json:"details,omitempty"`
 	// Tracks lists an album's tracks, when its library reports them. Only a single item has them.
 	Tracks []LibraryTrack `json:"tracks,omitempty"`
 }

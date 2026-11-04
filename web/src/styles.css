@@ -2173,6 +2173,32 @@ a.tag-available:hover {
     color: var(--muted);
 }
 
+.libOpen {
+    gap: 8px;
+}
+
+.libRating strong {
+    color: var(--text);
+}
+
+.libItemBody .tags {
+    margin: 0 0 10px;
+}
+
+.libSynopsis {
+    margin-bottom: 18px;
+}
+
+.libSynopsis h3 {
+    margin: 0 0 6px;
+}
+
+.libSynopsis p {
+    margin: 0;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+
 .libReport .picker,
 .libReport .field {
     margin-top: 16px;

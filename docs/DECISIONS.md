@@ -198,6 +198,8 @@ People can browse what each Source holds (the Library page) and report a problem
 
 The spec and tickets are in `.scratch/library-and-issues/`.
 
+Amended: the Library dialog shows what the library itself says about an item, not a lookup elsewhere (the D029 rule for covers, applied to facts). Each adapter that has them records a synopsis, an audience rating on a 0-10 scale, a certification, genres and a runtime in `inventory_items.details` on every sync (every adapter but only what its library knows: Plex, Jellyfin and RomM give a synopsis, rating, genres and runtime; Navidrome albums give genres and runtime; Audiobookshelf gives a description, genres and runtime, with HTML descriptions reduced to text). Plex and Navidrome albums also record their artist as the item's `detail`. `GET /library/items/{id}` returns them as `details`; the list does not, to keep pages small. Values are bounded when stored (`LibraryDetails.Clean`). Items show them after their library's next sync. The dialog's "Open in <source>" is a button when the item has a safe link.
+
 Addendum to D020: when an album is resolved, every release of its release group (already in the MusicBrainz response) is recorded as an `mbid` alias, and the item is matched against the inventory already stored (`matchExistingInventory`). A library that holds the album as any edition is therefore found at once, without waiting for a Request to exist (alias lookups for open Requests during sync remain the fallback for songs).
 
 ## D031 — Audiobooks are requested by ASIN and detected through Audiobookshelf

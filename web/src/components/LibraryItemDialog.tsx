@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { api, ApiError, type LibraryItem, type Selection, type Session } from '../api'
+import { api, ApiError, type LibraryDetails, type LibraryItem, type Selection, type Session } from '../api'
 import { followLink } from '../navigation'
 import { Modal } from './Modal'
+import { hasProviderLogo, ProviderLogo } from './ProviderLogo'
 
 const labels: Record<string, string> = { movie: 'Movie', tv: 'Series', album: 'Album', game: 'Game' }
 
@@ -15,15 +16,16 @@ export function LibraryItemDialog({ item, session, onClose, onReported }: { item
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
     const [done, setDone] = useState<{ joined: boolean } | null>(null)
-    // An album's tracks come with the single item, not the list.
+    // The list carries no details or tracks; the single item does.
     const [tracks, setTracks] = useState(item.tracks ?? [])
+    const [details, setDetails] = useState<LibraryDetails | undefined>(item.details)
     const [picked, setPicked] = useState<Set<string>>(new Set())
     useEffect(() => {
-        if (item.mediaType !== 'album' || item.tracks) return
+        if (item.details && (item.mediaType !== 'album' || item.tracks)) return
         const controller = new AbortController()
-        api<LibraryItem>(`/library/items/${encodeURIComponent(item.id)}`, { signal: controller.signal }).then(full => setTracks(full.tracks ?? [])).catch(() => undefined)
+        api<LibraryItem>(`/library/items/${encodeURIComponent(item.id)}`, { signal: controller.signal }).then(full => { setDetails(full.details); setTracks(full.tracks ?? []) }).catch(() => undefined)
         return () => controller.abort()
-    }, [item.id, item.mediaType, item.tracks])
+    }, [item.id, item.mediaType, item.tracks, item.details])
     const needsWords = kind === 'other'
     const part = (): Selection | undefined => {
         if (item.mediaType === 'album') return picked.size ? { tracks: tracks.filter(t => picked.has(t.id)).map((t, index) => ({ id: t.id, position: t.position || index + 1, title: t.title })) } : undefined
@@ -50,12 +52,14 @@ export function LibraryItemDialog({ item, session, onClose, onReported }: { item
             </span>
             <div className="libItemBody">
                 <h2 id="library-item-title">{item.title}{item.year ? ` (${item.year})` : ''}</h2>
-                <p className="libFacts">{[labels[item.mediaType], item.detail, item.source].filter(Boolean).join(' · ')}</p>
+                <p className="libFacts">{[labels[item.mediaType], item.detail, item.source, details?.runtimeMinutes ? `${Math.floor(details.runtimeMinutes / 60) ? `${Math.floor(details.runtimeMinutes / 60)}h ` : ''}${details.runtimeMinutes % 60}m` : '', details?.contentRating].filter(Boolean).join(' · ')}</p>
+                {!!details?.rating && <p className="libFacts libRating"><strong>{details.rating.toFixed(1)}/10</strong> · {item.source} rating</p>}
+                {!!details?.genres?.length && <ul className="tags" aria-label="Genres">{details.genres.map((genre, index) => <li className="tag" key={`${genre}-${index}`}>{genre}</li>)}</ul>}
                 <p className="libFacts">Added {new Date(item.addedAt).toLocaleDateString()}</p>
                 {item.openIssues > 0 && <p role="status">{item.openIssues === 1 ? '1 open issue' : `${item.openIssues} open issues`} reported for this item.</p>}
-                {item.link && <p><a href={item.link} target="_blank" rel="noreferrer">Open in {item.source}</a></p>}
             </div>
         </div>
+        {details?.synopsis && !reporting && !done && <section className="libSynopsis" aria-label="Synopsis"><h3>Synopsis</h3><p>{details.synopsis}</p></section>}
         {done ? <div className="libDone" role="status">
             <p><strong>{done.joined ? 'Added to the existing report.' : 'Thanks, your report was sent.'}</strong> An administrator has been told, and you will hear when it is dealt with.</p>
             <div className="draftActions"><a className="button secondary" href="/issues" onClick={event => { followLink(event); onClose() }}>See your issues</a><button className="button" type="button" onClick={onClose}>Done</button></div>
@@ -81,6 +85,9 @@ export function LibraryItemDialog({ item, session, onClose, onReported }: { item
                 <button className="button" type="submit" disabled={busy || !kind || (needsWords && !description.trim()) || !partValid}>{busy ? 'Sending…' : 'Send report'}</button>
                 <button className="button secondary" type="button" disabled={busy} onClick={() => setReporting(false)}>Back</button>
             </div>
-        </form> : item.issueKinds.length > 0 && <div className="draftActions"><button className="button secondary" type="button" onClick={() => setReporting(true)}>Report an issue</button></div>}
+        </form> : (item.link || item.issueKinds.length > 0) && <div className="draftActions">
+            {item.link && <a className="button libOpen" href={item.link} target="_blank" rel="noreferrer" aria-label={`Open in ${item.source} (opens in a new tab)`}>{hasProviderLogo(item.sourceKind) && <ProviderLogo slug={item.sourceKind} size={20} />}Open in {item.source}</a>}
+            {item.issueKinds.length > 0 && <button className="button secondary" type="button" onClick={() => setReporting(true)}>Report an issue</button>}
+        </div>}
     </Modal>
 }

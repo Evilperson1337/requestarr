@@ -1483,6 +1483,16 @@ components:
         artworkUrl: { type: string }
         link: { type: string, format: uri, description: Opens the item in its media server; present only when safe }
         openIssues: { type: integer, minimum: 0 }
+        details:
+          type: object
+          additionalProperties: false
+          description: What the library says about the item (single-item reads only); every field is optional
+          properties:
+            synopsis: { type: string }
+            rating: { type: number, minimum: 0, maximum: 10, description: The library's audience or community rating out of 10 }
+            contentRating: { type: string, description: A certification such as PG-13 }
+            genres: { type: array, items: { type: string } }
+            runtimeMinutes: { type: integer, minimum: 1 }
         tracks: { type: array, description: An album's tracks when its library reports them (single-item reads only), items: { type: object, required: [id, title], properties: { id: { type: string, format: uuid, description: The track's Library item id; a report's part names it }, title: { type: string }, disc: { type: integer }, position: { type: integer } } } }
         issueKinds: { type: array, description: The kinds of Issue that can be reported about this item, items: { type: object, required: [kind, label], properties: { kind: { $ref: '#/components/schemas/IssueKind' }, label: { type: string } } } }
     LibraryConnection:

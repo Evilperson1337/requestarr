@@ -161,3 +161,34 @@ func writeResponse(w http.ResponseWriter, status int, body string) {
 	w.WriteHeader(status)
 	_, _ = fmt.Fprint(w, body)
 }
+
+func TestAlbumsCarryTheirArtistGenresAndRuntime(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/getMusicFolders.view":
+			writeFixture(t, w, "music_folders.json")
+		case "/rest/getAlbumList2.view":
+			writeResponse(w, http.StatusOK, `{"subsonic-response":{"status":"ok","version":"1.16.1","albumList2":{"album":[{"id":"a1","name":"Album","songCount":1}]}}}`)
+		case "/rest/getAlbum.view":
+			writeResponse(w, http.StatusOK, `{"subsonic-response":{"status":"ok","version":"1.16.1","album":{"id":"a1","name":"Album","artist":"Some Artist","songCount":1,"duration":2790,"genres":[{"name":"Rock"},{"name":"Prog"}],"song":[{"id":"s1","title":"Song"}]}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	c, err := NewWithHTTPClient(ts.URL, testUsername, testPassword, ts.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := c.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	album := snap.Items[0]
+	if album.Detail != "Some Artist" || album.Details.RuntimeMinutes != 47 || len(album.Details.Genres) != 2 || album.Details.Genres[1] != "Prog" {
+		t.Fatalf("album = %+v", album)
+	}
+	if !snap.Items[1].Details.Empty() {
+		t.Fatalf("a song carries no details: %+v", snap.Items[1].Details)
+	}
+}

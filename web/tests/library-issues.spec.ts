@@ -236,3 +236,25 @@ for (const [name, open] of [
         })
     }
 }
+
+test('an item shows what its library says about it and opens in its source with a button', async ({ page }) => {
+    await mock(page, 'viewer', (path) => {
+        const arrival = item('a', 'Arrival', 'movie', { link: 'https://plex.example/web#!/x' })
+        if (path === '/library/items') return { json: { items: [arrival], nextCursor: null } }
+        if (path === '/library/items/a') return { json: { ...arrival, details: { synopsis: 'A linguist is recruited to talk to visitors.', rating: 7.6, contentRating: 'PG-13', genres: ['Drama', 'Sci-Fi'], runtimeMinutes: 116 } } }
+        return undefined
+    })
+    await page.goto('/library')
+    await page.getByRole('button', { name: /Arrival/ }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('region', { name: 'Synopsis' })).toContainText('A linguist is recruited')
+    await expect(dialog).toContainText('1h 56m')
+    await expect(dialog).toContainText('PG-13')
+    await expect(dialog).toContainText('7.6/10')
+    await expect(dialog.getByRole('list', { name: 'Genres' })).toContainText('Sci-Fi')
+    const open = dialog.getByRole('link', { name: 'Open in Plex (opens in a new tab)' })
+    await expect(open).toHaveClass(/button/)
+    await expect(open.locator('img.providerLogo')).toHaveCount(1)
+    await expect(open).toHaveAttribute('href', 'https://plex.example/web#!/x')
+    await expect(open).toHaveAttribute('target', '_blank')
+})

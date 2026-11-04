@@ -239,3 +239,35 @@ func TestArtworkIsFetchedWithTheTokenInAHeaderAndOnlyForAWellFormedReference(t *
 		t.Fatal("a non-image answer must be refused")
 	}
 }
+
+func TestGamesCarryRomMsSummaryRatingAndGenres(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/platforms" {
+			_, _ = w.Write([]byte(`[{"id":1,"igdb_id":6}]`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"total":3,"offset":0,"items":[
+			{"id":10,"name":"A","platform_id":1,"summary":"A quest.","igdb_metadata":{"total_rating":"87.46","genres":["RPG"]}},
+			{"id":11,"name":"B","platform_id":1,"igdb_metadata":{"total_rating":70}},
+			{"id":12,"name":"C","platform_id":1,"igdb_metadata":null}]}`))
+	}))
+	defer server.Close()
+	c, err := NewWithHTTPClient(server.URL, testToken, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := c.Snapshot(context.Background())
+	if err != nil || len(snap.Items) != 3 {
+		t.Fatalf("snapshot %v %d", err, len(snap.Items))
+	}
+	if d := snap.Items[0].Details; d.Synopsis != "A quest." || d.Rating != 8.7 || len(d.Genres) != 1 {
+		t.Fatalf("details = %+v", d)
+	}
+	if d := snap.Items[1].Details; d.Rating != 7 {
+		t.Fatalf("a numeric rating must work too: %+v", d)
+	}
+	if !snap.Items[2].Details.Empty() {
+		t.Fatalf("no metadata means no details: %+v", snap.Items[2].Details)
+	}
+}
