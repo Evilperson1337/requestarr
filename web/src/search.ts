@@ -25,9 +25,9 @@ function remembered(): string {
 
 // Which search types the server can serve (those whose provider is configured),
 // and which one is selected. The choice is remembered on this device.
-export function useSearchTypes() {
+export function useSearchTypes(requested = '') {
     const [types, setTypes] = useState<string[]>([])
-    const [chosen, setChosen] = useState(remembered)
+    const [chosen, setChosen] = useState(() => requested || remembered())
     useEffect(() => {
         const controller = new AbortController()
         api<{ types: string[] }>('/search/types', { signal: controller.signal, cache: 'no-store' })
@@ -41,4 +41,15 @@ export function useSearchTypes() {
     }, [searchType])
     const chooseType = useCallback((type: string) => setChosen(type), [])
     return { types, searchType, chooseType }
+}
+
+// The search a Home URL carries: ?q=<text>&type=<kind>. A type that is not offered is
+// ignored by useSearchTypes, so a stale bookmark still lands on a working search.
+export function searchFromLocation(location: string): { q: string; type: string } {
+    const params = new URLSearchParams(location.split('?')[1] ?? '')
+    return { q: params.get('q') ?? '', type: params.get('type') ?? '' }
+}
+
+export function locationForSearch(q: string, type: string): string {
+    return q ? `/?${new URLSearchParams({ q, type })}` : '/'
 }
