@@ -5,7 +5,7 @@ export type SearchState = { status: 'idle' | 'loading' | 'done' | 'error'; query
 
 export const searchTypeLabels: Record<string, string> = { movie_tv: 'Movies & TV', album: 'Albums', song: 'Songs', game: 'Games', audiobook: 'Audiobooks' }
 // Types that search as you type; the slower providers wait for Enter.
-export const typeaheadTypes = new Set(['movie_tv'])
+export const typeaheadTypes = new Set(['movie_tv', 'game'])
 
 const storageKey = 'requestarr.searchType'
 
