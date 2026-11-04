@@ -9,7 +9,7 @@ Requestarr should begin as a modular monolith. A single Go process exposes the H
 Packages under `internal/`:
 
 - `auth/oidc` — OIDC discovery/login/callback/session/role mapping.
-- `providers/metadata` (+ `tmdb`, `musicbrainz`, `igdb`) — turns a pasted URL into a canonical catalog item. Answers "what is this?".
+- `providers/metadata` (+ `tmdb`, `musicbrainz`, `igdb`) — turns a pasted URL into a canonical catalog item, and (from V1.x, D032) finds candidate items by name as refs this resolver accepts. Answers "what is this?".
 - `sources` — the registry of Source kinds (slug, ID, media types, credential fields); plain data, imports only `domain`.
 - `secrets` — stored integration secrets (D024): registry, sealing, resolver. `opstatus` — the operational status overview.
 - `domain` — core types (`Request`, `RequestStatus`, `PlatformSelection`, catalog/media types) and pure business rules (e.g. `ValidatePlatformSelection`). Keep this free of HTTP/DB/provider imports.
@@ -33,7 +33,7 @@ library sync -> normalized inventory -> InventoryChanged event -> targeted recon
 
 ## Fast-path principle
 
-Routine UI requests should primarily read PostgreSQL. External API calls belong in URL resolution, explicit connection tests, and background refresh/sync jobs. Known stale data is generally preferable to blocking the UI.
+Routine UI requests should primarily read PostgreSQL. External API calls belong in URL resolution, name search (D032; an explicit user action like resolving, never page rendering), explicit connection tests, and background refresh/sync jobs. Known stale data is generally preferable to blocking the UI.
 
 ## Sync and reconciliation
 

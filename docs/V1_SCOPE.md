@@ -30,7 +30,7 @@
 ## Explicitly out of V1
 
 - Audiobook sources other than Audiobookshelf (BookOrbit is not supported), ISBN matching, and audiobook Issue kinds.
-- Native catalog search/discovery/trending/recommendations.
+- Catalog discovery, trending and recommendations. (Name search is V1.x, below.)
 - Radarr/Sonarr/Lidarr runtime integration.
 - Acquisition/download automation of any kind.
 - Multiple request/vote counts for the same item.
@@ -38,3 +38,7 @@
 - Complex quotas/multi-level approvals.
 - Game DLC/update/edition acquisition workflows.
 - Mobile push implementation outside Apprise.
+
+## V1.x (after release)
+
+- Name search as a front door to the URL resolver (D032): results point at items the resolver already accepts, search never writes, and it ships by provider in this order: TMDB, IGDB, MusicBrainz, Audible catalog. Spec: `.scratch/name-search/spec.md`.

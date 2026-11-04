@@ -8,6 +8,8 @@ Requestarr only manages requests, availability, and notifications. No *arr/downl
 ## D002 — Link-first V1
 Users paste metadata provider links instead of searching an internal/global catalog. Native discovery can be added later without changing the request modal/domain path.
 
+Superseded in part by D032: name search is now allowed as a front door to the resolver. The rest of D002 (no internal/global catalog, no discovery) stands.
+
 ## D003 — Shared single request
 One canonical request exists per item. The requester's identity is attribution, not privacy/ownership. Requests are visible to every authenticated user.
 
@@ -216,3 +218,23 @@ Amended (when accepted):
 - Suggested matches compare the normalised title only; the Audiobookshelf adapter leaves `Year` empty so Audible's recording year cannot hide a candidate for an item with no ASIN.
 - A placeholder for an unresolved ASIN is marked `metadata.unresolved`, is never cached, and never overwrites stored details. Nothing retries it in the background yet.
 - Follow-ups, not decided: ASINs of series or box-set parents against single books; skipping unchanged items by `updatedAt`; Amazon product URLs (not confirmed to carry audiobook ASINs); author-aware matching; audiobook Issue kinds; a retry job for placeholders; ISBN aliasing (v1.1); a nicer message than HTTP 400 for an ASIN no marketplace knows.
+
+## D032 — Name search is a front door to the resolver
+
+Accepted 2026-11-04. Research: `docs/research/SEARCH_INTEGRATION.md`. Spec: `.scratch/name-search/spec.md`.
+
+D002 stays accepted. This decision supersedes only its "no search" part: people may find an item by name instead of pasting a link.
+
+- A **Search result** is a pointer, not a Catalog item. Its `Ref` is a canonical URL (or bare ASIN) that the same provider's resolver already accepts. Choosing a result calls the existing `POST /resolve`, so the preview, `catalogId` upsert, `POST /requests`, subscriptions and part selections (D027) are unchanged. Search creates no new request path and no sparse catalog rows.
+- Search never writes. It annotates results from local PostgreSQL only ("requested", "in library"); it never creates a Request, a Catalog item or an Issue.
+- It is a post-release V1.x feature, phased by provider risk: Movies & TV (TMDB), games (IGDB), albums and songs (MusicBrainz), audiobooks (Audible catalog).
+- Discovery, trending and recommendations stay out of scope. They need their own decision.
+- Search is a fourth interactive caller of providers beside URL resolution, connection tests and background jobs. Page rendering still reads local state only.
+- Assumption (recorded by this decision, not verified with the providers): a self-hosted, free, AGPL Requestarr counts as non-commercial use of TMDB, MusicBrainz and IGDB. Image CDNs (TMDB, Cover Art Archive, IGDB) are hotlinked in the browser, as previews already do. If a provider says otherwise, this decision is revisited for that provider.
+
+Open items, not decided:
+
+- The Twitch Developer Service Agreement (IGDB) has not been read; whether it limits caching search responses is unknown.
+- The Cover Art Archive terms have not been read; they matter once search shows many album covers at once.
+- TMDB attribution (logo and non-endorsement notice) must be confirmed or added before TMDB search ships.
+- The other open questions in the research note (blended "All" type, per-user rate limits, per-provider disable) are settled in the spec's tickets, not here.

@@ -15,6 +15,8 @@ Two reference apps are acquisition tools (DroppedNeedle drives download clients,
 3. One input on Home: **"Search or paste a link"**. If the text parses as a supported URL or ASIN, behave as today; otherwise search. Seerr does the same kind of thing with a `tmdb:<id>` pattern (`server/lib/search.ts`, `server/routes/search.ts`).
 4. Phase it: movies and TV (TMDB) first, then games (IGDB), then music (MusicBrainz), then audiobooks (Audible catalog, the weakest source). Per-type selector, not a blended "all" list, until the quiet providers are proven.
 
+**Settled by D032 (2026-11-04):** name search is a post-release V1.x feature, the front-door shape below is accepted, and discovery stays out. The open questions below are marked settled or open.
+
 Search is explicitly **out of V1** (`docs/V1_SCOPE.md`, "Native catalog search/discovery/trending/recommendations"; D002; AGENTS.md accepted decision 1). So this is a post-V1 feature, or a V1 scope amendment. Discovery (trending, recommendations) should stay out: it is a separate, much larger feature and not what was asked.
 
 ## 1. How the reference apps do it
@@ -333,6 +335,8 @@ Trade-offs:
 - *No persisted search cache.* Simpler and ToS-friendly; costs repeated provider calls after restarts, acceptable at household scale.
 
 ## Open questions for the owner
+
+Status after D032: 1 settled (V1.x); 7 settled in part (non-commercial assumption and hotlinking recorded; TMDB attribution still to confirm); 12 settled (hotlinking accepted); 8 and 10 still open (terms unread); 2-6, 9 and 11 are answered by the spec and tickets in `.scratch/name-search/`, not by D032.
 
 1. Scope and timing: is name search a V1 amendment or V1.x? D002, `docs/V1_SCOPE.md` and AGENTS.md all say link-first; a dated decision is required either way.
 2. Which media types first? The recommendation is Movies & TV, then games, music, audiobooks. Is audiobook search wanted at all given the undocumented Audible endpoint?

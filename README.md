@@ -6,7 +6,7 @@ Requestarr deliberately stops at **request management, availability reconciliati
 
 ## V1 at a glance
 
-- Link-first requests: **TMDB** (movies/TV), **MusicBrainz** (albums/songs), **IGDB** (games).
+- Link-based requests (name search is planned for V1.x, D032): **TMDB** (movies/TV), **MusicBrainz** (albums/songs), **IGDB** (games).
 - One shared request per canonical item; the original requester is automatically subscribed.
 - Other users can choose **Notify Me** on an existing request without creating duplicates or votes.
 - Games dynamically expose the platforms reported by IGDB. Users may choose **Any** or multiple acceptable platforms; any selected platform satisfies the request.
