@@ -224,7 +224,7 @@ func TestPlexConfigurationMustBeCompleteAndSafe(t *testing.T) {
 		"url only":           {"development", "http://plex.local:32400", "", "REQUESTARR_PLEX_URL and REQUESTARR_PLEX_TOKEN must be configured together"},
 		"credentials in url": {"development", "http://u:p@plex.local:32400", "tok", "REQUESTARR_PLEX_URL must be an absolute http(s) origin"},
 		"path in url":        {"development", "http://plex.local:32400/web", "tok", "REQUESTARR_PLEX_URL must be an absolute http(s) origin"},
-		"http in production": {"production", "http://plex.local:32400", "tok", "REQUESTARR_PLEX_URL must use https outside development"},
+		"http in production": {"production", "http://plex.example.test:32400", "tok", "REQUESTARR_PLEX_URL must use https outside development"},
 		"https production":   {"production", "https://plex.example", "tok", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -299,7 +299,7 @@ func TestRommConfigurationMustBeCompleteAndSafe(t *testing.T) {
 		"token only":         {"development", "", "tok", "REQUESTARR_ROMM_URL and REQUESTARR_ROMM_TOKEN must be configured together"},
 		"url only":           {"development", "http://romm.local:3000", "", "REQUESTARR_ROMM_URL and REQUESTARR_ROMM_TOKEN must be configured together"},
 		"path in url":        {"development", "http://romm.local:3000/api", "tok", "REQUESTARR_ROMM_URL must be an absolute http(s) origin"},
-		"http in production": {"production", "http://romm.local:3000", "tok", "REQUESTARR_ROMM_URL must use https outside development"},
+		"http in production": {"production", "http://romm.example.test:3000", "tok", "REQUESTARR_ROMM_URL must use https outside development"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := validBase()
