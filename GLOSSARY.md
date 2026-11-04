@@ -21,8 +21,12 @@ A signed-in user who can browse but cannot create Requests. The default role for
 _Avoid_: Guest, read-only user
 
 **Catalog item**:
-The canonical identity of a movie, show, album, song, game or audiobook, resolved from a pasted provider URL (an audiobook may be given as a bare ASIN; the ASIN is its identity).
+The canonical identity of a movie, show, album, song, game or audiobook, resolved from a provider URL, whether pasted or picked from a Search result (an audiobook may be given as a bare ASIN; the ASIN is its identity).
 _Avoid_: Media, title
+
+**Search result**:
+A candidate found by searching a provider by name. It points at a Catalog item without being one until it is resolved; picking it resolves it exactly as a pasted link would.
+_Avoid_: Result, hit
 
 **Source**:
 A configured library (Plex, Jellyfin, Navidrome, RomM) that is authoritative for specific media types.
