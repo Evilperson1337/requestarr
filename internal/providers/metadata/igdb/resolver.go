@@ -38,13 +38,18 @@ type Resolver struct {
 	accessToken          string
 	accessTokenExpiresAt time.Time
 	now                  func() time.Time
+	// slots caps concurrent name searches, which share IGDB's 4 requests per
+	// second and 8 open requests with the resolver.
+	slots      chan struct{}
+	searchWait time.Duration
 }
 
 func New(clientID, clientSecret string, client *http.Client) *Resolver {
 	if client == nil {
 		client = &http.Client{Timeout: 9 * time.Second}
 	}
-	return &Resolver{client: client, clientID: clientID, secret: clientSecret, now: time.Now}
+	return &Resolver{client: client, clientID: clientID, secret: clientSecret, now: time.Now,
+		slots: make(chan struct{}, maxSearchesInFlight), searchWait: 2 * time.Second}
 }
 
 func (*Resolver) Name() string { return "igdb" }
@@ -118,9 +123,11 @@ type gameRow struct {
 			Name string `json:"name"`
 		} `json:"company"`
 	} `json:"involved_companies"`
+	GameType  *int `json:"game_type"`
 	Platforms []struct {
-		ID   uint64 `json:"id"`
-		Name string `json:"name"`
+		ID           uint64 `json:"id"`
+		Name         string `json:"name"`
+		Abbreviation string `json:"abbreviation"`
 	} `json:"platforms"`
 }
 
@@ -155,6 +162,12 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (domain.ResolvedItem
 
 // fetch posts the query, renewing the token once if IGDB rejects it.
 func (r *Resolver) fetch(ctx context.Context, query string) ([]gameRow, error) {
+	return r.fetchRows(ctx, query, true)
+}
+
+// fetchRows is fetch with the retries optional: a search has someone waiting
+// on it, so a busy IGDB is reported at once instead of retried.
+func (r *Resolver) fetchRows(ctx context.Context, query string, retry bool) ([]gameRow, error) {
 	for attempt := 0; ; attempt++ {
 		token, err := r.token(ctx, attempt > 0)
 		if err != nil {
@@ -162,7 +175,11 @@ func (r *Resolver) fetch(ctx context.Context, query string) ([]gameRow, error) {
 		}
 		h := http.Header{"Client-ID": {r.clientID}, "Authorization": {"Bearer " + token}, "Content-Type": {"text/plain"}}
 		var rows []gameRow
-		err = metadata.FetchWithBodyRetrying(ctx, r.client, gamesEndpoint, query, h, &rows)
+		if retry {
+			err = metadata.FetchWithBodyRetrying(ctx, r.client, gamesEndpoint, query, h, &rows)
+		} else {
+			err = metadata.FetchWithBody(ctx, r.client, gamesEndpoint, query, h, &rows)
+		}
 		if err != nil && attempt == 0 && strings.Contains(err.Error(), "401") {
 			continue
 		}

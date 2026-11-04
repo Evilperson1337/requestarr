@@ -37,7 +37,8 @@ export type LibraryPage = { items: LibraryItem[]; nextCursor: string | null }
 export type IssueStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
 export type Issue = { id: string; libraryItemId: string; title: string; mediaType: string; source: string; kind: string; kindLabel: string; part: Selection; status: IssueStatus; description?: string; reporters: number; goneFromLibrary: boolean; artworkUrl?: string; link?: string; year?: number; sourceKind?: string; createdAt: string; updatedAt: string; resolvedAt?: string }
 export type IssueDetail = { issue: Issue; events: { id: string; type: string; actorName: string; comment?: string; at: string }[]; reporters: { userId: string; name: string; note?: string; at: string; left: boolean }[]; youReported: boolean }
-export type SearchResult = { mediaType: string; provider: string; providerId: string; ref: string; title: string; year?: number; subtitle?: string; artworkUrl?: string; artworkKind?: string }
+export type SearchLocal = { catalogId?: string; requestStatus?: 'requested' | 'approved' | 'denied' | 'available' | 'cancelled'; availability: 'unknown' | 'available' | 'missing' }
+export type SearchResult = { mediaType: string; provider: string; providerId: string; ref: string; title: string; year?: number; subtitle?: string; artworkUrl?: string; artworkKind?: string; local?: SearchLocal }
 export type SearchPage = { results: SearchResult[]; hasMore: boolean }
 export type RequestPage = { items: RequestItem[]; nextCursor: string | null }
 export type AdminUser = { id: string; email: string; displayName: string; role: 'admin' | 'requester' | 'viewer'; createdAt: string }
@@ -59,16 +60,18 @@ export async function api<T>(path: string, init: RequestInit = {}, csrf?: string
 // Errors use {error:{code,message,requestId}}; keep the code for branching and
 // show the message plus request ID so a user can quote it when reporting a problem.
 export class ApiError extends Error {
-    constructor(message: string, readonly code = '', readonly status = 0) { super(message) }
+    constructor(message: string, readonly code = '', readonly status = 0, readonly retryAfter = 0) { super(message) }
 }
 
 async function apiError(response: Response): Promise<ApiError> {
     const body = await response.text()
+    const wait = Number(response.headers.get('Retry-After'))
+    const retryAfter = Number.isFinite(wait) && wait > 0 ? wait : 0
     try {
         const { error } = JSON.parse(body) as { error?: { code?: string; message?: string; requestId?: string } }
-        if (error?.message) return new ApiError(error.requestId ? `${error.message} (request ${error.requestId})` : error.message, error.code, response.status)
+        if (error?.message) return new ApiError(error.requestId ? `${error.message} (request ${error.requestId})` : error.message, error.code, response.status, retryAfter)
     } catch { /* not the JSON envelope */ }
-    return new ApiError(body.trim() || `Request failed (${response.status})`, '', response.status)
+    return new ApiError(body.trim() || `Request failed (${response.status})`, '', response.status, retryAfter)
 }
 
 // Never surface server-provided error bodies from the bootstrap claim endpoint.

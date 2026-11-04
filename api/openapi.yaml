@@ -186,6 +186,19 @@ paths:
               schema: { $ref: '#/components/schemas/SearchPage' }
         '400': { description: "invalid_search: text too short or long, control characters, unknown type, or page out of range" }
         '401': { description: Authentication required }
+        '429':
+          description: >-
+            search_rate_limited: this user has used up the per-user search budget
+            (a burst of 10, refilling one per second; fixed, not configurable).
+            Retry-After gives whole seconds until the next search is accepted.
+            Every well-formed search counts, including repeats answered from the
+            cache; invalid (400) requests, GET /search/types and POST /resolve do not.
+            Other users are not affected.
+          headers:
+            Retry-After: { schema: { type: integer, minimum: 1 }, description: Seconds to wait }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '502': { description: The provider rejected Requestarr's credentials (metadata_provider_credentials) }
         '503': { description: "The provider is busy or unreachable (metadata_provider_busy, with Retry-After) or not set up (metadata_provider_not_configured); never an empty list" }
   /search/types:
@@ -1307,6 +1320,22 @@ components:
         subtitle: { type: string }
         artworkUrl: { type: string }
         artworkKind: { type: string }
+        local:
+          $ref: '#/components/schemas/SearchLocal'
+    SearchLocal:
+      type: object
+      required: [availability]
+      description: >-
+        What this instance already knows about the item, from the local database only
+        (no provider or library call). Omitted from a result never resolved here; omission
+        means "never resolved here", not "missing". Advisory: Request writes enforce everything again.
+      properties:
+        catalogId: { type: string, format: uuid, description: Present when a catalog item exists }
+        requestStatus: { type: string, enum: [requested, approved, denied, available, cancelled], description: Present when the item has a Request }
+        availability:
+          type: string
+          enum: [unknown, available, missing]
+          description: '"available" only when an enabled library source''s latest complete snapshot holds the item'
     SearchPage:
       type: object
       required: [results, hasMore]

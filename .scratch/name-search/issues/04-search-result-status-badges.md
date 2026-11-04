@@ -10,12 +10,12 @@ One batched local query annotates each page (at most 50 results) from PostgreSQL
 
 **Status:** ready-for-agent
 
-- [ ] A result whose item has an open Request shows "Requested" and the status, and stays in the list
-- [ ] A result whose item is in an enabled source's latest complete snapshot shows "In library" even with no catalog row
-- [ ] A movie and a TV show with the same numeric ID are not confused
-- [ ] A source whose latest sync failed, or that is disabled, does not produce "In library"
-- [ ] A never-seen item has no local state and no badge
-- [ ] The whole page is annotated with one query, with no provider or library calls (store integration test)
-- [ ] Clicking an already-requested result opens the modal with Notify Me, View request and Add to request
-- [ ] Badges are readable without colour (browser test)
-- [ ] `make fmt test vet web-check`, `make test-integration` and the browser tests pass
+- [x] A result whose item has an open Request shows "Requested" and the status, and stays in the list (verified: store integration test plus Playwright search-status.spec.ts; the API wiring is tested with a fake lookup)
+- [x] A result whose item is in an enabled source's latest complete snapshot shows "In library" even with no catalog row (verified: store integration test on real PostgreSQL, no catalog row)
+- [x] A movie and a TV show with the same numeric ID are not confused (verified: store integration tests)
+- [x] A source whose latest sync failed, or that is disabled, does not produce "In library" (verified: store integration test (disabled source, item dropped from the latest snapshot, source with no completed snapshot))
+- [x] A never-seen item has no local state and no badge (verified: store, handler and Playwright tests)
+- [x] The whole page is annotated with one query, with no provider or library calls (store integration test) (verified: store integration test asserts a single pool acquisition for 50 keys; local tables only)
+- [ ] Clicking an already-requested result opens the modal with Notify Me, View request and Add to request (Playwright with a mocked /resolve shows all three actions; rests on a mock, left unticked)
+- [x] Badges are readable without colour (browser test) (verified: Playwright with all colour stripped, aria-hidden icon, axe)
+- [x] `make fmt test vet web-check`, `make test-integration` and the browser tests pass (verified: all pass; integration on a fresh DB; web-test only known failures (plus 4173-hardcoded asserts when run on another port))

@@ -71,7 +71,9 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		return fmt.Errorf("initialize OIDC provider: %w", err)
 	}
 	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://")}
-	metadataService := metadata.NewService(store, tmdb.New(cfg.TMDBReadToken, nil), musicbrainz.New(nil), igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil), audible.New(domain.AudibleRegion(cfg.AudibleRegion), nil))
+	// One IGDB provider serves links and searches, so they share its token and its request cap.
+	igdbProvider := igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil)
+	metadataService := metadata.NewService(store, tmdb.New(cfg.TMDBReadToken, nil), musicbrainz.New(nil), igdbProvider, audible.New(domain.AudibleRegion(cfg.AudibleRegion), nil))
 	// A search type exists only when its provider is configured; it is the one switch.
 	searchers := map[string]metadata.Searcher{}
 	if cfg.TMDBReadToken != "" {
@@ -80,6 +82,9 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	// MusicBrainz needs no key, so album search is always on. It shares the
 	// resolver's one-per-second spacer inside the package.
 	searchers["album"] = musicbrainz.New(nil)
+	if cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "" {
+		searchers["game"] = igdbProvider
+	}
 	searchService := metadata.NewSearchService(searchers)
 	if cfg.AppriseURL != "" {
 		workers.Add(1)
@@ -125,7 +130,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		Requests: requests.New(store), Resolver: metadataService, Inbox: store, MatchReview: store,
 		MoviePreview: store,
 		JobRuns:      store, Status: ops, Users: store, SetupState: store, Syncer: syncer,
-		Wizard: setupService, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: searchService, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
+		Wizard: setupService, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: searchService, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize HTTP API: %w", err)

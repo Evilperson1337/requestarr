@@ -2466,6 +2466,26 @@ a.tag-available:hover {
     color: var(--muted);
 }
 
+.searchBadge {
+    flex: none;
+    margin-left: auto;
+    padding: 2px 8px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.searchBadge.library {
+    border-style: solid;
+    color: var(--accent);
+}
+
+.searchBadge.requested {
+    border-style: dashed;
+}
+
 /* TMDB attribution (API terms): logo kept smaller than Requestarr's own branding. */
 .attribution {
     display: flex;
