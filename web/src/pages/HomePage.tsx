@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, type MoviePreviewState, type SearchPage, type SearchResult, type RecentLibraryItem, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
+import { api, ApiError, type MoviePreviewState, type SearchPage, type SearchResult, type RecentLibraryItem, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
 import { LibraryRail, RequestRail } from '../components/RequestRail'
 import { RequestModal } from '../components/RequestModal'
-import { followLink } from '../navigation'
-import { isLinkInput, searchBadges, searchTypeLabels, typeaheadTypes, useSearchTypes, type SearchState } from '../search'
+import { followLink, navigate, useLocation } from '../navigation'
+import { isLinkInput, locationForSearch, searchBadges, searchFromLocation, searchTypeLabels, typeaheadTypes, useSearchTypes, type SearchState } from '../search'
 
 export function HomePage({ session, onCreated }: { session: Session; onCreated: () => void }) {
-    const [text, setText] = useState('')
+    const here = useLocation()
+    const fromUrl = useRef(searchFromLocation(here))
+    const [text, setText] = useState(fromUrl.current.q)
     const [item, setItem] = useState<ResolvedItem | null>(null)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
@@ -48,38 +50,73 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         return () => controller.abort()
     }, [session.user.id])
     // Search state is kept apart from the link-resolve state above.
-    const { types, searchType, chooseType } = useSearchTypes()
+    const { types, searchType, chooseType } = useSearchTypes(fromUrl.current.type)
     const [search, setSearch] = useState<SearchState>({ status: 'idle', query: '', results: [], error: '' })
     const searchController = useRef<AbortController | null>(null)
     const searched = useRef('')
     useEffect(() => () => searchController.current?.abort(), [])
     const link = isLinkInput(text)
+    // The URL follows the search: the first search pushes one entry, later ones replace it, so Back is not flooded.
+    // `written` is the last location this page set itself; any other change is Back/Forward and is read back in.
+    const written = useRef(here)
+    const urlDriven = useRef(!!fromUrl.current.q)
+    const writeUrl = useCallback((query: string, type: string) => {
+        const next = locationForSearch(query, type)
+        if (next === location.pathname + location.search) return
+        written.current = next
+        navigate(next, {}, location.search.includes('q='))
+    }, [])
+    useEffect(() => {
+        if (here === written.current) return
+        written.current = here
+        const wanted = searchFromLocation(here)
+        urlDriven.current = !!wanted.q
+        setText(wanted.q)
+        if (wanted.type) chooseType(wanted.type)
+    }, [here, chooseType])
     const runSearch = useCallback(async (query: string, type: string) => {
         searchController.current?.abort()
         const controller = new AbortController(); searchController.current = controller
         searched.current = `${type}:${query}`
+        writeUrl(query, type)
         setSearch(previous => ({ ...previous, status: 'loading', error: '' }))
         try {
             const page = await api<SearchPage>(`/search?${new URLSearchParams({ q: query, type })}`, { signal: controller.signal, cache: 'no-store' })
             if (searchController.current === controller && !controller.signal.aborted) setSearch({ status: 'done', query, results: Array.isArray(page?.results) ? page.results : [], hasMore: !!page?.hasMore, error: '' })
         } catch (e) {
-            if (searchController.current === controller && !controller.signal.aborted) setSearch({ status: 'error', query, results: [], error: `${e instanceof Error ? e.message : 'The search failed.'} You can still paste a link.` })
+            if (searchController.current !== controller || controller.signal.aborted) return
+            if (e instanceof ApiError && e.code === 'search_rate_limited') {
+                // Too many searches: keep what is on screen, say so, and try once more when the server says to.
+                const wait = Math.min(Math.max(e.retryAfter || 2, 1), 30)
+                setSearch(previous => ({ ...previous, status: 'limited', error: `You are searching too fast. Trying again in ${wait} ${wait === 1 ? 'second' : 'seconds'}.` }))
+                setTimeout(() => { if (searchController.current === controller && !controller.signal.aborted) void runSearch(query, type) }, wait * 1000)
+                return
+            }
+            setSearch({ status: 'error', query, results: [], error: `${e instanceof Error ? e.message : 'The search failed.'} You can still paste a link.` })
         }
-    }, [])
+    }, [writeUrl])
     // Typeahead: search once typing pauses. Anything newer cancels what is in flight, so a slow answer can never land late.
     useEffect(() => {
         const query = text.trim()
         searchController.current?.abort()
-        if (link || [...query].length < 2 || !searchType || !typeaheadTypes.has(searchType)) {
+        const immediate = urlDriven.current
+        if (link || [...query].length < 2 || !searchType || (!immediate && !typeaheadTypes.has(searchType))) {
             searched.current = ''
             setSearch(previous => previous.status === 'idle' ? previous : { status: 'idle', query: '', results: [], error: '' })
             return
         }
         const key = `${searchType}:${query}`
         if (searched.current === key) return
-        const timer = setTimeout(() => void runSearch(query, searchType), 300)
+        urlDriven.current = false
+        const timer = setTimeout(() => void runSearch(query, searchType), immediate ? 0 : 300)
         return () => clearTimeout(timer)
     }, [text, link, searchType, runSearch])
+    // Emptying the box, or pasting a link over a search, takes the search out of the URL.
+    function edit(value: string) {
+        setText(value)
+        const query = value.trim()
+        if ((isLinkInput(value) || [...query].length < 2) && location.search.includes('q=')) writeUrl('', '')
+    }
     function submit(e: FormEvent) {
         e.preventDefault()
         if (link) { void resolve(text, document.activeElement instanceof HTMLElement ? document.activeElement : previewButton.current); return }
@@ -108,13 +145,14 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
     }
     const searchStatus = search.status === 'loading' ? 'Searching…'
         : search.status === 'done' ? (search.results.length === 0 ? `No results for ${search.query}. Try another spelling, or paste a link.` : `${search.results.length} ${search.results.length === 1 ? 'result' : 'results'} for ${search.query}`)
+        : search.status === 'error' ? 'Search unavailable'
         : ''
     return <main className="shell">
         <section className="card hero"><h1>Request Something</h1><p>{types.includes('movie_tv') ? 'Search for a movie or show by name, or paste' : 'Paste'} a TMDB, MusicBrainz, IGDB or Audible link, or an audiobook ASIN, to preview it before requesting.</p>
-            <form onSubmit={submit}><label className="urlBox"><span aria-hidden="true">↗</span><span className="sr-only">Search by name, or paste a TMDB, MusicBrainz, IGDB or Audible URL, or an audiobook ASIN</span><input type="text" inputMode="search" autoComplete="off" spellCheck={false} maxLength={2048} required value={text} onChange={e => setText(e.target.value)} placeholder="Search or paste a link…" /></label><button ref={previewButton} className="button" disabled={busy} onClick={event => { if (event.detail > 0) event.currentTarget.focus() }}>{busy ? 'Resolving…' : link || !text.trim() ? 'Preview' : 'Search'}</button></form>
+            <form onSubmit={submit}><label className="urlBox"><span aria-hidden="true">↗</span><span className="sr-only">Search by name, or paste a TMDB, MusicBrainz, IGDB or Audible URL, or an audiobook ASIN</span><input type="text" inputMode="search" autoComplete="off" spellCheck={false} maxLength={2048} required value={text} onChange={e => edit(e.target.value)} placeholder="Search or paste a link…" /></label><button ref={previewButton} className="button" disabled={busy} onClick={event => { if (event.detail > 0) event.currentTarget.focus() }}>{busy ? 'Resolving…' : link || !text.trim() ? 'Preview' : 'Search'}</button></form>
             {types.length > 0 && <fieldset className="searchTypes" role="radiogroup"><legend>Search for</legend>{types.map(type => <label key={type}><input type="radio" name="searchType" value={type} checked={searchType === type} onChange={() => chooseType(type)} />{searchTypeLabels[type] ?? type}</label>)}</fieldset>}
             {busy && <p role="status">Looking up metadata…</p>}{error && <p role="alert" className="error">{error}</p>}
-            {search.status === 'error' && <p role="alert" className="error">{search.error}</p>}
+            {(search.status === 'error' || search.status === 'limited') && <p role="alert" className="error">{search.error}</p>}
             <p role="status" className="searchStatus">{searchStatus}</p>
             {search.results.length > 0 && <ul className="searchResults" aria-label="Search results" aria-busy={search.status === 'loading'}>{search.results.map(result => <SearchRow key={result.ref} result={result} onPick={opener => void resolve(result.ref, opener)} />)}</ul>}
             {search.status === 'done' && search.hasMore && <p className="searchMore">There are more matches. Add more of the title to narrow them down.</p>}
@@ -144,7 +182,7 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
             <div className="recentHeader"><h2 id="added-books-heading">New audiobooks in your libraries</h2></div>
             <LibraryRail items={addedBooks} label="audiobooks" />
         </section>}
-        {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus()) }} />}
+        {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); if (['movie', 'tv'].includes(item.Item.MediaType)) requestAnimationFrame(() => returnFocus.current?.focus({ preventScroll: true })) }} />}
     </main>
 }
 

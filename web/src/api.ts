@@ -60,16 +60,18 @@ export async function api<T>(path: string, init: RequestInit = {}, csrf?: string
 // Errors use {error:{code,message,requestId}}; keep the code for branching and
 // show the message plus request ID so a user can quote it when reporting a problem.
 export class ApiError extends Error {
-    constructor(message: string, readonly code = '', readonly status = 0) { super(message) }
+    constructor(message: string, readonly code = '', readonly status = 0, readonly retryAfter = 0) { super(message) }
 }
 
 async function apiError(response: Response): Promise<ApiError> {
     const body = await response.text()
+    const wait = Number(response.headers.get('Retry-After'))
+    const retryAfter = Number.isFinite(wait) && wait > 0 ? wait : 0
     try {
         const { error } = JSON.parse(body) as { error?: { code?: string; message?: string; requestId?: string } }
-        if (error?.message) return new ApiError(error.requestId ? `${error.message} (request ${error.requestId})` : error.message, error.code, response.status)
+        if (error?.message) return new ApiError(error.requestId ? `${error.message} (request ${error.requestId})` : error.message, error.code, response.status, retryAfter)
     } catch { /* not the JSON envelope */ }
-    return new ApiError(body.trim() || `Request failed (${response.status})`, '', response.status)
+    return new ApiError(body.trim() || `Request failed (${response.status})`, '', response.status, retryAfter)
 }
 
 // Never surface server-provided error bodies from the bootstrap claim endpoint.

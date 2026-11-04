@@ -6,11 +6,18 @@ Parent: `.scratch/name-search/spec.md`
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Exceeding the limit returns 429 with a retry-after hint and a documented error code, in the OpenAPI contract
-- [ ] The limit is per user: one user at the limit does not block another
-- [ ] Cached or single-flight hits count sensibly (a repeat within the fresh window does not hit a provider; decide and test whether it counts toward the limit)
-- [ ] The UI shows a distinct message, keeps the last results, and recovers after the wait without a reload
-- [ ] The limit does not affect `POST /resolve` or previews
-- [ ] `make fmt test vet web-check` and the browser tests pass
+- [x] Exceeding the limit returns 429 with a retry-after hint and a documented error code, in the OpenAPI contract
+- [x] The limit is per user: one user at the limit does not block another
+- [x] Cached or single-flight hits count sensibly (a repeat within the fresh window does not hit a provider; decide and test whether it counts toward the limit)
+- [x] The UI shows a distinct message, keeps the last results, and recovers after the wait without a reload
+- [x] The limit does not affect `POST /resolve` or previews
+- [x] `make fmt test vet web-check` and the browser tests pass
+
+## Outcome
+
+- Per-user token bucket (burst 10, one more per second), in-process, injectable clock (`internal/httpapi/searchlimit.go`). 429 `search_rate_limited` with `Retry-After`, in `api/openapi.yaml`.
+- Decision: every well-formed search spends a token, including fresh-cache hits and joined single-flight queries. The limit caps a client's request rate on the server; it is not a provider-call count. Invalid (400) requests cost nothing. `/search/types` and `POST /resolve` are not limited.
+- UI: keeps the last results, shows an alert, retries once by itself after the hinted wait.
+- Verified: Go tests in `searchlimit_test.go` (clock-driven), Playwright test in `web/tests/search.spec.ts`. Browser suite run on port 4273 because 4173 was held by another tree; the four specs hard-coding 4173 failed only for that reason, plus the known home-recent failure.
