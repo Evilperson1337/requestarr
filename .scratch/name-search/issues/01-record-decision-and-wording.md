@@ -8,9 +8,9 @@ Parent: `.scratch/name-search/spec.md`
 
 **Status:** ready-for-agent
 
-- [ ] The decision log has the new entry, with the provider-terms assumption and the two unread terms (Twitch Developer Service Agreement, Cover Art Archive) listed as open items
-- [ ] D002 is unchanged except for a pointer to the new entry
-- [ ] The scope document lists name search under V1.x and keeps discovery, trending and recommendations out
-- [ ] The agent rules, project summary and architecture notes no longer describe request entry as link-only, and the fast-path principle names search as an interactive caller
-- [ ] The research note's open questions are marked settled or still open to match the decision
-- [ ] No behavior or code changes; `make fmt test vet web-check` still pass
+- [x] The decision log has the new entry, with the provider-terms assumption and the two unread terms (Twitch Developer Service Agreement, Cover Art Archive) listed as open items
+- [x] D002 is unchanged except for a pointer to the new entry
+- [x] The scope document lists name search under V1.x and keeps discovery, trending and recommendations out
+- [x] The agent rules, project summary and architecture notes no longer describe request entry as link-only, and the fast-path principle names search as an interactive caller
+- [x] The research note's open questions are marked settled or still open to match the decision
+- [x] No behavior or code changes; `make fmt test vet web-check` still pass
