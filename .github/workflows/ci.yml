@@ -53,6 +53,8 @@ jobs:
         run: scripts/check-node-version.sh
       - name: Deployment files (compose and example environment)
         run: scripts/deploy-files-test.sh
+      - name: Release configuration matches D023
+        run: scripts/check-release-config.sh
       - name: Install dependencies
         working-directory: web
         run: npm ci --no-audit --no-fund

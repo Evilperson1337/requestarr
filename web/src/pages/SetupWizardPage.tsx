@@ -61,6 +61,6 @@ export function SetupWizardPage({ session, onComplete }: { session: Session | nu
                 <button className="button" disabled={busy}>{busy ? 'Claiming admin…' : 'Claim first admin'}</button>
             </form>
         </>}
-        <p className="setupGuide">For operator instructions, see <a href="https://github.com/example/Requestarr/blob/main/docs/SETUP_WIZARD.md">the server setup guide</a>.</p>
+        <p className="setupGuide">For operator instructions, see <a href="https://github.com/evilperson1337/requestarr/blob/main/docs/SETUP_WIZARD.md">the server setup guide</a>.</p>
     </section></main>
 }

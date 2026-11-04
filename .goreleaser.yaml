@@ -38,6 +38,14 @@ archives:
       - README.md
       - config/requestarr.example.yaml
 
+# SPDX SBOM per archive (Syft must be on PATH; the release workflow installs it).
+sboms:
+  - id: archives
+    artifacts: archive
+    documents:
+      - "${artifact}.spdx.json"
+    args: ["$artifact", "--output", "spdx-json=$document"]
+
 checksum:
   name_template: checksums.txt
 
@@ -53,3 +61,4 @@ changelog:
 
 release:
   draft: true
+  prerelease: auto

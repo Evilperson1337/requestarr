@@ -5,7 +5,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: hooks help fmt test test-integration check-login check-container vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down stack-up stack-up-dev stack-start stack-down stack-logs stack-admin-token migrate-up snapshot release-check references
+.PHONY: hooks help fmt test test-integration check-login check-container vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down stack-up stack-up-dev stack-start stack-down stack-logs stack-admin-token migrate-up snapshot snapshot-image release-check references
 
 # Load .env into the recipe's environment when present, without requiring it
 # to be sourced into the caller's shell first.
@@ -143,11 +143,19 @@ stack-logs:
 stack-admin-token:
 	@scripts/stack-admin-token.sh
 
-snapshot:
-	goreleaser release --snapshot --clean
+# Local snapshot: archives (no SBOM, since Syft may be absent; CI generates it)
+# and the multi-arch image, built from the repository Dockerfile and never pushed.
+snapshot: snapshot-image
+	goreleaser release --snapshot --clean --skip=sbom
+
+# Needs a Docker engine that can hold multi-platform images (containerd image
+# store), or a buildx builder; the image is not pushed anywhere.
+snapshot-image:
+	docker buildx build --platform linux/amd64,linux/arm64 -t requestarr:snapshot .
 
 release-check:
 	goreleaser check
+	scripts/check-release-config.sh
 
 references:
 	./scripts/fetch-references.sh

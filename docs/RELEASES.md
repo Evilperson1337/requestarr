@@ -22,30 +22,48 @@ The binary embeds the built UI from `internal/webui/dist`. That directory is bui
 - `docker build`: succeeded (Node 22 web stage, Go 1.27 build stage, distroless runtime).
 - `REQUESTARR_POSTGRES_PORT=5433 make check-container`: PASS. The container started, became ready, served `/`, a built asset, `/requests` and `/api/v1/version`.
 
-Not done: the tag-triggered `release.yml` itself has not run (it needs a pushed `v*` tag), and no image is published to a registry; see the list below.
+Not done: the tag-triggered `release.yml` itself has not run (it needs a pushed `v*` tag), and no image is published to a registry; see "Implemented but unconfirmed" below.
 
-## Supply chain and container policy (D023, proposed)
+## Supply chain and container policy (D023, D034)
 
-- **Container image:** published to GitHub Container Registry as
-  `ghcr.io/<owner>/requestarr` for `linux/amd64` and `linux/arm64`, built from the
-  repository `Dockerfile` (distroless static, non-root). Tags: `vX.Y.Z` and `vX.Y`
-  for every release; `latest` only for stable (non-pre-release) tags. The image
-  contains the UI and applies migrations at startup. No image is built from a
-  branch or pull request for publishing.
-- **SBOM:** an SPDX JSON SBOM is generated for every release archive and for the
-  image (Syft, through GoReleaser `sboms`) and attached to the GitHub release.
-- **Provenance and signing:** release archives, `checksums.txt` and the image get
-  GitHub build-provenance attestations; the image is signed keyless with cosign.
-  Consumers verify with `gh attestation verify` / `cosign verify`.
-- **Dependencies:** Go and npm dependencies are pinned (`go.sum`, `package-lock.json`,
-  `npm ci`); runtime base images are pinned by tag and updated deliberately.
-- **Status:** this policy is proposed (awaiting maintainer approval) and **not yet implemented in the workflows**:
-  `release.yml` currently publishes archives and checksums only. Implementing it
-  needs a pushed `v*` tag to verify, so it is listed as a remaining gap, not claimed.
+`.github/workflows/release.yml` runs only for a pushed `v*` tag and has two jobs. `scripts/check-release-config.sh` (run by `make release-check` and CI) statically checks that the configuration keeps to this policy.
+
+- **Container image:** `ghcr.io/evilperson1337/requestarr` for `linux/amd64` and `linux/arm64`, built by `docker/build-push-action` from the repository `Dockerfile` (distroless static, non-root, UI embedded, migrations applied at start, `healthcheck` subcommand as the HEALTHCHECK). The Go stage cross-compiles on the build platform, so no emulation is needed. Tags: `vX.Y.Z` for every tag; `vX.Y` and `latest` only for stable tags (no `-` suffix). A pre-release such as `v0.1.0-rc.1` gets only its exact tag, so a release candidate never moves `vX.Y` or `latest`. Nothing is built for publishing from a branch or pull request.
+- **SBOM:** archives get an SPDX JSON SBOM (Syft through GoReleaser `sboms`, attached to the GitHub release). The image carries a BuildKit-generated SPDX SBOM attestation.
+- **Provenance and signing:** archives, `checksums.txt` and the image get GitHub build-provenance attestations; the image also has BuildKit `mode=max` provenance and a keyless cosign signature (GitHub OIDC identity).
+- **Dependencies:** Go and npm dependencies are pinned (`go.sum`, `package-lock.json`, `npm ci`); runtime base images are pinned by tag and updated deliberately.
+
+### Verifying a release image
+
+```bash
+IMG=ghcr.io/evilperson1337/requestarr:v0.1.0
+
+# Keyless signature, tied to this repository's release workflow
+cosign verify "$IMG" \
+  --certificate-identity-regexp '^https://github.com/evilperson1337/requestarr/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+# Build-provenance attestation
+gh attestation verify "oci://$IMG" --repo evilperson1337/requestarr
+
+# SPDX SBOM and BuildKit provenance
+docker buildx imagetools inspect "$IMG" --format '{{ json .SBOM }}'
+docker buildx imagetools inspect "$IMG" --format '{{ json .Provenance }}'
+```
+
+Archives: `gh attestation verify requestarr_<version>_linux_amd64.tar.gz --repo evilperson1337/requestarr`, and compare against `checksums.txt`.
+
+### Local snapshot
+
+`make snapshot` builds both architectures of the image from the repository Dockerfile (`make snapshot-image`, tag `requestarr:snapshot`, not pushed; it needs a Docker engine with the containerd image store or a buildx builder) and runs `goreleaser release --snapshot --clean --skip=sbom` (SBOMs need Syft, which only the release workflow installs).
+
+### Implemented but unconfirmed
+
+Verified locally (2026-11-04): `make release-check`; `make snapshot` produced linux/amd64 and linux/arm64 images (non-root user, health check present) and the six archives. **Not confirmed until a real tag is pushed to GitHub** (ticket 08, first pre-release): the workflow running at all, the push to GHCR, the tag set produced by `docker/metadata-action`, the cosign signature, the attestations, the image SBOM and GoReleaser's SBOM step. Expect to iterate on the workflow against `v0.1.0-rc.1`. Action versions are floating major tags and are untested.
 
 Before the first public release:
 1. ~~choose a Requestarr license~~ (done: AGPL-3.0, D013);
 2. ~~pin production frontend dependencies and commit a valid lockfile~~ (done: `web/package-lock.json`, `npm ci` everywhere);
 3. ~~finalize embedded frontend build strategy~~ (done: built in every pipeline, not committed);
-4. ~~SBOM/provenance/container publishing policy~~ (proposed, D023; implementation in `release.yml` still to do);
+4. SBOM/provenance/container publishing: written in `release.yml` (D023), unconfirmed until a tag is pushed;
 5. ~~document migrations/backups and supported upgrade path~~ (done: [upgrade and backup](UPGRADE_AND_BACKUP.md)).
