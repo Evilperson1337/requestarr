@@ -58,6 +58,12 @@ test('song rows say In library and Requested in words, and pass axe', async ({ p
     expect(scan.violations).toEqual([])
 })
 
+test('the Songs hint tells people to add the artist, with a song example, and is tied to the input', async ({ page }) => {
+    await openHome(page)
+    await expect(page.locator('#searchHint')).toHaveText('Songs are looked up when you press Enter or Search, not as you type. Add the artist for better matches, for example “queen bohemian rhapsody”.')
+    await expect(page.getByPlaceholder(box)).toHaveAttribute('aria-describedby', 'searchHint')
+})
+
 test('picking a song result resolves its recording link', async ({ page }) => {
     const { resolves } = await openHome(page)
     await page.getByPlaceholder(box).fill('money')
