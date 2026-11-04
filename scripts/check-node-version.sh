@@ -2,7 +2,8 @@
 # Fails when the Node major version differs between the Dockerfile and the CI/release workflows.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-docker_major="$(sed -n 's/^FROM node:\([0-9]*\).*/\1/p' Dockerfile | head -1)"
+# The FROM line may carry a --platform flag (the multi-arch build cross-compiles on the build platform).
+docker_major="$(sed -n 's/^FROM \(--platform=[^ ]* \)\{0,1\}node:\([0-9]*\).*/\2/p' Dockerfile | head -1)"
 [[ -n "$docker_major" ]] || { echo "FAIL: no node image in Dockerfile" >&2; exit 1; }
 status=0
 found=0
