@@ -23,7 +23,7 @@ async function open(page: Page, resolved: any, input: string, onResolve?: (body:
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill(input)
+    await page.getByPlaceholder('Search or paste a link…').fill(input)
     await page.getByRole('button', { name: 'Preview', exact: true }).click()
     return page.getByRole('dialog', { name: /Audiobook|Project Hail Mary/ })
 }

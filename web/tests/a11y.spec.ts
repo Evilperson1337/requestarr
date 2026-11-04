@@ -54,7 +54,7 @@ async function audit(page: Page) {
 const pages: { name: string; step?: string; open: (page: Page) => Promise<void> }[] = [
     { name: 'Home', open: async page => { await page.goto('/'); await expect(page.getByRole('heading', { name: 'Request Something' })).toBeVisible() } },
     { name: 'Request preview dialog', open: async page => {
-        await page.goto('/'); await page.getByPlaceholder('Paste a supported link or an ASIN…').fill('https://www.igdb.com/games/outer-wilds')
+        await page.goto('/'); await page.getByPlaceholder('Search or paste a link…').fill('https://www.igdb.com/games/outer-wilds')
         await page.getByRole('button', { name: 'Preview' }).click(); await expect(page.getByRole('dialog')).toBeVisible() } },
     { name: 'Requests', open: async page => { await page.goto('/requests'); await expect(page.getByRole('heading', { name: 'Arrival', exact: true })).toBeVisible() } },
     { name: 'Notifications', open: async page => { await page.goto('/notifications'); await expect(page.getByText('Arrival is available')).toBeVisible() } },
@@ -79,7 +79,7 @@ for (const size of widths) {
 test('request dialog is keyboard operable: focus enters it, Tab stays inside, Escape closes and returns focus', async ({ page }) => {
     await mockApp(page)
     await page.goto('/')
-    await page.getByPlaceholder('Paste a supported link or an ASIN…').fill('https://www.igdb.com/games/outer-wilds')
+    await page.getByPlaceholder('Search or paste a link…').fill('https://www.igdb.com/games/outer-wilds')
     await page.keyboard.press('Enter')
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
@@ -91,5 +91,5 @@ test('request dialog is keyboard operable: focus enters it, Tab stays inside, Es
     }
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
-    await expect(page.getByPlaceholder('Paste a supported link or an ASIN…')).toBeFocused()
+    await expect(page.getByPlaceholder('Search or paste a link…')).toBeFocused()
 })

@@ -206,6 +206,11 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 	} else {
 		d.Issues = absentIssues{}
 	}
+	if v, ok := readiness.(SearchService); ok {
+		d.Search = v
+	} else {
+		d.Search = absentSearch{}
+	}
 	if v, ok := readiness.(LibraryReader); ok {
 		d.Library = v
 	} else {
@@ -300,6 +305,13 @@ func (absentConnections) RemoveConnection(context.Context, string) (Connection, 
 }
 func (absentConnections) TestConnection(context.Context, string) (ConnectionTest, error) {
 	return ConnectionTest{}, errAbsent
+}
+
+type absentSearch struct{}
+
+func (absentSearch) Types() []string { return nil }
+func (absentSearch) Search(context.Context, string, string, int) (domain.SearchPage, error) {
+	return domain.SearchPage{}, errAbsent
 }
 
 type absentLibrary struct{}
