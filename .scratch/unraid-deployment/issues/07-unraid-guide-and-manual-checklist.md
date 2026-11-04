@@ -4,7 +4,7 @@
 
 **Blocked by:** 01, 04, 06 (it documents their behaviour and fields)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The guide opens with what the user must bring (PostgreSQL, a TLS reverse proxy, an HTTPS OIDC provider) and says plainly that none of them is bundled and why https is required for the public URL and issuer
 - [x] It shows how to create the database and user in an existing PostgreSQL container and build the database URL
@@ -14,4 +14,4 @@
 - [x] It explains that a library address on a private host may use `http://`, that its token then travels in cleartext on the network, the extra-networks setting, and that container names resolve only on a user-defined Docker network
 - [x] It links to the upgrade and backup guide and the release documentation, and is linked from the README
 - [x] The manual testing guide gains a real-server checklist: first-admin sign-in through Keycloak, a healthy container, a library syncing over a private `http://` address, installing from the Template Repositories URL
-- [ ] `scripts/check.sh` passes
+- [x] `scripts/check.sh` passes (run on the integration branch tip, with the PostgreSQL integration tests and Playwright)

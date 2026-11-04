@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Outside development, a Source URL over `http://` is accepted for a loopback, RFC 1918, link-local or CGNAT (100.64.0.0/10) IP literal, a single-label name, and a name ending `.local`, `.lan`, `.internal` or `.home.arpa`
 - [x] Outside development, a Source URL over `http://` on any other host (a public DNS name or public IP) is rejected, and the message says what would make it acceptable (https, or adding the network to the allowed list)
@@ -13,4 +13,4 @@
 - [x] The public URL, OIDC issuer and Apprise URL still reject `http://` outside development; development behaviour is unchanged
 - [x] Table-driven tests on the configuration validation cover every case above (seam 1 of the spec)
 - [x] The integrations documentation states the new rule and that an `http://` library connection sends its token in cleartext on the network
-- [ ] `scripts/check.sh` passes (not run by instruction; make fmt and vet clean, make test green except an unrelated embedded-UI router test that needs a built web dist)
+- [x] `scripts/check.sh` passes (run on the integration branch tip, with the PostgreSQL integration tests and Playwright)

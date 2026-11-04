@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (the health check is part of the image)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 - [ ] The release workflow builds and pushes `ghcr.io/evilperson1337/requestarr` for `linux/amd64` and `linux/arm64` from the repository Dockerfile
 - [ ] Tags are `vX.Y.Z` and `vX.Y` for every release; `latest` is applied only to stable (non-pre-release) tags
@@ -15,3 +15,7 @@
 - [ ] `make release-check` and `scripts/check.sh` pass
 
 Notes: criteria 1-3 are written in `release.yml` but only confirmable by a pushed tag (ticket 08), so they stay unticked. The last criterion is unticked because `scripts/check.sh` was not run in this parallel run (`make release-check` and `make fmt test vet` were).
+
+## Comments
+
+Code complete and checked locally: `make release-check` and the release-config check pass, and `make snapshot` builds both architectures. The three unticked criteria (publish, tag set, SBOM/provenance/signature) can only be confirmed when a real tag runs on GitHub; they are verified in ticket 08. Note for review: `vX.Y` is applied to stable tags only, so a pre-release gets only its exact tag.

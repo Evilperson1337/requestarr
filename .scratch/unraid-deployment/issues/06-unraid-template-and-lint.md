@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (the optional extra-networks field uses its setting), 04 (extends its deployment-file check)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 - [x] The template has fields for repository and tag, web port, network type (so a user-defined Docker network can be chosen), database URL, public URL, OIDC issuer, client ID and client secret, session secret and master key, plus optional log level and extra private networks
 - [x] The session secret and master key are required and masked with no default; each description gives a generation command that yields a value the server accepts (the master key is exactly 32 bytes as hex or base64; the session secret is at least 32 bytes), and the master key description says to back it up separately from the database
@@ -12,4 +12,8 @@
 - [x] Library and provider credentials are not fields; the description points to Setup and to Unraid's "add another variable" for the environment alternative
 - [x] The image tag defaults to the pinned pre-release while only pre-releases exist
 - [ ] The existing deployment-file check validates the template: well-formed XML, required fields present, secret fields masked and without defaults, tag not floating while only pre-releases exist (seam 3 of the spec); it runs in CI
-- [ ] `scripts/check.sh` passes
+- [x] `scripts/check.sh` passes (run on the integration branch tip, with the PostgreSQL integration tests and Playwright)
+
+## Comments
+
+The template check is wired into the same CI step and passes locally. The CI run, and installing from the Template Repositories URL on a real Unraid server, are confirmed in ticket 08.
