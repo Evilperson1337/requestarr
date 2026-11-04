@@ -9,8 +9,8 @@ export const typeaheadTypes = new Set(['movie_tv', 'game'])
 // Slower, rate-limited providers wait for Enter or the Search button. The hint
 // is read out with the input so a keyboard or screen-reader user knows why nothing appears while typing.
 export const searchHints: Record<string, string> = {
-    album: 'Albums are looked up when you press Enter or Search, not as you type.',
-    song: 'Songs are looked up when you press Enter or Search, not as you type.',
+    album: 'Albums are looked up when you press Enter or Search, not as you type. Add the artist for better matches, for example “pink floyd dark side of the moon”.',
+    song: 'Songs are looked up when you press Enter or Search, not as you type. Add the artist for better matches, for example “queen bohemian rhapsody”.',
     audiobook: 'Audiobooks are looked up when you press Enter or Search, in your administrator’s Audible marketplace. Each edition (narrator, abridged or unabridged) has its own listing and is its own request, so pick the one you want.',
 }
 // Types with the "include singles & EPs" switch.

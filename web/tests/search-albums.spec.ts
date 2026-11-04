@@ -120,3 +120,9 @@ test('a cover that fails to load leaves a plain placeholder, not a broken image'
     await expect(page.getByRole('list', { name: 'Search results' }).getByRole('button')).toHaveCount(1)
     await expect(page.locator('.searchRow img')).toHaveCount(0)
 })
+
+test('the Albums hint tells people to add the artist, with an album example, and is tied to the input', async ({ page }) => {
+    await openHome(page)
+    await expect(page.locator('#searchHint')).toHaveText('Albums are looked up when you press Enter or Search, not as you type. Add the artist for better matches, for example “pink floyd dark side of the moon”.')
+    await expect(page.getByPlaceholder(box)).toHaveAttribute('aria-describedby', 'searchHint')
+})
