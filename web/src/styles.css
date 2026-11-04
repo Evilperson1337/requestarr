@@ -2365,3 +2365,33 @@ a.tag-available:hover {
         width: 96px;
     }
 }
+
+/* TMDB attribution (API terms): logo kept smaller than Requestarr's own branding. */
+.attribution {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 24px 28px;
+    border-top: 1px solid var(--border);
+}
+
+.attribution img {
+    display: block;
+    width: 140px;
+    max-width: 100%;
+    height: auto;
+}
+
+.attribution p {
+    margin: 0;
+    max-width: 60ch;
+    font-size: .8rem;
+    color: var(--muted);
+}
+
+@media (max-width: 640px) {
+    .attribution {
+        padding: 20px 14px;
+    }
+}

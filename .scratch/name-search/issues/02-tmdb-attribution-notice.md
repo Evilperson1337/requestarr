@@ -10,6 +10,6 @@ Parent: `.scratch/name-search/spec.md`
 
 - [ ] The official TMDB attribution logo (not the settings-list provider mark, unless it is confirmed to be the official asset) and the non-endorsement sentence are visible from the pages that show TMDB metadata
 - [ ] The logo has a text alternative and the notice has sufficient contrast in light and dark themes
-- [ ] The layout still works at phone width and with the bottom bar
-- [ ] A browser test asserts the notice is present
+- [x] The layout still works at phone width and with the bottom bar
+- [x] A browser test asserts the notice is present
 - [ ] `make fmt test vet web-check` pass
