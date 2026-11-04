@@ -8,7 +8,7 @@ Requestarr is **request + availability + notification software**. It must not ac
 
 ## Accepted V1 decisions
 
-1. Link-first request entry using TMDB, MusicBrainz, IGDB and Audible URLs (an audiobook may also be requested by its bare ASIN, D031).
+1. Request entry goes through the URL resolver for TMDB, MusicBrainz, IGDB and Audible items. People paste a link (an audiobook may also use its bare ASIN, D031); name search (D032, post-release V1.x) is only a read-only front door that hands the resolver the same link. No other request path, no discovery/trending/recommendations.
 2. One shared request per canonical item. No vote count and no duplicate per-user request rows.
 3. The creator is automatically subscribed; other authenticated users may choose **Notify Me**.
 4. Requests are visible to all authenticated users. `My Requests` is a filter only.
