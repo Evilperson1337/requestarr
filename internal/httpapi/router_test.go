@@ -286,3 +286,70 @@ func TestNewRouterNamesEveryMissingDependency(t *testing.T) {
 		t.Fatalf("err = %v, want only Inbox missing", err)
 	}
 }
+
+type peopleReadiness struct {
+	fakeReadiness
+	role  string
+	err   error
+	calls []string
+}
+
+func (f *peopleReadiness) DefaultFirstSignInRole(context.Context) (string, error) {
+	if f.role == "" {
+		return "viewer", nil
+	}
+	return f.role, nil
+}
+
+func (f *peopleReadiness) SetDefaultFirstSignInRole(_ context.Context, role string) error {
+	f.calls = append(f.calls, role)
+	if role != "viewer" && role != "requester" {
+		return postgres.ErrInvalidDefaultRole // the real store's contract
+	}
+	if f.err == nil {
+		f.role = role
+	}
+	return f.err
+}
+
+func peopleRequest(t *testing.T, ready *peopleReadiness, role, method, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	h := New(testLogger(), buildinfo.Info{}, ready, &auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: "u-1", Role: role}}}, Secret: "test-secret", PublicURL: "http://example.test"})
+	r := httptest.NewRequest(method, "/api/v1/admin/settings/people", strings.NewReader(body))
+	r.AddCookie(&http.Cookie{Name: "requestarr_session", Value: "valid"})
+	r.AddCookie(&http.Cookie{Name: "requestarr_csrf", Value: "csrf-token"})
+	r.Header.Set("X-CSRF-Token", "csrf-token")
+	r.Header.Set("Origin", "http://example.test")
+	r.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	return rec
+}
+
+func TestPeopleSettingIsAdminOnlyAndNeverAdmin(t *testing.T) {
+	for _, role := range []string{"viewer", "requester"} {
+		ready := &peopleReadiness{}
+		if rec := peopleRequest(t, ready, role, http.MethodGet, ""); rec.Code != http.StatusForbidden {
+			t.Errorf("%s GET status=%d, want 403", role, rec.Code)
+		}
+		if rec := peopleRequest(t, ready, role, http.MethodPut, `{"defaultRole":"requester"}`); rec.Code != http.StatusForbidden || len(ready.calls) != 0 {
+			t.Errorf("%s PUT status=%d calls=%v, want 403 and no change", role, rec.Code, ready.calls)
+		}
+	}
+	ready := &peopleReadiness{}
+	rec := peopleRequest(t, ready, "admin", http.MethodGet, "")
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"defaultRole":"viewer"}` {
+		t.Fatalf("GET status=%d body=%s, want viewer default", rec.Code, rec.Body.String())
+	}
+	if rec := peopleRequest(t, ready, "admin", http.MethodPut, `{"defaultRole":"requester"}`); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"defaultRole":"requester"}` || len(ready.calls) != 1 {
+		t.Fatalf("PUT requester status=%d body=%s calls=%v", rec.Code, rec.Body.String(), ready.calls)
+	}
+	for _, bad := range []string{`{"defaultRole":"admin"}`, `{"defaultRole":"owner"}`, `{}`, `{"defaultRole":"viewer","x":1}`} {
+		ready := &peopleReadiness{}
+		rec := peopleRequest(t, ready, "admin", http.MethodPut, bad)
+		assertErrorEnvelope(t, rec, http.StatusBadRequest, "invalid_default_role")
+		if ready.role != "" {
+			t.Errorf("%s changed the stored default to %q", bad, ready.role)
+		}
+	}
+}

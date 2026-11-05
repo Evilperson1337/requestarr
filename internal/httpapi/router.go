@@ -78,6 +78,13 @@ type UserAdmin interface {
 	ChangeUserRole(ctx context.Context, actorID, targetID, role string, at time.Time) error
 }
 
+// PeoplePolicy holds the instance-wide rules for people (D035). Only viewer and
+// requester are valid first-sign-in roles; the store rejects anything else.
+type PeoplePolicy interface {
+	DefaultFirstSignInRole(context.Context) (string, error)
+	SetDefaultFirstSignInRole(ctx context.Context, role string) error
+}
+
 // SetupState reports whether first-run setup and the wizard are finished.
 type SetupState interface {
 	SetupComplete(context.Context) (bool, error)
@@ -101,6 +108,7 @@ type Deps struct {
 	JobRuns      JobRuns
 	Status       StatusSource
 	Users        UserAdmin
+	People       PeoplePolicy
 	SetupState   SetupState
 	Syncer       SourceSyncer
 	Wizard       SetupService
@@ -129,7 +137,7 @@ func (d Deps) missing() []string {
 		{"Requests", d.Requests == nil}, {"Resolver", d.Resolver == nil}, {"Inbox", d.Inbox == nil},
 		{"MoviePreview", d.MoviePreview == nil},
 		{"MatchReview", d.MatchReview == nil}, {"JobRuns", d.JobRuns == nil}, {"Status", d.Status == nil},
-		{"Users", d.Users == nil}, {"SetupState", d.SetupState == nil}, {"Syncer", d.Syncer == nil},
+		{"Users", d.Users == nil}, {"People", d.People == nil}, {"SetupState", d.SetupState == nil}, {"Syncer", d.Syncer == nil},
 		{"Wizard", d.Wizard == nil}, {"Secrets", d.Secrets == nil}, {"Connections", d.Connections == nil}, {"Library", d.Library == nil}, {"Search", d.Search == nil}, {"Issues", d.Issues == nil},
 	} {
 		if f.nil {
@@ -260,6 +268,35 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"users": users})
+	})
+	rt.handle("GET /admin/settings/people", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+		w.Header().Set("Cache-Control", "no-store")
+		role, err := d.People.DefaultFirstSignInRole(r.Context())
+		if err != nil {
+			apierror.Write(w, r, 500, "people_settings_failed", "could not load the people settings")
+			return
+		}
+		writeJSON(w, 200, map[string]string{"defaultRole": role})
+	})
+	rt.handle("PUT /admin/settings/people", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+		var input struct {
+			DefaultRole string `json:"defaultRole"`
+		}
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil {
+			apierror.Write(w, r, 400, "invalid_default_role", "defaultRole must be viewer or requester")
+			return
+		}
+		switch err := d.People.SetDefaultFirstSignInRole(r.Context(), input.DefaultRole); {
+		case errors.Is(err, postgres.ErrInvalidDefaultRole):
+			apierror.Write(w, r, 400, "invalid_default_role", "defaultRole must be viewer or requester")
+		case err != nil:
+			apierror.Write(w, r, 500, "people_settings_failed", "could not save the people settings")
+		default:
+			writeJSON(w, 200, map[string]string{"defaultRole": input.DefaultRole})
+		}
 	})
 	rt.handle("PUT /admin/users/{userID}/role", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		id := r.PathValue("userID")

@@ -132,7 +132,7 @@ func TestAuthProvisioningSQLMatchesMigratedIdentitySchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	sql := string(data)
-	for _, required := range []string{"users(id,oidc_subject,email,display_name,role,created_at,updated_at)", "oidc_identities(issuer,subject,user_id,email,display_name)", "ON CONFLICT (oidc_subject)", "RETURNING id::text", "NULLIF($3,'')", "'viewer'", "sha256.Sum256(identity)", "hex.EncodeToString(digest[:])"} {
+	for _, required := range []string{"users(id,oidc_subject,email,display_name,role,created_at,updated_at)", "oidc_identities(issuer,subject,user_id,email,display_name)", "ON CONFLICT (oidc_subject)", "RETURNING id::text", "NULLIF($3,'')", "firstSignInRole(stored)", "sha256.Sum256(identity)", "hex.EncodeToString(digest[:])"} {
 		if !strings.Contains(sql, required) {
 			t.Errorf("auth provisioning SQL missing %q", required)
 		}

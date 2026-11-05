@@ -22,7 +22,7 @@ Viewers can browse shared requests and use **Notify Me** to subscribe to request
 Configuration uses `REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID`, `REQUESTARR_OIDC_CLIENT_SECRET`, and `REQUESTARR_SESSION_HMAC_SECRET` (minimum 32 bytes). `REQUESTARR_PUBLIC_URL` must be the canonical absolute origin. Session cookie security follows HTTPS on that URL. Configure the reverse proxy to preserve that canonical scheme/host and do not expose the service over plain HTTP in production.
 # Initial administrator bootstrap
 
-New accounts receive the `viewer` role. An operator issues a one-time
+New accounts receive the `viewer` role unless an administrator chose `requester` as the first-sign-in default in Settings, Users (D035); the default is never `admin`. An operator issues a one-time
 bootstrap token with `requestarr setup-token --issuer <exact-issuer> --subject <exact-subject> --token-file /secure/path/token`.
 The command applies migrations, writes only the token's SHA-256 digest, and creates
 the token file exclusively with mode 0600 (it never overwrites an existing file).

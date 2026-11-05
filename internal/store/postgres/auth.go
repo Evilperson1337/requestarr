@@ -81,10 +81,17 @@ func (s *Store) Login(ctx context.Context, issuer, subject, email, name, uid str
 	identity = append(identity, subject...)
 	digest := sha256.Sum256(identity)
 	identityKey := "oidc:" + hex.EncodeToString(digest[:])
+	// The first-sign-in role applies to new users only (D035); the ON CONFLICT
+	// branch below leaves an existing user's role alone.
+	var stored string
+	if err = tx.QueryRow(ctx, `SELECT COALESCE((SELECT value FROM app_settings WHERE key=$1),'')`, settingDefaultRole).Scan(&stored); err != nil {
+		return auth.User{}, err
+	}
+	var created bool
 	err = tx.QueryRow(ctx, `INSERT INTO users(id,oidc_subject,email,display_name,role,created_at,updated_at)
-		VALUES($1,$2,NULLIF($3,''),$4,'viewer',$5,$5)
+		VALUES($1,$2,NULLIF($3,''),$4,$6,$5,$5)
 		ON CONFLICT (oidc_subject) DO UPDATE SET email=NULLIF(EXCLUDED.email,''),display_name=EXCLUDED.display_name,updated_at=EXCLUDED.updated_at
-		RETURNING id::text`, uid, identityKey, email, name, now).Scan(&existing)
+		RETURNING id::text,(xmax=0)`, uid, identityKey, email, name, now, firstSignInRole(stored)).Scan(&existing, &created)
 	if err == nil {
 		err = tx.QueryRow(ctx, `INSERT INTO oidc_identities(issuer,subject,user_id,email,display_name)
 			VALUES($1,$2,$3,$4,$5)
@@ -98,10 +105,34 @@ func (s *Store) Login(ctx context.Context, issuer, subject, email, name, uid str
 	if err != nil {
 		return auth.User{}, err
 	}
+	if created {
+		if err = notifyFirstSignIn(ctx, tx, user); err != nil {
+			return auth.User{}, err
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return auth.User{}, err
 	}
 	return user, nil
+}
+
+// notifyFirstSignIn tells every administrator, in-app, that someone new has
+// signed in. One notice per administrator per person; never the person.
+func notifyFirstSignIn(ctx context.Context, tx pgx.Tx, user auth.User) error {
+	who := user.DisplayName
+	if who == "" {
+		who = user.Email
+	}
+	if who == "" {
+		who = "A new person"
+	}
+	title := shorten(who, 200) + " signed in for the first time as " + user.Role
+	if _, err := tx.Exec(ctx, `INSERT INTO notification_deliveries(id,event_key,user_id,channel,status,title,body,link,created_at,available_at,updated_at)
+		SELECT gen_random_uuid(),'user.first_sign_in:'||$1::text,u.id,'in_app','pending',$2,$3,'/settings?tab=users',now(),now(),now() FROM users u WHERE u.role='admin' AND u.id<>$1::uuid
+		ON CONFLICT(event_key,user_id,channel) WHERE event_key IS NOT NULL DO NOTHING`, user.ID, title, "Open Settings, Users to change their role."); err != nil {
+		return fmt.Errorf("enqueue first sign-in notices: %w", err)
+	}
+	return nil
 }
 func (s *Store) CreateSession(ctx context.Context, user string, tokenHash, csrfHash []byte, expiry time.Time) error {
 	_, err := s.pool.Exec(ctx, `INSERT INTO auth_sessions(token_hash,user_id,csrf_hash,expires_at) VALUES($1,$2,$3,$4)`, tokenHash, user, csrfHash, expiry)
