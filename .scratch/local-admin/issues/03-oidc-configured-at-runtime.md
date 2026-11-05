@@ -4,7 +4,9 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** claimed
+
+**Worker:** `feat/local-admin-ticket03`, `.claude/worktrees/agent-a884313af677de3a3`; base `1e5a13d38ed045159b3151877e1d3cdf59a9cd21`. Confirmed TDD seams: pure state, app/runtime service, HTTP/OpenAPI, PostgreSQL settings/secrets.
 
 - [ ] `REQUESTARR_OIDC_*` are no longer required at startup; an instance with none starts and serves the local sign-in; an instance with all three set behaves as before
 - [ ] Non-secret settings (enabled, provider name, issuer, client ID) are saved in the settings store; the client secret is a stored secret (D024) and needs the master key; the API reports when it cannot be saved because no master key is set

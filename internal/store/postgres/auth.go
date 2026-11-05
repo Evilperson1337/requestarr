@@ -200,19 +200,23 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 		return ErrAdminSelfRoleChange
 	}
 	var previous string
-	err = tx.QueryRow(ctx, `SELECT role FROM users WHERE id=$1 FOR UPDATE`, targetID).Scan(&previous)
+	var builtin bool
+	err = tx.QueryRow(ctx, `SELECT role,builtin FROM users WHERE id=$1 FOR UPDATE`, targetID).Scan(&previous, &builtin)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrAdminUserNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("read target role: %w", err)
 	}
+	if builtin && role != "admin" {
+		return auth.ErrBuiltinRole
+	}
 	if previous == role {
 		return tx.Commit(ctx)
 	}
 	if previous == "admin" && role != "admin" {
 		var count int
-		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users WHERE role='admin'`).Scan(&count); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users u WHERE role='admin' AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`).Scan(&count); err != nil {
 			return fmt.Errorf("count administrators: %w", err)
 		}
 		if count <= 1 {

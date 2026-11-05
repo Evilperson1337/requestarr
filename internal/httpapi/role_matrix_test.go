@@ -36,6 +36,12 @@ type mutationCase struct {
 // valid positive request is required: denial must not be a validation error.
 func mutationCases() []mutationCase {
 	return []mutationCase{
+		{"create recovery account", "POST /admin/settings/authentication/local-administrator", "/admin/settings/authentication/local-administrator", "", "admin", 201, "localadmin.create"},
+		{"disable recovery account", "PUT /admin/settings/authentication/local-administrator/disabled", "/admin/settings/authentication/local-administrator/disabled", `{"disabled":true}`, "admin", 200, "localadmin.disable"},
+		{"save OIDC", "PUT /admin/settings/authentication", "/admin/settings/authentication", `{"enabled":true,"providerName":"Keycloak","issuer":"https://id.test","clientId":"client","clientSecret":"canary-secret"}`, "admin", 200, "authentication.save"},
+		{"test OIDC", "POST /admin/settings/authentication/test", "/admin/settings/authentication/test", `{}`, "admin", 200, "authentication.test"},
+		{"enable OIDC", "PUT /admin/settings/authentication/enabled", "/admin/settings/authentication/enabled", `{"enabled":true}`, "admin", 200, "authentication.enable"},
+		{"discard OIDC", "DELETE /admin/settings/authentication", "/admin/settings/authentication", "", "admin", 200, "authentication.discard"},
 		{"create request", "POST /requests", "/requests", `{"catalogId":"` + matrixItemID + `","platforms":{"any":false}}`, "requester", 201, "request.create"},
 		{"resolve metadata", "POST /resolve", "/resolve", `{"url":"https://www.themoviedb.org/movie/11"}`, "authenticated", 200, "metadata.resolve"},
 		{"subscribe", "PUT /requests/{requestID}/subscription", "/requests/" + matrixItemID + "/subscription", "", "authenticated", 200, "request.subscribe"},

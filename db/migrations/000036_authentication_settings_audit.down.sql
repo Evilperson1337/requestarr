@@ -1,0 +1,1 @@
+DROP TABLE authentication_settings_audit_events;

@@ -237,6 +237,12 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 	if v, ok := readiness.(DevelopmentLogsSource); ok {
 		d.DevelopmentLogs = v.DevelopmentLogs()
 	}
+	d.Authentication = authenticationFake{}
+	d.LocalAdmin = matrixLocalManagement{}
+	if b, ok := readiness.(*matrixBackend); ok {
+		d.Authentication = matrixAuthentication{b}
+		d.LocalAdmin = matrixLocalManagement{b}
+	}
 	return d
 }
 

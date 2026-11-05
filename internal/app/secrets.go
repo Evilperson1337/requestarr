@@ -63,7 +63,7 @@ func resolveSecrets(ctx context.Context, cfg config.Config, repo secrets.Reposit
 			return cfg, nil, nil, err
 		}
 	}
-	env := map[secrets.Name]string{}
+	env := map[secrets.Name]string{secrets.OIDCClientSecret: cfg.OIDCClientSecret}
 	for name, field := range secretFields(&cfg) {
 		env[name] = *field
 	}

@@ -291,9 +291,6 @@ func (c Config) Validate() error {
 				problems = append(problems, "REQUESTARR_OIDC_ISSUER must be an absolute https URL (http only for localhost in development) without credentials, query, or fragment")
 			}
 		}
-		if c.OIDCIssuer == "" || c.OIDCClientID == "" || c.OIDCClientSecret == "" {
-			problems = append(problems, "REQUESTARR_OIDC_ISSUER, REQUESTARR_OIDC_CLIENT_ID, and REQUESTARR_OIDC_CLIENT_SECRET are required")
-		}
 		if len(c.SessionHMACSecret) < 32 {
 			problems = append(problems, "REQUESTARR_SESSION_HMAC_SECRET must contain at least 32 bytes")
 		}
