@@ -135,6 +135,8 @@ The container shows as **healthy** in the Docker tab (or `docker ps`) only when 
 
 Point your reverse proxy at `http://<server address>:8080`, then open your public URL. You should see the sign-in page.
 
+**SWAG.** If you use the SWAG container, copy [`deploy/swag/requestarr.subdomain.conf.sample`](../deploy/swag/requestarr.subdomain.conf.sample) into SWAG's `config/nginx/proxy-confs/`, rename it to `requestarr.subdomain.conf`, and restart SWAG. It expects the Requestarr container to be named `requestarr`, to share a user-defined Docker network with SWAG, and your DNS to have a `requestarr` name. Leave SWAG's own login includes (Authelia, Authentik and so on) off: Requestarr signs people in with your OIDC provider itself. Whatever proxy you use, it must pass the `Host` and `Origin` headers through unchanged, because Requestarr checks every POST against your public URL.
+
 ## 5. Sign in, and what role new users get
 
 Everyone who signs in for the first time is a **viewer**: they can browse and use Notify Me but cannot create requests. Nobody becomes an admin automatically, not even the first person. An admin promotes people to `requester` (can request) afterwards. Tell your users to expect this.

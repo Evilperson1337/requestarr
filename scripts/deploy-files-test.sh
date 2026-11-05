@@ -259,5 +259,30 @@ expect_rejected "a guide naming a variable the code does not read" check_guide_n
 cp "$guide" "$work/guide-mutant.md"; echo 'Set REQUESTARR_NOT_A_SETTING=1.' >> "$work/guide-mutant.md"
 expect_rejected "a guide naming an unknown variable" check_guide_names "$work/guide-mutant.md"
 
+# The SWAG reverse-proxy sample: filled in (no template placeholders or "remove" notes), pointing at the
+# container name and web port the template uses, over http inside the Docker network.
+swag=deploy/swag/requestarr.subdomain.conf.sample
+check_swag() { # conf-file
+  local f="$1" rc=0 port
+  [[ -f "$f" ]] || { echo "FAIL: $f is missing" >&2; return 1; }
+  if grep -Eq '<[a-z_ ]+>|REMOVE THIS LINE' "$f"; then echo "FAIL: $f still has template placeholders or notes" >&2; rc=1; fi
+  grep -Eq '^    server_name requestarr\.\*;$' "$f" || { echo "FAIL: $f: server_name must be requestarr.*" >&2; rc=1; }
+  grep -Eq '^        set \$upstream_app requestarr;$' "$f" || { echo "FAIL: $f: upstream app must be the container name requestarr" >&2; rc=1; }
+  grep -Eq '^        set \$upstream_proto http;$' "$f" || { echo "FAIL: $f: upstream proto must be http" >&2; rc=1; }
+  grep -Eq '^        include /config/nginx/proxy\.conf;$' "$f" || { echo "FAIL: $f: must include SWAG's proxy.conf" >&2; rc=1; }
+  port="$(sed -n 's/^        set \$upstream_port \([0-9]*\);$/\1/p' "$f")"
+  grep -Eq "Target=\"8080\" Default=\"$port\"" "$template" || { echo "FAIL: $f: upstream port '$port' is not the template's web port" >&2; rc=1; }
+  return $rc
+}
+check_swag "$swag" || failures=$((failures + 1))
+sed 's#set \$upstream_app requestarr;#set $upstream_app <container_name>;#' "$swag" > "$work/swag-mutant.conf"
+expect_rejected "a SWAG conf with a placeholder upstream" check_swag "$work/swag-mutant.conf"
+sed 's#set \$upstream_port 8080;#set $upstream_port 8081;#' "$swag" > "$work/swag-mutant.conf"
+expect_rejected "a SWAG conf whose port differs from the template" check_swag "$work/swag-mutant.conf"
+{ cat "$swag"; echo '# REMOVE THIS LINE BEFORE SUBMITTING'; } > "$work/swag-mutant.conf"
+expect_rejected "a SWAG conf with a leftover note" check_swag "$work/swag-mutant.conf"
+sed 's#server_name requestarr\.\*;#server_name other.*;#' "$swag" > "$work/swag-mutant.conf"
+expect_rejected "a SWAG conf for a different name" check_swag "$work/swag-mutant.conf"
+
 if ((failures)); then echo "deploy files: $failures check(s) failed" >&2; exit 1; fi
 echo 'deploy files: ok'
