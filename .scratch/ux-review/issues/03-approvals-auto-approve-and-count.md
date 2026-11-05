@@ -12,4 +12,4 @@
 - [x] The count stays correct after approving or denying (no full reload needed) and after a request is created
 - [x] Tests cover: policy on and off per type; the audit event; the count for an admin and its absence for others; approval and denial still work
 - [x] D036 is written in `docs/DECISIONS.md`
-- [ ] Integration tests run against your own throwaway database; `scripts/check.sh` passes at the end
+- [x] Integration tests run against your own throwaway database; `scripts/check.sh` passes at the end (verified by the implementer on a throwaway database, and again by the orchestrator's full `scripts/check.sh`)

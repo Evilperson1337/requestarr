@@ -14,4 +14,4 @@
 - [x] Negative tests: wrong token, expired token, token issued for a different subject, a different signed-in user, a second claim after success, a viewer reading identity after setup is complete; none changes or leaks anything
 - [x] `docs/UNRAID.md` section 6, `docs/FIRST_RUN.md` and the page's text describe the new flow; the Playwright claim test is updated
 - [x] D037 is written in `docs/DECISIONS.md`
-- [ ] Integration tests run against your own throwaway database; `scripts/check.sh` passes at the end
+- [x] Integration tests run against your own throwaway database; `scripts/check.sh` passes at the end (verified by the implementer on a throwaway database, and again by the orchestrator's full `scripts/check.sh`)

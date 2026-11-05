@@ -11,4 +11,4 @@
 - [x] "Test connection" tests the values just saved, and its result is shown with the form; an address set by an environment variable stays read-only and the credential can still be saved
 - [x] The existing endpoints keep working for current clients; the API and OpenAPI describe the combined request; the contract test passes
 - [x] Tests cover: both saved; credential fails and the address is not applied; empty credential keeps the old one; environment-locked address; keyboard-only completion and accessible errors (Playwright with axe)
-- [ ] Integration tests run against your own throwaway database; `scripts/check.sh` passes at the end
+- [x] Integration tests run against your own throwaway database; `scripts/check.sh` passes at the end (verified by the implementer on a throwaway database, and again by the orchestrator's full `scripts/check.sh`)

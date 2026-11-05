@@ -12,4 +12,4 @@
 - [x] In-flight searches and requests are not broken by a reload (no partial swap); concurrent saves are safe
 - [x] Tests cover: save then use without restart; clear then the type disappears; environment precedence; failed reload keeps the old one; race-safe swap (run with the race detector)
 - [x] `docs/UNRAID.md`, the template text and `docs/MANUAL_TESTING.md` no longer say a restart is needed; D039 is written in `docs/DECISIONS.md`
-- [ ] Integration tests run against your own throwaway database; `scripts/check.sh` passes at the end
+- [x] Integration tests run against your own throwaway database; `scripts/check.sh` passes at the end (verified by the implementer on a throwaway database, and again by the orchestrator's full `scripts/check.sh`)

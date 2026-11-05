@@ -12,4 +12,4 @@
 - [x] The viewer's "cannot create Requests" message tells them what to do next (ask an administrator) and names the role
 - [x] Tests cover: default stays `viewer`; `requester` default applies to a new user and not to an existing one; `admin` is rejected; the notification goes once, to admins only; role change for existing users is unchanged
 - [x] D035 is written in `docs/DECISIONS.md`
-- [ ] Integration tests run against your own throwaway database, not `requestarr_test`; `scripts/check.sh` passes at the end
+- [x] Integration tests run against your own throwaway database, not `requestarr_test`; `scripts/check.sh` passes at the end (verified by the implementer on a throwaway database, and again by the orchestrator's full `scripts/check.sh`)
