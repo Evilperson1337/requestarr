@@ -4,11 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
-// Pause at the store audit boundary after the handler verified the credential,
+// Pause at the session boundary after the handler verified the credential,
 // before it attempts session insertion, without holding the credential lock.
 type credentialBarrierStore struct {
 	*fakeLocalStore
@@ -16,25 +18,40 @@ type credentialBarrierStore struct {
 	resume chan struct{}
 }
 
-func (s *credentialBarrierStore) RecordAuthEvent(ctx context.Context, event AuditEvent) error {
-	if event.Type == AuditSignInSuccess {
-		close(s.read)
-		select {
-		case <-s.resume:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+func (s *credentialBarrierStore) CreateLocalSession(ctx context.Context, cred LocalCredential, token, csrf []byte, expiry time.Time, remoteAddr string, now time.Time) error {
+	close(s.read)
+	select {
+	case <-s.resume:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	return s.fakeLocalStore.RecordAuthEvent(ctx, event)
+	return s.fakeLocalStore.CreateLocalSession(ctx, cred, token, csrf, expiry, remoteAddr, now)
+}
+
+func awaitAttempt[T any](t *testing.T, ctx context.Context, ch <-chan T) T {
+	t.Helper()
+	select {
+	case result := <-ch:
+		return result
+	case <-ctx.Done():
+		t.Fatal("password attempt did not reach its synchronization boundary")
+		var zero T
+		return zero
+	}
 }
 
 func TestSignInRejectsCredentialChangedAfterRead(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 	f := newFixture(t)
 	barrier := &credentialBarrierStore{fakeLocalStore: f.store, read: make(chan struct{}), resume: make(chan struct{})}
+	var once sync.Once
+	release := func() { once.Do(func() { close(barrier.resume) }) }
+	defer release()
 	f.h.Local = barrier
 	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() { done <- f.login("admin", testPassword) }()
-	<-barrier.read
+	go func() { done <- f.login("admin", testPassword, func(r *http.Request) { *r = *r.WithContext(ctx) }) }()
+	awaitAttempt(t, ctx, barrier.read)
 	hash, err := f.hasher.Hash(goodNewPassword)
 	if err != nil {
 		t.Fatal("could not prepare replacement password")
@@ -42,8 +59,8 @@ func TestSignInRejectsCredentialChangedAfterRead(t *testing.T) {
 	if err := f.store.ChangeLocalPassword(context.Background(), adminUserID, hash, nil, "203.0.113.7", f.clock.Now()); err != nil {
 		t.Fatal("password change failed")
 	}
-	close(barrier.resume)
-	w := <-done
+	release()
+	w := awaitAttempt(t, ctx, done)
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("stale sign-in status=%d, want 401", w.Code)
 	}
@@ -53,12 +70,25 @@ func TestSignInRejectsCredentialChangedAfterRead(t *testing.T) {
 	if n := f.store.liveSessions(adminUserID); n != 0 {
 		t.Errorf("live sessions=%d, want 0", n)
 	}
+	var successes, failures int
+	for _, event := range f.store.eventTypes() {
+		if event == AuditSignInSuccess {
+			successes++
+		}
+		if event == AuditSignInFailure {
+			failures++
+		}
+	}
+	if successes != 0 || failures != 1 {
+		t.Errorf("rejected stale sign-in audit: successes=%d failures=%d, want 0 and 1", successes, failures)
+	}
 }
 
 // Only the first verification pauses; an unprotected parallel guess completes,
 // making the regression deterministic rather than depending on scheduling.
 type verificationBarrier struct {
 	PasswordHasher
+	ctx     context.Context
 	calls   atomic.Int32
 	entered chan struct{}
 	resume  chan struct{}
@@ -67,7 +97,11 @@ type verificationBarrier struct {
 func (h *verificationBarrier) Verify(pw, encoded string) bool {
 	if h.calls.Add(1) == 1 {
 		close(h.entered)
-		<-h.resume
+		select {
+		case <-h.resume:
+		case <-h.ctx.Done():
+			return false
+		}
 	}
 	return h.PasswordHasher.Verify(pw, encoded)
 }
@@ -82,12 +116,17 @@ func TestConcurrentPasswordGuessesReserveAccountAndAddress(t *testing.T) {
 		{name: "password change", change: true, addr: "198.51.100.22"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
 			f := newFixture(t)
 			var cookies []*http.Cookie
 			if tc.change {
 				cookies = f.signIn()
 			}
-			barrier := &verificationBarrier{PasswordHasher: f.hasher, entered: make(chan struct{}), resume: make(chan struct{})}
+			barrier := &verificationBarrier{PasswordHasher: f.hasher, ctx: ctx, entered: make(chan struct{}), resume: make(chan struct{})}
+			var once sync.Once
+			release := func() { once.Do(func() { close(barrier.resume) }) }
+			defer release()
 			f.h.Hasher = barrier
 			attempt := func(user, addr string) *httptest.ResponseRecorder {
 				if tc.change {
@@ -97,11 +136,11 @@ func TestConcurrentPasswordGuessesReserveAccountAndAddress(t *testing.T) {
 			}
 			done := make(chan *httptest.ResponseRecorder, 1)
 			go func() { done <- attempt("admin", "203.0.113.7") }()
-			<-barrier.entered
+			awaitAttempt(t, ctx, barrier.entered)
 			second := attempt(tc.user, tc.addr)
 			calls := barrier.calls.Load()
-			close(barrier.resume)
-			first := <-done
+			release()
+			first := awaitAttempt(t, ctx, done)
 			if second.Code != http.StatusTooManyRequests {
 				t.Errorf("parallel guess status=%d, want 429", second.Code)
 			}

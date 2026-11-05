@@ -121,7 +121,7 @@ func (s *Store) RecordAuthEvent(ctx context.Context, e auth.AuditEvent) error {
 
 // CreateLocalSession serializes the verified-hash check and session insertion
 // with password changes on the credential row. No hashing runs under the lock.
-func (s *Store) CreateLocalSession(ctx context.Context, cred auth.LocalCredential, token, csrf []byte, expiry time.Time) error {
+func (s *Store) CreateLocalSession(ctx context.Context, cred auth.LocalCredential, token, csrf []byte, expiry time.Time, remoteAddr string, now time.Time) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin local session: %w", err)
@@ -141,6 +141,9 @@ func (s *Store) CreateLocalSession(ctx context.Context, cred auth.LocalCredentia
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO auth_sessions(token_hash,user_id,csrf_hash,expires_at) VALUES($1,$2,$3,$4)`, token, cred.UserID, csrf, expiry); err != nil {
 		return fmt.Errorf("insert local session: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO auth_audit_events(event_type,user_id,username,remote_addr,created_at) SELECT $2,user_id,username,$3,$4 FROM local_credentials WHERE user_id=$1::uuid`, cred.UserID, auth.AuditSignInSuccess, remoteAddr, now); err != nil {
+		return fmt.Errorf("audit local sign-in: %w", err)
 	}
 	return tx.Commit(ctx)
 }

@@ -65,8 +65,9 @@ type LocalStore interface {
 	LocalCredentialByUsername(ctx context.Context, username string) (LocalCredential, error)
 	LocalCredentialByUserID(ctx context.Context, userID string) (LocalCredential, error)
 	// CreateLocalSession inserts a session only if the verified credential is still
-	// current and enabled, serialized with password changes.
-	CreateLocalSession(ctx context.Context, credential LocalCredential, tokenHash, csrfHash []byte, expiry time.Time) error
+	// current and enabled, serialized with password changes, and records its
+	// successful sign-in audit atomically.
+	CreateLocalSession(ctx context.Context, credential LocalCredential, tokenHash, csrfHash []byte, expiry time.Time, remoteAddr string, now time.Time) error
 	// ChangeLocalPassword stores the new hash, clears must-change and ends
 	// every session of the user except the one with token hash keep, and records
 	// exactly one password_changed audit event with remoteAddr, atomically.
@@ -240,22 +241,23 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 		writeInvalidCredentials(w, r)
 		return
 	}
-	// A success that cannot be audited is refused.
-	if err := h.audit(ctx, AuditSignInSuccess, cred.UserID, cred.Username, r); err != nil {
-		apierror.Write(w, r, http.StatusInternalServerError, "auth_unavailable", "auth unavailable")
-		return
-	}
-	h.throttle().Succeed(account, addr)
+	// Session creation checks the verified credential and writes its successful
+	// audit together. A credential changed meanwhile is a failed sign-in.
 	if err := h.issueSessionUsing(w, r, cred.UserID, func(ctx context.Context, _ string, token, csrf []byte, expiry time.Time) error {
-		return h.Local.CreateLocalSession(ctx, cred, token, csrf, expiry)
+		return h.Local.CreateLocalSession(ctx, cred, token, csrf, expiry, addr, h.now().UTC())
 	}); err != nil {
 		if errors.Is(err, ErrNoCredential) {
+			h.throttle().Fail(account, addr)
+			if h.audit(ctx, AuditSignInFailure, cred.UserID, cred.Username, r) != nil {
+				h.warn("could not write the authentication audit")
+			}
 			writeInvalidCredentials(w, r)
 			return
 		}
 		apierror.Write(w, r, http.StatusInternalServerError, "auth_unavailable", "auth unavailable")
 		return
 	}
+	h.throttle().Succeed(account, addr)
 	_ = json.NewEncoder(w).Encode(struct {
 		User               User `json:"user"`
 		MustChangePassword bool `json:"mustChangePassword"`

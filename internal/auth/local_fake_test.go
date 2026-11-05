@@ -324,13 +324,17 @@ func (f *fakeLocalStore) auditDump() string {
 	return fmt.Sprintf("%+v", f.events)
 }
 
-func (f *fakeLocalStore) CreateLocalSession(_ context.Context, cred LocalCredential, token, csrf []byte, exp time.Time) error {
+func (f *fakeLocalStore) CreateLocalSession(_ context.Context, cred LocalCredential, token, csrf []byte, exp time.Time, remoteAddr string, now time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	c, ok := f.creds[cred.UserID]
 	if !ok || c.Disabled || c.PasswordHash != cred.PasswordHash {
 		return ErrNoCredential
 	}
+	if f.failAudit {
+		return errors.New("audit down")
+	}
 	f.sessions[string(token)] = &fakeSession{user: f.users[cred.UserID], csrf: csrf, expires: exp}
+	f.events = append(f.events, AuditEvent{Type: AuditSignInSuccess, UserID: cred.UserID, Username: c.Username, RemoteAddr: remoteAddr, At: now})
 	return nil
 }

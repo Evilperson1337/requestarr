@@ -36,10 +36,11 @@ func (f *localFake) LocalCredentialByUserID(_ context.Context, id string) (auth.
 	}
 	return auth.LocalCredential{UserID: id, Username: "admin", PasswordHash: f.hash, MustChange: f.mustChange}, nil
 }
-func (f *localFake) CreateLocalSession(_ context.Context, cred auth.LocalCredential, _, _ []byte, _ time.Time) error {
+func (f *localFake) CreateLocalSession(_ context.Context, cred auth.LocalCredential, _, _ []byte, _ time.Time, _ string, _ time.Time) error {
 	if cred.UserID != matrixUserID || cred.PasswordHash != f.hash {
 		return auth.ErrNoCredential
 	}
+	f.events = append(f.events, auth.AuditSignInSuccess)
 	return nil
 }
 func (f *localFake) ChangeLocalPassword(context.Context, string, string, []byte, string, time.Time) error {

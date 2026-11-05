@@ -21,14 +21,14 @@ func TestLocalSessionRejectsStaleCredentialIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal("could not read credential")
 	}
-	if err := s.CreateLocalSession(ctx, cred, []byte("before"), []byte("csrf"), now.Add(time.Hour)); err != nil {
+	if err := s.CreateLocalSession(ctx, cred, []byte("before"), []byte("csrf"), now.Add(time.Hour), "203.0.113.7", now); err != nil {
 		t.Fatal("current credential was refused")
 	}
 	newHash, _ := fastHasher.Hash("replacement test passphrase")
 	if err := s.ChangeLocalPassword(ctx, cred.UserID, newHash, []byte("not-kept"), "203.0.113.7", now); err != nil {
 		t.Fatal("could not change password")
 	}
-	if err := s.CreateLocalSession(ctx, cred, []byte("after"), []byte("csrf"), now.Add(time.Hour)); !errors.Is(err, auth.ErrNoCredential) {
+	if err := s.CreateLocalSession(ctx, cred, []byte("after"), []byte("csrf"), now.Add(time.Hour), "203.0.113.7", now); !errors.Is(err, auth.ErrNoCredential) {
 		t.Error("stale credential was not rejected")
 	}
 	if _, _, _, err := s.GetSession(ctx, []byte("before"), now); err == nil {
@@ -51,7 +51,7 @@ func TestPasswordChangeAuditRollsBackAndRecordsExactlyOnceIntegration(t *testing
 		t.Fatal("could not read credential")
 	}
 	for _, token := range []string{"keep", "other"} {
-		if err := s.CreateLocalSession(ctx, cred, []byte(token), []byte("csrf"), now.Add(time.Hour)); err != nil {
+		if err := s.CreateLocalSession(ctx, cred, []byte(token), []byte("csrf"), now.Add(time.Hour), "203.0.113.7", now); err != nil {
 			t.Fatal("could not create session")
 		}
 	}
