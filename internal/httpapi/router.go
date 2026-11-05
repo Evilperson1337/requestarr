@@ -24,6 +24,14 @@ import (
 	"github.com/evilperson1337/requestarr/internal/webui"
 )
 
+// nonNilTypes makes an empty policy encode as [] rather than null.
+func nonNilTypes(types []domain.MediaType) []domain.MediaType {
+	if types == nil {
+		return []domain.MediaType{}
+	}
+	return types
+}
+
 func requireJSONEOF(dec *json.Decoder) error {
 	var extra json.RawMessage
 	err := dec.Decode(&extra)
@@ -85,6 +93,13 @@ type PeoplePolicy interface {
 	SetDefaultFirstSignInRole(ctx context.Context, role string) error
 }
 
+// ApprovalPolicy holds the media types whose new Requests are approved
+// automatically (D036). The store rejects anything that is not a media type.
+type ApprovalPolicy interface {
+	AutoApproveTypes(context.Context) ([]domain.MediaType, error)
+	SetAutoApproveTypes(ctx context.Context, types []domain.MediaType) error
+}
+
 // SetupState reports whether first-run setup and the wizard are finished.
 type SetupState interface {
 	SetupComplete(context.Context) (bool, error)
@@ -109,6 +124,7 @@ type Deps struct {
 	Status       StatusSource
 	Users        UserAdmin
 	People       PeoplePolicy
+	Approvals    ApprovalPolicy
 	SetupState   SetupState
 	Syncer       SourceSyncer
 	Wizard       SetupService
@@ -137,7 +153,7 @@ func (d Deps) missing() []string {
 		{"Requests", d.Requests == nil}, {"Resolver", d.Resolver == nil}, {"Inbox", d.Inbox == nil},
 		{"MoviePreview", d.MoviePreview == nil},
 		{"MatchReview", d.MatchReview == nil}, {"JobRuns", d.JobRuns == nil}, {"Status", d.Status == nil},
-		{"Users", d.Users == nil}, {"People", d.People == nil}, {"SetupState", d.SetupState == nil}, {"Syncer", d.Syncer == nil},
+		{"Users", d.Users == nil}, {"People", d.People == nil}, {"Approvals", d.Approvals == nil}, {"SetupState", d.SetupState == nil}, {"Syncer", d.Syncer == nil},
 		{"Wizard", d.Wizard == nil}, {"Secrets", d.Secrets == nil}, {"Connections", d.Connections == nil}, {"Library", d.Library == nil}, {"Search", d.Search == nil}, {"Issues", d.Issues == nil},
 	} {
 		if f.nil {
@@ -297,6 +313,49 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		default:
 			writeJSON(w, 200, map[string]string{"defaultRole": input.DefaultRole})
 		}
+	})
+	rt.handle("GET /admin/settings/approvals", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+		w.Header().Set("Cache-Control", "no-store")
+		types, err := d.Approvals.AutoApproveTypes(r.Context())
+		if err != nil {
+			apierror.Write(w, r, 500, "approval_settings_failed", "could not load the approval settings")
+			return
+		}
+		writeJSON(w, 200, map[string][]domain.MediaType{"autoApproveTypes": nonNilTypes(types)})
+	})
+	rt.handle("PUT /admin/settings/approvals", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+		var input struct {
+			AutoApproveTypes *[]domain.MediaType `json:"autoApproveTypes"`
+		}
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil || input.AutoApproveTypes == nil {
+			apierror.Write(w, r, 400, "invalid_media_type", "autoApproveTypes must be a list of media types")
+			return
+		}
+		switch err := d.Approvals.SetAutoApproveTypes(r.Context(), *input.AutoApproveTypes); {
+		case errors.Is(err, postgres.ErrInvalidMediaType):
+			apierror.Write(w, r, 400, "invalid_media_type", "autoApproveTypes must be a list of media types")
+		case err != nil:
+			apierror.Write(w, r, 500, "approval_settings_failed", "could not save the approval settings")
+		default:
+			saved, err := d.Approvals.AutoApproveTypes(r.Context())
+			if err != nil {
+				apierror.Write(w, r, 500, "approval_settings_failed", "could not load the approval settings")
+				return
+			}
+			writeJSON(w, 200, map[string][]domain.MediaType{"autoApproveTypes": nonNilTypes(saved)})
+		}
+	})
+	rt.handle("GET /requests/summary", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+		w.Header().Set("Cache-Control", "no-store")
+		n, err := requestService.AwaitingApprovalCount(r.Context(), requests.Actor{ID: user.ID, Role: user.Role})
+		if err != nil {
+			apierror.Write(w, r, 500, "request_summary_failed", "could not count requests awaiting approval")
+			return
+		}
+		writeJSON(w, 200, map[string]int{"requested": n})
 	})
 	rt.handle("PUT /admin/users/{userID}/role", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		id := r.PathValue("userID")

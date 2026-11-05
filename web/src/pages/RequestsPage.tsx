@@ -15,7 +15,7 @@ function firstPageSnapshot(userID: string, view: string): FirstPageSnapshot | nu
 
 const mediaLabels: Record<string, string> = { movie: 'Movie', tv: 'TV', album: 'Album', song: 'Song', game: 'Game', audiobook: 'Audiobook' }
 
-export function RequestsPage({ user, csrfToken }: { user: User; csrfToken: string }) {
+export function RequestsPage({ user, csrfToken, onChanged }: { user: User; csrfToken: string; onChanged?: () => void }) {
     const view = useLocation()
     const search = view.includes('?') ? view.slice(view.indexOf('?')) : ''
     const params = new URLSearchParams(search)
@@ -117,7 +117,7 @@ export function RequestsPage({ user, csrfToken }: { user: User; csrfToken: strin
     async function transition(req: RequestItem, toStatus: 'approved' | 'denied' | 'cancelled') {
         await runAction(async signal => {
             const result = await api<{ Request: RequestItem }>(`/requests/${req.ID}/transition`, { method: 'POST', signal, body: JSON.stringify({ toStatus, expectedVersion: req.Version, operationId: crypto.randomUUID() }) }, csrfToken)
-            if (!signal.aborted) updateRequest(req.ID, { Status: result.Request.Status, Version: result.Request.Version })
+            if (!signal.aborted) { updateRequest(req.ID, { Status: result.Request.Status, Version: result.Request.Version }); onChanged?.() }
             return `The request for ${req.Title} was ${toStatus}.`
         })
     }

@@ -530,6 +530,39 @@ paths:
         '400': { description: "defaultRole is not viewer or requester (code invalid_default_role)" }
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
+  /admin/settings/approvals:
+    get:
+      operationId: getApprovalSettings
+      summary: Media types whose Requests are approved automatically (administrator only, D036)
+      responses:
+        '200':
+          description: The policy; an empty list unless an administrator chose types
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalSettings' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+    put:
+      operationId: setApprovalSettings
+      summary: Choose the media types whose new Requests start approved
+      description: >-
+        Applies only to Requests created afterwards; existing Requests are never changed.
+        An auto-approved Request records a request.approved audit event marked auto with
+        reason policy, and notifies its subscriber like a manual approval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalSettings' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalSettings' }
+        '400': { description: "autoApproveTypes is missing or names an unknown media type (code invalid_media_type)" }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
   /admin/users/{userId}/role:
     put:
       operationId: changeUserRole
@@ -1263,6 +1296,14 @@ paths:
         '409': { description: Suggestion already accepted }
         '500': { description: Review failed; transaction rolled back }
         '503': { description: Match review unavailable }
+  /requests/summary:
+    get:
+      operationId: requestsSummary
+      summary: How many Requests still wait for approval (administrator only, D036)
+      responses:
+        '200': { description: Count of Requests with status requested, content: { application/json: { schema: { type: object, required: [requested], properties: { requested: { type: integer, minimum: 0 } } } } } }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
   /requests/{requestId}/subscription:
     put:
       operationId: subscribeToRequest
@@ -1885,6 +1926,15 @@ components:
             code: { type: string, description: Stable machine-readable identifier, example: authentication_required }
             message: { type: string, description: Human-readable summary; not for programmatic use }
             requestId: { type: string, description: Same value as the X-Request-Id response header }
+    ApprovalSettings:
+      type: object
+      additionalProperties: false
+      required: [autoApproveTypes]
+      properties:
+        autoApproveTypes:
+          type: array
+          items: { type: string, enum: [movie, tv, album, song, game, audiobook] }
+          description: Media types whose new Requests start approved; none by default
     PeopleSettings:
       type: object
       additionalProperties: false
