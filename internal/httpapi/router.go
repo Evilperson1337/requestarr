@@ -82,10 +82,12 @@ type UserAdmin interface {
 // required: NewRouter fails at startup naming what is missing, instead of
 // serving a route that answers 503 later.
 type Deps struct {
-	Logger    *slog.Logger
-	Build     buildinfo.Info
-	Readiness ReadinessChecker
-	Auth      *auth.Handler
+	Logger         *slog.Logger
+	Build          buildinfo.Info
+	Readiness      ReadinessChecker
+	Auth           *auth.Handler
+	Authentication AuthenticationService
+	LocalAdmin     LocalAdminManagement
 
 	Requests     *requests.Service
 	Resolver     Resolver
@@ -121,7 +123,7 @@ func (d Deps) missing() []string {
 		name string
 		nil  bool
 	}{
-		{"Logger", d.Logger == nil}, {"Readiness", d.Readiness == nil}, {"Auth", d.Auth == nil},
+		{"Logger", d.Logger == nil}, {"Readiness", d.Readiness == nil}, {"Auth", d.Auth == nil}, {"Authentication", d.Authentication == nil}, {"LocalAdmin", d.LocalAdmin == nil},
 		{"Requests", d.Requests == nil}, {"Resolver", d.Resolver == nil}, {"Inbox", d.Inbox == nil},
 		{"MoviePreview", d.MoviePreview == nil},
 		{"MatchReview", d.MatchReview == nil}, {"JobRuns", d.JobRuns == nil}, {"Status", d.Status == nil},
@@ -218,6 +220,8 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	registerChecklistRoutes(rt, d.Checklist)
 	registerSettingsRoutes(rt, d.People, d.Approvals, d.IGDB)
 	registerSecretsRoutes(rt, d.Secrets)
+	registerAuthenticationRoutes(rt, d.Authentication)
+	registerLocalManagementRoutes(rt, d.LocalAdmin)
 	registerConnectionRoutes(rt, d.Connections)
 	registerLibraryRoutes(rt, d.Library)
 	limiter := d.SearchLimiter
@@ -295,6 +299,8 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		}
 		err := d.Users.ChangeUserRole(r.Context(), user.ID, id, input.Role, time.Now().UTC())
 		switch {
+		case errors.Is(err, auth.ErrBuiltinRole):
+			apierror.Write(w, r, 409, "builtin_admin_role", auth.ErrBuiltinRole.Error())
 		case errors.Is(err, postgres.ErrAdminSelfRoleChange):
 			apierror.Write(w, r, 409, "self_role_change", "cannot change your own role")
 		case errors.Is(err, postgres.ErrLastAdmin):

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
+	"github.com/evilperson1337/requestarr/internal/authsettings"
 )
 
 const sessionCookie = "requestarr_session"
@@ -22,8 +23,12 @@ const preauthCookie = "requestarr_oidc_preauth"
 const lifetime = 12 * time.Hour
 
 type Handler struct {
-	Repo                      Repository
-	Provider                  oidc.Provider
+	Repo     Repository
+	Provider oidc.Provider
+	// OIDC returns the live immutable snapshot; static Provider is retained for embedders.
+	OIDC                      func() *authsettings.Snapshot
+	pendingMu                 sync.Mutex
+	pending                   map[string]pendingOIDC
 	Issuer, PublicURL, Secret string
 	Secure                    bool
 
@@ -59,6 +64,15 @@ func requireEOF(d *json.Decoder) error {
 	return nil
 }
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	snap := &authsettings.Snapshot{Provider: h.Provider, Issuer: h.Issuer}
+	if h.OIDC != nil {
+		snap = h.OIDC()
+	}
+	if snap == nil || snap.Provider == nil {
+		apierror.Write(w, r, 503, "oidc_unavailable", "OIDC sign-in is not available; use administrator sign-in")
+		return
+	}
+
 	preauth, err := oidc.RandomValue()
 	if err != nil {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
@@ -83,9 +97,13 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
+	if !h.rememberOIDC(HashString(h.Secret, state), snap) {
+		apierror.Write(w, r, 503, "auth_unavailable", "too many pending sign-ins; try again shortly")
+		return
+	}
 	http.SetCookie(w, &http.Cookie{Name: preauthCookie, Value: preauth, Path: "/api/v1/auth", HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, MaxAge: 300})
 	http.SetCookie(w, &http.Cookie{Name: "requestarr_oidc_state", Value: state, Path: "/api/v1/auth", HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, MaxAge: 300})
-	http.Redirect(w, r, h.Provider.AuthorizationURL(state, nonce, oidc.PKCEChallenge(verifier)), http.StatusFound)
+	http.Redirect(w, r, snap.Provider.AuthorizationURL(state, nonce, oidc.PKCEChallenge(verifier)), http.StatusFound)
 }
 func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie("requestarr_oidc_state")
@@ -105,11 +123,16 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 400, "invalid_login_transaction", "invalid login transaction")
 		return
 	}
+	snap := h.takeOIDC(HashString(h.Secret, c.Value))
+	if snap == nil {
+		apierror.Write(w, r, 400, "invalid_login_transaction", "login expired; start sign-in again")
+		return
+	}
 	if r.URL.Query().Get("error") != "" {
 		apierror.Write(w, r, 401, "sign_in_rejected", "identity provider rejected sign-in")
 		return
 	}
-	id, err := h.Provider.Exchange(r.Context(), r.URL.Query().Get("code"), verifier, nonce)
+	id, err := snap.Provider.Exchange(r.Context(), r.URL.Query().Get("code"), verifier, nonce)
 	if err != nil {
 		apierror.Write(w, r, 401, "sign_in_failed", "sign-in failed")
 		return
@@ -119,7 +142,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
-	u, err := h.Repo.Login(r.Context(), h.Issuer, id.Subject, id.Email, id.DisplayName, uid, h.now())
+	u, err := h.Repo.Login(r.Context(), snap.Issuer, id.Subject, id.Email, id.DisplayName, uid, h.now())
 	if err != nil {
 		apierror.Write(w, r, 500, "sign_in_failed", "sign-in failed")
 		return
@@ -271,4 +294,40 @@ func subtleHashEqual(a, b []byte) bool {
 }
 func clearCookie(w http.ResponseWriter, name, path string, secure bool) {
 	http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: path, HttpOnly: name != "requestarr_csrf", Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0)})
+}
+
+// Pending snapshots have the same lifetime as the browser-bound transaction.
+// Bounded storage prevents abandoned sign-ins from retaining providers forever.
+type pendingOIDC struct {
+	snapshot *authsettings.Snapshot
+	expires  time.Time
+}
+
+func (h *Handler) rememberOIDC(key string, snapshot *authsettings.Snapshot) bool {
+	h.pendingMu.Lock()
+	defer h.pendingMu.Unlock()
+	now := h.now()
+	if h.pending == nil {
+		h.pending = map[string]pendingOIDC{}
+	}
+	for key, p := range h.pending {
+		if !p.expires.After(now) {
+			delete(h.pending, key)
+		}
+	}
+	if len(h.pending) >= 4096 {
+		return false
+	}
+	h.pending[key] = pendingOIDC{snapshot: snapshot, expires: now.Add(5 * time.Minute)}
+	return true
+}
+func (h *Handler) takeOIDC(key string) *authsettings.Snapshot {
+	h.pendingMu.Lock()
+	defer h.pendingMu.Unlock()
+	p := h.pending[key]
+	delete(h.pending, key)
+	if !p.expires.After(h.now()) {
+		return nil
+	}
+	return p.snapshot
 }

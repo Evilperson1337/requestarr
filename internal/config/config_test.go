@@ -117,12 +117,12 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name:    "missing database url",
 			config:  Config{HTTPAddr: ":8080", LogLevelRaw: "info"},
-			wantErr: "database is not configured: set REQUESTARR_DATABASE_URL, or set REQUESTARR_DB_HOST, REQUESTARR_DB_NAME, REQUESTARR_DB_USER and REQUESTARR_DB_PASSWORD; REQUESTARR_PUBLIC_URL must be an absolute http(s) origin without path, credentials, query, or fragment; REQUESTARR_OIDC_ISSUER, REQUESTARR_OIDC_CLIENT_ID, and REQUESTARR_OIDC_CLIENT_SECRET are required; REQUESTARR_SESSION_HMAC_SECRET must contain at least 32 bytes",
+			wantErr: "database is not configured: set REQUESTARR_DATABASE_URL, or set REQUESTARR_DB_HOST, REQUESTARR_DB_NAME, REQUESTARR_DB_USER and REQUESTARR_DB_PASSWORD; REQUESTARR_PUBLIC_URL must be an absolute http(s) origin without path, credentials, query, or fragment; REQUESTARR_SESSION_HMAC_SECRET must contain at least 32 bytes",
 		},
 		{
 			name:    "missing database url does not expose other problems' order dependency",
 			config:  Config{HTTPAddr: "bad-address", LogLevelRaw: "info"},
-			wantErr: "database is not configured: set REQUESTARR_DATABASE_URL, or set REQUESTARR_DB_HOST, REQUESTARR_DB_NAME, REQUESTARR_DB_USER and REQUESTARR_DB_PASSWORD; REQUESTARR_PUBLIC_URL must be an absolute http(s) origin without path, credentials, query, or fragment; REQUESTARR_OIDC_ISSUER, REQUESTARR_OIDC_CLIENT_ID, and REQUESTARR_OIDC_CLIENT_SECRET are required; REQUESTARR_SESSION_HMAC_SECRET must contain at least 32 bytes; REQUESTARR_HTTP_ADDR must be in host:port form",
+			wantErr: "database is not configured: set REQUESTARR_DATABASE_URL, or set REQUESTARR_DB_HOST, REQUESTARR_DB_NAME, REQUESTARR_DB_USER and REQUESTARR_DB_PASSWORD; REQUESTARR_PUBLIC_URL must be an absolute http(s) origin without path, credentials, query, or fragment; REQUESTARR_SESSION_HMAC_SECRET must contain at least 32 bytes; REQUESTARR_HTTP_ADDR must be in host:port form",
 		},
 	}
 
@@ -170,7 +170,7 @@ func TestConfigLogLevel(t *testing.T) {
 	}
 }
 
-func TestConfigRequiresOIDCAndSecurePublicOrigin(t *testing.T) {
+func TestConfigAllowsOptionalOIDCAndRequiresSecurePublicOrigin(t *testing.T) {
 	base := Config{Environment: "production", HTTPAddr: ":8080", LogLevelRaw: "info", DatabaseURL: validDBURL, PublicURL: "http://app.example", OIDCIssuer: "https://id.example", OIDCClientID: "client", OIDCClientSecret: "secret", SessionHMACSecret: strings.Repeat("s", 32)}
 	if err := base.Validate(); err == nil || !strings.Contains(err.Error(), "must use https outside development") {
 		t.Fatalf("Validate()=%v, want production HTTPS error", err)
@@ -181,8 +181,8 @@ func TestConfigRequiresOIDCAndSecurePublicOrigin(t *testing.T) {
 	}
 	base.PublicURL = "https://app.example"
 	base.OIDCClientSecret = ""
-	if err := base.Validate(); err == nil || !strings.Contains(err.Error(), "OIDC_ISSUER") {
-		t.Fatalf("Validate()=%v, want required OIDC config", err)
+	if err := base.Validate(); err != nil {
+		t.Fatal("partial OIDC must leave local recovery available")
 	}
 }
 

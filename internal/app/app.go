@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/auth"
-	"github.com/evilperson1337/requestarr/internal/auth/oidc"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/checklist"
 	"github.com/evilperson1337/requestarr/internal/config"
@@ -66,11 +65,11 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	if err := auth.BootstrapLocalAdmin(ctx, store, auth.BootstrapOptions{PublicURL: cfg.PublicURL, InitialPassword: cfg.AdminPassword, Logger: logger}); err != nil {
 		return err
 	}
-	provider, err := oidc.New(ctx, oidc.Config{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret}, cfg.PublicURL+"/api/v1/auth/callback")
+	authentication, err := NewAuthentication(ctx, envCfg, store, nil)
 	if err != nil {
-		return fmt.Errorf("initialize OIDC provider: %w", err)
+		return fmt.Errorf("initialize authentication settings: %w", err)
 	}
-	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Local: store, Logger: logger}
+	authHandler := &auth.Handler{Repo: store, OIDC: authentication.Snapshot, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Local: store, Logger: logger}
 	// The TMDB token, IGDB credentials and Apprise key are read per call from one
 	// swappable set, so saving them in Settings applies at once (D039).
 	providers := newProviderSet(cfg, boot.Unreadable, store, func(ctx context.Context) (booted, error) {
@@ -114,7 +113,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	connections := &connectionsService{store: store, boot: store, envCfg: envCfg, manager: manager, secrets: secretsService, checker: checker, logger: logger}
 
 	handler, err := httpapi.NewRouter(httpapi.Deps{
-		Logger: logger, Build: build, Readiness: store, Auth: authHandler,
+		Logger: logger, Build: build, Readiness: store, Auth: authHandler, Authentication: authentication, LocalAdmin: auth.AdminManagement{Repo: store},
 		Requests: requests.New(store), Resolver: providers, Inbox: store, MatchReview: store,
 		MoviePreview: store,
 		JobRuns:      store, Status: ops, Users: store, People: peopleSettings{store}, Approvals: approvalSettings{store}, Syncer: syncer,

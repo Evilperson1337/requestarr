@@ -340,3 +340,7 @@ Why: a new instance needed an identity provider, a reverse proxy and a CLI-issue
 - **Unchanged.** `https://` is still required for the public URL outside development (D034): the sign-in is a password and the cookies are `Secure`. The reverse proxy requirement stays.
 - **Sequencing.** rc.3 ships first with the current claim flow; this lands as rc.4.
 
+
+### D040 implementation clarification — runtime Authentication (ticket03)
+
+The runtime API uses discovery-on-save/enable rather than a reusable “Test passed” token: Test is diagnostic, and every enabled candidate proves discovery again before metadata, encrypted secret and audit commit together. No accepted product decision changes. The live provider and issuer travel together through each five-minute sign-in transaction; restarting the single process requires starting that sign-in again. Public options expose only enabled/name. “Working” describes the currently active discovered snapshot, not a network health probe on UI reads. Disabling and discarding remain possible without provider reachability or a usable master key. The recovery-account creation/disable backend is provided for ticket04, with no ticket04/05 UI implemented here.

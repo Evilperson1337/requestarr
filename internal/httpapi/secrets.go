@@ -60,11 +60,18 @@ func registerSecretsRoutes(rt *routeTable, service SecretsService) {
 		}
 		out := make([]secretStatusBody, 0, len(statuses))
 		for _, s := range statuses {
+			if s.Name == secrets.OIDCClientSecret {
+				continue
+			} // managed atomically by Authentication settings
 			out = append(out, secretStatusBody{Name: string(s.Name), Label: s.Label, EnvVar: s.EnvVar, Configured: s.Configured, Source: string(s.Source), Unreadable: s.Unreadable, PendingRestart: s.PendingRestart})
 		}
 		writeJSON(w, 200, map[string]any{"enabled": enabled, "secrets": out})
 	})
 	admin("PUT /admin/secrets/{name}", func(w http.ResponseWriter, r *http.Request, actorID string) {
+		if r.PathValue("name") == string(secrets.OIDCClientSecret) {
+			apierror.Write(w, r, 409, "oidc_settings_required", "manage the OIDC secret through Authentication settings so discovery and metadata apply atomically")
+			return
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -82,6 +89,10 @@ func registerSecretsRoutes(rt *routeTable, service SecretsService) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	admin("DELETE /admin/secrets/{name}", func(w http.ResponseWriter, r *http.Request, actorID string) {
+		if r.PathValue("name") == string(secrets.OIDCClientSecret) {
+			apierror.Write(w, r, 409, "oidc_settings_required", "discard saved Authentication settings to remove the OIDC secret atomically")
+			return
+		}
 		if err := service.Clear(r.Context(), actorID, secrets.Name(r.PathValue("name"))); err != nil {
 			fail(w, r, err)
 			return

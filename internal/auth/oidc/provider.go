@@ -5,12 +5,19 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	coreoidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+)
+
+var (
+	ErrIssuerURL         = errors.New("OIDC issuer must use https (loopback http is development-only), without credentials, query or fragment")
+	ErrDiscoveryDocument = errors.New("could not read a valid discovery document; check reachability, JSON and the exact issuer URL")
+	ErrDiscoveryMetadata = errors.New("discovery metadata contains missing or unsafe authorization, token or JWKS endpoints")
 )
 
 type Config struct {
@@ -21,6 +28,7 @@ type Config struct {
 	GroupsClaim  string
 	GroupRoleMap map[string]string
 	HTTPTimeout  time.Duration
+	AllowHTTP    bool
 }
 
 type Identity struct {
@@ -40,8 +48,9 @@ type Provider interface {
 
 // Client performs standards-compliant OIDC discovery and ID-token verification.
 type Client struct {
-	config   *oauth2.Config
-	verifier *coreoidc.IDTokenVerifier
+	config     *oauth2.Config
+	verifier   *coreoidc.IDTokenVerifier
+	httpClient *http.Client
 }
 
 func New(ctx context.Context, cfg Config, redirectURL string) (*Client, error) {
@@ -51,12 +60,22 @@ func New(ctx context.Context, cfg Config, redirectURL string) (*Client, error) {
 	if cfg.HTTPTimeout <= 0 {
 		cfg.HTTPTimeout = 10 * time.Second
 	}
-	ctx = coreoidc.ClientContext(ctx, &http.Client{Timeout: cfg.HTTPTimeout})
+	if !safeURL(cfg.Issuer, cfg.AllowHTTP) {
+		return nil, ErrIssuerURL
+	}
+	client := &http.Client{Timeout: cfg.HTTPTimeout, Transport: safeTransport{allowHTTP: cfg.AllowHTTP}, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("OIDC redirects are not allowed") }}
+	ctx = coreoidc.ClientContext(ctx, client)
 	p, err := coreoidc.NewProvider(ctx, cfg.Issuer)
 	if err != nil {
-		return nil, fmt.Errorf("discover OIDC issuer: %w", err)
+		return nil, ErrDiscoveryDocument
 	}
-	return &Client{config: &oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Endpoint: p.Endpoint(), RedirectURL: redirectURL, Scopes: []string{coreoidc.ScopeOpenID, "profile", "email"}}, verifier: p.Verifier(&coreoidc.Config{ClientID: cfg.ClientID})}, nil
+	var metadata struct {
+		JWKS string `json:"jwks_uri"`
+	}
+	if p.Claims(&metadata) != nil || !safeURL(p.Endpoint().AuthURL, cfg.AllowHTTP) || !safeURL(p.Endpoint().TokenURL, cfg.AllowHTTP) || !safeURL(metadata.JWKS, cfg.AllowHTTP) {
+		return nil, ErrDiscoveryMetadata
+	}
+	return &Client{httpClient: client, config: &oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Endpoint: p.Endpoint(), RedirectURL: redirectURL, Scopes: []string{coreoidc.ScopeOpenID, "profile", "email"}}, verifier: p.Verifier(&coreoidc.Config{ClientID: cfg.ClientID})}, nil
 }
 
 func (c *Client) Validate(context.Context, Config) error { return nil }
@@ -66,9 +85,10 @@ func (c *Client) AuthorizationURL(state, nonce, challenge string) string {
 }
 
 func (c *Client) Exchange(ctx context.Context, code, verifier, nonce string) (*Identity, error) {
+	ctx = coreoidc.ClientContext(ctx, c.httpClient)
 	tok, err := c.config.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", verifier))
 	if err != nil {
-		return nil, fmt.Errorf("exchange OIDC code: %w", err)
+		return nil, errors.New("OIDC code exchange failed")
 	}
 	raw, ok := tok.Extra("id_token").(string)
 	if !ok || raw == "" {
@@ -76,7 +96,7 @@ func (c *Client) Exchange(ctx context.Context, code, verifier, nonce string) (*I
 	}
 	id, err := c.verifier.Verify(ctx, raw)
 	if err != nil {
-		return nil, fmt.Errorf("verify OIDC ID token: %w", err)
+		return nil, errors.New("OIDC ID token verification failed")
 	}
 	var claims struct {
 		Subject string `json:"sub"`
@@ -85,7 +105,7 @@ func (c *Client) Exchange(ctx context.Context, code, verifier, nonce string) (*I
 		Name    string `json:"name"`
 	}
 	if err := id.Claims(&claims); err != nil {
-		return nil, fmt.Errorf("decode OIDC claims: %w", err)
+		return nil, errors.New("OIDC claims could not be decoded")
 	}
 	if claims.Subject == "" || claims.Nonce != nonce {
 		return nil, fmt.Errorf("OIDC subject or nonce is invalid")
