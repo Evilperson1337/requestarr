@@ -127,15 +127,7 @@ func Build(b booted, a Adapters) (Runtime, error) {
 		jobs[kind.Slug] = syncSource{id: id, job: job}
 	}
 	rt.Sources = sourceRefs(jobs, b.Unreadable)
-	rt.Providers = []opstatus.Provider{
-		{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: b.Unreadable[secrets.TMDBReadToken]},
-		{Key: "musicbrainz", Name: "MusicBrainz", Configured: true},
-		// IGDB needs both halves; a half-set pair is reported as not configured
-		// instead of failing startup, because the saved client ID and the secret
-		// are entered separately in Setup (D025).
-		{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "", Note: b.Unreadable[secrets.IGDBClientSecret]},
-		{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != "", Note: b.Unreadable[secrets.AppriseConfigKey]},
-	}
+	rt.Providers = providerStatuses(cfg, b.Unreadable)
 	rt.Setup = setup.Runtime{
 		PublicURL: cfg.PublicURL, OIDCIssuer: cfg.OIDCIssuer, OIDCClientID: cfg.OIDCClientID, IGDBClientID: cfg.IGDBClientID,
 		IGDBClientIDFromEnvironment: b.IGDBClientIDFromEnvironment,
@@ -148,4 +140,18 @@ func Build(b booted, a Adapters) (Runtime, error) {
 		rt.Setup.SecretsConfigured[name] = *field != ""
 	}
 	return rt, nil
+}
+
+// providerStatuses is the provider half of operational status, derived from the
+// resolved configuration; the live providerSet republishes it on every swap.
+func providerStatuses(cfg config.Config, unreadable map[secrets.Name]string) []opstatus.Provider {
+	return []opstatus.Provider{
+		{Key: "tmdb", Name: "TMDB", Configured: cfg.TMDBReadToken != "", Note: unreadable[secrets.TMDBReadToken]},
+		{Key: "musicbrainz", Name: "MusicBrainz", Configured: true},
+		// IGDB needs both halves; a half-set pair is reported as not configured
+		// instead of failing startup, because the client ID and the secret are
+		// entered separately (D025).
+		{Key: "igdb", Name: "IGDB", Configured: cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "", Note: unreadable[secrets.IGDBClientSecret]},
+		{Key: "apprise", Name: "Apprise", Configured: cfg.AppriseURL != "" && cfg.AppriseConfigKey != "", Note: unreadable[secrets.AppriseConfigKey]},
+	}
 }

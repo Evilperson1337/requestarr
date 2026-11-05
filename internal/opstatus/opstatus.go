@@ -64,11 +64,19 @@ type Health interface {
 }
 
 type Service struct {
-	providers []Provider
-	runs      Health
+	runs Health
 
-	mu      sync.RWMutex
-	sources []SourceRef
+	mu        sync.RWMutex
+	providers []Provider
+	sources   []SourceRef
+}
+
+// SetProviders replaces the provider list, for providers whose credentials are
+// saved or cleared while the server runs.
+func (s *Service) SetProviders(providers []Provider) {
+	s.mu.Lock()
+	s.providers = append([]Provider(nil), providers...)
+	s.mu.Unlock()
 }
 
 // SetSources replaces the Source list, for Sources that are added or removed
@@ -96,8 +104,8 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	for _, group := range groups {
 		byID[group.SourceID] = group.Runs
 	}
-	out := Overview{Providers: append([]Provider{}, s.providers...), Sources: []SourceStatus{}, RecentErrors: []ErrorEntry{}}
 	s.mu.RLock()
+	out := Overview{Providers: append([]Provider{}, s.providers...), Sources: []SourceStatus{}, RecentErrors: []ErrorEntry{}}
 	refs := append([]SourceRef(nil), s.sources...)
 	s.mu.RUnlock()
 	for _, ref := range refs {

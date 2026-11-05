@@ -60,7 +60,7 @@ test('the IGDB client ID is a live field beside the IGDB secret and saves with t
     await expect(card.getByLabel('IGDB client secret')).toBeVisible()
     await field.fill('twitch-new')
     await card.getByRole('button', { name: 'Save IGDB client ID' }).click()
-    await expect(card.getByRole('status')).toContainText('applies after Requestarr restarts')
+    await expect(card.getByRole('status')).toContainText('saved and applied')
     expect(puts).toEqual([{ body: { clientId: 'twitch-new' }, csrf: 'csrf' }])
 })
 
@@ -74,4 +74,42 @@ test('an IGDB client ID set by the environment is shown read-only', async ({ pag
     await expect(card.getByText('REQUESTARR_IGDB_CLIENT_ID')).toBeVisible()
     await expect(card.getByRole('button', { name: 'Save IGDB client ID' })).toBeDisabled()
     expect(puts).toEqual([])
+})
+
+test('the metadata and notification secrets say saved and applied, with no restart wording', async ({ page }) => {
+    const puts: string[] = []
+    let failNext = false
+    await page.route('**/api/v1/**', route => {
+        const request = route.request()
+        const path = new URL(request.url()).pathname
+        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
+        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf' } })
+        if (path.includes('/admin/secrets/')) {
+            puts.push(request.method() + ' ' + path.split('/').pop())
+            if (failNext) return route.fulfill({ status: 500, json: { error: { code: 'settings_not_applied', message: 'the change was saved but could not be applied; the previous configuration is still in use' } } })
+            return route.fulfill({ status: 204, body: '' })
+        }
+        if (path.endsWith('/admin/secrets')) return route.fulfill({ json: { enabled: true, secrets: secretList.slice(0, 3).map(([name, label]) => ({ name, label, envVar: 'X', configured: false, source: 'none', unreadable: false, pendingRestart: false })) } })
+        if (path.endsWith('/admin/settings/igdb')) return route.fulfill({ json: { clientId: '', fromEnvironment: false } })
+        if (path.endsWith('/admin/status')) return route.fulfill({ json: { providers: [{ key: 'tmdb', name: 'TMDB', configured: false }, { key: 'igdb', name: 'IGDB', configured: false }, { key: 'apprise', name: 'Apprise', configured: false }], sources: [], recentErrors: [] } })
+        if (path.endsWith('/admin/library-connections')) return route.fulfill({ json: { connections: [] } })
+        if (path.endsWith('/admin/job-runs')) return route.fulfill({ json: { sources: [] } })
+        if (path.endsWith('/admin/users')) return route.fulfill({ json: { users: [] } })
+        if (path.endsWith('/admin/match-suggestions')) return route.fulfill({ json: { items: [] } })
+        return route.fulfill({ json: {} })
+    })
+    await page.goto('/settings')
+    await expect(page.getByText('apply after a restart')).toHaveCount(0)
+    const tmdb = page.getByRole('listitem').filter({ hasText: 'TMDB' }).first()
+    await tmdb.getByRole('button', { name: /Hide settings|Set up/ }).first().click()
+    await expect(tmdb.getByText('applies at once')).toBeVisible()
+    await tmdb.getByLabel('TMDb read token').fill('a-token')
+    await tmdb.getByRole('button', { name: /^Save/ }).first().click()
+    await expect(tmdb.getByRole('status')).toContainText('saved and applied')
+    await expect(tmdb).not.toContainText('restart')
+    failNext = true
+    await tmdb.getByLabel('TMDb read token').fill('another')
+    await tmdb.getByRole('button', { name: /^Save/ }).first().click()
+    await expect(tmdb.getByRole('alert')).toContainText('could not be applied')
+    expect(puts).toEqual(['PUT tmdb_read_token', 'PUT tmdb_read_token'])
 })

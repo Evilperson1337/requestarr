@@ -162,6 +162,52 @@ func TestRunWorkerReturnsContextCancellationWhenIdle(t *testing.T) {
 	}
 }
 
+// gatedSender is a sender that can be switched off and on while the worker runs.
+type gatedSender struct {
+	mu   sync.Mutex
+	on   bool
+	sent []Message
+}
+
+func (g *gatedSender) Configured() bool { g.mu.Lock(); defer g.mu.Unlock(); return g.on }
+func (g *gatedSender) set(on bool)      { g.mu.Lock(); g.on = on; g.mu.Unlock() }
+func (g *gatedSender) Send(_ context.Context, m Message) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.sent = append(g.sent, m)
+	return nil
+}
+func (g *gatedSender) count() int { g.mu.Lock(); defer g.mu.Unlock(); return len(g.sent) }
+
+func TestRunWorkerLeavesTheEventPendingWhileTheSenderIsNotConfigured(t *testing.T) {
+	outbox := &fakeOutbox{}
+	sender := &gatedSender{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- RunWorker(ctx, outbox, sender) }()
+	time.Sleep(50 * time.Millisecond)
+	outbox.mu.Lock()
+	claimedEarly := outbox.claims
+	outbox.mu.Unlock()
+	if claimedEarly != 0 || sender.count() != 0 {
+		t.Fatalf("an unconfigured sender must not claim: claims=%d sent=%d", claimedEarly, sender.count())
+	}
+	sender.set(true)
+	deadline := time.After(3 * time.Second)
+	for !outbox.isCompleted() {
+		select {
+		case <-deadline:
+			t.Fatal("event was not delivered after the sender became configured")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	cancel()
+	<-done
+	if sender.count() != 1 {
+		t.Fatalf("delivered %d times, want exactly once", sender.count())
+	}
+}
+
 func waitFor(t *testing.T, ready func() bool) {
 	t.Helper()
 	timer := time.NewTimer(time.Second)

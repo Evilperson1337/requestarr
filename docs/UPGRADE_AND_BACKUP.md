@@ -25,7 +25,7 @@ also not enough to restore saved secrets: you need the master key too.
    you must re-enter the secrets in Settings, Integrations (or set them in the environment). Key
    rotation tooling is deferred. An unreadable secret can be cleared without the
    key. An environment value always wins over a stored one, and a saved secret
-   applies on the next restart.
+   applies as soon as it is saved. Changing the key itself needs a restart.
 
 Nothing else on the application host needs backing up. The binary and container
 image are replaceable.

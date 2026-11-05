@@ -121,6 +121,7 @@ func TestSetSecretErrorsAreSafeAndFixed(t *testing.T) {
 		{"invalid", secrets.ErrInvalidValue, `{"value":"` + probeValue + `"}`, 422, "invalid_secret_value"},
 		{"unknown", secrets.ErrUnknownSecret, `{"value":"` + probeValue + `"}`, 404, "unknown_secret"},
 		{"storage", errors.New("pq: connection string postgres://u:" + probeValue + "@db"), `{"value":"` + probeValue + `"}`, 500, "secret_update_failed"},
+		{"saved but not applied", ErrNotApplied, `{"value":"` + probeValue + `"}`, 500, "settings_not_applied"},
 		{"malformed body", nil, `{"value":"` + probeValue + `", "extra": 1}`, 400, "invalid_secret_input"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

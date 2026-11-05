@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from 'react'
-import { api, type SecretStatus, type SecretsOverview } from '../api'
+import { api, ApiError, type SecretStatus, type SecretsOverview } from '../api'
 
 // Write-only entry for one stored secret (D024). The value lives only in this
 // input until submit, is cleared whether or not the save succeeds, and is never
@@ -8,6 +8,9 @@ import { api, type SecretStatus, type SecretsOverview } from '../api'
 // With `entry` the field sits inside a larger form: the form owns the typed value
 // and submits it together with its other fields, so this field has no Save button
 // of its own (it keeps "Clear stored value").
+// The server saved the value but could not rebuild the running providers from it.
+function notApplied(e: unknown) { return e instanceof ApiError && e.code === 'settings_not_applied' }
+
 export type SecretEntry = { value: string; onChange: (value: string) => void; disabled?: boolean }
 
 export function SecretField({ name, label, csrfToken, onRequestError, appliesImmediately, onChanged, entry }: { name: string; label: string; csrfToken: string; onRequestError?: (error: unknown) => void; appliesImmediately?: boolean; onChanged?: () => void; entry?: SecretEntry }) {
@@ -44,7 +47,7 @@ export function SecretField({ name, label, csrfToken, onRequestError, appliesImm
             await refresh(); onChanged?.()
         } catch (e) {
             onRequestError?.(e)
-            setError(`${label} could not be saved.`)
+            setError(notApplied(e) ? `${label} was saved but could not be applied. The previous configuration is still in use.` : `${label} could not be saved.`)
         } finally { setBusy(false) }
     }
     async function clear() {
@@ -56,7 +59,7 @@ export function SecretField({ name, label, csrfToken, onRequestError, appliesImm
             await refresh(); onChanged?.()
         } catch (e) {
             onRequestError?.(e)
-            setError(`${label} could not be cleared.`)
+            setError(notApplied(e) ? `${label} was cleared but the change could not be applied. The previous configuration is still in use.` : `${label} could not be cleared.`)
         } finally { setBusy(false) }
     }
 

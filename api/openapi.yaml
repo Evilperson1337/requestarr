@@ -229,7 +229,7 @@ paths:
     get:
       operationId: searchTypes
       summary: Which search types have a configured provider
-      description: Session-level and non-secret, so every role can decide which types to offer. Fixed at boot; a provider configured later appears after a restart.
+      description: Session-level and non-secret, so every role can decide which types to offer. Reflects the running providers, so a TMDB token or IGDB credentials saved in Settings add or remove their types at once (D039).
       responses:
         '200':
           description: The configured types; Cache-Control no-store
@@ -972,7 +972,7 @@ paths:
       summary: Stored integration secrets, write-only status (administrator only)
       description: >-
         D024. Lists each registered secret with whether it is configured, where its effective
-        value comes from, and whether a change waits for a restart. Values and ciphertext are
+        value comes from, and whether a change waits for a restart. The TMDB token, IGDB client secret and Apprise key, like library credentials, apply when saved and so never wait. Values and ciphertext are
         never returned. enabled is false when REQUESTARR_SECRETS_KEY is not set, in which case
         the UI must refuse secret values. Responses are no-store.
       responses:
@@ -1004,7 +1004,7 @@ paths:
         Encrypts the value with the master key (AES-256-GCM) and stores it with the key id.
         Available before and after setup Finish. The value is never returned, logged, audited or
         echoed in errors; a value-free audit event is written in the same transaction. The new
-        value applies on the next restart; an environment value still wins. Requires CSRF and a
+        value applies at once for the TMDB token, IGDB client secret, Apprise key and library credentials (D028, D039); an environment value still wins. If the running providers cannot be rebuilt the value stays saved, the previous configuration stays in use and the response is 500 settings_not_applied. Requires CSRF and a
         same-origin Origin header. Body is capped at 8 KiB.
       parameters:
         - in: header
@@ -1029,7 +1029,7 @@ paths:
         '404': { description: "unknown_secret" }
         '409': { description: "secrets_disabled; REQUESTARR_SECRETS_KEY is not configured" }
         '422': { description: "invalid_secret_value" }
-        '500': { description: "secret_update_failed; safe generic message" }
+        '500': { description: "secret_update_failed (safe generic message), or settings_not_applied (saved, but the previous configuration is still in use)" }
     delete:
       operationId: clearStoredSecret
       summary: Clear a stored secret (administrator only)
@@ -1047,7 +1047,7 @@ paths:
         '401': { description: Authentication required }
         '403': { description: "Administrator role or CSRF/Origin failure" }
         '404': { description: "unknown_secret" }
-        '500': { description: "secret_update_failed; safe generic message" }
+        '500': { description: "secret_update_failed (safe generic message), or settings_not_applied (cleared, but the previous configuration is still in use)" }
   /admin/checklist:
     get:
       operationId: getChecklist
@@ -1117,7 +1117,7 @@ paths:
       operationId: setIgdbSettings
       summary: Save the IGDB client ID (administrator only)
       description: >-
-        Takes effect after a restart, like stored secrets. An empty value clears it.
+        Applies at once, like the TMDB token and IGDB secret (D039). An empty value clears it.
         An installation upgraded from the retired setup draft keeps the client ID it saved
         there until one is saved here.
       parameters:
@@ -1145,7 +1145,7 @@ paths:
         '401': { description: Authentication required }
         '403': { description: "Administrator role or CSRF/Origin failure" }
         '409': { description: "managed_by_environment; REQUESTARR_IGDB_CLIENT_ID wins and cannot be changed here" }
-        '500': { description: "igdb_settings_failed" }
+        '500': { description: "igdb_settings_failed, or settings_not_applied (saved, but the previous configuration is still in use)" }
   /admin/match-suggestions:
     get:
       operationId: listMatchSuggestions
@@ -1705,7 +1705,7 @@ components:
         configured: { type: boolean, description: "An effective value exists. False for an unreadable stored secret, which is not the same as unconfigured" }
         source: { type: string, enum: [none, environment, stored, "stored (shadowed by environment)", "stored secret unreadable"] }
         unreadable: { type: boolean, description: "A stored row exists but cannot be opened with the current master key" }
-        pendingRestart: { type: boolean, description: "The value a restart would use differs from the one in effect now" }
+        pendingRestart: { type: boolean, description: "The value a restart would use differs from the one in effect now. Always false for credentials that apply at once unless the last apply failed" }
     MatchSuggestion:
       type: object
       required: [id, catalogItemId, catalogTitle, catalogYear, inventoryTitle, inventoryYear, mediaType, platformKey, sourceName, sourceItemId, confidence, reason, observedAt]

@@ -33,7 +33,7 @@ value is ever entered twice.
   both administrator-only (the second needs CSRF), documented in `api/openapi.yaml`.
 - The **IGDB client ID** is a live field in Settings, Integrations, Metadata,
   beside the IGDB secret (`GET`/`PUT /api/v1/admin/settings/igdb`). It applies
-  after a restart, like stored secrets. `REQUESTARR_IGDB_CLIENT_ID` still wins; the
+  at once, like the secrets (D039). `REQUESTARR_IGDB_CLIENT_ID` still wins; the
   field is then read-only.
 
 ### Upgrading from the draft wizard
@@ -66,13 +66,16 @@ the fields are disabled and the environment path keeps working. Rules:
 - An environment value always wins over a saved one. Each secret reports its
   source: `environment`, `stored`, or `stored (shadowed by environment)`; A shadowed
   value is never deleted automatically.
-- A saved provider secret applies on restart and the card says "saved, pending
-  restart"; a library credential applies at once (D028).
-- This includes name search: the TMDB read token, the IGDB client ID and the IGDB
-  secret are read once at startup, so Movies & TV and Games appear (or
-  disappear) as search types, and search uses a new TMDB token, only after a
-  restart. Albums, Songs and Audiobooks need no credential and are always
-  offered. Only library Source credentials are applied without a restart.
+- A saved or cleared credential applies at once and the field says "saved and
+  applied": library credentials (D028), and the TMDB read token, the IGDB client
+  ID and secret and the Apprise key (D039). Movies & TV and Games appear (or
+  disappear) as search types immediately, search uses a new TMDB token on its
+  next call, and the notification worker uses a new Apprise key on its next
+  delivery. Albums, Songs and Audiobooks need no credential and are always
+  offered. If the running providers cannot be rebuilt the value stays saved, the
+  previous configuration stays in use, the field says so, and the card keeps
+  "saved, pending restart". Only `REQUESTARR_SECRETS_KEY`, environment variables
+  and `REQUESTARR_APPRISE_URL` need a restart.
 - Values are never returned, logged or audited; only presence and source are
   shown. Replacing or clearing a secret is always available.
 - If a stored secret cannot be read (wrong or missing master key) the server

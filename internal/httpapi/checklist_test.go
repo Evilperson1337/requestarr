@@ -123,6 +123,7 @@ func TestIGDBClientIDSetting(t *testing.T) {
 	}
 	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrInvalidIGDBClientID}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"bad\nid"}`), 400, "invalid_client_id")
 	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrIGDBClientIDFromEnvironment}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 409, "managed_by_environment")
+	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrNotApplied}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 500, "settings_not_applied")
 	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: errors.New("db down")}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 500, "igdb_settings_failed")
 }
 

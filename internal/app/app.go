@@ -27,13 +27,8 @@ import (
 	"github.com/evilperson1337/requestarr/internal/issues"
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
-	"github.com/evilperson1337/requestarr/internal/notifications/apprise"
 	"github.com/evilperson1337/requestarr/internal/opstatus"
-	"github.com/evilperson1337/requestarr/internal/providers/metadata"
-	"github.com/evilperson1337/requestarr/internal/providers/metadata/audible"
-	"github.com/evilperson1337/requestarr/internal/providers/metadata/igdb"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/musicbrainz"
-	"github.com/evilperson1337/requestarr/internal/providers/metadata/tmdb"
 	"github.com/evilperson1337/requestarr/internal/requests"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/setup/checks"
@@ -72,39 +67,18 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		return fmt.Errorf("initialize OIDC provider: %w", err)
 	}
 	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Setup: store}
-	// One IGDB provider serves links and searches, so they share its token and its request cap.
-	igdbProvider := igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil)
-	// One Audible resolver serves links and searches; both use the admin's default marketplace (D031).
-	audibleProvider := audible.New(domain.AudibleRegion(cfg.AudibleRegion), nil)
-	// One instance per provider serves links, previews and searches. MusicBrainz in
-	// particular spaces its requests per instance, so a second one would double the rate.
-	tmdbProvider := tmdb.New(cfg.TMDBReadToken, nil)
-	mbProvider := musicbrainz.New(nil)
-	metadataService := metadata.NewService(store, tmdbProvider, mbProvider, igdbProvider, audibleProvider)
-	// A search type exists only when its provider is configured; it is the one switch.
-	searchers := map[string]metadata.Searcher{}
-	if cfg.TMDBReadToken != "" {
-		searchers["movie_tv"] = tmdbProvider
-	}
-	// MusicBrainz needs no key, so album and song search are always on.
-	searchers["album"] = mbProvider
-	searchers["song"] = mbProvider.SongSearcher()
-	if cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "" {
-		searchers["game"] = igdbProvider
-	}
-	// An unset marketplace means US, so audiobook search is always on; the
-	// catalog endpoint is undocumented, so failures reach the person as errors.
-	searchers["audiobook"] = audibleProvider
-	searchService := metadata.NewSearchService(searchers)
-	if cfg.AppriseURL != "" {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			if err := notifications.RunWorker(workerCtx, store, apprise.New(cfg.AppriseURL, cfg.AppriseConfigKey)); err != nil && workerCtx.Err() == nil {
-				logger.Error("Apprise notification worker stopped", "error", err)
-			}
-		}()
-	}
+	// The TMDB token, IGDB credentials and Apprise key are read per call from one
+	// swappable set, so saving them in Settings applies at once (D039).
+	providers := newProviderSet(cfg, boot.Unreadable, store, func(ctx context.Context) (booted, error) {
+		return resolveConfig(ctx, envCfg, store, logger)
+	}, nil)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		if err := notifications.RunWorker(workerCtx, store, providers); err != nil && workerCtx.Err() == nil {
+			logger.Error("Apprise notification worker stopped", "error", err)
+		}
+	}()
 	runner := jobs.NewRunner(store)
 	runner.Logger = logger
 	aliaser := musicbrainz.NewAliaser(nil, musicbrainz.DefaultMinInterval)
@@ -121,6 +95,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	}
 	syncer := newSourceSyncer(workerCtx, runner, &workers, map[string]syncSource{})
 	ops := opstatus.New(rt.Providers, rt.Sources, store)
+	providers.setOnStatus(ops.SetProviders)
 	manager := &sourceManager{
 		ctx: workerCtx, workers: &workers, runner: runner, logger: logger, envCfg: envCfg, store: store, adapters: adapters,
 		syncer: syncer, ops: ops, secrets: secretsService, running: map[string]*running{},
@@ -136,10 +111,10 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 
 	handler, err := httpapi.NewRouter(httpapi.Deps{
 		Logger: logger, Build: build, Readiness: store, Auth: authHandler,
-		Requests: requests.New(store), Resolver: metadataService, Inbox: store, MatchReview: store,
+		Requests: requests.New(store), Resolver: providers, Inbox: store, MatchReview: store,
 		MoviePreview: store,
 		JobRuns:      store, Status: ops, Users: store, People: store, Approvals: store, SetupState: store, Syncer: syncer,
-		Checklist: checklist.New(ops, store), IGDB: igdbSettingsService{store: store, envID: envCfg.IGDBClientID}, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: searchService, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
+		Checklist: checklist.New(ops, store), IGDB: igdbSettingsService{store: store, envID: envCfg.IGDBClientID, providers: providers}, Secrets: reloadingSecrets{Service: secretsService, manager: manager, providers: providers, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: providers, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize HTTP API: %w", err)

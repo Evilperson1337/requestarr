@@ -13,15 +13,15 @@ const needs: Record<string, { logo: string; secret?: string; label?: string; hel
     apprise: { logo: 'apprise', secret: 'apprise_config_key', label: 'Apprise configuration key', help: 'Outbound notifications. The server address is REQUESTARR_APPRISE_URL; the configuration key is saved here.' },
 }
 
-export function ProviderIntegrations({ providers, keys, csrfToken, onRequestError }: { providers: Provider[]; keys: string[]; csrfToken: string; onRequestError: (error: unknown) => void }) {
+export function ProviderIntegrations({ providers, keys, csrfToken, onRequestError, onChanged }: { providers: Provider[]; keys: string[]; csrfToken: string; onRequestError: (error: unknown) => void; onChanged?: () => void }) {
     const shown = keys.map(key => providers.find(provider => provider.key === key)).filter((provider): provider is Provider => !!provider)
     return <ul className="integrations">{shown.map(provider => {
         const spec = needs[provider.key] ?? { logo: provider.key }
         const configured = provider.configured
         const status = provider.note ? provider.note : provider.key === 'musicbrainz' ? 'Ready' : configured ? 'Configured' : 'Not configured'
         return <IntegrationCard key={provider.key} slug={spec.logo} name={provider.name} status={status} tone={provider.note ? 'warn' : configured ? 'on' : 'off'} configurable={!!spec.secret} meta={spec.help} setUp={!!spec.secret && !configured}>
-            {provider.key === 'igdb' && <IgdbClientId csrfToken={csrfToken} onRequestError={onRequestError} />}
-            {spec.secret && <SecretField name={spec.secret} label={spec.label ?? spec.secret} csrfToken={csrfToken} onRequestError={onRequestError} />}
+            {provider.key === 'igdb' && <IgdbClientId csrfToken={csrfToken} onRequestError={onRequestError} onChanged={onChanged} />}
+            {spec.secret && <SecretField name={spec.secret} label={spec.label ?? spec.secret} csrfToken={csrfToken} onRequestError={onRequestError} appliesImmediately onChanged={onChanged} />}
         </IntegrationCard>
     })}</ul>
 }
