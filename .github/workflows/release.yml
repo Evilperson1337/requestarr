@@ -66,12 +66,12 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           flavor: latest=false
-          # vX.Y.Z always; vX.Y only for stable tags (the action omits it for
-          # pre-releases so a release candidate never moves vX.Y); latest only
-          # for stable tags, never for a tag with a pre-release suffix.
+          # The exact git tag (vX.Y.Z, with its v) always. A semver pattern would drop the v.
+          # vX.Y only for stable tags: the regex needs a plain vX.Y.Z, so a pre-release never
+          # moves it. latest only for stable tags, never for a tag with a pre-release suffix.
           tags: |
-            type=semver,pattern=v{{version}}
-            type=semver,pattern=v{{major}}.{{minor}}
+            type=ref,event=tag
+            type=match,pattern=^(v\d+\.\d+)\.\d+$,group=1
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
       - name: Build and push (amd64, arm64) with SBOM and provenance
         id: build

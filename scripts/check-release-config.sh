@@ -28,8 +28,26 @@ done
 has "$rel" "ghcr.io/evilperson1337/requestarr" "the image name"
 has "$rel" "platforms: linux/amd64,linux/arm64" "both platforms"
 has "$rel" "file: \./Dockerfile" "the repository Dockerfile"
-has "$rel" "type=semver,pattern=v\{\{version\}\}" "the vX.Y.Z tag rule"
-has "$rel" "type=semver,pattern=v\{\{major\}\}\.\{\{minor\}\}" "the vX.Y tag rule"
+# docker/metadata-action drops a literal v from a semver pattern (the first release was published
+# as 0.1.0-rc.1, not v0.1.0-rc.1), so the tags are the git tag itself plus a regex for vX.Y.
+has "$rel" "type=ref,event=tag" "the exact git tag, with its v, as the vX.Y.Z tag"
+if grep -Eq "type=semver" "$rel"; then fail "$rel: type=semver drops the v prefix; use type=ref and type=match"; fi
+pattern="$(sed -n 's/^ *type=match,pattern=\(.*\),group=1$/\1/p' "$rel")"
+if [[ -z "$pattern" ]]; then
+  fail "$rel: missing the vX.Y match rule"
+else
+  python3 -I - "$pattern" <<'PY' || fail "$rel: the vX.Y match rule gives the wrong tags"
+import re, sys
+rule = re.compile(sys.argv[1])
+def short(tag):
+    found = rule.search(tag)
+    return found.group(1) if found else None
+cases = {"v0.1.0": "v0.1", "v1.12.3": "v1.12", "v0.1.0-rc.1": None, "v0.1.0-beta.2": None}
+wrong = {tag: short(tag) for tag, want in cases.items() if short(tag) != want}
+if wrong:
+    sys.exit("vX.Y rule gave %r" % wrong)
+PY
+fi
 has "$rel" "latest=false" "latest disabled by default"
 has "$rel" "value=latest,enable=.*!contains\(github\.ref_name, *'-'\)" "latest only for stable tags"
 
