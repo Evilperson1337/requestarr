@@ -5,7 +5,7 @@ package postgres
 import "testing"
 
 func TestUnreadInboxCountIsPerUserAndDropsWhenRead(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	a, b := integrationUser(t, ctx, s), integrationUser(t, ctx, s)
 	add := func(user, channel string) string {
 		id := newUUID()

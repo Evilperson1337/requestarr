@@ -14,13 +14,11 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/secrets"
-	"github.com/evilperson1337/requestarr/internal/setup"
 )
 
 const probeValue = "tmdb-token-PROBE-9f3c1"
 
 type fakeSecrets struct {
-	fakeSetup
 	enabled          bool
 	statuses         []secrets.Status
 	setErr, clearErr error
@@ -48,7 +46,7 @@ func (f *fakeSecrets) Clear(_ context.Context, actor string, name secrets.Name) 
 
 func secretsHTTP(svc *fakeSecrets, logs *bytes.Buffer, role, method, path, body string) *httptest.ResponseRecorder {
 	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	h := NewWithSetup(logger, buildinfo.Info{}, fakeReadiness{}, nil, nil, svc,
+	h := NewWithBackend(logger, buildinfo.Info{}, fakeReadiness{}, nil, nil, svc,
 		&auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: role}}}, Secret: "test-secret", PublicURL: "http://example.test"})
 	r := httptest.NewRequest(method, "/api/v1"+path, strings.NewReader(body))
 	r.AddCookie(&http.Cookie{Name: "requestarr_session", Value: "valid"})
@@ -158,7 +156,7 @@ func TestSecretsWritesRequireCSRFAndSameOrigin(t *testing.T) {
 			{"missing origin", "", "csrf-token", "origin_rejected"},
 		} {
 			svc := &fakeSecrets{}
-			h := NewWithSetup(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), buildinfo.Info{}, fakeReadiness{}, nil, nil, svc,
+			h := NewWithBackend(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), buildinfo.Info{}, fakeReadiness{}, nil, nil, svc,
 				&auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "admin"}}}, Secret: "test-secret", PublicURL: "http://example.test"})
 			r := httptest.NewRequest(method, "/api/v1/admin/secrets/tmdb_read_token", strings.NewReader(`{"value":"x"}`))
 			r.AddCookie(&http.Cookie{Name: "requestarr_session", Value: "valid"})
@@ -178,14 +176,12 @@ func TestSecretsWritesRequireCSRFAndSameOrigin(t *testing.T) {
 	}
 }
 
-func TestSecretsStayWritableAfterSetupFinishWhileDraftIsFrozen(t *testing.T) {
-	svc := &fakeSecrets{fakeSetup: fakeSetup{err: setup.ErrCompleted}}
+func TestSecretsAreWritableAtAnyTime(t *testing.T) {
+	svc := &fakeSecrets{}
 	if w := secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodPut, "/admin/secrets/tmdb_read_token", `{"value":"`+probeValue+`"}`); w.Code != 204 {
-		t.Fatalf("replace after finish: %d", w.Code)
+		t.Fatalf("replace: %d", w.Code)
 	}
 	if w := secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodDelete, "/admin/secrets/tmdb_read_token", ""); w.Code != 204 {
-		t.Fatalf("clear after finish: %d", w.Code)
+		t.Fatalf("clear: %d", w.Code)
 	}
-	assertErrorEnvelope(t, secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodPut, "/admin/setup/draft", validSetupDraftBody()), 409, "setup_already_complete")
-	assertErrorEnvelope(t, secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodPost, "/admin/setup/finish", `{"expectedRevision":1}`), 409, "setup_already_complete")
 }

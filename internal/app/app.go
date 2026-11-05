@@ -13,6 +13,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
+	"github.com/evilperson1337/requestarr/internal/checklist"
 	"github.com/evilperson1337/requestarr/internal/config"
 	"github.com/evilperson1337/requestarr/internal/devlogs"
 	"github.com/evilperson1337/requestarr/internal/domain"
@@ -35,7 +36,6 @@ import (
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/tmdb"
 	"github.com/evilperson1337/requestarr/internal/requests"
 	"github.com/evilperson1337/requestarr/internal/secrets"
-	"github.com/evilperson1337/requestarr/internal/setup"
 	"github.com/evilperson1337/requestarr/internal/setup/checks"
 	"github.com/evilperson1337/requestarr/internal/sources"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
@@ -132,7 +132,6 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		logs = &devlogs.Recorder{}
 	}
 	checker := checks.New(checks.Config{Diagnostics: logs, Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, Secrets: secretsService})
-	setupService := setup.NewService(store, checker, setupRuntime)
 	connections := &connectionsService{store: store, boot: store, envCfg: envCfg, manager: manager, secrets: secretsService, checker: checker, logger: logger}
 
 	handler, err := httpapi.NewRouter(httpapi.Deps{
@@ -140,7 +139,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		Requests: requests.New(store), Resolver: metadataService, Inbox: store, MatchReview: store,
 		MoviePreview: store,
 		JobRuns:      store, Status: ops, Users: store, People: store, Approvals: store, SetupState: store, Syncer: syncer,
-		Wizard: setupService, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: searchService, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
+		Checklist: checklist.New(ops, store), IGDB: igdbSettingsService{store: store, envID: envCfg.IGDBClientID}, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: searchService, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize HTTP API: %w", err)

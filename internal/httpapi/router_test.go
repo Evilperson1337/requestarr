@@ -109,7 +109,7 @@ func TestProductAPIRoutesFailClosedWithoutAuthentication(t *testing.T) {
 // that changes state is CSRF-protected (the auth routes that check it
 // themselves excepted) and no administrator route is public.
 func TestRouteTablePolicy(t *testing.T) {
-	_, rt := newRouter(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, &fakeSetup{}, &auth.Handler{Secret: "test-secret"})
+	_, rt := newRouter(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, &auth.Handler{Secret: "test-secret"})
 	policies := rt.Policies()
 	if len(policies) < 25 {
 		t.Fatalf("only %d routes registered", len(policies))
@@ -121,8 +121,9 @@ func TestRouteTablePolicy(t *testing.T) {
 		"POST /requests/{requestID}/transition":  {Access: accessSession, CSRF: true},
 		"POST /admin/sources/{source}/sync":      {Access: accessAdmin, CSRF: true},
 		"PUT /admin/users/{userID}/role":         {Access: accessAdmin, CSRF: true},
-		"PUT /admin/setup/draft":                 {Access: accessAdmin, CSRF: true},
-		"GET /admin/setup/draft":                 {Access: accessAdmin},
+		"POST /admin/checklist/dismiss":          {Access: accessAdmin, CSRF: true},
+		"GET /admin/checklist":                   {Access: accessAdmin},
+		"PUT /admin/settings/igdb":               {Access: accessAdmin, CSRF: true},
 		"POST /setup/claim-admin":                {Access: accessSession, CSRF: true},
 		"POST /auth/logout":                      {Access: accessSession},
 		"GET /auth/login":                        {Access: accessPublic},
@@ -274,7 +275,7 @@ func TestRoleChangeEndpointAcceptsViewerAndReportsGuards(t *testing.T) {
 // A missing dependency stops startup instead of leaving a route that answers
 // 503 later.
 func TestNewRouterNamesEveryMissingDependency(t *testing.T) {
-	if _, err := NewRouter(Deps{}); err == nil || !strings.Contains(err.Error(), "Logger") || !strings.Contains(err.Error(), "Wizard") || !strings.Contains(err.Error(), "Secrets") {
+	if _, err := NewRouter(Deps{}); err == nil || !strings.Contains(err.Error(), "Logger") || !strings.Contains(err.Error(), "Checklist") || !strings.Contains(err.Error(), "Secrets") {
 		t.Fatalf("err = %v", err)
 	}
 	full := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, &auth.Handler{Secret: "test-secret"})

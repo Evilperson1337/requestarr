@@ -67,6 +67,6 @@ Admin-only nested settings navigation:
 
 Library cards show health, last successful sync, next sync, enabled authoritative media types, item counts, Test Connection, Sync Now, Edit.
 
-## Setup wizard
+## Get started checklist
 
-Persistent left-side progress list with clear current/completed steps. External configuration steps expose validation/test actions before continuing. Final Review summarizes every consequential setting before setup is committed and bootstrap access is invalidated.
+After the first-admin claim, administrators land on a short checklist (D038) computed from live state. Required items (a library connected and synced, a metadata provider) and optional ones (notifications, the default role for new people) are listed apart, each with a text status and a link to the Settings section that applies it. The page has no fields of its own and can be dismissed for the instance. The earlier seven-step draft wizard with a Review step was retired.

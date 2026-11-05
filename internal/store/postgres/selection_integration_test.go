@@ -12,7 +12,7 @@ import (
 )
 
 func TestRequestSelectionIsStoredMergedAndFollowedIntegration(t *testing.T) {
-	ctx, s, first := setupDraftStore(t)
+	ctx, s, first := integrationStore(t)
 	second := integrationUser(t, ctx, s)
 	item, err := s.Upsert(ctx, domain.ResolvedItem{Item: domain.CatalogItem{MediaType: domain.MediaTV, Provider: "tmdb", ProviderID: newUUID(), Title: "Selection fixture"}})
 	if err != nil {
@@ -54,7 +54,7 @@ func TestRequestSelectionIsStoredMergedAndFollowedIntegration(t *testing.T) {
 }
 
 func TestLibraryConnectionsAreSavedReplacedAndRemovedIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	t.Cleanup(func() { _ = s.DeleteLibraryConnection(context.Background(), "navidrome") })
 	if err := s.PutLibraryConnection(ctx, sources.Connection{Slug: "navidrome", URL: "https://one.example.test", Username: "alice"}); err != nil {
 		t.Fatal(err)

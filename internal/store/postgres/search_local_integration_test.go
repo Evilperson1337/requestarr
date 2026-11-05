@@ -17,7 +17,7 @@ func key(media domain.MediaType, id string) domain.SearchKey {
 // A library item shows as held with no catalog row, movie and TV IDs are
 // separate namespaces, and a never-seen item has no local state at all.
 func TestSearchLocalStatesLibraryItemWithoutCatalogRowIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	d := inventory.Descriptor{ID: newUUID(), Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV}, IdentifierKinds: []string{"tmdb"}}
 	id := newUUID()[:8]
 	snap := inventory.Snapshot{SourceID: d.ID, Complete: true, ObservedAt: time.Now().UTC(), Items: []inventory.Item{

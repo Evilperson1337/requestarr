@@ -2,26 +2,11 @@ export type User = { id: string; role: string; email: string; displayName: strin
 // firstAdminClaim is the caller's own verified identity, sent only while first-admin setup is unclaimed (D037).
 export type FirstAdminClaim = { issuer: string; subject: string; issuerIsConfigured: boolean }
 export type Session = { user: User; csrfToken: string; firstAdminClaim?: FirstAdminClaim }
-export type SetupStatus = { complete: boolean; required: boolean; wizardComplete?: boolean }
-export type SetupStep = 'general' | 'authentication' | 'providers' | 'libraries' | 'notifications' | 'policy' | 'review'
+export type SetupStatus = { complete: boolean; required: boolean }
 export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome' | 'library:audiobookshelf' | 'notifications'
-export type SourceKind = { slug: string; name: string; urlEnv: string; mediaTypes: SetupSource['mediaTypes']; credentials: { role: 'token' | 'username' | 'password'; env: string; secret?: string; label?: string }[] }
-export type SetupSource = { enabled: boolean; url: string; mediaTypes: ('movie' | 'tv' | 'album' | 'song' | 'game' | 'audiobook')[]; tokenEnv: string; username: string; passwordEnv: string }
-export type SetupSettings = {
-    general: { instanceName: string; timezone: string; publicUrl: string }
-    authentication: { issuer: string; clientId: string; clientSecretEnv: string }
-    providers: { tmdbEnabled: boolean; tmdbTokenEnv: string; musicBrainzEnabled: boolean; musicBrainzContact: string; igdbEnabled: boolean; igdbClientId: string; igdbClientSecretEnv: string }
-    libraries: { jellyfin: SetupSource; plex: SetupSource; romm: SetupSource; navidrome: SetupSource; audiobookshelf: SetupSource }
-    notifications: { appriseEnabled: boolean; appriseUrl: string; appriseConfigKeyEnv: string }
-    policy: { autoApproveMediaTypes: SetupSource['mediaTypes'] }
-}
-export type SetupDraft = {
-    revision: number; currentStep: SetupStep; settings: SetupSettings; updatedAt: string; inactive: boolean
-    validations: { target: SetupTarget; revision: number; valid: boolean; code: string; message: string; checkedAt: string; expiresAt: string }[] | null
-    environment: { name: string; secret: boolean; configured: boolean; needsRestart: boolean; desiredValue?: string }[] | null
-    blockers: { target: SetupTarget; reason: 'not_checked' | 'failed' | 'expired' }[] | null
-    completedAt: string | null
-}
+export type ChecklistItem = { key: 'libraries' | 'metadata' | 'notifications' | 'people'; title: string; required: boolean; done: boolean; detail?: string }
+export type Checklist = { items: ChecklistItem[]; dismissed: boolean; visible: boolean }
+export type IgdbSettings = { clientId: string; fromEnvironment: boolean }
 export type CatalogItem = { ID: string; MediaType: string; Provider: string; ProviderID: string; Title: string; Year: number; ArtworkURL: string; ArtworkKind: string; ExternalURL: string; Metadata?: Record<string, unknown> }
 export type Selection = { tracks?: { id: string; position?: number; title: string }[]; seasons?: number[]; episodes?: { season: number; episode: number }[] }
 export type Platform = { providerId: string; key: string; name: string }

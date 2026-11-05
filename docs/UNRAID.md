@@ -168,11 +168,11 @@ Then:
 
 1. Open your public URL and sign in as the person who will be the admin.
 2. On the claim page, run the command it shows, paste the token it prints into the single token field, then submit.
-3. You are now the admin. Next, connect your libraries in Settings, Integrations (step 7).
+3. You are now the admin and land on **Get started**, a short checklist of what is left to set up. Each item opens the part of Settings that applies it (step 7).
 
 ## 7. Connect a library
 
-Open **Settings**, then **Integrations**, and under **Media libraries** add each **Source** (Plex, Jellyfin, Navidrome, RomM or Audiobookshelf) with its address and credential. Saving an address or its credential there applies at once; no restart is needed. TMDB, IGDB and Apprise credentials, under **Metadata** and **Notifications** on the same page, apply after a restart. Saved credentials are Stored secrets, encrypted with the master key. The setup wizard at `/setup` only keeps inactive drafts and applies nothing; see [Setup wizard](SETUP_WIZARD.md).
+Open **Settings**, then **Integrations**, and under **Media libraries** add each **Source** (Plex, Jellyfin, Navidrome, RomM or Audiobookshelf) with its address and credential. Saving an address or its credential there applies at once; no restart is needed. TMDB, IGDB and Apprise credentials, under **Metadata** and **Notifications** on the same page, apply after a restart. Saved credentials are Stored secrets, encrypted with the master key. The **Get started** checklist (`/get-started`) shows what is still open and links here: a connected and synced library and a metadata provider are required, notifications and the default role for new people are optional, and you can dismiss it. The IGDB client ID is a field beside the IGDB secret on this page (it applies after a restart; `REQUESTARR_IGDB_CLIENT_ID` still wins). See [First-run setup](SETUP_WIZARD.md).
 
 **Library addresses on your own network may use `http://`.** A library address must be `https://`, unless its host is a **private host**, judged only by how the address is written:
 

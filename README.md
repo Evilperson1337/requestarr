@@ -18,7 +18,7 @@ Requestarr deliberately stops at **request management, availability reconciliati
   - Movies/TV: Plex and/or Jellyfin
   - Music: Plex, Jellyfin, and/or Navidrome/OpenSubsonic
   - Games: RomM
-- First-run setup wizard for OIDC, metadata providers, libraries, notifications, and request policy.
+- First-run Get started checklist that links to the live Settings for libraries, metadata providers, notifications and the default role.
 - Local normalized PostgreSQL state, background synchronization, stale-while-revalidate behavior, and targeted request reconciliation.
 
 ## Architecture
@@ -83,9 +83,9 @@ To run Requestarr on an Unraid server (template or compose), follow the [Unraid 
 
 For initial administrator provisioning, see [`docs/OIDC_AUTH.md`](docs/OIDC_AUTH.md): operators run `requestarr setup-token --issuer <issuer> --subject <subject>`, then the matching authenticated OIDC user claims it once.
 
-After claiming admin, use **Setup** for the resumable draft (General through Review) with explicit
-connection checks. Settings remain inactive and secrets stay in the
-environment; **Finish** completes the wizard once every required check passes. See the [setup guide](docs/SETUP_WIZARD.md), [upgrade and backup notes](docs/UPGRADE_AND_BACKUP.md) and [project status](docs/research/PROJECT_STATUS.md).
+After claiming admin you land on **Get started**, a checklist computed from the live state that links to
+the part of Settings that applies each item; everything there applies live (provider credentials after a
+restart). See the [setup guide](docs/SETUP_WIZARD.md), [upgrade and backup notes](docs/UPGRADE_AND_BACKUP.md) and [project status](docs/research/PROJECT_STATUS.md).
 
 The frontend lives under `web/`:
 

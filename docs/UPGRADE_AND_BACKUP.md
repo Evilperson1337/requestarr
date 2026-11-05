@@ -87,7 +87,7 @@ backup, keep the previous version running, and report the migration error.
 | 000015 | Persistent job runs |
 | 000016-000019 | Multi-source inventory, catalog item aliases, platform-aware evidence, match suggestions |
 | 000020 | Request list snapshots (pagination) |
-| 000021-000022 | Setup wizard drafts, wizard completion |
+| 000021-000022 | Setup wizard drafts, wizard completion (unused since D038; the tables stay) |
 | 000023 | Encrypted stored secrets and their value-free audit events |
 
 ## Operational notes

@@ -23,7 +23,7 @@ Ran with `REQUESTARR_POSTGRES_PORT=5433` because port 5432 was in use on the tes
 | V1 required item | Status | Notes |
 |---|---|---|
 | Go service, React/TS UI, PostgreSQL | Done | Single binary embeds the UI; built in every release path |
-| First-run wizard, resumable draft | Done, with a caveat | General through Finish, shared draft, connection checks, Finish gated on passing checks. The draft is **inactive**: applying configuration is still environment edit plus restart |
+| First-run Get started checklist | Done | After the first-admin claim, a checklist computed from live state links to the Settings that apply each item (D038). It replaced the inactive draft wizard, which applied nothing |
 | OIDC-only auth, Keycloak tested | Done | Scripted login passes; dev-only HTTP loopback issuer (D022) |
 | Viewer / requester / admin roles | Done | Role matrix tests cover every mutating route |
 | TMDB, MusicBrainz, IGDB resolvers | Done (fixtures) | Never run against the live services |
@@ -49,8 +49,8 @@ Tickets 01-28 delivered: documentation refresh, branch rename, AGPL licence and 
 ## 4. Remaining gaps (explicit)
 
 1. **No live acceptance.** TMDB, IGDB, MusicBrainz, Jellyfin, Plex, RomM, Navidrome, Audiobookshelf, Audnexus/Audible and Apprise have only been exercised against fixtures/mocks. Real-service runs may surface contract drift.
-2. **Wizard settings are not applied.** Saved drafts and Finish do not change runtime configuration; the operator still edits the environment and restarts.
-3. **Request policy has no effect.** The wizard records which media types skip approval, but nothing reads it; every request still awaits approval.
+2. **Provider credentials apply after a restart.** Library connections apply at once; TMDB, IGDB (secret and client ID) and Apprise secrets still apply after a restart (live reload is planned in the UX review).
+3. **Request policy has no effect.** The retired wizard recorded which media types skip approval, but nothing read it; every request still awaits approval.
 4. **Release not finished.** `release.yml` has never run on a tag. The multi-arch image, SBOM, provenance and signing from D023 are now written into the workflow (see RELEASES.md) but unconfirmed until a tag is pushed, so no image is published yet.
 5. **Accessibility not fully closed** (ticket 26 is `ready-for-human`): no manual screen-reader pass, keyboard walk-through only for the request dialog, only two widths tested, and the Requests page and dialog were not compared with the mockups. Known mockup gaps: Home panels, per-library settings cards with Test Connection, notification badge, activity page. See [the audit](../ACCESSIBILITY_AUDIT.md).
 6. **No log viewer** in operational status (V1 scope names "logs").
@@ -62,6 +62,6 @@ Tickets 01-28 delivered: documentation refresh, branch rename, AGPL licence and 
 
 1. Run the stack against real Jellyfin/Plex/RomM/Navidrome/TMDB/IGDB/Apprise instances and fix what breaks.
 2. Implement D023 in `release.yml` and cut a pre-release tag to prove the pipeline.
-3. Decide whether request policy and wizard activation are V1 or post-V1; either enforce them or narrow the scope text.
+3. Decide whether request policy is V1 or post-V1; either enforce them or narrow the scope text.
 4. Finish the accessibility pass by hand and add the log view or drop "logs" from the scope.
 5. Security review of auth, setup checks (outbound request handling) and the admin routes.

@@ -37,7 +37,7 @@ func libraryItem(t *testing.T, ctx context.Context, s *Store, sourceItemID strin
 }
 
 func TestIssuesAreSharedPerItemKindAndPartAndSurviveTheItemLeavingIntegration(t *testing.T) {
-	ctx, s, first := setupDraftStore(t)
+	ctx, s, first := integrationStore(t)
 	second := integrationUser(t, ctx, s)
 	svc := issues.New(s.Issues())
 	item := libraryItem(t, ctx, s, "series-"+newUUID()[:8], domain.MediaTV)
@@ -102,7 +102,7 @@ func TestIssuesAreSharedPerItemKindAndPartAndSurviveTheItemLeavingIntegration(t 
 }
 
 func TestReportsAreRateLimitedPerUserIntegration(t *testing.T) {
-	ctx, s, user := setupDraftStore(t)
+	ctx, s, user := integrationStore(t)
 	svc := issues.New(s.Issues())
 	for i := 0; i < issues.ReportsPerHour; i++ {
 		item := libraryItem(t, ctx, s, "limit-"+newUUID()[:8], domain.MediaMovie)
@@ -117,7 +117,7 @@ func TestReportsAreRateLimitedPerUserIntegration(t *testing.T) {
 }
 
 func TestIssueNotificationsReachAdminsAndReportersOnlyIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	admin, reporter, leaver, bystander := integrationUser(t, ctx, s), integrationUser(t, ctx, s), integrationUser(t, ctx, s), integrationUser(t, ctx, s)
 	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, admin); err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestIssueNotificationsReachAdminsAndReportersOnlyIntegration(t *testing.T) 
 }
 
 func TestIssueListDetailAndCountsRespectWhoIsAskingIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	mine, theirs, admin := integrationUser(t, ctx, s), integrationUser(t, ctx, s), integrationUser(t, ctx, s)
 	svc := issues.New(s.Issues())
 	item := libraryItem(t, ctx, s, "list-"+newUUID()[:8], domain.MediaMovie)
@@ -246,7 +246,7 @@ func TestIssueListDetailAndCountsRespectWhoIsAskingIntegration(t *testing.T) {
 }
 
 func TestAnIssueInProgressStillHoldsItsSlotAndCountsIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	admin, a, b := integrationUser(t, ctx, s), integrationUser(t, ctx, s), integrationUser(t, ctx, s)
 	svc := issues.New(s.Issues())
 	item := libraryItem(t, ctx, s, "wip-"+newUUID()[:8], domain.MediaMovie)

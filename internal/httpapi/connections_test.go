@@ -42,7 +42,7 @@ func (f *fakeConnections) TestConnection(context.Context, string) (ConnectionTes
 
 func connectionHTTP(svc *fakeConnections, logs *bytes.Buffer, body string) *httptest.ResponseRecorder {
 	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	h := NewWithSetup(logger, buildinfo.Info{}, svc, nil, nil, nil,
+	h := NewWithBackend(logger, buildinfo.Info{}, svc, nil, nil, nil,
 		&auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "admin"}}}, Secret: "test-secret", PublicURL: "http://example.test"})
 	r := httptest.NewRequest(http.MethodPut, "/api/v1/admin/library-connections/plex", strings.NewReader(body))
 	r.AddCookie(&http.Cookie{Name: "requestarr_session", Value: "valid"})

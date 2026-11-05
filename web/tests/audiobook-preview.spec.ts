@@ -12,7 +12,7 @@ const placeholder = { ...book, Item: { ...book.Item, Title: 'Audiobook B08G9PRS1
 async function open(page: Page, resolved: any, input: string, onResolve?: (body: unknown) => void, onRequest?: (body: unknown) => void) {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
         if (path.endsWith('/resolve')) { onResolve?.(route.request().postDataJSON()); return route.fulfill({ json: resolved }) }
         if (path.endsWith('/requests') && route.request().method() === 'POST') {
@@ -73,7 +73,7 @@ test('the Library page has an Audiobooks tab with square covers and no issue but
     const asked: string[] = []
     await page.route('**/api/v1/**', route => {
         const url = new URL(route.request().url())
-        if (url.pathname.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (url.pathname.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (url.pathname.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u', role: 'requester', displayName: 'U' }, csrfToken: 'c' } })
         if (url.pathname.endsWith('/library/items')) {
             asked.push(url.searchParams.get('type') ?? '')

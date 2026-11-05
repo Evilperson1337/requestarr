@@ -11,7 +11,7 @@ const series = {
 async function openSeries(page: Page, resolved: unknown = series, role = 'requester') {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'user-1', role, displayName: 'User' }, csrfToken: 'csrf-token' } })
         if (path.endsWith('/resolve')) return route.fulfill({ json: resolved })
         if (path.includes('/catalog/')) return route.fulfill({ json: series.Preview })

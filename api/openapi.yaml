@@ -111,7 +111,7 @@ paths:
       operationId: getSetupStatus
       responses:
         '200':
-          description: Minimal public first-run state; exposes no draft or identity information
+          description: Minimal public first-run state; exposes no identity information
           content:
             application/json:
               schema:
@@ -120,7 +120,6 @@ paths:
                 properties:
                   complete: { type: boolean, description: "First-admin bootstrap is complete" }
                   required: { type: boolean }
-                  wizardComplete: { type: boolean, description: "An administrator finished the setup wizard (Finish); distinct from bootstrap completion" }
   /setup/claim-admin:
     post:
       operationId: claimInitialAdmin
@@ -945,7 +944,7 @@ paths:
       summary: Probe a Source with its current address and credentials (administrator only)
       description: >-
         An explicit check of this exact Source: one short read-only request, the same probe the
-        setup wizard uses. The message never contains a credential. Requires CSRF and a
+        library checks use. The message never contains a credential. Requires CSRF and a
         same-origin Origin header.
       parameters:
         - in: header
@@ -1049,73 +1048,78 @@ paths:
         '403': { description: "Administrator role or CSRF/Origin failure" }
         '404': { description: "unknown_secret" }
         '500': { description: "secret_update_failed; safe generic message" }
-  /admin/setup/source-kinds:
+  /admin/checklist:
     get:
-      operationId: listSourceKinds
-      summary: List the Source kinds the setup wizard can configure (administrator only)
+      operationId: getChecklist
+      summary: The Get started checklist, computed from live state (administrator only, D038)
       description: >-
-        The registry the wizard renders from: for each kind its slug, name, URL
-        environment variable, default media types and ordered credential fields.
-        A credential with a secret name is write-only and may be a stored secret.
+        Takes no input. Each item is derived from what the instance is configured with:
+        a library connected and synced, a metadata provider (TMDB or IGDB; MusicBrainz
+        is always on and does not count), notifications and the default role for new people.
+        `visible` is false once every required item is done or an administrator dismissed it.
+        Responses use Cache-Control no-store.
       responses:
         '200':
-          description: Source kinds in a stable order
+          description: The items and whether to keep offering the checklist
           content:
             application/json:
               schema:
                 type: object
-                required: [kinds]
+                required: [items, dismissed, visible]
                 properties:
-                  kinds:
+                  dismissed: { type: boolean, description: "An administrator dismissed the checklist; remembered for the instance" }
+                  visible: { type: boolean, description: "Not dismissed and at least one required item is open" }
+                  items:
                     type: array
                     items:
                       type: object
-                      required: [slug, name, urlEnv, mediaTypes, credentials]
+                      required: [key, title, required, done]
                       properties:
-                        slug: { type: string }
-                        name: { type: string }
-                        urlEnv: { type: string }
-                        mediaTypes: { type: array, items: { type: string } }
-                        credentials:
-                          type: array
-                          items:
-                            type: object
-                            required: [role, env]
-                            properties:
-                              role: { type: string, enum: [token, username, password] }
-                              env: { type: string }
-                              secret: { type: string, description: Stored secret name; absent for a plain field }
-                              label: { type: string, description: Label for the secret field; absent for a plain field }
+                        key: { type: string, enum: [libraries, metadata, notifications, people] }
+                        title: { type: string }
+                        required: { type: boolean }
+                        done: { type: boolean }
+                        detail: { type: string, description: "What is missing or what to do next; absent when done" }
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
-  /admin/setup/draft:
+        '500': { description: "checklist_failed" }
+  /admin/checklist/dismiss:
+    post:
+      operationId: dismissChecklist
+      summary: Dismiss the Get started checklist for the whole instance (administrator only)
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Dismissed; repeating the request is harmless }
+        '401': { description: Authentication required }
+        '403': { description: "Administrator role or CSRF/Origin failure" }
+        '500': { description: "checklist_failed" }
+  /admin/settings/igdb:
     get:
-      operationId: getSetupDraft
-      summary: Load or initialize the shared inactive setup draft (administrator only)
+      operationId: getIgdbSettings
+      summary: The non-secret IGDB client ID (administrator only)
       description: >-
-        Resumes the saved step and revision across sessions. Loads local state only;
-        performs no connection checks. Initial creation is idempotent and audited.
-        Bootstrap authorization remains separate; this draft neither activates
-        settings nor completes setup. Responses use Cache-Control no-store.
+        Responses use Cache-Control no-store. The client secret is a stored secret
+        (see /admin/secrets/{name}); only the client ID is a plain setting.
       responses:
         '200':
-          description: Typed non-secret draft and computed environment/restart panel
+          description: The effective client ID and whether an environment value supplies it
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SetupDraft' }
-        '401': { description: "Authentication required" }
-        '403': { description: "Administrator role required" }
-        '500': { description: "Safe generic setup failure" }
-        '503': { description: "Setup draft unavailable" }
+              schema: { $ref: '#/components/schemas/IgdbSettings' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '500': { description: "igdb_settings_failed" }
     put:
-      operationId: saveSetupDraft
-      summary: Save non-secret draft settings and resume position (administrator only)
+      operationId: setIgdbSettings
+      summary: Save the IGDB client ID (administrator only)
       description: >-
-        Optimistic revision check; a successful save increments revision and clears
-        previous connection results. Save is permitted despite failed connection
-        checks. Unknown fields, including secret-valued fields, are rejected and
-        never reflected. Only the listed fixed secret environment-variable names
-        are accepted. Does not activate configuration or mark setup complete.
+        Takes effect after a restart, like stored secrets. An empty value clears it.
+        An installation upgraded from the retired setup draft keeps the client ID it saved
+        there until one is saved here.
       parameters:
         - in: header
           name: X-CSRF-Token
@@ -1128,103 +1132,20 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [expectedRevision, currentStep, settings]
+              required: [clientId]
               properties:
-                expectedRevision: { type: integer, minimum: 1 }
-                currentStep: { type: string, enum: [general, authentication, providers, libraries, notifications, policy, review] }
-                settings: { $ref: '#/components/schemas/SetupSettings' }
+                clientId: { type: string, maxLength: 256 }
       responses:
         '200':
-          description: Saved draft and updated environment panel
+          description: Saved
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SetupDraft' }
-        '400': { description: "invalid_setup_input; unknown fields, malformed JSON, or oversized body (32 KiB cap)" }
-        '401': { description: "Authentication required" }
+              schema: { $ref: '#/components/schemas/IgdbSettings' }
+        '400': { description: "invalid_client_id; malformed body, control characters or over 256 characters" }
+        '401': { description: Authentication required }
         '403': { description: "Administrator role or CSRF/Origin failure" }
-        '409': { description: "setup_revision_conflict; reload saved draft before retrying" }
-        '422': { description: "invalid_setup_settings; invalid non-secret fields, URLs, timezone, or secret-reference names" }
-        '500': { description: "Safe generic setup failure" }
-        '503': { description: "Setup draft unavailable" }
-  /admin/setup/validate:
-    post:
-      operationId: validateSetupDraftConnection
-      summary: Explicitly check one saved draft target (administrator only)
-      description: >-
-        Runs a context-cancellable connection probe outside database transactions,
-        bounded to 10 seconds with a 1 MiB JSON response limit and no redirects.
-        Checks only the saved revision and refuses to record a stale result after
-        a concurrent save. Connection failures are safe persisted validation results,
-        not destructive draft edits. Discovery does not prove interactive OIDC login.
-        Results expire after ten minutes and never activate settings or finish setup.
-      parameters:
-        - in: header
-          name: X-CSRF-Token
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [expectedRevision, target]
-              properties:
-                expectedRevision: { type: integer, minimum: 1 }
-                target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, library:audiobookshelf, notifications] }
-      responses:
-        '200':
-          description: Draft with a revision-bound safe validation result; valid may be false
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SetupDraft' }
-        '400': { description: "invalid_setup_input; malformed, unknown, or oversized input" }
-        '401': { description: "Authentication required" }
-        '403': { description: "Administrator role or CSRF/Origin failure" }
-        '409': { description: "setup_revision_conflict; saved settings changed before/during the check" }
-        '422': { description: "invalid_setup_settings; invalid revision or target" }
-        '500': { description: "Safe generic setup failure" }
-        '503': { description: "Setup draft unavailable" }
-  /admin/setup/finish:
-    post:
-      operationId: finishSetup
-      summary: Mark the setup wizard complete (administrator only)
-      description: >-
-        Succeeds only when every required check (General, Authentication, each
-        enabled provider, library and Apprise) has a passing, unexpired result
-        for the exact saved revision. Authentication stays OIDC-only; finishing
-        adds no local-password path and does not hot-apply the draft. Repeating
-        a finished request returns the completed draft. After completion, draft
-        saves and checks return setup_already_complete.
-      parameters:
-        - in: header
-          name: X-CSRF-Token
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [expectedRevision]
-              properties:
-                expectedRevision: { type: integer, minimum: 1 }
-      responses:
-        '200':
-          description: Completed draft with completedAt set
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SetupDraft' }
-        '400': { description: "invalid_setup_input" }
-        '401': { description: "Authentication required" }
-        '403': { description: "Administrator role or CSRF/Origin failure" }
-        '409': { description: "setup_revision_conflict; reload the saved draft" }
-        '422': { description: "setup_not_ready; a required check is missing, failed or expired" }
-        '500': { description: "Safe generic setup failure" }
-        '503': { description: "Setup draft unavailable" }
+        '409': { description: "managed_by_environment; REQUESTARR_IGDB_CLIENT_ID wins and cannot be changed here" }
+        '500': { description: "igdb_settings_failed" }
   /admin/match-suggestions:
     get:
       operationId: listMatchSuggestions
@@ -1768,63 +1689,12 @@ components:
           description: Safe classification only. The protected production dial path may collapse network failures to network.
         httpStatus: { type: integer, minimum: 100, maximum: 599, description: Present only when an HTTP response was received }
         durationMs: { type: integer, minimum: 0 }
-    SetupSettings:
+    IgdbSettings:
       type: object
-      additionalProperties: false
-      required: [general, authentication, providers, libraries, notifications, policy]
+      required: [clientId, fromEnvironment]
       properties:
-        general:
-          type: object
-          additionalProperties: false
-          required: [instanceName, timezone, publicUrl]
-          properties:
-            instanceName: { type: string, maxLength: 120 }
-            timezone: { type: string, maxLength: 128, description: "Empty while drafting or a valid IANA timezone" }
-            publicUrl: { type: string, maxLength: 2048, description: "Empty while drafting or HTTPS URL without credentials/query/fragment; HTTP allowed only in development" }
-        authentication:
-          type: object
-          additionalProperties: false
-          required: [issuer, clientId, clientSecretEnv]
-          properties:
-            issuer: { type: string, maxLength: 2048, description: "OIDC discovery issuer; same URL safety rules as publicUrl" }
-            clientId: { type: string, maxLength: 256 }
-            clientSecretEnv: { type: string, enum: [REQUESTARR_OIDC_CLIENT_SECRET] }
-        providers:
-          type: object
-          additionalProperties: false
-          required: [tmdbEnabled, tmdbTokenEnv, musicBrainzEnabled, musicBrainzContact, igdbEnabled, igdbClientId, igdbClientSecretEnv]
-          properties:
-            tmdbEnabled: { type: boolean }
-            tmdbTokenEnv: { type: string, enum: [REQUESTARR_TMDB_READ_TOKEN] }
-            musicBrainzEnabled: { type: boolean }
-            musicBrainzContact: { type: string, maxLength: 254, description: "Empty while drafting or a contact email for the explicit check user-agent" }
-            igdbEnabled: { type: boolean }
-            igdbClientId: { type: string, maxLength: 256 }
-            igdbClientSecretEnv: { type: string, enum: [REQUESTARR_IGDB_CLIENT_SECRET] }
-        libraries:
-          type: object
-          additionalProperties: false
-          required: [jellyfin, plex, romm, navidrome, audiobookshelf]
-          properties:
-            jellyfin: { $ref: '#/components/schemas/SetupSource' }
-            plex: { $ref: '#/components/schemas/SetupSource' }
-            romm: { $ref: '#/components/schemas/SetupSource' }
-            audiobookshelf: { $ref: '#/components/schemas/SetupSource' }
-            navidrome: { $ref: '#/components/schemas/SetupSource' }
-        notifications:
-          type: object
-          additionalProperties: false
-          required: [appriseEnabled, appriseUrl, appriseConfigKeyEnv]
-          properties:
-            appriseEnabled: { type: boolean }
-            appriseUrl: { type: string, maxLength: 2048, description: "Empty while drafting or an Apprise API URL; must equal REQUESTARR_APPRISE_URL for the check to pass" }
-            appriseConfigKeyEnv: { type: string, enum: [REQUESTARR_APPRISE_CONFIG_KEY] }
-        policy:
-          type: object
-          additionalProperties: false
-          required: [autoApproveMediaTypes]
-          properties:
-            autoApproveMediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game, audiobook] }, description: "Media types that skip administrator approval; empty means all requests await approval" }
+        clientId: { type: string }
+        fromEnvironment: { type: boolean, description: "An environment value supplies the client ID and wins over a saved one" }
     SecretStatus:
       type: object
       required: [name, label, envVar, configured, source, unreadable, pendingRestart]
@@ -1836,60 +1706,6 @@ components:
         source: { type: string, enum: [none, environment, stored, "stored (shadowed by environment)", "stored secret unreadable"] }
         unreadable: { type: boolean, description: "A stored row exists but cannot be opened with the current master key" }
         pendingRestart: { type: boolean, description: "The value a restart would use differs from the one in effect now" }
-    SetupSource:
-      type: object
-      additionalProperties: false
-      required: [enabled, url, mediaTypes, tokenEnv, username, passwordEnv]
-      properties:
-        enabled: { type: boolean }
-        url: { type: string, maxLength: 2048, description: "Empty while drafting or an absolute origin" }
-        mediaTypes: { type: array, uniqueItems: true, items: { type: string, enum: [movie, tv, album, song, game, audiobook] } }
-        tokenEnv: { type: string, enum: ["", REQUESTARR_JELLYFIN_API_KEY, REQUESTARR_PLEX_TOKEN, REQUESTARR_ROMM_TOKEN, REQUESTARR_AUDIOBOOKSHELF_API_KEY] }
-        username: { type: string, maxLength: 256, description: "Navidrome account name, an ordinary non-secret draft field; must be empty for other Sources. Drafts saved with the retired usernameEnv still load, and an empty value takes the environment-configured username" }
-        passwordEnv: { type: string, enum: ["", REQUESTARR_NAVIDROME_PASSWORD] }
-    SetupDraft:
-      type: object
-      required: [revision, currentStep, settings, validations, updatedAt, inactive, environment, blockers, completedAt]
-      properties:
-        revision: { type: integer, minimum: 1 }
-        currentStep: { type: string, enum: [general, authentication, providers, libraries, notifications, policy, review] }
-        settings: { $ref: '#/components/schemas/SetupSettings' }
-        updatedAt: { type: string, format: date-time }
-        inactive: { type: boolean, const: true }
-        completedAt: { type: [string, 'null'], format: date-time, description: "Set once an administrator finished setup" }
-        blockers:
-          type: array
-          description: Required checks that are missing, failed or expired for this revision; Finish needs this empty
-          items:
-            type: object
-            required: [target, reason]
-            properties:
-              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, library:audiobookshelf, notifications] }
-              reason: { type: string, enum: [not_checked, failed, expired] }
-        validations:
-          type: array
-          items:
-            type: object
-            required: [target, revision, valid, code, message, checkedAt, expiresAt]
-            properties:
-              target: { type: string, enum: [general, authentication, tmdb, musicbrainz, igdb, library:jellyfin, library:plex, library:romm, library:navidrome, library:audiobookshelf, notifications] }
-              revision: { type: integer }
-              valid: { type: boolean }
-              code: { type: string, enum: [connected, connection_failed, authentication_failed, environment_required, incomplete_settings, disabled] }
-              message: { type: string, description: "Fixed safe result; never raw upstream errors or payloads. A TMDB check names the secret source it used (D024) and runs against the value the next restart would use" }
-              checkedAt: { type: string, format: date-time }
-              expiresAt: { type: string, format: date-time }
-        environment:
-          type: array
-          items:
-            type: object
-            required: [name, secret, configured, needsRestart]
-            properties:
-              name: { type: string }
-              secret: { type: boolean }
-              configured: { type: boolean, description: "Presence only, not proof credentials work" }
-              needsRestart: { type: boolean }
-              desiredValue: { type: string, description: "Non-secret values only; absent for every secret reference" }
     MatchSuggestion:
       type: object
       required: [id, catalogItemId, catalogTitle, catalogYear, inventoryTitle, inventoryYear, mediaType, platformKey, sourceName, sourceItemId, confidence, reason, observedAt]

@@ -1,15 +1,12 @@
 package setup
 
 import (
-	"context"
 	"testing"
 
 	"github.com/evilperson1337/requestarr/internal/config"
 )
 
-func TestSetupLibraryURLOverHTTPFollowsThePrivateHostRule(t *testing.T) {
-	ctx := context.Background()
-	actor := Actor{ID: "admin-1", Role: "admin"}
+func TestLibraryURLOverHTTPFollowsThePrivateHostRule(t *testing.T) {
 	var extra config.Config
 	extra.SetHTTPAllowedNetworks("203.0.113.0/24,.vpn.example")
 	for _, tc := range []struct {
@@ -32,25 +29,19 @@ func TestSetupLibraryURLOverHTTPFollowsThePrivateHostRule(t *testing.T) {
 		{"development any host", "http://plex.example.com", true, config.PrivateHosts{}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := NewService(&memoryDrafts{}, fakeChecker{}, Runtime{Development: tc.development, PrivateHosts: tc.hosts})
-			draft, err := service.Load(ctx, actor)
-			if err != nil {
-				t.Fatal(err)
-			}
-			settings := draft.Settings
-			settings.Libraries.Plex.URL = tc.url
-			_, err = service.Save(ctx, actor, SaveInput{ExpectedRevision: draft.Revision, CurrentStep: StepLibraries, Settings: settings})
-			if tc.accept != (err == nil) {
-				t.Fatalf("save %s: accept=%v, got %v", tc.url, tc.accept, err)
+			got := ValidSourceURL(tc.url, Runtime{Development: tc.development, PrivateHosts: tc.hosts})
+			if tc.accept != got {
+				t.Fatalf("ValidSourceURL(%s): accept=%v, got %v", tc.url, tc.accept, got)
 			}
 		})
 	}
 }
 
-func TestSetupPublicURLStaysHTTPSOutsideDevelopment(t *testing.T) {
-	settings := NewService(&memoryDrafts{}, fakeChecker{}, Runtime{}).initial().Settings
-	settings.General.PublicURL = "http://192.168.1.20:8080"
-	if err := settings.Validate(Runtime{}); err == nil {
-		t.Fatal("http public URL accepted on a private host")
+func TestServiceURLStaysHTTPSOutsideDevelopment(t *testing.T) {
+	if ValidServiceURL("http://192.168.1.20:8080", false) {
+		t.Fatal("http service URL accepted on a private host outside development")
+	}
+	if !ValidServiceURL("http://192.168.1.20:8080", true) {
+		t.Fatal("http service URL rejected in development")
 	}
 }

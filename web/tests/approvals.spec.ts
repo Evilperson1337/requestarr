@@ -11,7 +11,7 @@ async function openApp(page: Page, role: string, count = 3) {
     const state = { count, summaryCalls: 0, listQueries: [] as string[], puts: [] as { csrf?: string; body: unknown }[], types: [] as string[] }
     await page.route('**/api/v1/**', route => {
         const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/api/v1', '')
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role, displayName: 'Person' }, csrfToken: 'csrf' } })
         if (path === '/requests/summary') { state.summaryCalls++; return route.fulfill({ json: { requested: state.count } }) }
         if (path === '/requests') { state.listQueries.push(url.search); return route.fulfill({ json: { items: [waiting('r1', 'Arrival'), waiting('r2', 'Dune')], nextCursor: null } }) }

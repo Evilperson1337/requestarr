@@ -15,7 +15,7 @@ import (
 // it (the adapter stores the ASIN under the "audible" identifier), and
 // "Requested" once someone has requested that ASIN.
 func TestSearchLocalStatesAudiobookByASINIntegration(t *testing.T) {
-	ctx, s, user := setupDraftStore(t)
+	ctx, s, user := integrationStore(t)
 	suffix := newUUID()[:8]
 	held, asked, unknown := "B0"+suffix, "B1"+suffix, "B2"+suffix
 	d := inventory.Descriptor{ID: newUUID(), Kind: "audiobookshelf", Name: "Audiobookshelf", MediaTypes: []domain.MediaType{domain.MediaAudiobook}, IdentifierKinds: []string{"audible"}}

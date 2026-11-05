@@ -5,10 +5,10 @@ const secretList = [
     ['navidrome_password', 'Navidrome password'], ['jellyfin_api_key', 'Jellyfin API key'], ['plex_token', 'Plex token'], ['romm_token', 'RomM token'],
 ]
 
-test('post-Finish Settings exposes a field for every stored secret', async ({ page }) => {
+test('Settings exposes a field for every stored secret', async ({ page }) => {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf' } })
         if (path.endsWith('/admin/secrets')) return route.fulfill({ json: { enabled: true, secrets: secretList.map(([name, label]) => ({ name, label, envVar: 'X', configured: false, source: 'none', unreadable: false, pendingRestart: false })) } })
         if (path.endsWith('/admin/status')) return route.fulfill({ json: { providers: [{ key: 'tmdb', name: 'TMDB', configured: false }, { key: 'igdb', name: 'IGDB', configured: false }, { key: 'apprise', name: 'Apprise', configured: false }], sources: [], recentErrors: [] } })
@@ -26,4 +26,52 @@ test('post-Finish Settings exposes a field for every stored secret', async ({ pa
     for (const label of ['TMDb read token', 'IGDB client secret', 'Apprise configuration key', 'Jellyfin API key', 'Plex token', 'RomM token', 'Navidrome password']) {
         await expect(page.getByLabel(label).first()).toBeVisible()
     }
+})
+
+async function mockIgdb(page: import('@playwright/test').Page, igdb: { clientId: string; fromEnvironment: boolean }) {
+    const puts: { body: any; csrf?: string }[] = []
+    await page.route('**/api/v1/**', route => {
+        const request = route.request()
+        const path = new URL(request.url()).pathname
+        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
+        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf' } })
+        if (path.endsWith('/admin/settings/igdb')) {
+            if (request.method() === 'PUT') { puts.push({ body: request.postDataJSON(), csrf: request.headers()['x-csrf-token'] }); igdb = { clientId: request.postDataJSON().clientId, fromEnvironment: false }; return route.fulfill({ json: igdb }) }
+            return route.fulfill({ json: igdb })
+        }
+        if (path.endsWith('/admin/status')) return route.fulfill({ json: { providers: [{ key: 'tmdb', name: 'TMDB', configured: false }, { key: 'igdb', name: 'IGDB', configured: false }], sources: [], recentErrors: [] } })
+        if (path.endsWith('/admin/secrets')) return route.fulfill({ json: { enabled: true, secrets: [{ name: 'igdb_client_secret', label: 'IGDB client secret', envVar: 'X', configured: false, source: 'none', unreadable: false, pendingRestart: false }] } })
+        if (path.endsWith('/admin/library-connections')) return route.fulfill({ json: { connections: [] } })
+        if (path.endsWith('/admin/job-runs')) return route.fulfill({ json: { sources: [] } })
+        if (path.endsWith('/admin/users')) return route.fulfill({ json: { users: [] } })
+        if (path.endsWith('/admin/match-suggestions')) return route.fulfill({ json: { items: [] } })
+        return route.fulfill({ json: {} })
+    })
+    return puts
+}
+
+test('the IGDB client ID is a live field beside the IGDB secret and saves with the CSRF token', async ({ page }) => {
+    const puts = await mockIgdb(page, { clientId: 'twitch-old', fromEnvironment: false })
+    await page.goto('/settings')
+    const card = page.getByRole('listitem').filter({ hasText: 'IGDB' })
+    await card.getByRole('button', { name: /Hide settings|Set up/ }).first().click()
+    const field = card.getByLabel('IGDB client ID')
+    await expect(field).toHaveValue('twitch-old')
+    await expect(card.getByLabel('IGDB client secret')).toBeVisible()
+    await field.fill('twitch-new')
+    await card.getByRole('button', { name: 'Save IGDB client ID' }).click()
+    await expect(card.getByRole('status')).toContainText('applies after Requestarr restarts')
+    expect(puts).toEqual([{ body: { clientId: 'twitch-new' }, csrf: 'csrf' }])
+})
+
+test('an IGDB client ID set by the environment is shown read-only', async ({ page }) => {
+    const puts = await mockIgdb(page, { clientId: 'from-env', fromEnvironment: true })
+    await page.goto('/settings')
+    const card = page.getByRole('listitem').filter({ hasText: 'IGDB' })
+    await card.getByRole('button', { name: /Hide settings|Set up/ }).first().click()
+    await expect(card.getByLabel('IGDB client ID')).toHaveValue('from-env')
+    await expect(card.getByLabel('IGDB client ID')).toBeDisabled()
+    await expect(card.getByText('REQUESTARR_IGDB_CLIENT_ID')).toBeVisible()
+    await expect(card.getByRole('button', { name: 'Save IGDB client ID' })).toBeDisabled()
+    expect(puts).toEqual([])
 })

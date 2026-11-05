@@ -7,7 +7,7 @@ async function openApp(page: Page, role: string, unread: number) {
     const state = { unread, summaryCalls: 0, items: [entry('n1', 'Arrival approved'), entry('n2', 'Dune available')].slice(0, unread) as ReturnType<typeof entry>[] & { readAt?: string }[] }
     await page.route('**/api/v1/**', route => {
         const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1', '')
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role, displayName: 'Person' }, csrfToken: 'csrf' } })
         if (path === '/notifications/summary') { state.summaryCalls++; return route.fulfill({ json: { unread: state.unread } }) }
         if (path === '/notifications') return route.fulfill({ json: { items: state.items } })

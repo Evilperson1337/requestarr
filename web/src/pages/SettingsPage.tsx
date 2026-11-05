@@ -74,6 +74,8 @@ function SettingsForSession({ session }: { session: Session }) {
     }
     const when = (value: string | null | undefined) => value ? new Date(value).toLocaleString() : 'Never'
     const [tab, setTab] = useState<(typeof tabs)[number][0]>(() => tabs.find(([key]) => key === new URLSearchParams(window.location.search).get('tab'))?.[0] ?? 'integrations')
+    // A deep link such as /settings?tab=integrations#group-metadata (from Get started) scrolls to its section once it exists.
+    useEffect(() => { if (ops && window.location.hash) document.getElementById(window.location.hash.slice(1))?.scrollIntoView() }, [ops])
     const failing = ops?.sources.filter(source => source.configured && source.lastRun?.status === 'failed').length ?? 0
     return <main className="shell settingsPage"><h1 id="opsHeading">Settings</h1>
         <div className="settingsTabs" role="group" aria-label="Settings sections">{tabs.map(([key, label]) => <button key={key} type="button" className="settingsTab" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}{key === 'activity' && failing > 0 && <span className="tabCount" aria-label={`${failing} failing`}>{failing}</span>}</button>)}</div>

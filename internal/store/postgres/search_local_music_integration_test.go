@@ -34,7 +34,7 @@ func persistMusic(t *testing.T, s *Store, kind string, kinds []string, items ...
 // names. The catalog item's aliases are the bridge, so once an album has been
 // opened a Plex edition shows as held; media types stay separate namespaces.
 func TestSearchLocalStatesMatchesMusicBrainzThroughAliasesIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	group, release, track, recording := uuidLower(), uuidLower(), uuidLower(), uuidLower()
 	album, err := s.Upsert(ctx, domain.ResolvedItem{
 		Item:    domain.CatalogItem{MediaType: domain.MediaAlbum, Provider: "musicbrainz", ProviderID: group, Title: "Album"},
@@ -86,7 +86,7 @@ func TestSearchLocalStatesMatchesMusicBrainzThroughAliasesIntegration(t *testing
 // edition under a release id cannot be tied to the search row, and the answer
 // is "unknown" (no local state), never a claim that the library lacks it.
 func TestSearchLocalStatesNeverOpenedAlbumUnderReleaseIDIsUnknownIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	group, release := uuidLower(), uuidLower()
 	persistMusic(t, s, "plex", []string{"mbid"}, inventory.Item{SourceItemID: "a-" + release, MediaType: domain.MediaAlbum, Title: "Album", ExternalIDs: map[string]string{"mbid": release}})
 	got, err := s.SearchLocalStates(ctx, []domain.SearchKey{mbKey(domain.MediaAlbum, group)})
@@ -101,7 +101,7 @@ func TestSearchLocalStatesNeverOpenedAlbumUnderReleaseIDIsUnknownIntegration(t *
 // A library that stores the canonical id itself (Navidrome keeps the
 // MusicBrainz id it was given; Plex can too) needs no alias and no catalog row.
 func TestSearchLocalStatesMatchesCanonicalMusicBrainzIDDirectlyIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	group, recording, plexGroup := uuidLower(), uuidLower(), uuidLower()
 	persistMusic(t, s, "navidrome", []string{"musicbrainz"},
 		inventory.Item{SourceItemID: "a", MediaType: domain.MediaAlbum, Title: "Album", ExternalIDs: map[string]string{"musicbrainz": group}},
@@ -126,7 +126,7 @@ func TestSearchLocalStatesMatchesCanonicalMusicBrainzIDDirectlyIntegration(t *te
 // Requested shows for music the same way it does for video: it follows the
 // catalog row of the search key's own media type.
 func TestSearchLocalStatesReportsMusicRequestsIntegration(t *testing.T) {
-	ctx, s, user := setupDraftStore(t)
+	ctx, s, user := integrationStore(t)
 	id := uuidLower()
 	song, err := s.Upsert(ctx, domain.ResolvedItem{Item: domain.CatalogItem{MediaType: domain.MediaSong, Provider: "musicbrainz", ProviderID: id, Title: "Song"}})
 	if err != nil {

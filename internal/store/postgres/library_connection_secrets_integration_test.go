@@ -11,7 +11,7 @@ import (
 )
 
 func TestLibraryConnectionAndCredentialAreSavedTogetherIntegration(t *testing.T) {
-	ctx, s, actor := setupDraftStore(t)
+	ctx, s, actor := integrationStore(t)
 	t.Cleanup(func() {
 		_ = s.DeleteLibraryConnection(context.Background(), "plex")
 		_ = s.DeleteStoredSecret(context.Background(), actor, secrets.PlexToken)
@@ -45,7 +45,7 @@ func TestLibraryConnectionAndCredentialAreSavedTogetherIntegration(t *testing.T)
 }
 
 func TestLibraryConnectionIsNotSavedWhenItsCredentialFailsIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	t.Cleanup(func() { _ = s.DeleteLibraryConnection(context.Background(), "romm") })
 	// An actor that is not a user makes the credential write fail on its foreign key.
 	sealed := map[secrets.Name]secrets.Sealed{secrets.RommToken: {Ciphertext: []byte("x"), KeyID: "k1"}}

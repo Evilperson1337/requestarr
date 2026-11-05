@@ -5,14 +5,12 @@ package postgres
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/secrets"
-	"github.com/evilperson1337/requestarr/internal/setup"
 )
 
 func TestStoredSecretsSetReplaceClearIntegration(t *testing.T) {
@@ -93,20 +91,13 @@ func TestStoredSecretsSetReplaceClearIntegration(t *testing.T) {
 	}
 }
 
-func TestStoredSecretsRotateAndClearAfterSetupFinishIntegration(t *testing.T) {
-	ctx, s, actor := setupDraftStore(t)
+func TestStoredSecretsRotateAndClearIntegration(t *testing.T) {
+	ctx, s, actor := integrationStore(t)
 	t.Cleanup(func() {
 		_, _ = s.pool.Exec(context.Background(), `DELETE FROM secret_audit_events WHERE actor_user_id=$1`, actor)
 		_, _ = s.pool.Exec(context.Background(), `DELETE FROM stored_secrets`)
 	})
 	_, _ = s.pool.Exec(ctx, `DELETE FROM stored_secrets`)
-	draft, err := s.LoadSetupDraft(ctx, initialSetupDraft(), actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CompleteSetupDraft(ctx, actor, draft.Revision); err != nil {
-		t.Fatal(err)
-	}
 	sealer, _ := secrets.NewAESGCM(bytes.Repeat([]byte{9}, 32))
 	svc := secrets.NewService(s, sealer, nil)
 	if err := svc.Set(ctx, actor, secrets.TMDBReadToken, "after-finish-one-123"); err != nil {
@@ -121,9 +112,6 @@ func TestStoredSecretsRotateAndClearAfterSetupFinishIntegration(t *testing.T) {
 	var n int
 	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM secret_audit_events WHERE actor_user_id=$1`, actor).Scan(&n); err != nil || n != 3 {
 		t.Fatalf("audit rows %d err %v", n, err)
-	}
-	if _, err := s.SaveSetupDraft(ctx, actor, draft.Revision, setup.StepGeneral, draft.Settings); !errors.Is(err, setup.ErrCompleted) {
-		t.Fatalf("draft save after finish = %v", err)
 	}
 }
 

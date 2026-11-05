@@ -11,7 +11,7 @@ import (
 )
 
 func TestTVPreviewPersistsSeriesDetailsAndKeepsMovieNamespaceSeparateIntegration(t *testing.T) {
-	ctx, s, user := setupDraftStore(t)
+	ctx, s, user := integrationStore(t)
 	tv := &domain.TVDetails{Seasons: 3, Episodes: 30, FirstAirDate: "2020-01-02", SeriesStatus: "Returning Series", Creators: []string{"Fixture Creator"}}
 	item, err := s.Upsert(ctx, domain.ResolvedItem{Item: domain.CatalogItem{MediaType: domain.MediaTV, Provider: "tmdb", ProviderID: "714", Title: "Fixture series", Metadata: map[string]any{"tv": tv}}, TV: tv})
 	if err != nil {

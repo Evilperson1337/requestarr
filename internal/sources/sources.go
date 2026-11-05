@@ -1,6 +1,6 @@
 // Package sources is the registry of Source kinds: Jellyfin, Plex, RomM,
 // Navidrome and Audiobookshelf. A kind fixes a Source's slug, stable ID, media types and the
-// Credential fields it needs, so the setup wizard, configuration, startup
+// Credential fields it needs, so the library connections, configuration, startup
 // wiring and the web UI all read one table instead of switching on a string.
 //
 // It is plain data: it imports only domain and no HTTP, database, provider or

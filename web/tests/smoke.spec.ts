@@ -6,7 +6,7 @@ async function mockApp(page: Page, handler: Handler, role = 'requester') {
     await page.route('**/api/v1/**', route => {
         const request = route.request()
         const path = new URL(request.url()).pathname.replace('/api/v1', '')
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role, email: 'user@example.test', displayName: 'User' }, csrfToken: 'csrf-token' } })
         const result = handler(path, request.method(), request.postDataJSON())
         return route.fulfill(result === undefined ? { status: 404, json: { error: { code: 'not_found', message: 'unmocked' } } } : { json: result })
@@ -118,11 +118,11 @@ test('notification load failure is announced', async ({ page }) => {
     await expect(page.getByRole('alert')).toContainText('Could not load notifications')
 })
 
-test('non-admins never see Setup or Settings navigation, and Settings is not rendered for them', async ({ page }) => {
+test('non-admins never see Get started or Settings navigation, and Settings is not rendered for them', async ({ page }) => {
     await mockApp(page, path => path === '/requests' ? { items: [], nextCursor: null } : undefined)
     await page.goto('/settings')
     await expect(page.getByRole('link', { name: 'Settings' })).toHaveCount(0)
-    await expect(page.getByRole('link', { name: 'Setup', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Get started', exact: true })).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'Operational status' })).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible() // /settings falls back to a page every user may see
 })

@@ -19,7 +19,7 @@ Requestarr is **request + availability + notification software**. It must not ac
 9. Game platform options come dynamically from IGDB and are multi-select OR semantics. `Any` is first and mutually exclusive with explicit selections.
 10. External services must not block routine UI rendering. Prefer local state, background jobs, caching, and stale-but-known data.
 11. Temporary library failures must never mass-mark previously available content missing.
-12. Setup wizard is required for V1 and includes OIDC, providers, libraries, notifications, request policy, validation, and review.
+12. First-run setup is the OIDC-only admin claim followed by a live Get started checklist that links to Settings and asks for no values itself (D038). The draft setup wizard was retired; do not reintroduce inactive drafts.
 
 ## Engineering rules
 

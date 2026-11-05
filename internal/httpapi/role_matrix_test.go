@@ -15,12 +15,12 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
+	"github.com/evilperson1337/requestarr/internal/checklist"
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/jobs"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/requests"
 	"github.com/evilperson1337/requestarr/internal/secrets"
-	"github.com/evilperson1337/requestarr/internal/setup"
 )
 
 const matrixUserID = "11111111-1111-4111-8111-111111111111"
@@ -57,9 +57,8 @@ func mutationCases() []mutationCase {
 		// token, not a pre-existing admin role. Its real repository is tested
 		// independently for single-use and last-admin serialization.
 		{"claim initial admin", "POST /setup/claim-admin", "/setup/claim-admin", `{"issuer":"https://issuer.example","subject":"subject-1","token":"` + matrixToken + `"}`, "authenticated", 204, "bootstrap.claim"},
-		{"save setup draft", "PUT /admin/setup/draft", "/admin/setup/draft", validSetupDraftBody(), "admin", 200, "setup.save"},
-		{"validate setup", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"general"}`, "admin", 200, "setup.validate"},
-		{"finish setup", "POST /admin/setup/finish", "/admin/setup/finish", `{"expectedRevision":1}`, "admin", 200, "setup.finish"},
+		{"dismiss the Get started checklist", "POST /admin/checklist/dismiss", "/admin/checklist/dismiss", "", "admin", 204, "checklist.dismiss"},
+		{"set the IGDB client ID", "PUT /admin/settings/igdb", "/admin/settings/igdb", `{"clientId":"twitch-id"}`, "admin", 200, "igdb.client_id"},
 		{"set stored secret", "PUT /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", `{"value":"matrix-secret-value"}`, "admin", 204, "secret.set"},
 		{"clear stored secret", "DELETE /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", "", "admin", 204, "secret.clear"},
 		{"save library connection", "PUT /admin/library-connections/{slug}", "/admin/library-connections/plex", `{"url":"https://plex.example.test"}`, "admin", 200, "connection.save"},
@@ -69,7 +68,6 @@ func mutationCases() []mutationCase {
 		{"comment on an issue", "POST /issues/{id}/comments", "/issues/" + matrixItemID + "/comments", `{"text":"still broken"}`, "authenticated", 204, "issue.comment"},
 		{"resolve an issue", "POST /issues/{id}/status", "/issues/" + matrixItemID + "/status", `{"status":"resolved","comment":"fixed"}`, "admin", 200, "issue.status"},
 		{"leave an issue", "DELETE /issues/{id}/reporter", "/issues/" + matrixItemID + "/reporter", "", "authenticated", 204, "issue.leave"},
-		{"validate library", "POST /admin/setup/validate", "/admin/setup/validate", `{"expectedRevision":1,"target":"library:plex"}`, "admin", 200, "setup.validate"},
 	}
 }
 
@@ -216,20 +214,20 @@ func (r matrixAuthRepo) ClaimAdmin(_ context.Context, userID, issuer, subject st
 	return nil
 }
 
-func (b *matrixBackend) Load(context.Context, setup.Actor) (setup.Draft, error) {
-	return setup.Draft{Revision: 1, CurrentStep: setup.StepGeneral, Inactive: true}, nil
+func (b *matrixBackend) Get(context.Context) (checklist.Result, error) {
+	return checklist.Result{}, nil
 }
-func (b *matrixBackend) Save(_ context.Context, actor setup.Actor, _ setup.SaveInput) (setup.Draft, error) {
-	b.record("setup.save", actor.ID)
-	return setup.Draft{Revision: 2, Inactive: true}, nil
+func (b *matrixBackend) Dismiss(context.Context) error {
+	b.record("checklist.dismiss", matrixUserID)
+	return nil
 }
-func (b *matrixBackend) Finish(_ context.Context, actor setup.Actor, _ int64) (setup.Draft, error) {
-	b.record("setup.finish", actor.ID)
-	return setup.Draft{Revision: 1, Inactive: true}, nil
-}
-func (b *matrixBackend) Validate(_ context.Context, actor setup.Actor, _ int64, _ setup.Target) (setup.Draft, error) {
-	b.record("setup.validate", actor.ID)
-	return setup.Draft{Revision: 1, Inactive: true}, nil
+func (b *matrixBackend) IGDBClientID(context.Context) (string, bool, error) { return "", false, nil }
+func (b *matrixBackend) SetIGDBClientID(_ context.Context, id string) error {
+	b.record("igdb.client_id", matrixUserID)
+	if id != "twitch-id" {
+		b.t.Errorf("unexpected client ID %q", id)
+	}
+	return nil
 }
 
 func (b *matrixBackend) Status(context.Context) ([]secrets.Status, bool, error) {
@@ -260,7 +258,7 @@ func (b *matrixBackend) TestConnection(context.Context, string) (ConnectionTest,
 
 func matrixRequest(backend *matrixBackend, tc mutationCase, role, csrf, origin string) *httptest.ResponseRecorder {
 	repo := matrixAuthRepo{csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: role, Issuer: "https://issuer.example", Subject: "subject-1"}}}, backend}
-	h := NewWithSetup(testLogger(), buildinfo.Info{}, backend, backend, backend, backend, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
+	h := NewWithBackend(testLogger(), buildinfo.Info{}, backend, backend, backend, backend, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
 	method, _, _ := strings.Cut(tc.pattern, " ")
 	r := httptest.NewRequest(method, "/api/v1"+tc.path, strings.NewReader(tc.body))
 	if role != "unauthenticated" {

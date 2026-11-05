@@ -12,7 +12,7 @@ import (
 )
 
 func TestMoviePreviewPersistenceAndExactRequestNavigationIntegration(t *testing.T) {
-	ctx, s, user := setupDraftStore(t)
+	ctx, s, user := integrationStore(t)
 	other := integrationUser(t, ctx, s)
 	item, err := s.Upsert(ctx, domain.ResolvedItem{Item: domain.CatalogItem{MediaType: domain.MediaMovie, Provider: "tmdb", ProviderID: "1762506", Title: "Preview fixture", Metadata: map[string]any{"movie": domain.MovieDetails{Runtime: 145, Genres: []string{"Adventure"}, Directors: []string{"Fixture Director"}}}}})
 	if err != nil {

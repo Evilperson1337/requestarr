@@ -12,6 +12,7 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
+	"github.com/evilperson1337/requestarr/internal/checklist"
 	"github.com/evilperson1337/requestarr/internal/devlogs"
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/jobs"
@@ -20,7 +21,6 @@ import (
 	"github.com/evilperson1337/requestarr/internal/providers/metadata"
 	"github.com/evilperson1337/requestarr/internal/requests"
 	"github.com/evilperson1337/requestarr/internal/secrets"
-	"github.com/evilperson1337/requestarr/internal/setup"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
 )
 
@@ -121,8 +121,7 @@ func (u testUsers) ChangeUserRole(ctx context.Context, a, b, c string, at time.T
 // absentSetupState reads as a fresh install.
 type absentSetupState struct{}
 
-func (absentSetupState) SetupComplete(context.Context) (bool, error)       { return false, nil }
-func (absentSetupState) SetupWizardComplete(context.Context) (bool, error) { return false, nil }
+func (absentSetupState) SetupComplete(context.Context) (bool, error) { return false, nil }
 
 type absentSyncer struct{}
 
@@ -142,8 +141,8 @@ func (noSessionRepo) GetSession(context.Context, []byte, time.Time) (auth.User, 
 }
 
 // testDeps fills Deps from a single fake backend by capability.
-func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessChecker, resolver Resolver, syncer SourceSyncer, wizard SetupService, authHandlers ...*auth.Handler) Deps {
-	d := Deps{Logger: logger, Build: info, Readiness: readiness, Resolver: resolver, Syncer: syncer, Wizard: wizard}
+func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessChecker, resolver Resolver, syncer SourceSyncer, extra any, authHandlers ...*auth.Handler) Deps {
+	d := Deps{Logger: logger, Build: info, Readiness: readiness, Resolver: resolver, Syncer: syncer}
 	d.MoviePreview = emptyMoviePreview{}
 	if len(authHandlers) > 0 && authHandlers[0] != nil {
 		d.Auth = authHandlers[0]
@@ -155,9 +154,6 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 	}
 	if d.Syncer == nil {
 		d.Syncer = absentSyncer{}
-	}
-	if d.Wizard == nil {
-		d.Wizard = absentWizard{}
 	}
 	if repo, ok := readiness.(requests.Repository); ok {
 		d.Requests = requests.New(repo)
@@ -213,10 +209,20 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 	} else {
 		d.SetupState = absentSetupState{}
 	}
-	if v, ok := wizard.(SecretsService); ok {
+	if v, ok := extra.(SecretsService); ok {
 		d.Secrets = v
 	} else {
 		d.Secrets = absentSecrets{}
+	}
+	if v, ok := readiness.(ChecklistService); ok {
+		d.Checklist = v
+	} else {
+		d.Checklist = absentChecklist{}
+	}
+	if v, ok := readiness.(IGDBSettings); ok {
+		d.IGDB = v
+	} else {
+		d.IGDB = absentChecklist{}
 	}
 	if v, ok := readiness.(IssueService); ok {
 		d.Issues = v
@@ -273,33 +279,29 @@ func NewWithSync(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCh
 	return mustRouter(testDeps(logger, info, readiness, resolver, syncer, nil, authHandlers...))
 }
 
-func NewWithSetup(logger *slog.Logger, info buildinfo.Info, readiness ReadinessChecker, resolver Resolver, syncer SourceSyncer, wizard SetupService, authHandlers ...*auth.Handler) http.Handler {
-	return mustRouter(testDeps(logger, info, readiness, resolver, syncer, wizard, authHandlers...))
+func NewWithBackend(logger *slog.Logger, info buildinfo.Info, readiness ReadinessChecker, resolver Resolver, syncer SourceSyncer, extra any, authHandlers ...*auth.Handler) http.Handler {
+	return mustRouter(testDeps(logger, info, readiness, resolver, syncer, extra, authHandlers...))
 }
 
 // newRouter returns the handler and its route table for the policy tests.
-func newRouter(logger *slog.Logger, info buildinfo.Info, readiness ReadinessChecker, resolver Resolver, syncer SourceSyncer, wizard SetupService, authHandlers ...*auth.Handler) (http.Handler, *routeTable) {
-	h, rt, err := buildRouter(testDeps(logger, info, readiness, resolver, syncer, wizard, authHandlers...))
+func newRouter(logger *slog.Logger, info buildinfo.Info, readiness ReadinessChecker, resolver Resolver, syncer SourceSyncer, extra any, authHandlers ...*auth.Handler) (http.Handler, *routeTable) {
+	h, rt, err := buildRouter(testDeps(logger, info, readiness, resolver, syncer, extra, authHandlers...))
 	if err != nil {
 		panic(err)
 	}
 	return h, rt
 }
 
-type absentWizard struct{}
+type absentChecklist struct{}
 
-func (absentWizard) Load(context.Context, setup.Actor) (setup.Draft, error) {
-	return setup.Draft{}, errAbsent
+func (absentChecklist) Get(context.Context) (checklist.Result, error) {
+	return checklist.Result{}, errAbsent
 }
-func (absentWizard) Save(context.Context, setup.Actor, setup.SaveInput) (setup.Draft, error) {
-	return setup.Draft{}, errAbsent
+func (absentChecklist) Dismiss(context.Context) error { return errAbsent }
+func (absentChecklist) IGDBClientID(context.Context) (string, bool, error) {
+	return "", false, errAbsent
 }
-func (absentWizard) Validate(context.Context, setup.Actor, int64, setup.Target) (setup.Draft, error) {
-	return setup.Draft{}, errAbsent
-}
-func (absentWizard) Finish(context.Context, setup.Actor, int64) (setup.Draft, error) {
-	return setup.Draft{}, errAbsent
-}
+func (absentChecklist) SetIGDBClientID(context.Context, string) error { return errAbsent }
 
 type absentSecrets struct{}
 
