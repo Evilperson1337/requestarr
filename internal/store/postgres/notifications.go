@@ -28,6 +28,14 @@ func (s *Store) ListInbox(ctx context.Context, userID string) ([]notifications.I
 	return items, rows.Err()
 }
 
+func (s *Store) CountUnreadInbox(ctx context.Context, userID string) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM notification_deliveries WHERE user_id=$1 AND channel='in_app' AND read_at IS NULL`, userID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count unread notifications: %w", err)
+	}
+	return n, nil
+}
+
 func (s *Store) MarkInboxRead(ctx context.Context, userID, notificationID string) (bool, error) {
 	result, err := s.pool.Exec(ctx, `UPDATE notification_deliveries SET read_at=COALESCE(read_at,now()),updated_at=now() WHERE id=$1 AND user_id=$2 AND channel='in_app'`, notificationID, userID)
 	if err != nil {

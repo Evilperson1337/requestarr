@@ -212,6 +212,14 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			}
 			writeJSON(w, 200, map[string]any{"items": items})
 		})
+		rt.handle("GET /notifications/summary", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+			unread, err := inbox.CountUnreadInbox(r.Context(), user.ID)
+			if err != nil {
+				apierror.Write(w, r, 500, "notifications_failed", "could not count notifications")
+				return
+			}
+			writeJSON(w, 200, map[string]int{"unread": unread})
+		})
 		rt.handle("POST /notifications/{notificationID}/read", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 			id := r.PathValue("notificationID")
 			if !validUUID(id) {

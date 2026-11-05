@@ -72,6 +72,8 @@ func (absentInbox) MarkInboxRead(context.Context, string, string) (bool, error) 
 	return false, errAbsent
 }
 
+func (absentInbox) CountUnreadInbox(context.Context, string) (int, error) { return 0, errAbsent }
+
 type absentMatchReview struct{}
 
 func (absentMatchReview) ListMatchSuggestions(context.Context) ([]domain.MatchSuggestion, error) {
