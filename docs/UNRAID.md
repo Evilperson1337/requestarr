@@ -166,8 +166,8 @@ While no administrator exists, the container's log says that the claim page show
 
 Then:
 
+1. Open your public URL and sign in as the person who will be the admin.
 2. On the claim page, run the command it shows, paste the token it prints into the single token field, then submit.
-3. You are now the admin, and Setup continues in the app.
 3. You are now the admin. Next, connect your libraries in Settings, Integrations (step 7).
 
 ## 7. Connect a library
