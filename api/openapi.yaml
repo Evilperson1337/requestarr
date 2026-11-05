@@ -839,12 +839,19 @@ paths:
         schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
     put:
       operationId: saveLibraryConnection
-      summary: Save a Source's address (and username) and apply it immediately (administrator only)
+      summary: Save a Source's address, username and credential in one request and apply it (administrator only)
       description: >-
-        Stores the address, then rebuilds the Source's sync from the environment, the saved
-        address and the stored credentials without a restart. A Source with an address but no
-        credential stays inactive and reports what is missing. 409 set_by_environment when the
-        address comes from its environment variable. Requires CSRF and a same-origin Origin header.
+        Stores the address (and username) and any credentials in one database transaction, then
+        rebuilds the Source's sync once from the environment, the saved address and the stored
+        credentials without a restart. Either everything is saved or nothing is. The old
+        address-only request still works. Omit url to leave the address as it is, which is how a
+        credential is saved for an address set by an environment variable (sending url then is
+        409 set_by_environment). A credential not named in credentials keeps its saved value. Credential
+        values are write-only and are never returned or logged. A Source with an address but no
+        credential stays inactive and reports what is missing. Errors name the part that failed
+        and nothing is changed: 422 invalid_connection (address), 422 invalid_secret_value or
+        invalid_credential (credential), 409 secrets_disabled (no master key). Requires CSRF and
+        a same-origin Origin header.
       parameters:
         - in: header
           name: X-CSRF-Token
@@ -854,13 +861,7 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [url]
-              properties:
-                url: { type: string, maxLength: 2048, description: An http or https address with no username, query or fragment }
-                username: { type: string, maxLength: 256, description: Only for Sources that sign in with a username (Navidrome) }
+            schema: { $ref: '#/components/schemas/LibraryConnectionSave' }
       responses:
         '200':
           description: The saved connection as now applied
@@ -871,8 +872,8 @@ paths:
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
         '404': { description: unknown_source }
-        '409': { description: set_by_environment }
-        '422': { description: invalid_connection }
+        '409': { description: set_by_environment or secrets_disabled }
+        '422': { description: invalid_connection, invalid_secret_value or invalid_credential }
     delete:
       operationId: removeLibraryConnection
       summary: Remove a saved address and stop the Source's sync (administrator only)
@@ -1554,6 +1555,17 @@ components:
             runtimeMinutes: { type: integer, minimum: 1 }
         tracks: { type: array, description: An album's tracks when its library reports them (single-item reads only), items: { type: object, required: [id, title], properties: { id: { type: string, format: uuid, description: The track's Library item id; a report's part names it }, title: { type: string }, disc: { type: integer }, position: { type: integer } } } }
         issueKinds: { type: array, description: The kinds of Issue that can be reported about this item, items: { type: object, required: [kind, label], properties: { kind: { $ref: '#/components/schemas/IssueKind' }, label: { type: string } } } }
+    LibraryConnectionSave:
+      type: object
+      additionalProperties: false
+      description: At least one of url or credentials is required.
+      properties:
+        url: { type: string, maxLength: 2048, description: An http or https address with no username, query or fragment. Omit to keep the current address }
+        username: { type: string, maxLength: 256, description: Only for Sources that sign in with a username (Navidrome) }
+        credentials:
+          type: object
+          description: New credential values keyed by secret name (for example plex_token). Write-only; names left out keep their saved value.
+          additionalProperties: { type: string, minLength: 1, maxLength: 4096 }
     LibraryConnection:
       type: object
       additionalProperties: false

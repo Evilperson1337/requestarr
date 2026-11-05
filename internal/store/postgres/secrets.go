@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/evilperson1337/requestarr/internal/secrets"
 )
 
@@ -36,6 +38,13 @@ func (s *Store) PutStoredSecret(ctx context.Context, actorID string, name secret
 		return fmt.Errorf("begin: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := putStoredSecretTx(ctx, tx, actorID, name, sealed); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func putStoredSecretTx(ctx context.Context, tx pgx.Tx, actorID string, name secrets.Name, sealed secrets.Sealed) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO stored_secrets(name,ciphertext,key_id,updated_by,updated_at) VALUES($1,$2,$3,$4,now())
 		ON CONFLICT (name) DO UPDATE SET ciphertext=EXCLUDED.ciphertext,key_id=EXCLUDED.key_id,updated_by=EXCLUDED.updated_by,updated_at=now()`,
 		string(name), sealed.Ciphertext, sealed.KeyID, actorID); err != nil {
@@ -44,7 +53,7 @@ func (s *Store) PutStoredSecret(ctx context.Context, actorID string, name secret
 	if _, err := tx.Exec(ctx, `INSERT INTO secret_audit_events(actor_user_id,secret_name,action) VALUES($1,$2,'set')`, actorID, string(name)); err != nil {
 		return fmt.Errorf("audit secret: %w", err)
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // DeleteStoredSecret removes the row and records a value-free audit event in the
