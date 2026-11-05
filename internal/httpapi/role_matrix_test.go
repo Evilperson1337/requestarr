@@ -144,6 +144,8 @@ func (*matrixBackend) ListInbox(context.Context, string) ([]notifications.InboxI
 	return nil, nil
 }
 
+func (*matrixBackend) CountUnreadInbox(context.Context, string) (int, error) { return 0, nil }
+
 func (b *matrixBackend) MarkInboxRead(_ context.Context, userID, notificationID string) (bool, error) {
 	b.record("notification.read", userID)
 	return true, nil

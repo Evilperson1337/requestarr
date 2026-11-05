@@ -67,6 +67,13 @@ paths:
                 items:
                   $ref: '#/components/schemas/Notification'
         '401': { description: Authentication required }
+  /notifications/summary:
+    get:
+      operationId: notificationsSummary
+      summary: How many inbox notifications the authenticated user has not read (their own only)
+      responses:
+        '200': { description: Count, content: { application/json: { schema: { type: object, required: [unread], properties: { unread: { type: integer, minimum: 0 } } } } } }
+        '401': { description: Authentication required }
   /notifications/{notificationId}/read:
     post:
       operationId: markNotificationRead
