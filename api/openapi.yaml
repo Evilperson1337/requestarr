@@ -529,11 +529,11 @@ paths:
             schema: { $ref: '#/components/schemas/PeopleSettings' }
       responses:
         '200':
-          description: Saved
+          description: Saved; the body is the stored value, read back
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PeopleSettings' }
-        '400': { description: "defaultRole is not viewer or requester (code invalid_default_role)" }
+        '400': { description: "defaultRole is missing or not viewer or requester (code invalid_default_role); a malformed body or an unknown field (code invalid_json)" }
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
   /admin/settings/approvals:
@@ -566,7 +566,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApprovalSettings' }
-        '400': { description: "autoApproveTypes is missing or names an unknown media type (code invalid_media_type)" }
+        '400': { description: "autoApproveTypes is missing or names an unknown media type (code invalid_media_type); a malformed body or an unknown field (code invalid_json)" }
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
   /admin/users/{userId}/role:
@@ -1141,7 +1141,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/IgdbSettings' }
-        '400': { description: "invalid_client_id; malformed body, control characters or over 256 characters" }
+        '400': { description: "invalid_client_id; clientId missing, has control characters or is over 256 characters. invalid_json; a malformed body or an unknown field" }
         '401': { description: Authentication required }
         '403': { description: "Administrator role or CSRF/Origin failure" }
         '409': { description: "managed_by_environment; REQUESTARR_IGDB_CLIENT_ID wins and cannot be changed here" }

@@ -24,14 +24,6 @@ import (
 	"github.com/evilperson1337/requestarr/internal/webui"
 )
 
-// nonNilTypes makes an empty policy encode as [] rather than null.
-func nonNilTypes(types []domain.MediaType) []domain.MediaType {
-	if types == nil {
-		return []domain.MediaType{}
-	}
-	return types
-}
-
 func requireJSONEOF(dec *json.Decoder) error {
 	var extra json.RawMessage
 	err := dec.Decode(&extra)
@@ -84,20 +76,6 @@ type StatusSource interface {
 type UserAdmin interface {
 	ListAdminUsers(context.Context) ([]postgres.AdminUser, error)
 	ChangeUserRole(ctx context.Context, actorID, targetID, role string, at time.Time) error
-}
-
-// PeoplePolicy holds the instance-wide rules for people (D035). Only viewer and
-// requester are valid first-sign-in roles; the store rejects anything else.
-type PeoplePolicy interface {
-	DefaultFirstSignInRole(context.Context) (string, error)
-	SetDefaultFirstSignInRole(ctx context.Context, role string) error
-}
-
-// ApprovalPolicy holds the media types whose new Requests are approved
-// automatically (D036). The store rejects anything that is not a media type.
-type ApprovalPolicy interface {
-	AutoApproveTypes(context.Context) ([]domain.MediaType, error)
-	SetAutoApproveTypes(ctx context.Context, types []domain.MediaType) error
 }
 
 // SetupState reports whether the first administrator has been claimed.
@@ -240,7 +218,8 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	}
 	rt.handle("GET /version", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) { writeJSON(w, http.StatusOK, buildInfo) })
 	registerMatchReviewRoutes(rt, d.MatchReview)
-	registerChecklistRoutes(rt, d.Checklist, d.IGDB)
+	registerChecklistRoutes(rt, d.Checklist)
+	registerSettingsRoutes(rt, d.People, d.Approvals, d.IGDB)
 	registerSecretsRoutes(rt, d.Secrets)
 	registerConnectionRoutes(rt, d.Connections)
 	registerLibraryRoutes(rt, d.Library)
@@ -292,69 +271,6 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"users": users})
-	})
-	rt.handle("GET /admin/settings/people", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
-		w.Header().Set("Cache-Control", "no-store")
-		role, err := d.People.DefaultFirstSignInRole(r.Context())
-		if err != nil {
-			apierror.Write(w, r, 500, "people_settings_failed", "could not load the people settings")
-			return
-		}
-		writeJSON(w, 200, map[string]string{"defaultRole": role})
-	})
-	rt.handle("PUT /admin/settings/people", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
-		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-		var input struct {
-			DefaultRole string `json:"defaultRole"`
-		}
-		decoder := json.NewDecoder(r.Body)
-		decoder.DisallowUnknownFields()
-		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil {
-			apierror.Write(w, r, 400, "invalid_default_role", "defaultRole must be viewer or requester")
-			return
-		}
-		switch err := d.People.SetDefaultFirstSignInRole(r.Context(), input.DefaultRole); {
-		case errors.Is(err, postgres.ErrInvalidDefaultRole):
-			apierror.Write(w, r, 400, "invalid_default_role", "defaultRole must be viewer or requester")
-		case err != nil:
-			apierror.Write(w, r, 500, "people_settings_failed", "could not save the people settings")
-		default:
-			writeJSON(w, 200, map[string]string{"defaultRole": input.DefaultRole})
-		}
-	})
-	rt.handle("GET /admin/settings/approvals", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
-		w.Header().Set("Cache-Control", "no-store")
-		types, err := d.Approvals.AutoApproveTypes(r.Context())
-		if err != nil {
-			apierror.Write(w, r, 500, "approval_settings_failed", "could not load the approval settings")
-			return
-		}
-		writeJSON(w, 200, map[string][]domain.MediaType{"autoApproveTypes": nonNilTypes(types)})
-	})
-	rt.handle("PUT /admin/settings/approvals", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
-		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-		var input struct {
-			AutoApproveTypes *[]domain.MediaType `json:"autoApproveTypes"`
-		}
-		decoder := json.NewDecoder(r.Body)
-		decoder.DisallowUnknownFields()
-		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil || input.AutoApproveTypes == nil {
-			apierror.Write(w, r, 400, "invalid_media_type", "autoApproveTypes must be a list of media types")
-			return
-		}
-		switch err := d.Approvals.SetAutoApproveTypes(r.Context(), *input.AutoApproveTypes); {
-		case errors.Is(err, postgres.ErrInvalidMediaType):
-			apierror.Write(w, r, 400, "invalid_media_type", "autoApproveTypes must be a list of media types")
-		case err != nil:
-			apierror.Write(w, r, 500, "approval_settings_failed", "could not save the approval settings")
-		default:
-			saved, err := d.Approvals.AutoApproveTypes(r.Context())
-			if err != nil {
-				apierror.Write(w, r, 500, "approval_settings_failed", "could not load the approval settings")
-				return
-			}
-			writeJSON(w, 200, map[string][]domain.MediaType{"autoApproveTypes": nonNilTypes(saved)})
-		}
 	})
 	rt.handle("GET /requests/summary", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		w.Header().Set("Cache-Control", "no-store")

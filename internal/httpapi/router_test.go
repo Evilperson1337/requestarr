@@ -14,6 +14,7 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
 )
 
@@ -290,22 +291,22 @@ func TestNewRouterNamesEveryMissingDependency(t *testing.T) {
 
 type peopleReadiness struct {
 	fakeReadiness
-	role  string
+	role  domain.Role
 	err   error
-	calls []string
+	calls []domain.Role
 }
 
-func (f *peopleReadiness) DefaultFirstSignInRole(context.Context) (string, error) {
+func (f *peopleReadiness) DefaultFirstSignInRole(context.Context) (domain.Role, error) {
 	if f.role == "" {
 		return "viewer", nil
 	}
 	return f.role, nil
 }
 
-func (f *peopleReadiness) SetDefaultFirstSignInRole(_ context.Context, role string) error {
+func (f *peopleReadiness) SetDefaultFirstSignInRole(_ context.Context, role domain.Role) error {
 	f.calls = append(f.calls, role)
 	if role != "viewer" && role != "requester" {
-		return postgres.ErrInvalidDefaultRole // the real store's contract
+		return ErrInvalidDefaultRole // the real store's contract
 	}
 	if f.err == nil {
 		f.role = role
@@ -345,10 +346,10 @@ func TestPeopleSettingIsAdminOnlyAndNeverAdmin(t *testing.T) {
 	if rec := peopleRequest(t, ready, "admin", http.MethodPut, `{"defaultRole":"requester"}`); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"defaultRole":"requester"}` || len(ready.calls) != 1 {
 		t.Fatalf("PUT requester status=%d body=%s calls=%v", rec.Code, rec.Body.String(), ready.calls)
 	}
-	for _, bad := range []string{`{"defaultRole":"admin"}`, `{"defaultRole":"owner"}`, `{}`, `{"defaultRole":"viewer","x":1}`} {
+	for bad, code := range map[string]string{`{"defaultRole":"admin"}`: "invalid_default_role", `{"defaultRole":"owner"}`: "invalid_default_role", `{}`: "invalid_default_role", `{"defaultRole":"viewer","x":1}`: "invalid_json", `nope`: "invalid_json", `{"defaultRole":7}`: "invalid_json"} {
 		ready := &peopleReadiness{}
 		rec := peopleRequest(t, ready, "admin", http.MethodPut, bad)
-		assertErrorEnvelope(t, rec, http.StatusBadRequest, "invalid_default_role")
+		assertErrorEnvelope(t, rec, http.StatusBadRequest, code)
 		if ready.role != "" {
 			t.Errorf("%s changed the stored default to %q", bad, ready.role)
 		}

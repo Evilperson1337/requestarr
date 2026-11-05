@@ -380,7 +380,7 @@ func (absentApprovals) SetAutoApproveTypes(context.Context, []domain.MediaType) 
 
 type absentPeople struct{}
 
-func (absentPeople) DefaultFirstSignInRole(context.Context) (string, error) {
+func (absentPeople) DefaultFirstSignInRole(context.Context) (domain.Role, error) {
 	return "", errAbsent
 }
-func (absentPeople) SetDefaultFirstSignInRole(context.Context, string) error { return errAbsent }
+func (absentPeople) SetDefaultFirstSignInRole(context.Context, domain.Role) error { return errAbsent }

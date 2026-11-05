@@ -11,7 +11,6 @@ import (
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/requests"
-	"github.com/evilperson1337/requestarr/internal/store/postgres"
 )
 
 type approvalBackend struct {
@@ -30,7 +29,7 @@ func (b *approvalBackend) SetAutoApproveTypes(_ context.Context, types []domain.
 	b.sets = append(b.sets, types)
 	for _, t := range types {
 		if t == "podcast" {
-			return postgres.ErrInvalidMediaType // the real store's contract
+			return ErrInvalidMediaType // the real store's contract
 		}
 	}
 	b.types = types
@@ -76,9 +75,9 @@ func TestApprovalPolicySettingIsAdminOnly(t *testing.T) {
 	if rec := approvalCall(t, b, "admin", http.MethodPut, "/admin/settings/approvals", `{"autoApproveTypes":[]}`); rec.Code != 200 || len(b.types) != 0 {
 		t.Fatalf("clearing the policy status=%d types=%v", rec.Code, b.types)
 	}
-	for _, bad := range []string{`{"autoApproveTypes":["podcast"]}`, `{"autoApproveTypes":["movie","podcast"]}`, `{}`, `{"autoApproveTypes":"movie"}`, `{"autoApproveTypes":[],"x":1}`} {
+	for bad, code := range map[string]string{`{"autoApproveTypes":["podcast"]}`: "invalid_media_type", `{"autoApproveTypes":["movie","podcast"]}`: "invalid_media_type", `{}`: "invalid_media_type", `{"autoApproveTypes":"movie"}`: "invalid_json", `{"autoApproveTypes":[],"x":1}`: "invalid_json", `nope`: "invalid_json"} {
 		b := &approvalBackend{types: []domain.MediaType{domain.MediaGame}}
-		assertErrorEnvelope(t, approvalCall(t, b, "admin", http.MethodPut, "/admin/settings/approvals", bad), http.StatusBadRequest, "invalid_media_type")
+		assertErrorEnvelope(t, approvalCall(t, b, "admin", http.MethodPut, "/admin/settings/approvals", bad), http.StatusBadRequest, code)
 		if len(b.types) != 1 || b.types[0] != domain.MediaGame {
 			t.Errorf("%s changed the policy to %v", bad, b.types)
 		}

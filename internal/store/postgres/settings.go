@@ -99,21 +99,21 @@ func firstSignInRole(stored string) string {
 }
 
 // DefaultFirstSignInRole is the role new people receive; viewer unless set.
-func (s *Store) DefaultFirstSignInRole(ctx context.Context) (string, error) {
+func (s *Store) DefaultFirstSignInRole(ctx context.Context) (domain.Role, error) {
 	v, _, err := s.Setting(ctx, settingDefaultRole)
 	if err != nil {
 		return "", err
 	}
-	return firstSignInRole(v), nil
+	return domain.Role(firstSignInRole(v)), nil
 }
 
 // SetDefaultFirstSignInRole changes the role for people who sign in from now
 // on; it never changes an existing user.
-func (s *Store) SetDefaultFirstSignInRole(ctx context.Context, role string) error {
-	if role != "viewer" && role != "requester" {
+func (s *Store) SetDefaultFirstSignInRole(ctx context.Context, role domain.Role) error {
+	if !role.ValidDefault() {
 		return ErrInvalidDefaultRole
 	}
-	return s.SetSetting(ctx, settingDefaultRole, role)
+	return s.SetSetting(ctx, settingDefaultRole, string(role))
 }
 
 const (

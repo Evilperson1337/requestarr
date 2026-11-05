@@ -116,10 +116,10 @@ func TestIGDBClientIDSetting(t *testing.T) {
 	if w.Code != 200 || len(f.saved) != 1 || f.saved[0] != "twitch-id" || !strings.Contains(w.Body.String(), `"clientId":"twitch-id"`) {
 		t.Fatalf("put: %d %s saved %v", w.Code, w.Body, f.saved)
 	}
-	for name, body := range map[string]string{"unknown field": `{"clientId":"a","x":1}`, "missing": `{}`, "not json": `nope`} {
-		if w := onboardingHTTP(&fakeOnboarding{}, "admin", "PUT", "/admin/settings/igdb", body); w.Code != 400 {
-			t.Errorf("%s: status %d", name, w.Code)
-		}
+	for name, c := range map[string]struct{ body, code string }{"unknown field": {`{"clientId":"a","x":1}`, "invalid_json"}, "missing": {`{}`, "invalid_client_id"}, "not json": {`nope`, "invalid_json"}} {
+		t.Run(name, func(t *testing.T) {
+			assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{}, "admin", "PUT", "/admin/settings/igdb", c.body), 400, c.code)
+		})
 	}
 	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrInvalidIGDBClientID}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"bad\nid"}`), 400, "invalid_client_id")
 	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrIGDBClientIDFromEnvironment}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 409, "managed_by_environment")

@@ -174,11 +174,11 @@ func (b *matrixBackend) SetAutoApproveTypes(_ context.Context, types []domain.Me
 	return nil
 }
 
-func (b *matrixBackend) DefaultFirstSignInRole(context.Context) (string, error) {
+func (b *matrixBackend) DefaultFirstSignInRole(context.Context) (domain.Role, error) {
 	return "viewer", nil
 }
 
-func (b *matrixBackend) SetDefaultFirstSignInRole(_ context.Context, role string) error {
+func (b *matrixBackend) SetDefaultFirstSignInRole(_ context.Context, role domain.Role) error {
 	b.record("people.default_role", matrixUserID)
 	if role != "requester" {
 		b.t.Errorf("unexpected default role %q", role)
