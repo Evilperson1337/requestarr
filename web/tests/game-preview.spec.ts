@@ -57,7 +57,7 @@ test('game request needs a platform choice and sends it with the note', async ({
 
 test('a viewer sees the game state but cannot request it', async ({ page }) => {
     const dialog = await openGame(page, { ...game, Preview: { availability: 'unknown', canRequest: false, canSubscribe: false } }, 'viewer')
-    await expect(dialog).toContainText('Your viewer role cannot create Requests.')
+    await expect(dialog).toContainText('Your viewer role cannot create Requests. Ask an administrator to make you a requester.')
     await expect(dialog.getByRole('button', { name: 'Create request' })).toHaveCount(0)
 })
 

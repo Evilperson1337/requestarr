@@ -6,10 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] A settings store holds "default role for first sign-in", valid values `viewer` and `requester`, default `viewer`; it can never be `admin`; it applies only to users created after it is set
-- [ ] An admin can read and change it in Settings, Users (admin only); a requester or viewer cannot; the API and OpenAPI describe it; the contract test passes
-- [ ] The first sign-in of a new identity creates the user with the configured role and sends an in-app notification to every admin ("<name> signed in for the first time as <role>") that links to Settings, Users; a repeat sign-in sends nothing; the person who signs in is never notified about themselves
-- [ ] The viewer's "cannot create Requests" message tells them what to do next (ask an administrator) and names the role
-- [ ] Tests cover: default stays `viewer`; `requester` default applies to a new user and not to an existing one; `admin` is rejected; the notification goes once, to admins only; role change for existing users is unchanged
-- [ ] D035 is written in `docs/DECISIONS.md`
+- [x] A settings store holds "default role for first sign-in", valid values `viewer` and `requester`, default `viewer`; it can never be `admin`; it applies only to users created after it is set
+- [x] An admin can read and change it in Settings, Users (admin only); a requester or viewer cannot; the API and OpenAPI describe it; the contract test passes
+- [x] The first sign-in of a new identity creates the user with the configured role and sends an in-app notification to every admin ("<name> signed in for the first time as <role>") that links to Settings, Users; a repeat sign-in sends nothing; the person who signs in is never notified about themselves
+- [x] The viewer's "cannot create Requests" message tells them what to do next (ask an administrator) and names the role
+- [x] Tests cover: default stays `viewer`; `requester` default applies to a new user and not to an existing one; `admin` is rejected; the notification goes once, to admins only; role change for existing users is unchanged
+- [x] D035 is written in `docs/DECISIONS.md`
 - [ ] Integration tests run against your own throwaway database, not `requestarr_test`; `scripts/check.sh` passes at the end

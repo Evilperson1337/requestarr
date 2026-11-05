@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Store) ListInbox(ctx context.Context, userID string) ([]notifications.InboxItem, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id::text,title,body,created_at,read_at FROM notification_deliveries WHERE user_id=$1 AND channel='in_app' ORDER BY created_at DESC,id LIMIT 100`, userID)
+	rows, err := s.pool.Query(ctx, `SELECT id::text,title,body,link,created_at,read_at FROM notification_deliveries WHERE user_id=$1 AND channel='in_app' ORDER BY created_at DESC,id LIMIT 100`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query notification inbox: %w", err)
 	}
@@ -19,7 +19,7 @@ func (s *Store) ListInbox(ctx context.Context, userID string) ([]notifications.I
 	for rows.Next() {
 		var item notifications.InboxItem
 		var readAt *time.Time
-		if err := rows.Scan(&item.ID, &item.Title, &item.Body, &item.CreatedAt, &readAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Title, &item.Body, &item.Link, &item.CreatedAt, &readAt); err != nil {
 			return nil, fmt.Errorf("scan notification inbox: %w", err)
 		}
 		item.ReadAt = readAt

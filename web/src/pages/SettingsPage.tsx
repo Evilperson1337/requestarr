@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, ApiError, type AdminUser, type OperationalStatus, type Session, type SourceRuns } from '../api'
+import { api, ApiError, type AdminUser, type PeopleSettings, type OperationalStatus, type Session, type SourceRuns } from '../api'
 import { SettingsSection } from '../components/SettingsSection'
 import { MatchSuggestions } from '../components/MatchSuggestions'
 import { DevelopmentLogsPanel } from '../components/DevelopmentLogs'
@@ -15,6 +15,9 @@ export function SettingsPage({ session }: { session: Session }) {
 function SettingsForSession({ session }: { session: Session }) {
     const [users, setUsers] = useState<AdminUser[]>([])
     const [error, setError] = useState('')
+    const [defaultRole, setDefaultRole] = useState<PeopleSettings['defaultRole'] | null>(null)
+    const [peopleMessage, setPeopleMessage] = useState('')
+    const [peopleError, setPeopleError] = useState('')
     const [notice, setNotice] = useState('')
     const [sources, setSources] = useState<SourceRuns[]>([])
     const [starting, setStarting] = useState('')
@@ -45,6 +48,14 @@ function SettingsForSession({ session }: { session: Session }) {
         const timer = setTimeout(() => { void loadRuns(); void loadStatus() }, 3000)
         return () => clearTimeout(timer)
     }, [syncActive, sources, loadRuns, loadStatus, authorizationLost])
+    useEffect(() => { api<PeopleSettings>('/admin/settings/people', { cache: 'no-store' }).then(result => setDefaultRole(result.defaultRole)).catch(e => { checkAuthorization(e); setPeopleError('Could not load the default role for new people') }) }, [checkAuthorization])
+    async function changeDefaultRole(next: PeopleSettings['defaultRole']) {
+        setPeopleMessage(''); setPeopleError('')
+        try {
+            const saved = await api<PeopleSettings>('/admin/settings/people', { method: 'PUT', body: JSON.stringify({ defaultRole: next }) }, session.csrfToken)
+            setDefaultRole(saved.defaultRole); setPeopleMessage(`New people will start as ${saved.defaultRole}.`)
+        } catch (e) { checkAuthorization(e); setPeopleError(e instanceof Error ? e.message : 'Could not save the default role') }
+    }
     async function syncNow(slug: string) {
         setError(''); setNotice(''); setStarting(slug)
         try { await api(`/admin/sources/${slug}/sync`, { method: 'POST' }, session.csrfToken) }
@@ -61,7 +72,7 @@ function SettingsForSession({ session }: { session: Session }) {
         catch (e) { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not change user role') }
     }
     const when = (value: string | null | undefined) => value ? new Date(value).toLocaleString() : 'Never'
-    const [tab, setTab] = useState<(typeof tabs)[number][0]>('integrations')
+    const [tab, setTab] = useState<(typeof tabs)[number][0]>(() => tabs.find(([key]) => key === new URLSearchParams(window.location.search).get('tab'))?.[0] ?? 'integrations')
     const failing = ops?.sources.filter(source => source.configured && source.lastRun?.status === 'failed').length ?? 0
     return <main className="shell settingsPage"><h1 id="opsHeading">Settings</h1>
         <div className="settingsTabs" role="group" aria-label="Settings sections">{tabs.map(([key, label]) => <button key={key} type="button" className="settingsTab" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}{key === 'activity' && failing > 0 && <span className="tabCount" aria-label={`${failing} failing`}>{failing}</span>}</button>)}</div>
@@ -80,6 +91,6 @@ function SettingsForSession({ session }: { session: Session }) {
             {!authorizationLost && <DevelopmentLogsPanel session={session} enabled={ops?.developmentLogsEnabled === true} onRequestError={checkAuthorization} />}
         </div>
         <div hidden={tab !== 'matches'}><MatchSuggestions csrfToken={session.csrfToken} onRequestError={checkAuthorization} /></div>
-        <div hidden={tab !== 'users'}><SettingsSection title="User management" description="Changing a role revokes that user’s active sessions. Your own role cannot be changed here.">{users.length === 0 ? <p role="status">Loading users…</p> : <div className="table-wrap" role="region" aria-label="Users" tabIndex={0}><table><thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Action</th></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.displayName || user.email || user.id}<br /><small>{user.email}</small></td><td>{user.role}</td><td>{user.id === session.user.id ? 'Current user' : <label><span className="sr-only">Role for {user.displayName || user.email || user.id}</span><select value={user.role} onChange={event => void changeRole(user, event.target.value as AdminUser['role'])}><option value="viewer">viewer</option><option value="requester">requester</option><option value="admin">admin</option></select></label>}</td></tr>)}</tbody></table></div>}</SettingsSection></div>
+        <div hidden={tab !== 'users'}><SettingsSection title="New people" description="The role someone gets the first time they sign in. It never applies to people who already have an account, and it cannot be administrator. Every administrator is notified when someone signs in for the first time.">{peopleError && <p role="alert" className="error">{peopleError}</p>}{defaultRole && <label className="field">Role for people who sign in for the first time<select value={defaultRole} onChange={event => void changeDefaultRole(event.target.value as PeopleSettings['defaultRole'])}><option value="viewer">viewer</option><option value="requester">requester</option></select></label>}{peopleMessage && <p role="status">{peopleMessage}</p>}</SettingsSection><SettingsSection title="User management" description="Changing a role revokes that user’s active sessions. Your own role cannot be changed here.">{users.length === 0 ? <p role="status">Loading users…</p> : <div className="table-wrap" role="region" aria-label="Users" tabIndex={0}><table><thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Action</th></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.displayName || user.email || user.id}<br /><small>{user.email}</small></td><td>{user.role}</td><td>{user.id === session.user.id ? 'Current user' : <label><span className="sr-only">Role for {user.displayName || user.email || user.id}</span><select value={user.role} onChange={event => void changeRole(user, event.target.value as AdminUser['role'])}><option value="viewer">viewer</option><option value="requester">requester</option><option value="admin">admin</option></select></label>}</td></tr>)}</tbody></table></div>}</SettingsSection></div>
     </main>
 }

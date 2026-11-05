@@ -8,9 +8,11 @@ import (
 )
 
 type InboxItem struct {
-	ID        string     `json:"id"`
-	Title     string     `json:"title"`
-	Body      string     `json:"body"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	// Link is an application path to open for this notice, when it has one.
+	Link      *string    `json:"link"`
 	CreatedAt time.Time  `json:"createdAt"`
 	ReadAt    *time.Time `json:"readAt,omitempty"`
 }
