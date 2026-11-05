@@ -26,9 +26,8 @@ func TestGeneralConfiguredHealth(t *testing.T) {
 	}))
 	defer server.Close()
 	checker := checks.New(checks.Config{Runtime: setup.Runtime{PublicURL: server.URL, Development: true}, Client: server.Client()})
-	var seam setup.Checker = checker
 	settings := setup.Settings{General: setup.GeneralSettings{InstanceName: "Requestarr", Timezone: "UTC", PublicURL: server.URL}}
-	code, err := seam.Check(context.Background(), setup.TargetGeneral, settings)
+	code, err := checker.Check(context.Background(), setup.TargetGeneral, settings)
 	if err != nil || code != setup.CheckOK {
 		t.Fatalf("Check = %q, %v", code, err)
 	}

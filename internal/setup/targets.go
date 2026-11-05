@@ -18,13 +18,6 @@ import (
 	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
-// Checker probes one target with the given settings. Describe is the message
-// shown for a result, including which secret source was verified.
-type Checker interface {
-	Check(context.Context, Target, Settings) (CheckCode, error)
-	Describe(context.Context, Target, CheckCode) string
-}
-
 // SecretSources resolves the value the next restart would use for a secret and
 // says where it comes from (D024). The value must never leave the server.
 type SecretSources interface {
@@ -34,8 +27,8 @@ type SecretSources interface {
 // OIDCSecretEnv is the environment-only OIDC client secret; it is not a stored secret.
 const OIDCSecretEnv = "REQUESTARR_OIDC_CLIENT_SECRET"
 
-// EnvOf is the environment variable that supplies a registered secret.
-func EnvOf(name secrets.Name) string {
+// secretEnv is the environment variable that supplies a registered secret.
+func secretEnv(name secrets.Name) string {
 	spec, _ := secrets.Lookup(name)
 	return spec.EnvVar
 }
@@ -49,14 +42,13 @@ func credentialEnv(slug string, role sources.Role) string {
 // The fixed environment names a check may reference, read from the secret and
 // Source kind registries so each name is written once.
 var (
-	TMDBTokenEnv         = EnvOf(secrets.TMDBReadToken)
-	IGDBSecretEnv        = EnvOf(secrets.IGDBClientSecret)
-	AppriseConfigKeyEnv  = EnvOf(secrets.AppriseConfigKey)
+	TMDBTokenEnv         = secretEnv(secrets.TMDBReadToken)
+	IGDBSecretEnv        = secretEnv(secrets.IGDBClientSecret)
+	AppriseConfigKeyEnv  = secretEnv(secrets.AppriseConfigKey)
 	JellyfinAPIKeyEnv    = credentialEnv("jellyfin", sources.RoleToken)
 	PlexTokenEnv         = credentialEnv("plex", sources.RoleToken)
 	RommTokenEnv         = credentialEnv("romm", sources.RoleToken)
 	AudiobookshelfKeyEnv = credentialEnv("audiobookshelf", sources.RoleToken)
-	NavidromeUsernameEnv = credentialEnv("navidrome", sources.RoleUsername)
 	NavidromePasswordEnv = credentialEnv("navidrome", sources.RolePassword)
 )
 
@@ -68,7 +60,6 @@ type Settings struct {
 	Providers      ProviderSettings       `json:"providers"`
 	Libraries      LibrariesSettings      `json:"libraries"`
 	Notifications  NotificationSettings   `json:"notifications"`
-	Policy         PolicySettings         `json:"policy"`
 }
 
 // NotificationSettings drafts the global Apprise route. Authentication stays
@@ -77,12 +68,6 @@ type NotificationSettings struct {
 	AppriseEnabled      bool   `json:"appriseEnabled"`
 	AppriseURL          string `json:"appriseUrl"`
 	AppriseConfigKeyEnv string `json:"appriseConfigKeyEnv"`
-}
-
-// PolicySettings drafts request policy. Media types listed here skip
-// administrator approval; an empty list means every request awaits approval.
-type PolicySettings struct {
-	AutoApproveMediaTypes []domain.MediaType `json:"autoApproveMediaTypes"`
 }
 
 type LibrariesSettings struct {

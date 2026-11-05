@@ -737,13 +737,6 @@ p {
     padding: 14px
 }
 
-.pageHeading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px
-}
-
 .toggle,
 .check {
     display: flex;
@@ -1215,8 +1208,7 @@ legend {
         font-size: .9rem
     }
 
-    .hero form,
-    .pageHeading {
+    .hero form {
         align-items: stretch;
         flex-direction: column
     }
