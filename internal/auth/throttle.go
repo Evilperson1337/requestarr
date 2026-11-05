@@ -23,9 +23,11 @@ const (
 type Throttle struct {
 	now func() time.Time
 
-	mu       sync.Mutex
-	accounts map[string]*attempts
-	addrs    map[string]*attempts
+	mu             sync.Mutex
+	accounts       map[string]*attempts
+	addrs          map[string]*attempts
+	activeAccounts map[string]bool
+	activeAddrs    map[string]bool
 }
 
 type attempts struct {
@@ -36,7 +38,7 @@ type attempts struct {
 
 // NewThrottle returns a Throttle reading time from now.
 func NewThrottle(now func() time.Time) *Throttle {
-	return &Throttle{now: now, accounts: map[string]*attempts{}, addrs: map[string]*attempts{}}
+	return &Throttle{now: now, accounts: map[string]*attempts{}, addrs: map[string]*attempts{}, activeAccounts: map[string]bool{}, activeAddrs: map[string]bool{}}
 }
 
 // Wait is how long the caller must wait before this account name or client
@@ -44,6 +46,11 @@ func NewThrottle(now func() time.Time) *Throttle {
 func (t *Throttle) Wait(account, addr string) time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.wait(account, addr)
+}
+
+// wait requires mu to be held.
+func (t *Throttle) wait(account, addr string) time.Duration {
 	now := t.now()
 	var wait time.Duration
 	for _, a := range []*attempts{t.accounts[account], t.addrs[addr]} {
@@ -118,4 +125,29 @@ func delayFor(failures, grace int) time.Duration {
 		d *= 2
 	}
 	return min(d, delayCap)
+}
+
+// Begin reserves one in-flight password attempt per account and address. The
+// caller must defer release on success, failure, cancellation and storage errors.
+// Active reservations are never evicted; a flood cannot bypass a busy key or
+// grow these maps past maxTracked. Busy/saturated callers retry without hashing.
+func (t *Throttle) Begin(account, addr string) (release func(), wait time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if wait := t.wait(account, addr); wait > 0 {
+		return nil, wait
+	}
+	if t.activeAccounts[account] || t.activeAddrs[addr] || len(t.activeAccounts) >= maxTracked || len(t.activeAddrs) >= maxTracked {
+		return nil, delayBase
+	}
+	t.activeAccounts[account], t.activeAddrs[addr] = true, true
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			t.mu.Lock()
+			defer t.mu.Unlock()
+			delete(t.activeAccounts, account)
+			delete(t.activeAddrs, addr)
+		})
+	}, 0
 }

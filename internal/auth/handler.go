@@ -168,6 +168,10 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 
 // issueSession creates a session for the user and sets its cookies.
 func (h *Handler) issueSession(w http.ResponseWriter, r *http.Request, userID string) error {
+	return h.issueSessionUsing(w, r, userID, h.Repo.CreateSession)
+}
+
+func (h *Handler) issueSessionUsing(w http.ResponseWriter, r *http.Request, userID string, create func(context.Context, string, []byte, []byte, time.Time) error) error {
 	token, err := oidc.RandomValue()
 	if err != nil {
 		return err
@@ -177,7 +181,7 @@ func (h *Handler) issueSession(w http.ResponseWriter, r *http.Request, userID st
 		return err
 	}
 	exp := h.now().Add(lifetime)
-	if err = h.Repo.CreateSession(r.Context(), userID, Hash(h.Secret, token), Hash(h.Secret, csrf), exp); err != nil {
+	if err = create(r.Context(), userID, Hash(h.Secret, token), Hash(h.Secret, csrf), exp); err != nil {
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, Expires: exp})

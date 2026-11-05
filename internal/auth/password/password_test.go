@@ -13,14 +13,14 @@ var fast = Hasher{Iterations: 1000}
 func TestHashThenVerify(t *testing.T) {
 	encoded, err := fast.Hash("correct horse battery")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("operation failed (%T)", err)
 	}
 	if !fast.Verify("correct horse battery", encoded) {
 		t.Fatal("the right password was rejected")
 	}
 	for _, wrong := range []string{"", "correct horse batter", "Correct horse battery", "correct horse battery "} {
 		if fast.Verify(wrong, encoded) {
-			t.Fatalf("%q was accepted", wrong)
+			t.Fatal("an incorrect password was accepted")
 		}
 	}
 }
@@ -33,7 +33,7 @@ func TestHashCarriesSchemeIterationsAndSaltAndNeverThePassword(t *testing.T) {
 	}
 	parts := strings.Split(a, "$")
 	if len(parts) != 4 || parts[0] != "pbkdf2-sha256" || parts[1] != "1000" {
-		t.Fatalf("unexpected encoding %q", a)
+		t.Fatalf("unexpected encoding structure: parts=%d", len(parts))
 	}
 	if salt, err := base64.RawStdEncoding.DecodeString(parts[2]); err != nil || len(salt) < 16 {
 		t.Fatalf("salt must decode to at least 16 bytes: %v", err)
@@ -103,13 +103,13 @@ func TestRandomPasswordsAreLongUniqueAndUnambiguous(t *testing.T) {
 	for range 200 {
 		p, err := Random()
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("operation failed (%T)", err)
 		}
 		if utf8.RuneCountInString(p) < 20 {
-			t.Fatalf("%q is shorter than 20 characters", p)
+			t.Fatalf("generated password length=%d, want at least 20", utf8.RuneCountInString(p))
 		}
 		if strings.ContainsAny(p, "0O1lI|`'\" \\/") {
-			t.Fatalf("%q contains an ambiguous or awkward character", p)
+			t.Fatal("generated password contains an ambiguous or awkward character")
 		}
 		if seen[p] {
 			t.Fatal("random password repeated")

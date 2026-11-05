@@ -36,8 +36,15 @@ func (f *localFake) LocalCredentialByUserID(_ context.Context, id string) (auth.
 	}
 	return auth.LocalCredential{UserID: id, Username: "admin", PasswordHash: f.hash, MustChange: f.mustChange}, nil
 }
-func (f *localFake) ChangeLocalPassword(context.Context, string, string, []byte, time.Time) error {
+func (f *localFake) CreateLocalSession(_ context.Context, cred auth.LocalCredential, _, _ []byte, _ time.Time) error {
+	if cred.UserID != matrixUserID || cred.PasswordHash != f.hash {
+		return auth.ErrNoCredential
+	}
+	return nil
+}
+func (f *localFake) ChangeLocalPassword(context.Context, string, string, []byte, string, time.Time) error {
 	f.changed++
+	f.events = append(f.events, auth.AuditPasswordChanged)
 	return nil
 }
 func (f *localFake) RecordAuthEvent(_ context.Context, e auth.AuditEvent) error {
@@ -109,16 +116,16 @@ func TestMustChangeSessionsCanOnlyChangeThePasswordSeeTheirUserOrSignOut(t *test
 		t.Run(role+" may still read their user and sign out", func(t *testing.T) {
 			h := localRouter(t, auth.User{ID: matrixUserID, Role: role, MustChange: true}, &localFake{})
 			if w := localCall(h, "GET", "/auth/me", "", true); w.Code != 200 || !strings.Contains(w.Body.String(), `"mustChangePassword":true`) {
-				t.Fatalf("me: %d %s", w.Code, w.Body.String())
+				t.Fatalf("me: %d bodyBytes=%d", w.Code, w.Body.Len())
 			}
 			if w := localCall(h, "POST", "/auth/logout", "", true); w.Code != 204 {
-				t.Fatalf("logout: %d %s", w.Code, w.Body.String())
+				t.Fatalf("logout: %d bodyBytes=%d", w.Code, w.Body.Len())
 			}
 		})
 		t.Run(role+" is not blocked once the password is changed", func(t *testing.T) {
 			h := localRouter(t, auth.User{ID: matrixUserID, Role: role}, &localFake{})
 			if w := localCall(h, "GET", "/notifications", "", true); w.Code != 200 {
-				t.Fatalf("status=%d %s", w.Code, w.Body.String())
+				t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 			}
 		})
 	}
@@ -166,7 +173,7 @@ func TestPasswordChangeRoutePerRole(t *testing.T) {
 		local := &localFake{mustChange: true}
 		w := localCall(localRouter(t, auth.User{ID: matrixUserID, Role: "admin", MustChange: true}, local), "POST", "/auth/local/password", body, true)
 		if w.Code != 204 || local.changed != 1 {
-			t.Fatalf("status=%d changed=%d body=%s", w.Code, local.changed, w.Body.String())
+			t.Fatalf("status=%d changed=%d bodyBytes=%d", w.Code, local.changed, w.Body.Len())
 		}
 	})
 	t.Run("CSRF and origin are enforced", func(t *testing.T) {

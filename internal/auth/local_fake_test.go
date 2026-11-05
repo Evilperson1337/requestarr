@@ -84,7 +84,7 @@ func (f *fakeLocalStore) addLocalAdmin(t *testing.T, hasher password.Hasher, pw 
 	t.Helper()
 	enc, err := hasher.Hash(pw)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("operation failed (%T)", err)
 	}
 	f.users[adminUserID] = User{ID: adminUserID, Role: "admin", DisplayName: "Administrator"}
 	f.creds[adminUserID] = &LocalCredential{UserID: adminUserID, Username: "admin", PasswordHash: enc, MustChange: mustChange}
@@ -132,13 +132,17 @@ func (f *fakeLocalStore) LocalCredentialByUserID(_ context.Context, id string) (
 	}
 	return LocalCredential{}, ErrNoCredential
 }
-func (f *fakeLocalStore) ChangeLocalPassword(_ context.Context, userID, hash string, keep []byte, _ time.Time) error {
+func (f *fakeLocalStore) ChangeLocalPassword(_ context.Context, userID, hash string, keep []byte, remoteAddr string, now time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	c, ok := f.creds[userID]
 	if !ok {
 		return ErrNoCredential
 	}
+	if f.failAudit {
+		return errors.New("audit down")
+	}
+	f.events = append(f.events, AuditEvent{Type: AuditPasswordChanged, UserID: userID, Username: c.Username, RemoteAddr: remoteAddr, At: now})
 	c.PasswordHash, c.MustChange = hash, false
 	for token, s := range f.sessions {
 		if s.user.ID == userID && token != string(keep) {
@@ -270,7 +274,7 @@ func (f *fixture) signIn() []*http.Cookie {
 	f.t.Helper()
 	w := f.login("admin", testPassword)
 	if w.Code != http.StatusOK {
-		f.t.Fatalf("sign-in status=%d body=%s", w.Code, w.Body.String())
+		f.t.Fatalf("sign-in status=%d bodyBytes=%d", w.Code, w.Body.Len())
 	}
 	return w.Result().Cookies()
 }
@@ -318,4 +322,15 @@ func (f *fakeLocalStore) auditDump() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return fmt.Sprintf("%+v", f.events)
+}
+
+func (f *fakeLocalStore) CreateLocalSession(_ context.Context, cred LocalCredential, token, csrf []byte, exp time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.creds[cred.UserID]
+	if !ok || c.Disabled || c.PasswordHash != cred.PasswordHash {
+		return ErrNoCredential
+	}
+	f.sessions[string(token)] = &fakeSession{user: f.users[cred.UserID], csrf: csrf, expires: exp}
+	return nil
 }

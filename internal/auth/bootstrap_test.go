@@ -29,22 +29,22 @@ func newBootFixture(initial string) *bootFixture {
 func TestFreshInstallCreatesTheAdministratorAndLogsTheOneTimePasswordOnce(t *testing.T) {
 	b := newBootFixture("")
 	if err := BootstrapLocalAdmin(context.Background(), b.store, b.opts); err != nil {
-		t.Fatal(err)
+		t.Fatalf("operation failed (%T)", err)
 	}
 	cred, err := b.store.LocalCredentialByUsername(context.Background(), "admin")
 	if err != nil || !cred.MustChange || cred.Disabled {
-		t.Fatalf("credential=%+v err=%v", cred, err)
+		t.Fatalf("credential read failed=%v must-change=%v disabled=%v", err != nil, cred.MustChange, cred.Disabled)
 	}
 	if b.store.users[cred.UserID].Role != "admin" {
 		t.Fatal("the built-in account must be an administrator")
 	}
 	lines := strings.Split(strings.TrimSpace(b.logs.String()), "\n")
 	if len(lines) != 1 {
-		t.Fatalf("want exactly one log line, got %d:\n%s", len(lines), b.logs.String())
+		t.Fatalf("want exactly one log line, got %d", len(lines))
 	}
 	line := lines[0]
 	if !strings.Contains(line, "level=INFO") {
-		t.Fatalf("not an Info line: %s", line)
+		t.Fatal("bootstrap log is not an Info line")
 	}
 	pw := extractLoggedPassword(t, line)
 	if utf8.RuneCountInString(pw) < 20 {
@@ -55,7 +55,7 @@ func TestFreshInstallCreatesTheAdministratorAndLogsTheOneTimePasswordOnce(t *tes
 	}
 	for _, want := range []string{"admin", "https://requests.example/login", "choose a new password"} {
 		if !strings.Contains(line, want) {
-			t.Errorf("log line should say %q: %s", want, line)
+			t.Errorf("bootstrap log missing expected instruction %q", want)
 		}
 	}
 	if strings.Contains(line, cred.PasswordHash) || strings.Contains(line, "pbkdf2") {
@@ -73,9 +73,13 @@ func extractLoggedPassword(t *testing.T, line string) string {
 	t.Helper()
 	_, rest, ok := strings.Cut(line, "one_time_password=")
 	if !ok {
-		t.Fatalf("no one_time_password attribute: %s", line)
+		t.Fatal("bootstrap log missing one_time_password attribute")
 	}
-	rest = strings.Trim(strings.Fields(rest)[0], `"`)
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		t.Fatal("bootstrap log has an empty password attribute")
+	}
+	rest = strings.Trim(fields[0], `"`)
 	return rest
 }
 
@@ -84,7 +88,7 @@ func TestEachFreshInstallGetsADifferentPassword(t *testing.T) {
 	for range 5 {
 		b := newBootFixture("")
 		if err := BootstrapLocalAdmin(context.Background(), b.store, b.opts); err != nil {
-			t.Fatal(err)
+			t.Fatalf("operation failed (%T)", err)
 		}
 		pw := extractLoggedPassword(t, strings.TrimSpace(b.logs.String()))
 		if seen[pw] {
@@ -99,10 +103,10 @@ func TestExistingUsersMeanNothingIsCreatedOrLogged(t *testing.T) {
 		b := newBootFixture(initial)
 		b.store.addUser("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "viewer")
 		if err := BootstrapLocalAdmin(context.Background(), b.store, b.opts); err != nil {
-			t.Fatal(err)
+			t.Fatalf("operation failed (%T)", err)
 		}
 		if len(b.store.creds) != 0 || b.logs.Len() != 0 {
-			t.Fatalf("creds=%d logs=%q", len(b.store.creds), b.logs.String())
+			t.Fatalf("creds=%d logBytes=%d", len(b.store.creds), b.logs.Len())
 		}
 	}
 }
@@ -110,14 +114,14 @@ func TestExistingUsersMeanNothingIsCreatedOrLogged(t *testing.T) {
 func TestSecondStartWithAnAdministratorAlreadyThereCreatesNothingMore(t *testing.T) {
 	b := newBootFixture("")
 	if err := BootstrapLocalAdmin(context.Background(), b.store, b.opts); err != nil {
-		t.Fatal(err)
+		t.Fatalf("operation failed (%T)", err)
 	}
 	b.logs.Reset()
 	if err := BootstrapLocalAdmin(context.Background(), b.store, b.opts); err != nil {
-		t.Fatal(err)
+		t.Fatalf("operation failed (%T)", err)
 	}
 	if b.store.created != 1 || b.logs.Len() != 0 {
-		t.Fatalf("created=%d logs=%q", b.store.created, b.logs.String())
+		t.Fatalf("created=%d logBytes=%d", b.store.created, b.logs.Len())
 	}
 }
 
@@ -125,7 +129,7 @@ func TestEnvironmentPasswordIsUsedAndNeverLogged(t *testing.T) {
 	const supplied = "operator supplied passphrase"
 	b := newBootFixture(supplied)
 	if err := BootstrapLocalAdmin(context.Background(), b.store, b.opts); err != nil {
-		t.Fatal(err)
+		t.Fatalf("operation failed (%T)", err)
 	}
 	cred, _ := b.store.LocalCredentialByUsername(context.Background(), "admin")
 	if !b.hasher.Hasher.Verify(supplied, cred.PasswordHash) || !cred.MustChange {
@@ -133,13 +137,13 @@ func TestEnvironmentPasswordIsUsedAndNeverLogged(t *testing.T) {
 	}
 	out := b.logs.String()
 	if strings.Contains(out, supplied) || strings.Contains(out, "pbkdf2") {
-		t.Fatalf("log leaks: %s", out)
+		t.Fatal("bootstrap log contains password material")
 	}
 	if !strings.Contains(out, "REQUESTARR_ADMIN_PASSWORD") || !strings.Contains(out, "https://requests.example/login") {
-		t.Fatalf("log should say where the password came from and where to sign in: %s", out)
+		t.Fatal("bootstrap log missing password-source or sign-in instruction")
 	}
 	if strings.Count(strings.TrimSpace(out), "\n") != 0 {
-		t.Fatalf("want one line: %s", out)
+		t.Fatal("bootstrap log must contain exactly one line")
 	}
 }
 
@@ -148,7 +152,7 @@ func TestEnvironmentPasswordOutsideTheLengthLimitsIsRefusedWithoutEchoingIt(t *t
 		b := newBootFixture(pw)
 		err := BootstrapLocalAdmin(context.Background(), b.store, b.opts)
 		if err == nil || !strings.Contains(err.Error(), "REQUESTARR_ADMIN_PASSWORD") || strings.Contains(err.Error(), pw) {
-			t.Fatalf("err=%v", err)
+			t.Fatalf("invalid password error: present=%v mentions-variable=%v leaks-password=%v", err != nil, err != nil && strings.Contains(err.Error(), "REQUESTARR_ADMIN_PASSWORD"), err != nil && strings.Contains(err.Error(), pw))
 		}
 		if len(b.store.creds) != 0 || strings.Contains(b.logs.String(), pw) {
 			t.Fatal("an invalid password created the account or was logged")
@@ -163,7 +167,7 @@ func TestPasswordIsNotLoggedWhenCreationFailsOrLosesTheRace(t *testing.T) {
 		t.Fatal("want the store error")
 	}
 	if b.logs.Len() != 0 {
-		t.Fatalf("logged after a failed create: %s", b.logs.String())
+		t.Fatalf("logged after a failed create: logBytes=%d", b.logs.Len())
 	}
 	if strings.Contains(err.Error(), "pbkdf2") {
 		t.Fatal("error carries a hash")
@@ -179,7 +183,7 @@ func (failingCreate) CreateLocalAdmin(context.Context, string, time.Time) (bool,
 func TestThePasswordNeverReachesAnyOtherOutput(t *testing.T) {
 	b := newBootFixture("")
 	if err := BootstrapLocalAdmin(context.Background(), b.store, b.opts); err != nil {
-		t.Fatal(err)
+		t.Fatalf("operation failed (%T)", err)
 	}
 	pw := extractLoggedPassword(t, strings.TrimSpace(b.logs.String()))
 	// Sign in with it, fail with it, change it, then look at everything observable.

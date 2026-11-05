@@ -64,9 +64,13 @@ type AuditEvent struct {
 type LocalStore interface {
 	LocalCredentialByUsername(ctx context.Context, username string) (LocalCredential, error)
 	LocalCredentialByUserID(ctx context.Context, userID string) (LocalCredential, error)
+	// CreateLocalSession inserts a session only if the verified credential is still
+	// current and enabled, serialized with password changes.
+	CreateLocalSession(ctx context.Context, credential LocalCredential, tokenHash, csrfHash []byte, expiry time.Time) error
 	// ChangeLocalPassword stores the new hash, clears must-change and ends
-	// every session of the user except the one with token hash keep, together.
-	ChangeLocalPassword(ctx context.Context, userID, hash string, keep []byte, now time.Time) error
+	// every session of the user except the one with token hash keep, and records
+	// exactly one password_changed audit event with remoteAddr, atomically.
+	ChangeLocalPassword(ctx context.Context, userID, hash string, keep []byte, remoteAddr string, now time.Time) error
 	RecordAuthEvent(ctx context.Context, e AuditEvent) error
 	// CreateLocalAdmin creates the built-in administrator with must-change
 	// set, but only while there are no users; it reports whether it did.
@@ -203,13 +207,15 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	account, addr := normalizeUsername(in.Username), clientAddr(r)
 	ctx := r.Context()
-	if wait := h.throttle().Wait(account, addr); wait > 0 {
+	release, wait := h.throttle().Begin(account, addr)
+	if wait > 0 {
 		if h.audit(ctx, AuditSignInThrottled, "", "", r) != nil {
 			h.warn("could not write the authentication audit")
 		}
 		writeThrottled(w, r, wait)
 		return
 	}
+	defer release()
 	cred, err := h.Local.LocalCredentialByUsername(ctx, account)
 	known := err == nil
 	if err != nil && !errors.Is(err, ErrNoCredential) {
@@ -240,7 +246,13 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.throttle().Succeed(account, addr)
-	if err := h.issueSession(w, r, cred.UserID); err != nil {
+	if err := h.issueSessionUsing(w, r, cred.UserID, func(ctx context.Context, _ string, token, csrf []byte, expiry time.Time) error {
+		return h.Local.CreateLocalSession(ctx, cred, token, csrf, expiry)
+	}); err != nil {
+		if errors.Is(err, ErrNoCredential) {
+			writeInvalidCredentials(w, r)
+			return
+		}
 		apierror.Write(w, r, http.StatusInternalServerError, "auth_unavailable", "auth unavailable")
 		return
 	}
@@ -279,10 +291,12 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	account, addr := normalizeUsername(cred.Username), clientAddr(r)
-	if wait := h.throttle().Wait(account, addr); wait > 0 {
+	release, wait := h.throttle().Begin(account, addr)
+	if wait > 0 {
 		writeThrottled(w, r, wait)
 		return
 	}
+	defer release()
 	var in struct {
 		CurrentPassword string `json:"currentPassword"`
 		NewPassword     string `json:"newPassword"`
@@ -314,14 +328,11 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cookie, _ := r.Cookie(sessionCookie)
-	if err := h.Local.ChangeLocalPassword(ctx, cred.UserID, hash, Hash(h.Secret, cookie.Value), h.now().UTC()); err != nil {
+	if err := h.Local.ChangeLocalPassword(ctx, cred.UserID, hash, Hash(h.Secret, cookie.Value), addr, h.now().UTC()); err != nil {
 		apierror.Write(w, r, http.StatusInternalServerError, "password_change_failed", "could not change the password")
 		return
 	}
 	h.throttle().Succeed(account, addr)
-	if h.audit(ctx, AuditPasswordChanged, cred.UserID, cred.Username, r) != nil {
-		h.warn("could not write the authentication audit")
-	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

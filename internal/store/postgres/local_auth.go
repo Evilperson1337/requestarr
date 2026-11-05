@@ -79,9 +79,9 @@ func (s *Store) CreateLocalAdmin(ctx context.Context, hash string, now time.Time
 }
 
 // ChangeLocalPassword stores the new hash, clears must-change and ends every
-// other session of the user in one transaction. The session with token hash
-// keep stays.
-func (s *Store) ChangeLocalPassword(ctx context.Context, userID, hash string, keep []byte, now time.Time) error {
+// other session of the user, with its successful audit event, in one
+// transaction. The session with token hash keep stays.
+func (s *Store) ChangeLocalPassword(ctx context.Context, userID, hash string, keep []byte, remoteAddr string, now time.Time) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -96,6 +96,9 @@ func (s *Store) ChangeLocalPassword(ctx context.Context, userID, hash string, ke
 	}
 	if _, err = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at=$2 WHERE user_id=$1::uuid AND revoked_at IS NULL AND token_hash<>$3`, userID, now, keep); err != nil {
 		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO auth_audit_events(event_type,user_id,username,remote_addr,created_at) SELECT $2,user_id,username,$3,$4 FROM local_credentials WHERE user_id=$1::uuid`, userID, auth.AuditPasswordChanged, remoteAddr, now); err != nil {
+		return fmt.Errorf("audit local password change: %w", err)
 	}
 	return tx.Commit(ctx)
 }
@@ -114,4 +117,30 @@ func (s *Store) RecordAuthEvent(ctx context.Context, e auth.AuditEvent) error {
 	}
 	_, err := s.pool.Exec(ctx, `INSERT INTO auth_audit_events(event_type,user_id,username,remote_addr,created_at) VALUES($1,$2::uuid,$3,$4,$5)`, e.Type, user, name, addr, e.At)
 	return err
+}
+
+// CreateLocalSession serializes the verified-hash check and session insertion
+// with password changes on the credential row. No hashing runs under the lock.
+func (s *Store) CreateLocalSession(ctx context.Context, cred auth.LocalCredential, token, csrf []byte, expiry time.Time) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin local session: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	var hash string
+	var disabled bool
+	err = tx.QueryRow(ctx, `SELECT password_hash,disabled FROM local_credentials WHERE user_id=$1::uuid FOR UPDATE`, cred.UserID).Scan(&hash, &disabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.ErrNoCredential
+	}
+	if err != nil {
+		return fmt.Errorf("lock local credential: %w", err)
+	}
+	if disabled || hash != cred.PasswordHash {
+		return auth.ErrNoCredential
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO auth_sessions(token_hash,user_id,csrf_hash,expires_at) VALUES($1,$2,$3,$4)`, token, cred.UserID, csrf, expiry); err != nil {
+		return fmt.Errorf("insert local session: %w", err)
+	}
+	return tx.Commit(ctx)
 }

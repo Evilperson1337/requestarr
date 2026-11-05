@@ -17,7 +17,7 @@ func errorCode(t *testing.T, w *httptest.ResponseRecorder) string {
 		Error struct{ Code, Message string }
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("not an error envelope: %q", w.Body.String())
+		t.Fatalf("not an error envelope: bodyBytes=%d", w.Body.Len())
 	}
 	return body.Error.Code
 }
@@ -53,7 +53,7 @@ func TestSignInFailuresAreUniformAndDoTheSameHashingWork(t *testing.T) {
 			tc.setup(f)
 			w := f.login(tc.user, tc.pass)
 			if w.Code != http.StatusUnauthorized || errorCode(t, w) != "invalid_credentials" {
-				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+				t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 			}
 			if f.hasher.verifies != 1 {
 				t.Fatalf("hash verifications=%d, want exactly 1 whatever was wrong", f.hasher.verifies)
@@ -73,10 +73,10 @@ func TestSignInFailuresAreUniformAndDoTheSameHashingWork(t *testing.T) {
 			_ = json.Unmarshal(first.Body.Bytes(), &a)
 			_ = json.Unmarshal(w.Body.Bytes(), &b)
 			if a != b {
-				t.Fatalf("responses differ: %+v vs %+v", a, b)
+				t.Fatalf("credential failure responses differ")
 			}
 			if m := strings.ToLower(b.Error.Message); strings.Contains(m, "unknown") || strings.Contains(m, "disabled") || strings.Contains(m, "user not") {
-				t.Fatalf("message gives the reason away: %q", b.Error.Message)
+				t.Fatalf("credential failure message gives the reason away")
 			}
 		})
 	}
@@ -127,7 +127,7 @@ func TestSignInOnlyAcceptsPostWithAWellFormedBody(t *testing.T) {
 	} {
 		w := f.post("/auth/local/login", body)
 		if w.Code != http.StatusBadRequest {
-			t.Errorf("%s: status=%d body=%s", name, w.Code, w.Body.String())
+			t.Errorf("%s: status=%d bodyBytes=%d", name, w.Code, w.Body.Len())
 		}
 	}
 	if len(f.store.sessions) != 0 {
@@ -153,7 +153,7 @@ func TestSignInSucceedsWithTheOpaqueSessionMechanism(t *testing.T) {
 	f := newFixture(t)
 	w := f.login("admin", testPassword)
 	if w.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+		t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 	}
 	cs := w.Result().Cookies()
 	session, csrf := cookie(cs, sessionCookie), cookie(cs, "requestarr_csrf")
@@ -161,10 +161,10 @@ func TestSignInSucceedsWithTheOpaqueSessionMechanism(t *testing.T) {
 		t.Fatal("session and CSRF cookies are required")
 	}
 	if !session.HttpOnly || !session.Secure || session.SameSite != http.SameSiteLaxMode || session.Path != "/" {
-		t.Fatalf("session cookie flags: %+v", session)
+		t.Fatalf("session cookie flags: httpOnly=%v secure=%v sameSite=%d rootPath=%v", session.HttpOnly, session.Secure, session.SameSite, session.Path == "/")
 	}
 	if !csrf.Secure || csrf.SameSite != http.SameSiteLaxMode {
-		t.Fatalf("csrf cookie flags: %+v", csrf)
+		t.Fatalf("CSRF cookie flags: secure=%v sameSite=%d", csrf.Secure, csrf.SameSite)
 	}
 	if w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal("sign-in responses must not be cached")
@@ -182,7 +182,7 @@ func TestSignInSucceedsWithTheOpaqueSessionMechanism(t *testing.T) {
 		MustChangePassword bool `json:"mustChangePassword"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.User.Role != "admin" || !body.MustChangePassword {
-		t.Fatalf("body=%s err=%v", w.Body.String(), err)
+		t.Fatalf("bodyBytes=%d decodeFailed=%v", w.Body.Len(), err != nil)
 	}
 	if strings.Contains(w.Body.String(), testPassword) || strings.Contains(w.Body.String(), "pbkdf2") {
 		t.Fatal("the response carries password material")
@@ -196,19 +196,19 @@ func TestAuthMeReportsTheMustChangeFlag(t *testing.T) {
 	cs := f.signIn()
 	w := f.authed(http.MethodGet, "/auth/me", "", cs)
 	if w.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+		t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 	}
 	var body struct{ MustChangePassword *bool }
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if body.MustChangePassword == nil || !*body.MustChangePassword {
-		t.Fatalf("mustChangePassword missing or false: %s", w.Body.String())
+		t.Fatalf("mustChangePassword missing or false: bodyBytes=%d", w.Body.Len())
 	}
 	f.store.creds[adminUserID].MustChange = false
 	w = f.authed(http.MethodGet, "/auth/me", "", cs)
 	body.MustChangePassword = nil
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if body.MustChangePassword == nil || *body.MustChangePassword {
-		t.Fatalf("flag should be present and false: %s", w.Body.String())
+		t.Fatalf("flag should be present and false: bodyBytes=%d", w.Body.Len())
 	}
 }
 
@@ -233,21 +233,21 @@ func TestEverySignInSuccessAndFailureIsAuditedWithoutPasswordMaterial(t *testing
 		dump := e.Type + "|" + e.UserID + "|" + e.Username + "|" + e.RemoteAddr
 		for _, secret := range []string{testPassword, "wrong password entirely", "another wrong one", "pbkdf2"} {
 			if strings.Contains(dump, secret) {
-				t.Fatalf("audit row carries %q: %+v", secret, e)
+				t.Fatalf("audit row contains password material")
 			}
 		}
 		if e.RemoteAddr != "203.0.113.7" {
 			t.Fatalf("audit address=%q, want the host without the port", e.RemoteAddr)
 		}
 		if e.Username != "" && e.Username != "admin" {
-			t.Fatalf("an unrecognised username (maybe a mistyped password) was stored: %q", e.Username)
+			t.Fatalf("an unrecognised username (maybe a mistyped password) was stored")
 		}
 		if e.At.IsZero() {
 			t.Fatal("audit row has no time")
 		}
 	}
 	if last := f.store.events[4]; last.UserID != adminUserID || last.Username != "admin" {
-		t.Fatalf("success row: %+v", last)
+		t.Fatalf("success audit has incorrect account attribution")
 	}
 }
 
@@ -321,7 +321,7 @@ func TestAnAccountIsNeverLockedOut(t *testing.T) {
 		f.clock.Advance(10 * time.Minute) // well beyond the cap
 	}
 	if w := f.login("admin", testPassword); w.Code != http.StatusOK {
-		t.Fatalf("after waiting out the delay the right password must work, got %d %s", w.Code, w.Body.String())
+		t.Fatalf("after waiting out the delay the right password must work, got %d bodyBytes=%d", w.Code, w.Body.Len())
 	}
 }
 
@@ -394,7 +394,7 @@ func TestPasswordChangeRequiresASession(t *testing.T) {
 	f := newFixture(t)
 	w := f.post("/auth/local/password", changeBody(testPassword, goodNewPassword))
 	if w.Code != http.StatusUnauthorized || errorCode(t, w) != "authentication_required" {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+		t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 	}
 	if f.hasher.hashes != 0 {
 		t.Fatal("unauthenticated request caused hashing")
@@ -432,7 +432,7 @@ func TestPasswordChangeIsRefusedForAccountsWithoutALocalCredential(t *testing.T)
 			cs := []*http.Cookie{{Name: sessionCookie, Value: "tok"}, {Name: "requestarr_csrf", Value: "csrf"}}
 			w := f.authed(http.MethodPost, "/auth/local/password", changeBody("anything at all", goodNewPassword), cs)
 			if w.Code != http.StatusForbidden || errorCode(t, w) != "forbidden" {
-				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+				t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 			}
 			if f.hasher.hashes != 0 || f.hasher.verifies != 0 {
 				t.Fatal("a person without a local password reached the hasher")
@@ -450,7 +450,7 @@ func TestPasswordChangeRejectsAWrongCurrentPasswordWithTheSameWork(t *testing.T)
 	f.hasher.reset()
 	w := f.authed(http.MethodPost, "/auth/local/password", changeBody("not my current password", goodNewPassword), cs)
 	if w.Code != http.StatusForbidden || errorCode(t, w) != "current_password_incorrect" {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+		t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 	}
 	if f.hasher.verifies != 1 {
 		t.Fatalf("verifies=%d", f.hasher.verifies)
@@ -505,11 +505,11 @@ func TestPasswordLengthLimitsHaveNoCompositionRules(t *testing.T) {
 			cs := f.signIn()
 			w := f.authed(http.MethodPost, "/auth/local/password", changeBody(testPassword, tc.pw), cs)
 			if tc.ok && w.Code != http.StatusNoContent {
-				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+				t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 			}
 			if !tc.ok {
 				if w.Code != http.StatusBadRequest || errorCode(t, w) != "invalid_password" {
-					t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+					t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 				}
 				if !f.store.creds[adminUserID].MustChange {
 					t.Fatal("an invalid password was stored")
@@ -524,7 +524,7 @@ func TestPasswordChangeRejectsReusingTheCurrentPassword(t *testing.T) {
 	cs := f.signIn()
 	w := f.authed(http.MethodPost, "/auth/local/password", changeBody(testPassword, testPassword), cs)
 	if w.Code != http.StatusBadRequest || errorCode(t, w) != "password_unchanged" {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+		t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 	}
 	if !f.store.creds[adminUserID].MustChange {
 		t.Fatal("must-change was cleared without a new password")
@@ -541,7 +541,7 @@ func TestPasswordChangeClearsMustChangeEndsOtherSessionsAndKeepsTheCurrentOne(t 
 	}
 	w := f.authed(http.MethodPost, "/auth/local/password", changeBody(testPassword, goodNewPassword), current)
 	if w.Code != http.StatusNoContent {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+		t.Fatalf("status=%d bodyBytes=%d", w.Code, w.Body.Len())
 	}
 	if f.store.creds[adminUserID].MustChange {
 		t.Fatal("must-change not cleared")
@@ -553,7 +553,7 @@ func TestPasswordChangeClearsMustChangeEndsOtherSessionsAndKeepsTheCurrentOne(t 
 		t.Fatalf("the other session survived: %d", w.Code)
 	}
 	if w := f.authed(http.MethodGet, "/auth/me", "", current); w.Code != http.StatusOK || strings.Contains(w.Body.String(), `"mustChangePassword":true`) {
-		t.Fatalf("current session: %d %s", w.Code, w.Body.String())
+		t.Fatalf("current session: %d bodyBytes=%d", w.Code, w.Body.Len())
 	}
 	if w := f.login("admin", testPassword); w.Code != http.StatusUnauthorized {
 		t.Fatalf("the old password still works: %d", w.Code)
@@ -564,10 +564,20 @@ func TestPasswordChangeClearsMustChangeEndsOtherSessionsAndKeepsTheCurrentOne(t 
 	if got := f.store.eventTypes(); got[len(got)-3] != AuditPasswordChanged {
 		t.Fatalf("events=%v", got)
 	}
+	changes := 0
 	for _, e := range f.store.events {
+		if e.Type == AuditPasswordChanged {
+			changes++
+			if e.RemoteAddr != "203.0.113.7" {
+				t.Error("password-change event has incorrect client address")
+			}
+		}
 		if strings.Contains(e.Type+e.Username+e.UserID, goodNewPassword) {
 			t.Fatal("audit carries the password")
 		}
+	}
+	if changes != 1 {
+		t.Errorf("password-change events=%d, want 1", changes)
 	}
 }
 
@@ -580,6 +590,31 @@ func TestPasswordChangeBodyIsStrict(t *testing.T) {
 	} {
 		if w := f.authed(http.MethodPost, "/auth/local/password", body, cs); w.Code != http.StatusBadRequest {
 			t.Errorf("%s: status=%d", name, w.Code)
+		}
+	}
+}
+
+func TestPasswordChangeAuditFailureLeavesCredentialAndSessionsUnchanged(t *testing.T) {
+	f := newFixture(t)
+	current, other := f.signIn(), f.signIn()
+	f.store.failAudit = true
+	w := f.authed(http.MethodPost, "/auth/local/password", changeBody(testPassword, goodNewPassword), current)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("password change with failed audit status=%d, want 500", w.Code)
+	}
+	cred, err := f.store.LocalCredentialByUserID(context.Background(), adminUserID)
+	if err != nil || !cred.MustChange || !f.hasher.Verify(testPassword, cred.PasswordHash) {
+		t.Error("failed audit changed the credential")
+	}
+	if n := f.store.liveSessions(adminUserID); n != 2 {
+		t.Errorf("failed audit left %d live sessions, want 2", n)
+	}
+	if w := f.authed(http.MethodGet, "/auth/me", "", other); w.Code != http.StatusOK {
+		t.Error("failed audit revoked the other session")
+	}
+	for _, typ := range f.store.eventTypes() {
+		if typ == AuditPasswordChanged {
+			t.Error("failed change recorded success")
 		}
 	}
 }
