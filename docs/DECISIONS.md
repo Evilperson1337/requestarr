@@ -291,3 +291,15 @@ They cannot:
 - reuse a spent or expired token.
 
 Showing a user their own identity moves no trust: knowing a subject was never the secret, the token is. Before this decision the operator typed issuer and subject by hand; the server already held them.
+
+## D038 — The draft setup wizard is retired; a Get started checklist replaces it
+
+Accepted. Plan: `.scratch/ux-review/` (ticket 05). Supersedes the draft wizard described by D025 and the "inactive draft" rules around it; it does not touch D024, D028 or D037.
+
+- **Retired:** the seven-step draft wizard (General, Authentication, Providers, Libraries, Notifications, Policy, Review) and everything behind it: the `/setup` page, `GET`/`PUT /admin/setup/draft`, `POST /admin/setup/validate`, `POST /admin/setup/finish`, `GET /admin/setup/source-kinds`, the setup service and draft persistence in `internal/setup` and `internal/store/postgres`, `wizardComplete` in `GET /setup/status`, and their tests and OpenAPI entries. `internal/setup` keeps only the connection-check vocabulary the library Test connection and the checker still use.
+- **Why:** the draft saved values and applied nothing except one (the IGDB client ID), asked for settings that Settings already applies live (D028), and made a new admin enter a library address and credentials twice. The review found it was the first thing a new administrator met and the least useful.
+- **Replacement:** a checklist at `/get-started`, computed from live state and holding no inputs: a library connected and synced and a metadata provider (TMDB or IGDB; MusicBrainz is always on and does not count) are required; notifications (Apprise) and a reviewed default role are optional. Each item links to the Settings section that applies it. Dismissing is remembered for the instance as the setting `setup.checklist_dismissed` in the settings store (D035); the nav item shows to administrators until every required item is done or it is dismissed. `GET /admin/checklist` and `POST /admin/checklist/dismiss` are the API.
+- **IGDB client ID:** now the setting `igdb.client_id`, a field in Settings, Integrations beside the IGDB secret (`GET`/`PUT /admin/settings/igdb`). It applies after a restart until live credential reload (ticket 08). `REQUESTARR_IGDB_CLIENT_ID` still wins and makes the field read-only.
+- **Upgrade:** the `setup_state` and `setup_draft_events` tables and migration 000021 stay (migrations are append-only); they are unused. While no `igdb.client_id` setting exists, startup reads the client ID from the old draft (`setup_state.draft`) as an idempotent read-time fallback, so an installation that saved one keeps it with no action. Saving a value in Settings, even an empty one, supersedes it. The fallback never writes.
+- **Consequence:** `docs/SETUP_WIZARD.md` now describes the claim and the checklist (the file name is kept for existing links), and `docs/UNRAID.md` and `docs/MANUAL_TESTING.md` follow.
+

@@ -903,7 +903,7 @@ paths:
       summary: Probe a Source with its current address and credentials (administrator only)
       description: >-
         An explicit check of this exact Source: one short read-only request, the same probe the
-        setup wizard uses. The message never contains a credential. Requires CSRF and a
+        library checks use. The message never contains a credential. Requires CSRF and a
         same-origin Origin header.
       parameters:
         - in: header

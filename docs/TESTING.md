@@ -28,7 +28,7 @@ This starts the dev-compose `postgres` service, creates a dedicated `requestarr_
 - `scripts/check.sh` runs the suite when `REQUESTARR_TEST_DATABASE_URL` is set, and skips it otherwise.
 
 ## End-to-end
-Cover setup wizard, OIDC sign-in, create request, duplicate resolution, Notify Me, admin approval/denial, simulated inventory arrival, Available transition, notification delivery, source outage retaining last-known state.
+Cover the first-admin claim and Get started checklist, OIDC sign-in, create request, duplicate resolution, Notify Me, admin approval/denial, simulated inventory arrival, Available transition, notification delivery, source outage retaining last-known state.
 
 ## Performance targets (initial, validate later)
 - shared Requests page backed by local DB should feel instantaneous at household-scale inventories;
@@ -66,7 +66,7 @@ with the app. The suite runs in CI (`web` job) after the typecheck/build.
 
 Coverage by spec file: `smoke.spec.ts` (Home resolve, request modal incl. game
 platform rules, Notifications, non-admin navigation), `requests.spec.ts`
-(Requests page), `setup.spec.ts` (wizard through Finish) and `status.spec.ts`
+(Requests page), `setup.spec.ts` (first-admin claim and the Get started checklist) and `status.spec.ts`
 (Settings operational status), `a11y.spec.ts` (axe and no-horizontal-scroll audit of every main page at desktop and phone widths, plus the dialog keyboard test; see [the audit](ACCESSIBILITY_AUDIT.md)).
 
 ```sh
@@ -136,20 +136,20 @@ go test -race ./internal/httpapi
 
 These tests run with `make test`; there is no new dependency or production
 authorization-policy change.
-# Setup draft tests
+# Get started checklist tests
 
-The first setup steps have tests at the agreed service, outbound-client,
-PostgreSQL, full-router, and browser seams:
+The Get started checklist (D038) has tests at these seams:
 
-- `go test -race ./internal/setup/... ./internal/httpapi` checks resumability,
-  safe validation failures, closed secret-reference fields, admin permissions,
-  CSRF/Origin, revision conflicts, and bounded HTTP/network policy using fixtures.
-- PostgreSQL integration tests cover atomic initialization, cross-store resume,
-  stale/concurrent saves, validation revision binding, audit rollback, typed
-  non-secret storage, migration round trips, and bootstrap-state preservation.
-- `make web-test` now also runs the wizard's mocked browser tests, including
-  resume, save-before-check, connection failure, conflict recovery, role gating,
-  secret-reference-only forms, stale requests, and phone/keyboard use.
+- `go test ./internal/checklist ./internal/httpapi ./internal/app` checks how each
+  item is computed from live state with fakes, administrator-only access, CSRF and
+  Origin on dismissing, the IGDB client ID setting (including the environment
+  winning), and that the OpenAPI contract matches the route table.
+- PostgreSQL integration tests cover the stored IGDB client ID, the read-time
+  fallback to a client ID saved in the retired draft, the remembered dismissal, and
+  that the retired draft migration still applies and rolls back.
+- `make web-test` runs the claim and checklist browser tests (required and optional
+  items, links to Settings, dismissal, no fields on the page, non-admins never
+  seeing it) and the IGDB client ID field.
 
 For repeated full integration runs, use a fresh dedicated disposable database
 through `REQUESTARR_TEST_DATABASE_URL`. The existing reused test database can

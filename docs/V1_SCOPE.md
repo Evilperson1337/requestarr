@@ -3,7 +3,7 @@
 ## Required
 
 - Go service + React/TypeScript web UI + PostgreSQL.
-- First-run setup wizard with resumable draft configuration.
+- First-run Get started checklist (computed from live state, dismissible) after the first-admin claim; configuration itself lives in Settings (D038).
 - OIDC-only normal authentication; Keycloak tested and documented.
 - Roles/capabilities for viewer/requester/admin.
 - URL resolver registry:
