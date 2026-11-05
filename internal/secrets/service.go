@@ -220,20 +220,30 @@ func validValue(v string) bool {
 
 // Set encrypts and stores value. The value is never returned, logged or audited.
 func (s *Service) Set(ctx context.Context, actorID string, name Name, value string) error {
+	sealed, err := s.Seal(name, value)
+	if err != nil {
+		return err
+	}
+	return s.repo.PutStoredSecret(ctx, actorID, name, sealed)
+}
+
+// Seal validates and encrypts value without storing it, so a caller can write it
+// in the same transaction as other changes. The value is never returned.
+func (s *Service) Seal(name Name, value string) (Sealed, error) {
 	if _, ok := Lookup(name); !ok {
-		return ErrUnknownSecret
+		return Sealed{}, ErrUnknownSecret
 	}
 	if s.sealer == nil {
-		return ErrNoMasterKey
+		return Sealed{}, ErrNoMasterKey
 	}
 	if !validValue(value) {
-		return ErrInvalidValue
+		return Sealed{}, ErrInvalidValue
 	}
 	sealed, err := s.sealer.Seal(name, []byte(value))
 	if err != nil {
-		return fmt.Errorf("seal secret: %w", err)
+		return Sealed{}, fmt.Errorf("seal secret: %w", err)
 	}
-	return s.repo.PutStoredSecret(ctx, actorID, name, sealed)
+	return sealed, nil
 }
 
 // Clear deletes a stored secret. It works without a master key, so an operator

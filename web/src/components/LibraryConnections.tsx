@@ -18,6 +18,7 @@ function Connection({ connection, source, syncing, onSync, csrfToken, reload, on
     const id = useId()
     const [url, setURL] = useState(connection.url)
     const [username, setUsername] = useState(connection.username)
+    const [secrets, setSecrets] = useState<Record<string, string>>({})
     const [busy, setBusy] = useState('')
     const [error, setError] = useState('')
     const [notice, setNotice] = useState('')
@@ -30,10 +31,19 @@ function Connection({ connection, source, syncing, onSync, csrfToken, reload, on
         setBusy(kind); setError(''); setNotice(''); setTest(null)
         try { await work() } catch (e) { onRequestError(e); setError(e instanceof Error && e.message ? e.message : fail) } finally { setBusy('') }
     }
+    const typed = Object.entries(secrets).filter(([, value]) => value !== '')
+    const addressDirty = url.trim() !== connection.url || (connection.takesUsername && username.trim() !== connection.username)
     function save(event: FormEvent) {
         event.preventDefault()
+        if (busy || ((!addressDirty || locked) && !typed.length)) return
+        // Only what changed is sent: an empty credential field keeps the saved one,
+        // and an address set by the environment is never sent.
+        const body: { url?: string; username?: string; credentials?: Record<string, string> } = {}
+        if (!locked && addressDirty) { body.url = url.trim(); if (connection.takesUsername) body.username = username.trim() }
+        if (typed.length) body.credentials = Object.fromEntries(typed)
+        setSecrets({}) // never keep a secret in the page after submit, whether or not the save works
         void run('save', async () => {
-            await api<LibraryConnection>(base, { method: 'PUT', body: JSON.stringify(connection.takesUsername ? { url: url.trim(), username: username.trim() } : { url: url.trim() }) }, csrfToken)
+            await api<LibraryConnection>(base, { method: 'PUT', body: JSON.stringify(body) }, csrfToken)
             await reload(); setNotice(`${connection.name} saved and applied.`)
         }, `${connection.name} could not be saved.`)
     }
@@ -43,7 +53,7 @@ function Connection({ connection, source, syncing, onSync, csrfToken, reload, on
     function probe() {
         void run('test', async () => { setTest(await api<ConnectionTest>(`${base}/test`, { method: 'POST' }, csrfToken)) }, `${connection.name} could not be tested.`)
     }
-    const dirty = url.trim() !== connection.url || (connection.takesUsername && username.trim() !== connection.username)
+    const dirty = (addressDirty && !locked) || typed.length > 0
     const { text, tone } = summary(connection)
     const meta = connection.active && source
         ? <>Last sync {when(source.lastRun?.startedAt)} · {source.lastRun?.status ?? 'not run yet'}{source.lastSuccessAt ? <> · last success {when(source.lastSuccessAt)}</> : null}{source.lastError ? <> · <span className="error">{source.lastError}</span></> : null}</>
@@ -58,13 +68,13 @@ function Connection({ connection, source, syncing, onSync, csrfToken, reload, on
                 <label htmlFor={`${id}-user`}>Username</label>
                 <input id={`${id}-user`} autoComplete="off" spellCheck={false} maxLength={256} value={username} disabled={locked || !!busy} onChange={event => setUsername(event.target.value)} />
             </>}
+            {connection.credentials.map(credential => <SecretField key={credential.secret} name={credential.secret} label={credential.label || credential.secret} csrfToken={csrfToken} onRequestError={onRequestError} appliesImmediately onChanged={() => void reload()} entry={{ value: secrets[credential.secret] ?? '', onChange: value => setSecrets(current => ({ ...current, [credential.secret]: value })), disabled: !!busy }} />)}
             <div className="draftActions">
-                <button className="button" type="submit" disabled={locked || !!busy || !url.trim() || !dirty}>{busy === 'save' ? 'Saving…' : 'Save and apply'}</button>
+                <button className="button" type="submit" disabled={!!busy || !dirty || (!locked && !url.trim())}>{busy === 'save' ? 'Saving…' : 'Save and apply'}</button>
                 <button className="button secondary" type="button" disabled={!!busy || !connection.url} onClick={probe}>{busy === 'test' ? 'Testing…' : 'Test connection'}</button>
                 {connection.saved && !locked && <button className="button secondary" type="button" disabled={!!busy} onClick={remove}>Remove</button>}
             </div>
         </form>
-        {connection.credentials.map(credential => <SecretField key={credential.secret} name={credential.secret} label={credential.label || credential.secret} csrfToken={csrfToken} onRequestError={onRequestError} appliesImmediately onChanged={() => void reload()} />)}
         <div aria-live="polite">
             {notice && <p role="status">{notice}</p>}
             {test && <p role="status" className={test.ok ? 'testOk' : 'error'}>{test.message}</p>}
