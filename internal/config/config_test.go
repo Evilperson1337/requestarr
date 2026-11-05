@@ -117,12 +117,12 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name:    "missing database url",
 			config:  Config{HTTPAddr: ":8080", LogLevelRaw: "info"},
-			wantErr: "REQUESTARR_DATABASE_URL is required; REQUESTARR_PUBLIC_URL must be an absolute http(s) origin without path, credentials, query, or fragment; REQUESTARR_OIDC_ISSUER, REQUESTARR_OIDC_CLIENT_ID, and REQUESTARR_OIDC_CLIENT_SECRET are required; REQUESTARR_SESSION_HMAC_SECRET must contain at least 32 bytes",
+			wantErr: "database is not configured: set REQUESTARR_DATABASE_URL, or set REQUESTARR_DB_HOST, REQUESTARR_DB_NAME, REQUESTARR_DB_USER and REQUESTARR_DB_PASSWORD; REQUESTARR_PUBLIC_URL must be an absolute http(s) origin without path, credentials, query, or fragment; REQUESTARR_OIDC_ISSUER, REQUESTARR_OIDC_CLIENT_ID, and REQUESTARR_OIDC_CLIENT_SECRET are required; REQUESTARR_SESSION_HMAC_SECRET must contain at least 32 bytes",
 		},
 		{
 			name:    "missing database url does not expose other problems' order dependency",
 			config:  Config{HTTPAddr: "bad-address", LogLevelRaw: "info"},
-			wantErr: "REQUESTARR_DATABASE_URL is required; REQUESTARR_PUBLIC_URL must be an absolute http(s) origin without path, credentials, query, or fragment; REQUESTARR_OIDC_ISSUER, REQUESTARR_OIDC_CLIENT_ID, and REQUESTARR_OIDC_CLIENT_SECRET are required; REQUESTARR_SESSION_HMAC_SECRET must contain at least 32 bytes; REQUESTARR_HTTP_ADDR must be in host:port form",
+			wantErr: "database is not configured: set REQUESTARR_DATABASE_URL, or set REQUESTARR_DB_HOST, REQUESTARR_DB_NAME, REQUESTARR_DB_USER and REQUESTARR_DB_PASSWORD; REQUESTARR_PUBLIC_URL must be an absolute http(s) origin without path, credentials, query, or fragment; REQUESTARR_OIDC_ISSUER, REQUESTARR_OIDC_CLIENT_ID, and REQUESTARR_OIDC_CLIENT_SECRET are required; REQUESTARR_SESSION_HMAC_SECRET must contain at least 32 bytes; REQUESTARR_HTTP_ADDR must be in host:port form",
 		},
 	}
 

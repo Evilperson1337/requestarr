@@ -87,7 +87,7 @@ If you don't have Docker, point `REQUESTARR_DATABASE_URL` in `.env` at any Postg
 REQUESTARR_DATABASE_URL= go run ./cmd/requestarr
 ```
 
-**Expect:** immediate exit, `requestarr: invalid configuration: REQUESTARR_DATABASE_URL is required`, no attempt to bind a port.
+**Expect:** immediate exit, `requestarr: invalid configuration: database is not configured: set REQUESTARR_DATABASE_URL, or set REQUESTARR_DB_HOST, ...` (the database can also be given as separate `REQUESTARR_DB_HOST`, `REQUESTARR_DB_PORT`, `REQUESTARR_DB_NAME`, `REQUESTARR_DB_USER`, `REQUESTARR_DB_PASSWORD`, `REQUESTARR_DB_SSLMODE` settings; the URL wins when both are set), no attempt to bind a port.
 
 ```bash
 REQUESTARR_DATABASE_URL=postgres://x REQUESTARR_LOG_LEVEL=nonsense go run ./cmd/requestarr

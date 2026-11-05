@@ -6,8 +6,10 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
@@ -15,8 +17,11 @@ import (
 )
 
 type Config struct {
-	DevelopmentLogs   bool
-	devLogsInvalid    bool
+	DevelopmentLogs bool
+	devLogsInvalid  bool
+	// dbPartsProblem is why REQUESTARR_DB_* could not be turned into DatabaseURL.
+	// It names variables only, never values.
+	dbPartsProblem    string
 	Environment       string
 	HTTPAddr          string
 	PublicURL         string
@@ -75,6 +80,9 @@ func FromEnv() Config {
 		AppriseURL:        os.Getenv("REQUESTARR_APPRISE_URL"),
 		AppriseConfigKey:  os.Getenv("REQUESTARR_APPRISE_CONFIG_KEY"),
 		SecretsKey:        os.Getenv(secrets.MasterKeyEnv),
+	}
+	if c.DatabaseURL == "" {
+		c.DatabaseURL, c.dbPartsProblem = databaseURLFromParts()
 	}
 	c.SetHTTPAllowedNetworks(os.Getenv(httpAllowedNetworksEnv))
 	for _, kind := range sources.All() {
@@ -178,7 +186,7 @@ func joinNames(names []string) string {
 func (c Config) ValidateBootstrap() error {
 	var problems []string
 	if c.DatabaseURL == "" {
-		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
+		problems = append(problems, c.databaseProblem())
 	}
 	problems = append(problems, c.secretsKeyProblems()...)
 	problems = append(problems, c.httpAllowedNetworksProblems()...)
@@ -232,7 +240,7 @@ func (c Config) Validate() error {
 	problems = append(problems, c.developmentLogsProblems()...)
 
 	if c.DatabaseURL == "" {
-		problems = append(problems, "REQUESTARR_DATABASE_URL is required")
+		problems = append(problems, c.databaseProblem())
 	}
 	problems = append(problems, c.secretsKeyProblems()...)
 	problems = append(problems, c.httpAllowedNetworksProblems()...)
@@ -324,4 +332,53 @@ func env(key, fallback string) string {
 // tolerated for them in development.
 func isLoopbackHost(host string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+// databaseProblem is the validation problem for an empty DatabaseURL.
+func (c Config) databaseProblem() string {
+	if c.dbPartsProblem != "" {
+		return c.dbPartsProblem
+	}
+	return "database is not configured: set REQUESTARR_DATABASE_URL, or set REQUESTARR_DB_HOST, REQUESTARR_DB_NAME, REQUESTARR_DB_USER and REQUESTARR_DB_PASSWORD"
+}
+
+var sslModes = []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+
+// databaseURLFromParts builds the connection URL from REQUESTARR_DB_*. It
+// returns an empty URL and no problem when none of the parts is set. Problems
+// name variables and never include a value.
+func databaseURLFromParts() (string, string) {
+	host, port := os.Getenv("REQUESTARR_DB_HOST"), os.Getenv("REQUESTARR_DB_PORT")
+	name, user := os.Getenv("REQUESTARR_DB_NAME"), os.Getenv("REQUESTARR_DB_USER")
+	password, sslmode := os.Getenv("REQUESTARR_DB_PASSWORD"), os.Getenv("REQUESTARR_DB_SSLMODE")
+	if host == "" && port == "" && name == "" && user == "" && password == "" && sslmode == "" {
+		return "", ""
+	}
+	var problems []string
+	for _, required := range []struct{ env, value string }{
+		{"REQUESTARR_DB_HOST", host}, {"REQUESTARR_DB_NAME", name}, {"REQUESTARR_DB_USER", user}, {"REQUESTARR_DB_PASSWORD", password},
+	} {
+		if required.value == "" {
+			problems = append(problems, required.env+" is required (or set REQUESTARR_DATABASE_URL)")
+		}
+	}
+	if host != "" && strings.ContainsFunc(host, func(r rune) bool { return unicode.IsSpace(r) || strings.ContainsRune("/?#@", r) }) {
+		problems = append(problems, "REQUESTARR_DB_HOST must be a host name or address without whitespace or any of / ? # @")
+	}
+	if port == "" {
+		port = "5432"
+	} else if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		problems = append(problems, "REQUESTARR_DB_PORT must be a number between 1 and 65535")
+	}
+	if sslmode != "" && !slices.Contains(sslModes, sslmode) {
+		problems = append(problems, "REQUESTARR_DB_SSLMODE must be one of "+strings.Join(sslModes, ", "))
+	}
+	if len(problems) > 0 {
+		return "", strings.Join(problems, "; ")
+	}
+	u := url.URL{Scheme: "postgres", User: url.UserPassword(user, password), Host: net.JoinHostPort(host, port), Path: "/" + name}
+	if sslmode != "" {
+		u.RawQuery = url.Values{"sslmode": {sslmode}}.Encode()
+	}
+	return u.String(), ""
 }
