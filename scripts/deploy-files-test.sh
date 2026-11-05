@@ -17,16 +17,21 @@ example=$dir/requestarr.env.example
 template=$dir/requestarr.xml
 pinned_tag=v0.1.0-rc.3
 # Independent list of what an operator must supply (the spec's settings).
-required=(REQUESTARR_TAG POSTGRES_PASSWORD REQUESTARR_PUBLIC_URL REQUESTARR_OIDC_ISSUER
-  REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
+required=(REQUESTARR_TAG POSTGRES_PASSWORD REQUESTARR_PUBLIC_URL REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
+# Optional settings (D040): OIDC is an override of what is saved in Settings, Authentication, and the
+# initial administrator password is only used on a fresh install. None has a default.
+optional=(REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_ADMIN_PASSWORD)
 # Database settings the template must ask for (the compose file derives them).
 db_required=(REQUESTARR_DB_HOST REQUESTARR_DB_NAME REQUESTARR_DB_USER REQUESTARR_DB_PASSWORD)
-secrets=(POSTGRES_PASSWORD REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
+secrets=(POSTGRES_PASSWORD REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 fail() { echo "FAIL: $*" >&2; failures=$((failures + 1)); }
+
+# The removed first-administrator claim flow (D040). Split so this file does not match itself.
+old_flow='setup[-_ ]?tok''en|claim-ad''min|claim (the )?(first )?ad''min|first-ad''min'
 
 # Fixture values: shaped like real ones so resolution can be asserted; fake.
 write_fixture() { # file [omit-key]
@@ -35,9 +40,6 @@ write_fixture() { # file [omit-key]
 REQUESTARR_TAG=$pinned_tag
 POSTGRES_PASSWORD=fixturepassword0123
 REQUESTARR_PUBLIC_URL=https://requests.example.test
-REQUESTARR_OIDC_ISSUER=https://id.example.test/realms/requestarr
-REQUESTARR_OIDC_CLIENT_ID=requestarr
-REQUESTARR_OIDC_CLIENT_SECRET=fixture-client-secret
 REQUESTARR_SESSION_HMAC_SECRET=fixture-session-secret-0123456789abcdef0123
 REQUESTARR_SECRETS_KEY=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
 ENV
@@ -51,7 +53,7 @@ resolve() { docker compose -f "$1" --env-file "$2" config --format json 2>/dev/n
 check_compose() { # compose-file
   local c=$1 env="$work/fixture.env" json
   write_fixture "$env"
-  json="$(resolve "$c" "$env")" || { fail "$c does not resolve against the fixture environment"; return 1; }
+  json="$(resolve "$c" "$env")" || { echo "FAIL: $c does not resolve against the fixture environment" >&2; return 1; }
   printf '%s' "$json" | PINNED="$pinned_tag" python3 -c '
 import json, os, sys
 m = json.load(sys.stdin)
@@ -87,6 +89,11 @@ if not env.get("REQUESTARR_DB_USER") or env.get("REQUESTARR_DB_USER") != penv.ge
     errs.append("REQUESTARR_DB_USER must be the user the postgres service creates")
 if not env.get("REQUESTARR_DB_PASSWORD") or env.get("REQUESTARR_DB_PASSWORD") != penv.get("POSTGRES_PASSWORD"):
     errs.append("REQUESTARR_DB_PASSWORD must be the postgres service password")
+for k in ("REQUESTARR_OIDC_ISSUER", "REQUESTARR_OIDC_CLIENT_ID", "REQUESTARR_OIDC_CLIENT_SECRET", "REQUESTARR_ADMIN_PASSWORD"):
+    if k not in env:
+        errs.append("%s must be passed through to requestarr" % k)
+    elif env[k] != "":
+        errs.append("%s must be empty when the environment file does not set it, got a default" % k)
 vols = [v for v in p.get("volumes", []) if v.get("target") == "/var/lib/postgresql/data"]
 if not vols or vols[0].get("type") != "volume" or not vols[0].get("source"):
     errs.append("postgres data must be on a named volume")
@@ -107,6 +114,18 @@ check_no_defaults() { # compose-file
       echo "FAIL: $c resolves without $key, so it has a default" >&2
       rc=1
     fi
+  done
+  return $rc
+}
+
+# A value set in the environment file must reach the container unchanged.
+check_optional_passthrough() { # compose-file
+  local c=$1 env="$work/optional.env" key out rc=0
+  write_fixture "$env"
+  for key in "${optional[@]}"; do echo "$key=fixture-$key" >> "$env"; done
+  out="$(resolve "$c" "$env" | python3 -c 'import json,sys; e=json.load(sys.stdin)["services"]["requestarr"]["environment"]; print(" ".join(k+"="+e.get(k,"") for k in sys.argv[1:]))' "${optional[@]}")" || { echo "FAIL: $c does not resolve with the optional settings set" >&2; return 1; }
+  for key in "${optional[@]}"; do
+    case " $out " in *" $key=fixture-$key "*) ;; *) echo "FAIL: $c does not pass $key through" >&2; rc=1 ;; esac
   done
   return $rc
 }
@@ -135,6 +154,12 @@ check_example() { # example-file
   for key in "${required[@]}"; do
     if ! grep -Eq "^$key=" "$ex"; then echo "FAIL: $ex has no $key= line" >&2; rc=1; fi
   done
+  for key in "${optional[@]}"; do
+    grep -Eq "^#? ?$key=" "$ex" || { echo "FAIL: $ex does not show $key (commented out)" >&2; rc=1; }
+    v="$(sed -n "s/^$key=//p" "$ex" | head -n1)"
+    [[ -z $v ]] || { echo "FAIL: $key in $ex must be unset or empty, not carry a value" >&2; rc=1; }
+  done
+  if grep -Eiq "$old_flow" "$ex"; then echo "FAIL: $ex mentions the removed claim flow" >&2; rc=1; fi
   if grep -Eq 'DATABASE_URL|postgres://' "$ex"; then echo "FAIL: $ex must not build or mention a database URL" >&2; rc=1; fi
   if grep -Eiq 'letters and digits|percent-encod' "$ex"; then echo "FAIL: $ex still restricts the database password to letters and digits" >&2; rc=1; fi
   [[ $(sed -n 's/^REQUESTARR_TAG=//p' "$ex") == "$pinned_tag" ]] || { echo "FAIL: $ex must set REQUESTARR_TAG=$pinned_tag" >&2; rc=1; }
@@ -175,7 +200,7 @@ check_template() { # template-file [compose-file]
     xmllint --noout "$t" 2>/dev/null || { echo "FAIL: $t is not well-formed XML" >&2; return 1; }
   fi
   TEMPLATE="$t" PINNED="$pinned_tag" PROJECT="$project_url" TEMPLATE_URL="$template_url" \
-    COMPOSE_ENV="$(compose_env_names "$c")" REQUIRED="${required[*]}" DB_REQUIRED="${db_required[*]}" SECRETS="${secrets[*]}" CONFIG=internal/config/config.go \
+    COMPOSE_ENV="$(compose_env_names "$c")" REQUIRED="${required[*]}" OPTIONAL="${optional[*]}" DB_REQUIRED="${db_required[*]}" SECRETS="${secrets[*]}" CONFIG=internal/config/config.go \
     python3 -I "$PWD/scripts/deploy-template-check.py"
 }
 
@@ -188,6 +213,7 @@ expect_rejected() { # description command...
 check_compose "$compose" || failures=$((failures + 1))
 check_no_defaults "$compose" || failures=$((failures + 1))
 check_tag_pinned "$compose" || failures=$((failures + 1))
+check_optional_passthrough "$compose" || failures=$((failures + 1))
 check_example "$example" || failures=$((failures + 1))
 check_template "$template" || failures=$((failures + 1))
 
@@ -204,6 +230,20 @@ for key in "${secrets[@]}"; do
   mutate "$compose" "$work/default.yaml" "$key" "\${$key:-usable-default}"
   expect_rejected "a usable default for $key" check_no_defaults "$work/default.yaml"
 done
+for key in "${optional[@]}"; do
+  sed "s#^\( *$key:\).*#\1 \${$key:?set it}#" "$compose" > "$work/mut.yaml"
+  expect_rejected "a compose file that requires $key" check_compose "$work/mut.yaml"
+  sed "s#^\( *$key:\).*#\1 \${$key:-usable-default}#" "$compose" > "$work/mut.yaml"
+  expect_rejected "a compose file with a default for $key" check_compose "$work/mut.yaml"
+  grep -v "^ *$key:" "$compose" > "$work/mut.yaml"
+  expect_rejected "a compose file that drops $key" check_compose "$work/mut.yaml"
+  sed "s#^\( *$key:\).*#\1 fixed#" "$compose" > "$work/mut.yaml"
+  expect_rejected "a compose file that ignores the environment for $key" check_optional_passthrough "$work/mut.yaml"
+  { cat "$example"; echo "$key=usable-value"; } > "$work/short.env.example"
+  expect_rejected "an example that sets $key" check_example "$work/short.env.example"
+done
+{ cat "$example"; echo '# Run setup-tok''en first.'; } > "$work/short.env.example"
+expect_rejected "an example that mentions the removed claim flow" check_example "$work/short.env.example"
 sed 's#^\( *REQUESTARR_ENV:\) production#\1 development#' "$compose" > "$work/env.yaml"
 expect_rejected "a compose file running in development" check_compose "$work/env.yaml"
 grep -v '^ *REQUESTARR_ENV:' "$compose" > "$work/env.yaml"
@@ -238,11 +278,31 @@ mutate_template() { # description sed-expression
   if cmp -s "$template" "$work/mutant.xml"; then fail "template mutation did not apply: $what"; return; fi
   expect_rejected "$what" check_template "$work/mutant.xml"
 }
-for key in REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_DB_PASSWORD; do
+for key in REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_DB_PASSWORD; do
   mutate_template "unmasked $key" "/Target=\"$key\"/ s/Mask=\"true\"/Mask=\"false\"/"
   mutate_template "a default for $key" "/Target=\"$key\"/ s/Default=\"\"/Default=\"usable-default\"/"
   mutate_template "$key not required" "/Target=\"$key\"/ s/Required=\"true\"/Required=\"false\"/"
 done
+# The optional fields: never required, no default, advanced where they are overrides; the two
+# secrets masked. Each is rejected when edited toward the old behaviour.
+for key in REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_ADMIN_PASSWORD; do
+  mutate_template "$key required again" "/Target=\"$key\"/ s/Required=\"false\"/Required=\"true\"/"
+  mutate_template "a default for $key" "/Target=\"$key\"/ s/Default=\"\"/Default=\"usable-default\"/"
+  mutate_template "a value for $key" "/Target=\"$key\"/ s#Mask=\"(true|false)\"/>#Mask=\"\\1\">usable-value</Config>#"
+done
+for key in REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET; do
+  mutate_template "$key shown by default" "/Target=\"$key\"/ s/Display=\"advanced\"/Display=\"always\"/"
+  mutate_template "$key that does not say the environment overrides Settings" "/Target=\"$key\"/ s/overrides anything saved in Settings, Authentication/mentions Settings/"
+  mutate_template "$key that does not say all three come from the environment" "/Target=\"$key\"/ s/all three/some/"
+done
+mutate_template "an unmasked OIDC client secret" '/Target="REQUESTARR_OIDC_CLIENT_SECRET"/ s/Mask="true"/Mask="false"/'
+mutate_template "an unmasked initial administrator password" '/Target="REQUESTARR_ADMIN_PASSWORD"/ s/Mask="true"/Mask="false"/'
+mutate_template "an initial password description without the forced change" '/Target="REQUESTARR_ADMIN_PASSWORD"/ s/forced to change/kept/'
+mutate_template "an initial password description without the log" '/Target="REQUESTARR_ADMIN_PASSWORD"/ s/container log/somewhere/'
+mutate_template "an initial password variable the code does not read" 's#Target="REQUESTARR_ADMIN_PASSWORD"#Target="REQUESTARR_ADMIN_PASSWORDS"#'
+mutate_template "an OIDC variable the code does not read" 's#Target="REQUESTARR_OIDC_ISSUER"#Target="REQUESTARR_OIDC_ISSUERS"#'
+mutate_template "a requirement that OIDC is installed first" 's#OIDC is optional#An OIDC provider is needed#'
+mutate_template "the removed claim flow in the overview" 's#Requestarr is a shared#Requestarr uses a setup-tok''en and is a shared#'
 # The database password and the URL override are the secrets; the override is the
 # only database field that is optional, advanced and defaultless at once.
 for key in REQUESTARR_DB_HOST REQUESTARR_DB_USER REQUESTARR_DB_NAME; do
@@ -265,7 +325,7 @@ mutate_template "a password description that restricts characters" '/Target="REQ
 # A setting the template sets that the compose file does not.
 grep -v '^ *REQUESTARR_DB_PORT:' "$compose" > "$work/mut.yaml"
 expect_rejected "a template setting the compose file does not" check_template "$template" "$work/mut.yaml"
-for key in REQUESTARR_PUBLIC_URL REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET \
+for key in REQUESTARR_PUBLIC_URL REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_ADMIN_PASSWORD \
   REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_DB_HOST REQUESTARR_DB_NAME REQUESTARR_DB_USER REQUESTARR_DB_PASSWORD \
   REQUESTARR_DB_PORT REQUESTARR_DB_SSLMODE REQUESTARR_DATABASE_URL REQUESTARR_LOG_LEVEL \
   REQUESTARR_HTTP_ALLOWED_NETWORKS REQUESTARR_ENV 8080; do

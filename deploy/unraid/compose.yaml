@@ -1,11 +1,14 @@
 # Requestarr plus PostgreSQL, for trying Requestarr on a server before using the
-# Unraid template (D034). You bring your own OIDC provider and TLS reverse proxy.
+# Unraid template (D034). You bring your own TLS reverse proxy. An OIDC provider is
+# optional at install: sign in as the local administrator first, then set OIDC up
+# in Settings, Authentication.
 #
 #   cp requestarr.env.example requestarr.env   # then replace every placeholder
 #   docker compose --env-file requestarr.env up -d
 #
-# Every operator value comes from the environment file. Secrets have no default:
-# Compose refuses to start until each is set. The image tag is one variable
+# Every operator value comes from the environment file. The required secrets have no
+# default: Compose refuses to start until each is set. The OIDC settings and the
+# initial administrator password are optional and empty unless you set them. The image tag is one variable
 # (REQUESTARR_TAG), pinned in the example to an exact pre-release.
 name: requestarr
 
@@ -45,9 +48,15 @@ services:
       REQUESTARR_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in requestarr.env}
       REQUESTARR_DB_SSLMODE: disable
       REQUESTARR_PUBLIC_URL: ${REQUESTARR_PUBLIC_URL:?set REQUESTARR_PUBLIC_URL in requestarr.env}
-      REQUESTARR_OIDC_ISSUER: ${REQUESTARR_OIDC_ISSUER:?set REQUESTARR_OIDC_ISSUER in requestarr.env}
-      REQUESTARR_OIDC_CLIENT_ID: ${REQUESTARR_OIDC_CLIENT_ID:?set REQUESTARR_OIDC_CLIENT_ID in requestarr.env}
-      REQUESTARR_OIDC_CLIENT_SECRET: ${REQUESTARR_OIDC_CLIENT_SECRET:?set REQUESTARR_OIDC_CLIENT_SECRET in requestarr.env}
+      # Optional OIDC overrides. Left empty, OIDC is configured in Settings,
+      # Authentication. If any of the three is set, all three come from here and
+      # replace anything saved there.
+      REQUESTARR_OIDC_ISSUER: ${REQUESTARR_OIDC_ISSUER:-}
+      REQUESTARR_OIDC_CLIENT_ID: ${REQUESTARR_OIDC_CLIENT_ID:-}
+      REQUESTARR_OIDC_CLIENT_SECRET: ${REQUESTARR_OIDC_CLIENT_SECRET:-}
+      # Optional initial password of the local administrator, used only on a fresh
+      # database. Empty: a random one is printed once in the container log.
+      REQUESTARR_ADMIN_PASSWORD: ${REQUESTARR_ADMIN_PASSWORD:-}
       REQUESTARR_SESSION_HMAC_SECRET: ${REQUESTARR_SESSION_HMAC_SECRET:?set REQUESTARR_SESSION_HMAC_SECRET in requestarr.env}
       REQUESTARR_SECRETS_KEY: ${REQUESTARR_SECRETS_KEY:?set REQUESTARR_SECRETS_KEY in requestarr.env}
     depends_on:
