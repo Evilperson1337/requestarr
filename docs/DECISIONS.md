@@ -291,3 +291,12 @@ They cannot:
 - reuse a spent or expired token.
 
 Showing a user their own identity moves no trust: knowing a subject was never the secret, the token is. Before this decision the operator typed issuer and subject by hand; the server already held them.
+
+## D036 — Approval policy: auto-approve by media type, and a count of what waits
+
+Accepted. Plan: `.scratch/ux-review/` (ticket 03).
+
+- **Setting:** "auto-approve by media type", a set of `movie`, `tv`, `album`, `song`, `game`, `audiobook`; the default is none, so nothing changes until an administrator chooses. Stored in the settings store of D035 (`approval.auto_types`, a comma-separated list read back in a fixed order; a name that is not a media type is ignored on read and rejected with 400 `invalid_media_type` on write). Administrators read and change it in Settings, Users (`GET`/`PUT /admin/settings/approvals`, admin only, CSRF on change).
+- **Effect:** a Request created for an auto-approved type is created `approved`. It records a `request.approved` event whose data carries `auto: true` and `reason: policy` (the actor is the requester, who triggered it, not an administrator), and it notifies its subscriber in-app and through the global Apprise route exactly as a manual approval does. The policy is read when a Request is created; it never changes an existing Request, and a person joining an existing Request changes nothing (no second event). If the policy cannot be read the Request waits for a person. `approved` and `requested` are both open, so no availability logic changes, and this is still one shared Request per item, with no voting.
+- **Count:** `GET /requests/summary` (admin only) returns `{requested: n}`, the number of Requests with status `requested`. The admin nav shows it on the Requests item, and that item opens `/requests?status=requested`. It is fetched on every page change and after an approval or denial; requesters and viewers neither see nor fetch it.
+- **Notification keys:** request notifications were keyed by the event type alone (`request.approved`), and the unique index on `(event_key, user_id, channel)` silently dropped every approval notice after a person's first. The key now carries the request id (`request.approved:<id>`, as the Apprise key already did), so each Request is announced once per subscriber.

@@ -133,7 +133,7 @@ func (s *Store) CreateOrGet(ctx context.Context, request domain.Request, sub dom
 	if request.CatalogItemID == "" || request.RequestedBy == "" {
 		return domain.Request{}, false, fmt.Errorf("invalid request")
 	}
-	if request.Status != domain.RequestRequested || sub.UserID != request.RequestedBy || sub.Source != domain.SubscriptionRequester {
+	if (request.Status != domain.RequestRequested && request.Status != domain.RequestApproved) || sub.UserID != request.RequestedBy || sub.Source != domain.SubscriptionRequester {
 		return domain.Request{}, false, fmt.Errorf("invalid request creation state")
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -167,6 +167,21 @@ func (s *Store) CreateOrGet(ctx context.Context, request domain.Request, sub dom
 		_, err = tx.Exec(ctx, `INSERT INTO request_events(id,request_id,event_type,actor_user_id,data,created_at) VALUES($1,$2,'request.created',$3,'{}',now())`, newUUID(), out.ID, request.RequestedBy)
 		if err != nil {
 			return domain.Request{}, false, err
+		}
+		if request.Status == domain.RequestApproved {
+			// Approval by policy (D036): audited like an approval, but marked as
+			// automatic, and announced to the creator subscription just made.
+			data := mustJSON(map[string]any{"from": domain.RequestRequested, "to": domain.RequestApproved, "auto": true, "reason": "policy"})
+			if err = appendRequestEvent(ctx, tx, out.ID, request.RequestedBy, "request.approved", data); err != nil {
+				return domain.Request{}, false, err
+			}
+			var title string
+			if err = tx.QueryRow(ctx, `SELECT title FROM catalog_items WHERE id=$1`, out.CatalogItemID).Scan(&title); err != nil {
+				return domain.Request{}, false, err
+			}
+			if err = enqueueRequestNotifications(ctx, tx, out.ID, "request.approved", title, domain.RequestApproved); err != nil {
+				return domain.Request{}, false, err
+			}
 		}
 		if err = tx.Commit(ctx); err != nil {
 			return domain.Request{}, false, err
@@ -414,7 +429,7 @@ func (s *Store) Transition(ctx context.Context, in requests.TransitionInput) (do
 func enqueueRequestNotifications(ctx context.Context, tx pgx.Tx, requestID, eventKey, title string, status domain.RequestStatus) error {
 	body := "Your request was " + string(status) + "."
 	if _, err := tx.Exec(ctx, `INSERT INTO notification_deliveries(id,event_key,request_event_id,user_id,channel,status,title,body,created_at,available_at,updated_at)
-		SELECT gen_random_uuid(),$2,e.id,s.user_id,'in_app','pending',$3,$4,now(),now(),now()
+		SELECT gen_random_uuid(),$2||':'||e.request_id::text,e.id,s.user_id,'in_app','pending',$3,$4,now(),now(),now()
 		FROM request_events e JOIN request_subscriptions s ON s.request_id=e.request_id
 		WHERE e.request_id=$1 AND e.event_type=$2
 		ON CONFLICT(event_key,user_id,channel) WHERE event_key IS NOT NULL DO NOTHING`, requestID, eventKey, title, body); err != nil {

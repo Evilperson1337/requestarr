@@ -46,6 +46,7 @@ export type SearchPage = { results: SearchResult[]; hasMore: boolean }
 export type RequestPage = { items: RequestItem[]; nextCursor: string | null }
 export type AdminUser = { id: string; email: string; displayName: string; role: 'admin' | 'requester' | 'viewer'; createdAt: string }
 export type PeopleSettings = { defaultRole: 'viewer' | 'requester' }
+export type ApprovalSettings = { autoApproveTypes: string[] }
 export type MatchSuggestion = { id: string; catalogItemId: string; catalogTitle: string; catalogYear: number; inventoryTitle: string; inventoryYear: number; mediaType: string; platformKey: string; sourceName: string; sourceItemId: string; confidence: 'title_year' | 'title_only'; reason: string; observedAt: string }
 
 const base = '/api/v1'
