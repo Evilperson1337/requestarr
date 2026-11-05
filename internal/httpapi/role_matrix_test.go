@@ -48,6 +48,7 @@ func mutationCases() []mutationCase {
 		{"read notification", "POST /notifications/{notificationID}/read", "/notifications/" + matrixItemID + "/read", "", "authenticated", 204, "notification.read"},
 		{"sync source", "POST /admin/sources/{source}/sync", "/admin/sources/jellyfin/sync", "", "admin", 202, "source.sync"},
 		{"change role", "PUT /admin/users/{userID}/role", "/admin/users/" + matrixItemID + "/role", `{"role":"viewer"}`, "admin", 204, "user.role"},
+		{"set default first sign-in role", "PUT /admin/settings/people", "/admin/settings/people", `{"defaultRole":"requester"}`, "admin", 200, "people.default_role"},
 		{"accept match", "POST /admin/match-suggestions/{suggestionID}/accept", "/admin/match-suggestions/" + matrixItemID + "/accept", "", "admin", 204, "match.accept"},
 		{"dismiss match", "POST /admin/match-suggestions/{suggestionID}/dismiss", "/admin/match-suggestions/" + matrixItemID + "/dismiss", "", "admin", 204, "match.dismiss"},
 		{"logout", "POST /auth/logout", "/auth/logout", "", "authenticated", 204, "session.revoke"},
@@ -156,6 +157,18 @@ func (b *matrixBackend) ChangeUserRole(_ context.Context, actor, target, role st
 	b.record("user.role", actor)
 	if target != matrixItemID || role != "viewer" {
 		b.t.Errorf("unexpected role change target=%q role=%q", target, role)
+	}
+	return nil
+}
+
+func (b *matrixBackend) DefaultFirstSignInRole(context.Context) (string, error) {
+	return "viewer", nil
+}
+
+func (b *matrixBackend) SetDefaultFirstSignInRole(_ context.Context, role string) error {
+	b.record("people.default_role", matrixUserID)
+	if role != "requester" {
+		b.t.Errorf("unexpected default role %q", role)
 	}
 	return nil
 }

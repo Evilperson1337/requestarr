@@ -192,7 +192,7 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
                 {!authLost && <section className="movieState" aria-label="Request and availability">
                     {success && <p ref={successMessage} tabIndex={-1} role="status"><strong>{success}</strong></p>}
                     {preview.request && <><p>Shared Request: {preview.request.status}</p><p role="status">{preview.request.subscribed ? 'Notifications On' : 'You are not subscribed to this Request.'}</p></>}
-                    {session.user.role === 'viewer' && !preview.request && <p>Your viewer role cannot create Requests.</p>}
+                    {session.user.role === 'viewer' && !preview.request && <p>Your viewer role cannot create Requests. Ask an administrator to make you a requester.</p>}
                 </section>}
                 {canCreate && <><button className="button secondary" aria-expanded={noteOpen} aria-controls="catalog-note" onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? 'Hide note' : 'Add a note'}</button>{noteOpen && <label className="field" id="catalog-note">Note (optional)<textarea maxLength={2000} value={note} disabled={busy} onChange={event => setNote(event.target.value)} /></label>}</>}
                 {error && <p role="alert" className="error">{error}</p>}

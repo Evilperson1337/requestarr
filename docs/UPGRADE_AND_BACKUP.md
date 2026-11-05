@@ -22,7 +22,7 @@ also not enough to restore saved secrets: you need the master key too.
    that no single leaked backup holds both the ciphertext and its key. If the key
    is lost or changed, stored secrets become unreadable: the server still boots,
    each affected integration stays off and reports "stored secret unreadable", and
-   you must re-enter the secrets in Setup (or set them in the environment). Key
+   you must re-enter the secrets in Settings, Integrations (or set them in the environment). Key
    rotation tooling is deferred. An unreadable secret can be cleared without the
    key. An environment value always wins over a stored one, and a saved secret
    applies on the next restart.

@@ -479,6 +479,39 @@ paths:
         '200': { description: Users with id, email, displayName, role (viewer, requester or admin) and createdAt }
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
+  /admin/settings/people:
+    get:
+      operationId: getPeopleSettings
+      summary: The role a person gets the first time they sign in (administrator only, D035)
+      responses:
+        '200':
+          description: The current default; viewer unless an administrator changed it
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PeopleSettings' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+    put:
+      operationId: setPeopleSettings
+      summary: Choose the role new people get at first sign-in
+      description: >-
+        Applies only to people who sign in for the first time afterwards; existing users keep
+        their role. Administrators are told in-app when someone signs in for the first time.
+        The default can never be admin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PeopleSettings' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PeopleSettings' }
+        '400': { description: "defaultRole is not viewer or requester (code invalid_default_role)" }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
   /admin/users/{userId}/role:
     put:
       operationId: changeUserRole
@@ -1826,13 +1859,20 @@ components:
             code: { type: string, description: Stable machine-readable identifier, example: authentication_required }
             message: { type: string, description: Human-readable summary; not for programmatic use }
             requestId: { type: string, description: Same value as the X-Request-Id response header }
+    PeopleSettings:
+      type: object
+      additionalProperties: false
+      required: [defaultRole]
+      properties:
+        defaultRole: { type: string, enum: [viewer, requester], description: Role given to a person at their first sign-in; never admin }
     Notification:
       type: object
       additionalProperties: false
-      required: [id, title, body, createdAt, readAt]
+      required: [id, title, body, link, createdAt, readAt]
       properties:
         id: { type: string, format: uuid }
         title: { type: string }
         body: { type: string }
+        link: { type: [string, 'null'], description: An application path to open for this notice, such as /settings?tab=users }
         createdAt: { type: string, format: date-time }
         readAt: { type: [string, 'null'], format: date-time }

@@ -192,6 +192,11 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 		users.change = v.ChangeUserRole
 	}
 	d.Users = users
+	if v, ok := readiness.(PeoplePolicy); ok {
+		d.People = v
+	} else {
+		d.People = absentPeople{}
+	}
 	if v, ok := readiness.(SetupState); ok {
 		d.SetupState = v
 	} else {
@@ -350,3 +355,10 @@ func (absentIssues) TransitionIssue(context.Context, issues.Actor, string, domai
 }
 func (absentIssues) LeaveIssue(context.Context, issues.Actor, string) error    { return errAbsent }
 func (absentIssues) OpenIssueCount(context.Context, issues.Actor) (int, error) { return 0, errAbsent }
+
+type absentPeople struct{}
+
+func (absentPeople) DefaultFirstSignInRole(context.Context) (string, error) {
+	return "", errAbsent
+}
+func (absentPeople) SetDefaultFirstSignInRole(context.Context, string) error { return errAbsent }

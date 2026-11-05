@@ -109,7 +109,7 @@ test('sparse upcoming movie remains requestable on a phone and keyboard close re
 test('viewer cannot create a Request', async ({ page }) => {
     const dialog = await openMovie(page, movie, 'viewer')
     await expect(dialog.getByRole('button', { name: 'Request movie', exact: true })).toHaveCount(0)
-    await expect(dialog).toContainText('Your viewer role cannot create Requests')
+    await expect(dialog).toContainText('Your viewer role cannot create Requests. Ask an administrator to make you a requester.')
 })
 
 test('authorization loss removes protected actions and does not retry a stale note', async ({ page }) => {

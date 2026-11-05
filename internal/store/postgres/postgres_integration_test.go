@@ -798,3 +798,88 @@ func TestClosedRequestsRejectNewSubscribersAndReplayedCancelsAreConflicts(t *tes
 		t.Fatalf("closed request gained subscriber: %d %v", subs, err)
 	}
 }
+
+func TestFirstSignInRoleSettingAndAdminNotice(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s, err := Open(ctx, testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	t.Cleanup(func() {
+		_, _ = s.pool.Exec(context.Background(), `DELETE FROM app_settings WHERE key='people.default_role'`)
+	})
+	if _, err := s.pool.Exec(ctx, `DELETE FROM app_settings WHERE key='people.default_role'`); err != nil {
+		t.Fatal(err)
+	}
+	admin := integrationUser(t, ctx, s)
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, admin); err != nil {
+		t.Fatal(err)
+	}
+	bystander := integrationUser(t, ctx, s) // a requester: must not be told
+	type person struct{ ID, Role, Subject string }
+	loginAs := func(name, subject string) person {
+		if subject == "" {
+			subject = "subject-" + newUUID()
+		}
+		u, err := s.Login(ctx, "https://issuer.example", subject, name+"@example.test", name, newUUID(), time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = s.pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, u.ID) })
+		return person{u.ID, u.Role, subject}
+	}
+	notices := func(userID, about string) int {
+		var n int
+		if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM notification_deliveries WHERE user_id=$1 AND channel='in_app' AND event_key='user.first_sign_in:'||$2`, userID, about).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	if role, err := s.DefaultFirstSignInRole(ctx); err != nil || role != "viewer" {
+		t.Fatalf("default = %q, %v; want viewer", role, err)
+	}
+	first := loginAs("Ann", "")
+	if first.Role != "viewer" {
+		t.Fatalf("new user role = %q, want viewer by default", first.Role)
+	}
+	if notices(admin, first.ID) != 1 || notices(bystander, first.ID) != 0 || notices(first.ID, first.ID) != 0 {
+		t.Fatal("first sign-in must notify the admin once, and neither a requester nor the person themselves")
+	}
+	var title, link string
+	if err := s.pool.QueryRow(ctx, `SELECT title,COALESCE(link,'') FROM notification_deliveries WHERE user_id=$1 AND event_key='user.first_sign_in:'||$2`, admin, first.ID).Scan(&title, &link); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Ann signed in for the first time as viewer" || link != "/settings?tab=users" {
+		t.Fatalf("notice = %q link %q", title, link)
+	}
+	if again := loginAs("Ann", first.Subject); again.ID != first.ID || notices(admin, first.ID) != 1 {
+		t.Fatal("repeat sign-in must not notify again")
+	}
+
+	if err := s.SetDefaultFirstSignInRole(ctx, "admin"); !errors.Is(err, ErrInvalidDefaultRole) {
+		t.Fatalf("admin default error = %v, want ErrInvalidDefaultRole", err)
+	}
+	if err := s.SetDefaultFirstSignInRole(ctx, "owner"); !errors.Is(err, ErrInvalidDefaultRole) {
+		t.Fatalf("unknown default error = %v", err)
+	}
+	if err := s.SetDefaultFirstSignInRole(ctx, "requester"); err != nil {
+		t.Fatal(err)
+	}
+	second := loginAs("Bob", "")
+	if second.Role != "requester" || notices(admin, second.ID) != 1 {
+		t.Fatalf("new user = %+v; want requester with one notice", second)
+	}
+	if got := loginAs("Ann", first.Subject); got.Role != "viewer" {
+		t.Fatalf("existing user role changed to %q", got.Role)
+	}
+	// A stored value that is not allowed (hand edit) never produces admin.
+	if _, err := s.pool.Exec(ctx, `UPDATE app_settings SET value='admin' WHERE key='people.default_role'`); err != nil {
+		t.Fatal(err)
+	}
+	if third := loginAs("Cy", ""); third.Role != "viewer" {
+		t.Fatalf("tampered setting produced role %q", third.Role)
+	}
+}

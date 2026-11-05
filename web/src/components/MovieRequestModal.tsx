@@ -115,7 +115,7 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
                 {!authLost && <section className="movieState" aria-label="Request and availability">
                     {success && <p ref={successMessage} tabIndex={-1} role="status"><strong>{success}</strong></p>}
                     {preview.request && <><p>Shared Request: {preview.request.status}</p><p role="status">{preview.request.subscribed ? 'Notifications On' : 'You are not subscribed to this Request.'}</p></>}
-                    {session.user.role === 'viewer' && !preview.request && <p>Your viewer role cannot create Requests.</p>}
+                    {session.user.role === 'viewer' && !preview.request && <p>Your viewer role cannot create Requests. Ask an administrator to make you a requester.</p>}
                 </section>}
                 {canSubmit && seasonList.length > 0 && <SeasonPicker items={seasonList} existing={preview.request?.selection} noun="series" onChange={(next, valid) => { setSelection(next); setSelectionValid(valid) }} />}
                 {canCreate && <><button className="button secondary" aria-expanded={noteOpen} aria-controls="movie-note" onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? 'Hide note' : 'Add a note'}</button>{noteOpen && <label className="field" id="movie-note">Note (optional)<textarea maxLength={2000} value={note} disabled={busy} onChange={event => setNote(event.target.value)} /></label>}</>}
