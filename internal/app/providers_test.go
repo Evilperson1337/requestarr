@@ -211,18 +211,30 @@ type numberedOutbox struct {
 	mu        sync.Mutex
 	total     int
 	next      int
+	released  []string
 	completed map[string]int
 }
 
 func (o *numberedOutbox) ClaimGlobalApprise(context.Context, time.Duration) (string, string, string, string, int, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.next >= o.total {
+	var id string
+	switch {
+	case len(o.released) > 0: // a released event is claimable again
+		id, o.released = o.released[0], o.released[1:]
+	case o.next < o.total:
+		o.next++
+		id = strconv.Itoa(o.next)
+	default:
 		return "", "", "", "", 0, nil
 	}
-	o.next++
-	id := strconv.Itoa(o.next)
 	return id, "event " + id, "body", "lease-" + id, 1, nil
+}
+func (o *numberedOutbox) ReleaseGlobalApprise(_ context.Context, id, _ string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.released = append(o.released, id)
+	return nil
 }
 func (o *numberedOutbox) CompleteGlobalApprise(_ context.Context, id, _ string, ok bool, _ time.Duration) error {
 	o.mu.Lock()

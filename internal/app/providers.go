@@ -57,7 +57,7 @@ type providerSet struct {
 var errReloadFailed = errors.New("could not rebuild the providers from the saved configuration")
 
 // errNotificationsOff is what a send returns while Apprise is not configured.
-var errNotificationsOff = errors.New("Apprise is not configured")
+var errNotificationsOff = notifications.ErrNotConfigured
 
 // newProviderSet builds the first snapshot from the startup configuration.
 // resolve re-resolves the configuration on Reload (environment, then the saved

@@ -105,6 +105,18 @@ func (s *Store) ClaimGlobalApprise(ctx context.Context, lease time.Duration) (id
 	return id, title, body, token, attempts, nil
 }
 
+// ReleaseGlobalApprise returns a claimed event to pending without counting the
+// claim as an attempt, for a send that never happened. A stale lease changes nothing.
+func (s *Store) ReleaseGlobalApprise(ctx context.Context, id, token string) error {
+	if token == "" {
+		return fmt.Errorf("invalid notification release")
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE notification_outbox SET attempt_count=attempt_count-1,lease_until=NULL,lease_token=NULL,updated_at=now() WHERE id=$1 AND lease_token=$2 AND status='pending' AND attempt_count>0`, id, token); err != nil {
+		return fmt.Errorf("release global Apprise delivery: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) CompleteGlobalApprise(ctx context.Context, id, token string, success bool, retryAfter time.Duration) error {
 	if token == "" || retryAfter < 0 || retryAfter > 24*time.Hour {
 		return fmt.Errorf("invalid notification completion")

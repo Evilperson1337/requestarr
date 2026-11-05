@@ -2,9 +2,15 @@ package notifications
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrNotConfigured is what a sender returns when it was switched off between
+// the worker's Configured check and the send (an Apprise key cleared at
+// runtime). The worker releases the claim instead of counting an attempt.
+var ErrNotConfigured = errors.New("notifications are not configured")
 
 type Delivery struct {
 	ID, UserID, Target, Title, Body, LeaseToken string
@@ -13,6 +19,9 @@ type Delivery struct {
 type Outbox interface {
 	ClaimGlobalApprise(context.Context, time.Duration) (id, title, body, token string, attempts int, err error)
 	CompleteGlobalApprise(context.Context, string, string, bool, time.Duration) error
+	// ReleaseGlobalApprise gives a claimed event back unsent: it is pending
+	// again with the attempt count it had before the claim.
+	ReleaseGlobalApprise(ctx context.Context, id, token string) error
 }
 
 // RunWorker polls the durable outbox, using leases for cross-process exclusion
@@ -43,6 +52,14 @@ func RunWorker(ctx context.Context, outbox Outbox, sender interface {
 			deliverCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 			err = sender.Send(deliverCtx, Message{Title: title, Body: body})
 			cancel()
+			if errors.Is(err, ErrNotConfigured) {
+				// The sender was switched off after the claim. Nothing was sent, so
+				// this is not a failed attempt: hand the event back untouched.
+				if releaseErr := outbox.ReleaseGlobalApprise(ctx, id, token); releaseErr != nil {
+					return fmt.Errorf("release notification delivery: %w", releaseErr)
+				}
+				continue
+			}
 			delay := retryDelay(attempts)
 			if completeErr := outbox.CompleteGlobalApprise(ctx, id, token, err == nil, delay); completeErr != nil {
 				return fmt.Errorf("complete notification delivery: %w", completeErr)

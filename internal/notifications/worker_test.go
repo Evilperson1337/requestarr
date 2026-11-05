@@ -21,6 +21,8 @@ type fakeOutbox struct {
 	completeDelay      time.Duration
 	claims             int
 	claimAttempts      int
+	releases           int
+	completions        int
 }
 
 func (f *fakeOutbox) isCompleted() bool {
@@ -48,9 +50,21 @@ func (f *fakeOutbox) claimAttemptsOrDefault() int {
 	}
 	return f.claimAttempts
 }
+func (f *fakeOutbox) ReleaseGlobalApprise(_ context.Context, id, token string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if id != "delivery" || token != "lease" {
+		return errors.New("bad lease")
+	}
+	f.claimed = false // back to pending: the next claim returns it again
+	f.releases++
+	return nil
+}
+func (f *fakeOutbox) releaseCount() int { f.mu.Lock(); defer f.mu.Unlock(); return f.releases }
 func (f *fakeOutbox) CompleteGlobalApprise(_ context.Context, id, token string, success bool, delay time.Duration) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.completions++
 	if id != "delivery" || token != "lease" {
 		return errors.New("bad lease")
 	}
@@ -208,9 +222,57 @@ func TestRunWorkerLeavesTheEventPendingWhileTheSenderIsNotConfigured(t *testing.
 	}
 }
 
+// switchOffAtSend is configured when the worker asks, then loses its credential
+// before Send: the window between the claim and the send.
+type switchOffAtSend struct {
+	mu       sync.Mutex
+	on       bool
+	failNext bool
+	sent     []Message
+}
+
+func (g *switchOffAtSend) Configured() bool { g.mu.Lock(); defer g.mu.Unlock(); return g.on }
+func (g *switchOffAtSend) set(on bool)      { g.mu.Lock(); g.on = on; g.mu.Unlock() }
+func (g *switchOffAtSend) Send(_ context.Context, m Message) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.failNext {
+		g.failNext, g.on = false, false
+		return ErrNotConfigured
+	}
+	g.sent = append(g.sent, m)
+	return nil
+}
+func (g *switchOffAtSend) count() int { g.mu.Lock(); defer g.mu.Unlock(); return len(g.sent) }
+
+func TestRunWorkerReleasesTheClaimWhenTheSenderTurnsOffBeforeSending(t *testing.T) {
+	outbox := &fakeOutbox{claimAttempts: 3}
+	sender := &switchOffAtSend{on: true, failNext: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- RunWorker(ctx, outbox, sender) }()
+	waitFor(t, func() bool { return outbox.releaseCount() == 1 })
+	outbox.mu.Lock()
+	completions := outbox.completions
+	outbox.mu.Unlock()
+	if completions != 0 || sender.count() != 0 {
+		t.Fatalf("a claim lost to a switched-off sender must be released, not completed or sent: completions=%d sent=%d", completions, sender.count())
+	}
+	sender.set(true)
+	waitFor(t, outbox.isCompleted)
+	cancel()
+	<-done
+	if sender.count() != 1 || !outbox.success {
+		t.Fatalf("the event must be delivered exactly once after the sender returns: sent=%d success=%v", sender.count(), outbox.success)
+	}
+	if outbox.releaseCount() != 1 {
+		t.Fatalf("released %d times, want once", outbox.releaseCount())
+	}
+}
+
 func waitFor(t *testing.T, ready func() bool) {
 	t.Helper()
-	timer := time.NewTimer(time.Second)
+	timer := time.NewTimer(3 * time.Second)
 	defer timer.Stop()
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
