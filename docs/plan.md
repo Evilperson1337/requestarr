@@ -5,7 +5,7 @@ This roadmap turns the current scaffold into the modular monolith described in [
 ## Non-negotiable boundaries
 
 - Requestarr remains request, availability, and notification software. It does not acquire media or integrate with download clients, indexers, Usenet/torrent clients, or *arr applications.
-- OIDC remains required for normal operation. The setup token is a temporary bootstrap mechanism, not local-password authentication.
+- OIDC is how people sign in. The single built-in local administrator (D040) is the narrow password-account exception for first run and recovery.
 - Configured libraries are authoritative for availability. Metadata providers identify catalog items but never establish availability.
 - Routine UI rendering uses local PostgreSQL state. External provider, library, OIDC discovery, and Apprise failures must be bounded and must not block ordinary pages that can use known local state.
 - A failed or incomplete library sync must retain last-known inventory and must never mass-mark previously available content missing.
@@ -121,12 +121,12 @@ This is the single best next task. Every V1 workflow depends on durable local st
 - Concurrency test or documented library guarantee for two processes attempting the same migration set.
 - Run the race detector for the new lifecycle/readiness state even if it is not yet a mandatory repository-wide CI target.
 
-### Phase 2 — Persistent setup state and OIDC bootstrap
+### Phase 2 — Local administrator, sessions and OIDC sign-in
 
 **Scope**
 
-- Replace hard-coded setup status with PostgreSQL-backed resumable state.
-- Implement the high-entropy setup-token bootstrap, short-lived setup session, transactional finalization, and token invalidation described in the [setup guide](FIRST_RUN.md).
+- Sign in as the built-in local administrator and use the live Get started checklist; do not restore the retired draft wizard.
+- Use shell-gated `requestarr reset-admin-password` for local administrator recovery, with forced change and complete session revocation; see [First run](FIRST_RUN.md). Other people become administrators only through promotion in Settings, Users.
 - Implement OIDC discovery, authorization code flow with PKCE/state/nonce validation, secure sessions, Keycloak compatibility, role mapping, and server-side authorization.
 - Persist users by issuer/subject-compatible identity and expose only the minimum setup/auth API required by the UI.
 
