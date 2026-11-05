@@ -81,9 +81,9 @@ openssl rand -base64 48
 openssl rand -base64 32
 ```
 
-They are different things and must be different values. The **session secret** only signs sessions; changing it just signs everyone out. The **Master key** encrypts every *Stored secret*, meaning each library or provider credential you later save in Setup.
+They are different things and must be different values. The **session secret** only signs sessions; changing it just signs everyone out. The **Master key** encrypts every *Stored secret*, meaning each library or provider credential you later save in Settings, Integrations.
 
-> **Back up the master key now, and keep it apart from the database backup.** A database dump holds the encrypted credentials; the master key opens them. If both sit in one leaked backup, the encryption achieves nothing, so store the key somewhere else (a password manager). If you lose the key, or change it, Requestarr still starts but cannot read your saved credentials and you must enter them again in Setup.
+> **Back up the master key now, and keep it apart from the database backup.** A database dump holds the encrypted credentials; the master key opens them. If both sit in one leaked backup, the encryption achieves nothing, so store the key somewhere else (a password manager). If you lose the key, or change it, Requestarr still starts but cannot read your saved credentials and you must enter them again in Settings, Integrations.
 
 If the master key is not valid, Requestarr stops at start and the container log says `REQUESTARR_SECRETS_KEY must be 32 bytes encoded as 64 hex characters or base64`.
 
@@ -166,13 +166,13 @@ While no administrator exists, the container's log says that the claim page show
 
 Then:
 
-1. Open your public URL and sign in as the person who will be the admin.
 2. On the claim page, run the command it shows, paste the token it prints into the single token field, then submit.
 3. You are now the admin, and Setup continues in the app.
+3. You are now the admin. Next, connect your libraries in Settings, Integrations (step 7).
 
 ## 7. Connect a library
 
-In Setup, add each **Source** (Plex, Jellyfin, Navidrome, RomM or Audiobookshelf) with its address and credential. Saved credentials are Stored secrets, encrypted with the master key. See [Setup wizard](SETUP_WIZARD.md) for the screens.
+Open **Settings**, then **Integrations**, and under **Media libraries** add each **Source** (Plex, Jellyfin, Navidrome, RomM or Audiobookshelf) with its address and credential. Saving an address or its credential there applies at once; no restart is needed. TMDB, IGDB and Apprise credentials, under **Metadata** and **Notifications** on the same page, apply after a restart. Saved credentials are Stored secrets, encrypted with the master key. The setup wizard at `/setup` only keeps inactive drafts and applies nothing; see [Setup wizard](SETUP_WIZARD.md).
 
 **Library addresses on your own network may use `http://`.** A library address must be `https://`, unless its host is a **private host**, judged only by how the address is written:
 
