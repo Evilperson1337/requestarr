@@ -5,36 +5,40 @@ Step-by-step verification of the foundation: config validation, PostgreSQL start
 ## Quick start: full stack in Docker
 
 ```bash
-make stack-up      # builds/runs app + Postgres + Keycloak; creates a local secrets key and prints first-admin setup details
-make stack-up-dev  # same stack, explicitly enables development connection diagnostics in the UI
-make stack-logs    # follow logs
-make stack-admin-token  # issue first-admin token only if none exists; cannot reprint an existing token
-make stack-down    # stop; STACK_PURGE=1 make stack-down also deletes its data
+make stack-up      # app + PostgreSQL + development Keycloak; preserves existing data
+make stack-up-dev  # same stack with development connection diagnostics
+make stack-down    # STACK_PURGE=1 also deletes data; do not use for password recovery
 ```
 
-Open http://localhost:18080 and sign in as `requestarr-admin` / `requestarr-admin` (Keycloak admin console: http://localhost:8081, `admin` / `admin`). Postgres is published on host port 15432 (`REQUESTARR_STACK_POSTGRES_PORT`). The stack uses host ports 18080 and 8081; Keycloak still conflicts with `make dev-up`, so stop that stack first. Add TMDB/IGDB tokens or library sources in Settings, Integrations (TMDB, IGDB and Apprise credentials apply as soon as they are saved) or by extending `compose.test.yaml`.
+Open http://localhost:18080/login. On a fresh database, read the local
+administrator's generated one-time password in the container log, sign in as
+`admin`, and choose a new 12–128 character password. Do not publish logs that
+contain the initial password. Existing instances keep their users and roles and
+do not create a new credential automatically. Keycloak remains available at
+http://localhost:8081 (`admin` / `admin`); the fixture OIDC user is
+`requestarr-admin` / `requestarr-admin`, initially a viewer unless already
+promoted. An existing admin promotes people in Settings, Users.
 
-The stack-only `REQUESTARR_STACK_HTTP_PORT` override controls the listen address,
-public URL, printed URL and startup readiness probe together. Set it in `.env`,
-the host environment, or with `make stack-up REQUESTARR_STACK_HTTP_PORT=18080`.
-An explicit Make value wins over the host environment, which wins over `.env`;
-an empty value uses 18080. Ordinary `make dev-up` / `make run` defaults remain 8080.
-The imported Keycloak client already allows exact callbacks at
-`http://localhost:8080/api/v1/auth/callback` and
-`http://localhost:18080/api/v1/auth/callback`. Other ports require registering the
-exact callback URL on the existing local Keycloak client first; changing the
-port does not register it automatically. Do not add wildcard redirects or
-recreate the realm/database. The 18080 default needs no realm edits, token
-rotation, secrets-key changes or volume deletion; existing setup state persists.
+Recovery check (never use a production database for destructive tests):
 
-Both startup commands preserve the database volume and existing local secrets key. Repeating startup skips first-admin token issuance when bootstrap is complete or any token already exists; it never silently rotates or reprints a token. Keep the original token for the claim. If it expires before the claim, explicitly run `make stack-admin-token ROTATE=1`. Database/configuration/issuance failures still fail startup.
+```bash
+docker compose -f compose.test.yaml exec requestarr /requestarr reset-admin-password
+```
 
-Before inspecting bootstrap state, startup waits for the app's public local
-`http://localhost:18080/readyz` endpoint (or the resolved stack port override) so migrations can finish. It makes at most
-30 probes (one-second connection timeout, two-second total timeout each), with
-one second between failed probes: at most approximately 89 seconds. If readiness
-never succeeds, startup fails without querying bootstrap SQL or issuing a token.
-Explicit `make stack-admin-token` issuance/rotation does not use this startup wait.
+Confirm it prints exactly one new password and no hash, the old password and
+all old local-account sessions stop working, and the new password requires a
+change at next sign-in. With no local account, it must fail clearly without
+creating one. Keep command output private. Audit and credential/session updates
+are atomic. Password recovery needs only database configuration, not working
+OIDC. Open **Get started** after signing in for live setup links.
+
+The stack-only `REQUESTARR_STACK_HTTP_PORT` controls the listen/public/printed
+URL (default 18080). An explicit Make value wins over shell, then `.env`; empty
+uses the default. Register the exact callback URL with Keycloak for a different
+port; do not add wildcard redirects or recreate the realm/database. PostgreSQL
+uses host port 15432. Stop conflicting development stacks first. Repeating
+startup preserves data and never reprints a password for an existing account.
+Runtime OIDC Settings and no-OIDC server startup are separate feature tickets.
 
 ### Development connection diagnostics
 
@@ -123,7 +127,6 @@ In another terminal:
 curl -s localhost:8080/healthz | jq        # expect: {"status":"ok","time":"..."} always, HTTP 200
 curl -s localhost:8080/readyz  | jq        # expect: {"status":"ok"}, HTTP 200 (Postgres is up)
 curl -s localhost:8080/api/v1/version | jq # expect: {"version":"dev","commit":"...","date":"..."}
-curl -s localhost:8080/api/v1/setup/status | jq
 curl -s localhost:8080/                    # expect: the embedded web UI (HTML shell) when built with the web assets
 curl -s -o /dev/null -w '%{http_code}\n' localhost:8080/nope   # expect: 404
 ```
@@ -237,7 +240,7 @@ Automated checks cannot cover a real Unraid host, a real reverse proxy and a rea
 - [ ] **Install from the Template Repositories URL.** In Unraid's Docker settings add `https://raw.githubusercontent.com/evilperson1337/requestarr/main/deploy/unraid/requestarr.xml` to Template Repositories, add the container from the template, fill in the fields (use a user-defined network), and apply. The icon and project link show in the Docker tab, the image pulls from the registry, and the tag is the pinned pre-release.
 - [ ] **Healthy container.** The Docker tab (and `docker ps`) shows the container as healthy, not just started. Stop PostgreSQL: the container turns unhealthy within a few minutes. Start it again: it recovers. The log shows the migration and readiness lines.
 - [ ] **Bad configuration is reported.** With no variable added by hand (the template sets `REQUESTARR_ENV=production`), an `http://` public URL and a malformed master key each stop the container at start with a log line naming the variable.
-- [ ] **First-admin sign-in through Keycloak.** With the Keycloak client from the guide: run `docker exec <container> /requestarr setup-token --issuer ... --subject ... --stdout` from the Unraid terminal, sign in at the https public URL, claim the admin with the token, and land on **Get started**, with Settings available. The checklist lists a library and a metadata provider as required and notifications and the default role as optional; connect a library (and let it sync) and add a TMDB token in Settings, Integrations, and the matching items turn to Done and the nav item disappears once both required ones are done. **Dismiss checklist** removes it for everyone and stays dismissed after a reload. A second user signs in as a viewer and cannot create a request.
+- [ ] **Local administrator sign-in and recovery.** On a fresh database sign in at the HTTPS `/login` as `admin` using the generated password from the container log, change it, and open Get started. Run `docker exec <container> /requestarr reset-admin-password` privately; verify old sessions/password fail and the new password forces a change. Promote an OIDC user in Settings, Users with an existing admin; viewers and requesters must be denied role changes.
 - [ ] **Library over a private `http://` address.** Add a Plex, Jellyfin or similar Source by LAN address (and, on a user-defined network, by container name) over `http://`, save its address and credential in Settings, Integrations (a library applies at once, with no restart), and watch a sync complete with items showing as available. An `http://` address on a public DNS name is rejected with a message that says why.
 - [ ] **IGDB client ID.** In Settings, Integrations, Metadata, enter the IGDB client ID beside the IGDB secret and save it; Games appears as a search type at once (with the secret set), and clearing the secret removes it again. With `REQUESTARR_IGDB_CLIENT_ID` set, the field is read-only and says the environment wins. On an installation upgraded from the draft wizard that had saved a client ID, the field shows the old value without any action.
 - [ ] **Master key separation.** Restore a database dump into a fresh container with a different master key: the container starts, and saved credentials report "stored secret unreadable" instead of crashing.

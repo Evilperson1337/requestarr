@@ -35,15 +35,6 @@ type Repository interface {
 	RevokeSession(context.Context, []byte, time.Time) error
 }
 
-// SetupState reports whether first-admin setup is already complete.
-type SetupState interface {
-	SetupComplete(context.Context) (bool, error)
-}
-
-type BootstrapRepository interface {
-	ClaimAdmin(context.Context, string, string, string, []byte, time.Time) error
-}
-
 func Hash(secret, value string) []byte {
 	m := hmac.New(sha256.New, []byte(secret))
 	_, _ = m.Write([]byte(value))

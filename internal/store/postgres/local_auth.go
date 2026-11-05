@@ -69,9 +69,6 @@ func (s *Store) CreateLocalAdmin(ctx context.Context, hash string, now time.Time
 	if _, err = tx.Exec(ctx, `INSERT INTO local_credentials(user_id,username,password_hash,must_change,created_at,updated_at) VALUES($1,$2,$3,TRUE,$4,$4)`, id, auth.LocalUsername, hash, now); err != nil {
 		return false, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE setup_state SET complete=TRUE,claimed_by=$1,completed_at=$2,token_hash=NULL,token_expires_at=NULL WHERE singleton=TRUE AND complete=FALSE`, id, now); err != nil {
-		return false, err
-	}
 	if _, err = tx.Exec(ctx, `INSERT INTO auth_audit_events(event_type,user_id,username,created_at) VALUES('admin_created',$1,$2,$3)`, id, auth.LocalUsername, now); err != nil {
 		return false, err
 	}
@@ -99,6 +96,32 @@ func (s *Store) ChangeLocalPassword(ctx context.Context, userID, hash string, ke
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO auth_audit_events(event_type,user_id,username,remote_addr,created_at) SELECT $2,user_id,username,$3,$4 FROM local_credentials WHERE user_id=$1::uuid`, userID, auth.AuditPasswordChanged, remoteAddr, now); err != nil {
 		return fmt.Errorf("audit local password change: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// ResetLocalAdminPassword replaces the credential and revokes every session,
+// serialized with sign-in on the credential row. It does not enable a disabled
+// account or create one on an upgraded instance. The audit commits atomically.
+func (s *Store) ResetLocalAdminPassword(ctx context.Context, hash string, now time.Time) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var id string
+	err = tx.QueryRow(ctx, `UPDATE local_credentials c SET password_hash=$1,must_change=TRUE,password_changed_at=$2,updated_at=$2 FROM users u WHERE c.user_id=u.id AND u.builtin AND c.username=$3 RETURNING c.user_id::text`, hash, now, auth.LocalUsername).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.ErrNoCredential
+	}
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at=$2 WHERE user_id=$1::uuid AND revoked_at IS NULL`, id, now); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO auth_audit_events(event_type,user_id,username,created_at) VALUES($1,$2::uuid,$3,$4)`, auth.AuditPasswordChanged, id, auth.LocalUsername, now); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

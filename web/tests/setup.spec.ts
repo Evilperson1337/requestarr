@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// First-admin claim (D037) and the Get started checklist that follows it (D038).
+// The live Get started checklist (D038), after local administrator sign-in (D040).
 
 type Item = { key: string; title: string; required: boolean; done: boolean; detail?: string }
 const fresh: Item[] = [
@@ -19,7 +19,6 @@ async function mockChecklist(page: Page, options: { role?: string; items?: Item[
         const request = route.request()
         const path = new URL(request.url()).pathname.replace('/api/v1', '')
         const method = request.method()
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: options.role ?? 'admin', email: 'admin@example.test', displayName: 'Admin' }, csrfToken: 'csrf-token' } })
         state.calls.push({ method, path, csrf: request.headers()['x-csrf-token'] })
         if (path === '/admin/checklist') return route.fulfill({ json: { items: state.items, dismissed: state.dismissed, visible: state.visible } })
@@ -28,52 +27,6 @@ async function mockChecklist(page: Page, options: { role?: string; items?: Item[
     })
     return state
 }
-
-test('a claimed first admin lands on the Get started checklist', async ({ page }) => {
-    let claimed = false
-    let claimBody: unknown
-    const state = await mockChecklist(page)
-    await page.route('**/api/v1/setup/status', route => route.fulfill({ json: claimed ? { complete: true, required: false } : { complete: false, required: true } }))
-    await page.route('**/api/v1/auth/me', route => route.fulfill({ json: { user: { id: 'user-1', role: claimed ? 'admin' : 'viewer', email: 'admin@example.test', displayName: 'Admin' }, csrfToken: 'csrf-token', ...(claimed ? {} : { firstAdminClaim: { issuer: 'https://identity.example.test', subject: 'bootstrap-identity', issuerIsConfigured: true } }) } }))
-    await page.route('**/api/v1/setup/claim-admin', route => {
-        expect(route.request().headers()['x-csrf-token']).toBe('csrf-token')
-        claimBody = route.request().postDataJSON()
-        claimed = true
-        return route.fulfill({ status: 204 })
-    })
-    await page.goto('/')
-    await expect(page.getByLabel('OIDC issuer')).toHaveCount(0)
-    await expect(page.getByLabel('OIDC subject')).toHaveCount(0)
-    await expect(page.getByTestId('setup-token-command')).toHaveText("docker exec <container-name> /requestarr setup-token --subject 'bootstrap-identity' --stdout")
-    await page.getByLabel('One-time setup token').fill('one-time-bootstrap-fixture-token-123456789')
-    await page.getByRole('button', { name: 'Claim first admin' }).click()
-    await expect(page).toHaveURL('/get-started')
-    expect(claimBody).toEqual({ token: 'one-time-bootstrap-fixture-token-123456789' })
-    await expect(page.getByRole('heading', { name: 'Get started', level: 1 })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Get started' })).toHaveAttribute('aria-current', 'page')
-    expect(state.calls.some(call => call.path.startsWith('/admin/setup'))).toBe(false)
-    expect(await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))).toEqual({ local: {}, session: {} })
-})
-
-test('claim page adds --issuer to the command when the sign-in issuer is not the configured one, and offers a copy control', async ({ page, context }) => {
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-    await page.route('**/api/v1/setup/status', route => route.fulfill({ json: { complete: false, required: true } }))
-    await page.route('**/api/v1/auth/me', route => route.fulfill({ json: { user: { id: 'user-1', role: 'viewer', email: 'a@example.test', displayName: 'A' }, csrfToken: 'csrf-token', firstAdminClaim: { issuer: 'https://other.example.test', subject: "o'brien", issuerIsConfigured: false } } }))
-    await page.goto('/')
-    const expected = "docker exec <container-name> /requestarr setup-token --issuer 'https://other.example.test' --subject 'o'\\''brien' --stdout"
-    await expect(page.getByTestId('setup-token-command')).toHaveText(expected)
-    await page.getByRole('button', { name: 'Copy command' }).click()
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(expected)
-})
-
-test('claim page without an identity from the server shows no command and no identity fields', async ({ page }) => {
-    await page.route('**/api/v1/setup/status', route => route.fulfill({ json: { complete: false, required: true } }))
-    await page.route('**/api/v1/auth/me', route => route.fulfill({ json: { user: { id: 'user-1', role: 'viewer', email: 'a@example.test', displayName: 'A' }, csrfToken: 'csrf-token' } }))
-    await page.goto('/')
-    await expect(page.getByTestId('setup-token-command')).toHaveCount(0)
-    await expect(page.getByLabel('OIDC subject')).toHaveCount(0)
-    await expect(page.getByLabel('One-time setup token')).toBeVisible()
-})
 
 test('the checklist separates required from optional items, shows live state, and asks for nothing itself', async ({ page }) => {
     await mockChecklist(page, { items: fresh.map(item => item.key === 'metadata' ? { ...item, done: true, detail: undefined } : item) })
@@ -143,7 +96,6 @@ test('a checklist that cannot load says so and offers a retry', async ({ page })
     let fail = true
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname.replace('/api/v1', '')
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf-token' } })
         if (path === '/admin/checklist') return fail ? route.fulfill({ status: 500, json: { error: { code: 'checklist_failed', message: 'could not load the Get started checklist' } } }) : route.fulfill({ json: { items: fresh, dismissed: false, visible: true } })
         return route.fulfill({ json: {} })

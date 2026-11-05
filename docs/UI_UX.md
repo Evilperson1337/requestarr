@@ -69,4 +69,4 @@ Library cards show health, last successful sync, next sync, enabled authoritativ
 
 ## Get started checklist
 
-After the first-admin claim, administrators land on a short checklist (D038) computed from live state. Required items (a library connected and synced, a metadata provider) and optional ones (notifications, the default role for new people) are listed apart, each with a text status and a link to the Settings section that applies it. The page has no fields of its own and can be dismissed for the instance. The earlier seven-step draft wizard with a Review step was retired.
+After local administrator sign-in and the forced password change, administrators can open a short checklist (D038) computed from live state. Required items (a library connected and synced, a metadata provider) and optional ones (notifications, the default role for new people) are listed apart, each with a text status and a link to the Settings section that applies it. The page has no fields of its own and can be dismissed for the instance. The earlier seven-step draft wizard with a Review step was retired.

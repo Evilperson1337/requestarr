@@ -14,7 +14,6 @@ async function mockApp(page: Page) {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname.replace('/api/v1', '')
         const json: Record<string, unknown> = {
-            '/setup/status': { complete: true, required: false },
             '/auth/me': { user: { id: 'user-1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf' },
             '/requests': { items: [request], nextCursor: null },
             '/notifications': { items: [{ id: 'n1', title: 'Arrival is available', body: 'Now in Jellyfin', createdAt: '2026-10-01T12:00:00Z' }] },

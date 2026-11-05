@@ -5,7 +5,6 @@ async function openApp(page: Page, role = 'admin', notifications: unknown[] = []
     let defaultRole = 'viewer'
     await page.route('**/api/v1/**', route => {
         const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1', '')
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role, displayName: 'Admin' }, csrfToken: 'csrf' } })
         if (path === '/admin/settings/people') {
             if (request.method() === 'PUT') { const body = request.postDataJSON(); puts.push({ csrf: request.headers()['x-csrf-token'], body }); defaultRole = body.defaultRole; return route.fulfill({ json: body }) }

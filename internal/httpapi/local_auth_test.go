@@ -134,7 +134,7 @@ func TestMustChangeSessionsCanOnlyChangeThePasswordSeeTheirUserOrSignOut(t *test
 
 func TestMustChangeDoesNotBlockPublicRoutes(t *testing.T) {
 	h := localRouter(t, auth.User{ID: matrixUserID, Role: "admin", MustChange: true}, &localFake{})
-	for _, p := range []string{"/version", "/setup/status"} {
+	for _, p := range []string{"/version"} {
 		if w := localCall(h, "GET", p, "", true); w.Code != 200 {
 			t.Errorf("%s: %d", p, w.Code)
 		}

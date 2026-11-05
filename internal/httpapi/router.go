@@ -78,11 +78,6 @@ type UserAdmin interface {
 	ChangeUserRole(ctx context.Context, actorID, targetID, role string, at time.Time) error
 }
 
-// SetupState reports whether the first administrator has been claimed.
-type SetupState interface {
-	SetupComplete(context.Context) (bool, error)
-}
-
 // Deps is everything the HTTP API needs. Every field except DevelopmentLogs is
 // required: NewRouter fails at startup naming what is missing, instead of
 // serving a route that answers 503 later.
@@ -102,7 +97,6 @@ type Deps struct {
 	Users        UserAdmin
 	People       PeoplePolicy
 	Approvals    ApprovalPolicy
-	SetupState   SetupState
 	Syncer       SourceSyncer
 	Checklist    ChecklistService
 	IGDB         IGDBSettings
@@ -131,7 +125,7 @@ func (d Deps) missing() []string {
 		{"Requests", d.Requests == nil}, {"Resolver", d.Resolver == nil}, {"Inbox", d.Inbox == nil},
 		{"MoviePreview", d.MoviePreview == nil},
 		{"MatchReview", d.MatchReview == nil}, {"JobRuns", d.JobRuns == nil}, {"Status", d.Status == nil},
-		{"Users", d.Users == nil}, {"People", d.People == nil}, {"Approvals", d.Approvals == nil}, {"SetupState", d.SetupState == nil}, {"Syncer", d.Syncer == nil},
+		{"Users", d.Users == nil}, {"People", d.People == nil}, {"Approvals", d.Approvals == nil}, {"Syncer", d.Syncer == nil},
 		{"Checklist", d.Checklist == nil}, {"IGDB", d.IGDB == nil}, {"Secrets", d.Secrets == nil}, {"Connections", d.Connections == nil}, {"Library", d.Library == nil}, {"Search", d.Search == nil}, {"Issues", d.Issues == nil},
 	} {
 		if f.nil {
@@ -179,7 +173,6 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		rt.record("GET /auth/callback", accessPublic, false)
 		rt.record("POST /auth/logout", accessSession, false) // checks CSRF itself
 		rt.record("GET /auth/me", accessSession, false)
-		rt.record("POST /setup/claim-admin", accessSession, true)
 		// Local sign-in is unauthenticated and guards itself (Origin and JSON
 		// content type); the password change needs a session and CSRF.
 		rt.record("POST /auth/local/login", accessPublic, false)
@@ -233,7 +226,6 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	}
 	registerSearchRoutes(rt, d.Search, d.SearchLocal, limiter, logger)
 	registerIssueRoutes(rt, d.Issues)
-	rt.handle("GET /setup/status", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) { writeSetupStatus(w, r, d.SetupState) })
 	rt.handle("POST /admin/sources/{source}/sync", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		run, err := syncer.SyncNow(r.Context(), r.PathValue("source"))
 		switch {
@@ -529,9 +521,6 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	})
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle("GET /api/v1/version", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, buildInfo) }))
-	mux.Handle("GET /api/v1/setup/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeSetupStatus(w, r, d.SetupState)
-	}))
 	mux.Handle("/", webui.Handler())
 
 	return apierror.Middleware(requestLogger(logger, securityHeaders(mux))), rt, nil
@@ -566,15 +555,6 @@ func validUUID(value string) bool {
 		}
 	}
 	return true
-}
-
-func writeSetupStatus(w http.ResponseWriter, r *http.Request, state SetupState) {
-	complete, err := state.SetupComplete(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]bool{"complete": false, "required": true})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"complete": complete, "required": !complete})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

@@ -152,65 +152,6 @@ func (s *Store) RevokeSession(ctx context.Context, hash []byte, now time.Time) e
 	return err
 }
 
-func (s *Store) IssueAdminToken(ctx context.Context, issuer, subject, token string, expires time.Time, rotate bool) error {
-	if issuer == "" || subject == "" || token == "" || len(issuer) > 2048 || len(subject) > 1024 {
-		return fmt.Errorf("invalid bootstrap target")
-	}
-	hash := sha256.Sum256([]byte(token))
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	var sql string
-	if rotate {
-		sql = `UPDATE setup_state SET target_issuer=$1,target_subject=$2,token_hash=$3,token_expires_at=$4 WHERE singleton=TRUE AND complete=FALSE AND (token_hash IS NULL OR token_expires_at<=now())`
-	} else {
-		sql = `UPDATE setup_state SET target_issuer=$1,target_subject=$2,token_hash=$3,token_expires_at=$4 WHERE singleton=TRUE AND complete=FALSE AND token_hash IS NULL`
-	}
-	tag, err := tx.Exec(ctx, sql, issuer, subject, hash[:], expires)
-	if err != nil {
-		return fmt.Errorf("issue admin bootstrap token: %w", err)
-	}
-	if tag.RowsAffected() != 1 {
-		return fmt.Errorf("bootstrap unavailable")
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO setup_audit_events(id,event_type,target_issuer,target_subject) VALUES($1,'admin_token_issued',$2,$3)`, newUUID(), issuer, subject); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (s *Store) ClaimAdmin(ctx context.Context, userID, issuer, subject string, hash []byte, now time.Time) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, adminRoleAdvisoryLockID); err != nil {
-		return fmt.Errorf("lock admin claim: %w", err)
-	}
-	var targetIssuer, targetSubject string
-	err = tx.QueryRow(ctx, `UPDATE setup_state SET complete=TRUE,claimed_by=$1,completed_at=$2,token_hash=NULL,token_expires_at=NULL WHERE singleton=TRUE AND complete=FALSE AND target_issuer=$3 AND target_subject=$4 AND token_hash=$5 AND token_expires_at>$2 RETURNING target_issuer,target_subject`, userID, now, issuer, subject, hash).Scan(&targetIssuer, &targetSubject)
-	if err != nil {
-		return fmt.Errorf("claim unavailable")
-	}
-	result, err := tx.Exec(ctx, `UPDATE users SET role='admin',updated_at=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM oidc_identities WHERE user_id=users.id AND issuer=$3 AND subject=$4)`, userID, now, issuer, subject)
-	if err != nil || result.RowsAffected() != 1 {
-		return fmt.Errorf("claim unavailable")
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO setup_audit_events(id,event_type,actor_user_id,target_issuer,target_subject,created_at) VALUES($1,'admin_claimed',$2,$3,$4,$5)`, newUUID(), userID, issuer, subject, now); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (s *Store) SetupComplete(ctx context.Context) (bool, error) {
-	var complete bool
-	err := s.pool.QueryRow(ctx, `SELECT complete FROM setup_state WHERE singleton=TRUE`).Scan(&complete)
-	return complete, err
-}
-
 type AdminUser struct {
 	ID          string    `json:"id"`
 	Email       string    `json:"email"`

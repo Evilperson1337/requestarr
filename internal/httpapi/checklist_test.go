@@ -126,11 +126,3 @@ func TestIGDBClientIDSetting(t *testing.T) {
 	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrNotApplied}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 500, "settings_not_applied")
 	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: errors.New("db down")}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 500, "igdb_settings_failed")
 }
-
-func TestSetupStatusNoLongerReportsTheWizard(t *testing.T) {
-	w := httptest.NewRecorder()
-	New(testLogger(), buildinfo.Info{}, fakeReadiness{}).ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/setup/status", nil))
-	if w.Code != 200 || strings.Contains(w.Body.String(), "wizard") {
-		t.Fatalf("setup status %d %s", w.Code, w.Body)
-	}
-}

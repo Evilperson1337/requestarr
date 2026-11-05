@@ -5,7 +5,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: hooks help fmt test test-integration check-login check-container vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down stack-up stack-up-dev stack-start stack-down stack-logs stack-admin-token migrate-up snapshot snapshot-image release-check references
+.PHONY: hooks help fmt test test-integration check-login check-container vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down stack-up stack-up-dev stack-start stack-down stack-logs migrate-up snapshot snapshot-image release-check references
 
 # Load .env into the recipe's environment when present, without requiring it
 # to be sourced into the caller's shell first.
@@ -33,7 +33,6 @@ help:
 	  'make stack-up-dev   Same stack, with development-only connection diagnostics in Setup/Settings' \
 	  'make stack-down     Stop the test stack (STACK_PURGE=1 also deletes its data)' \
 	  'make stack-logs     Follow the test stack logs' \
-	  'make stack-admin-token  Print the issuer, subject and one-time token for the first-admin claim (ROTATE=1 replaces an expired token)' \
 	  'make snapshot       Build GoReleaser snapshot' \
 	  'make release-check  Validate GoReleaser config' \
 	  'make references     Fetch reference source trees'
@@ -130,18 +129,16 @@ stack-start:
 	@scripts/stack-secrets-key.sh
 	REQUESTARR_DEV_LOGS=$(or $(STACK_DEV_LOGS),false) docker compose -f compose.test.yaml up -d --build --wait
 	@url="$$(bash scripts/stack-http-url.sh)" && printf '\n%s\n' \
-	  "Requestarr:  $$url  (sign in as requestarr-admin / requestarr-admin)" \
+	  "Requestarr:  $$url  (administrator sign-in: /login)" \
+	  'Local administrator: admin. Read the initial one-time password in the container log, then choose your own password.' \
+	  'Recovery: docker compose -f compose.test.yaml exec requestarr /requestarr reset-admin-password' \
 	  'Keycloak:    http://localhost:8081  (admin / admin)'
-	@REQUESTARR_DEV_LOGS=$(or $(STACK_DEV_LOGS),false) scripts/stack-admin-token.sh --startup
 
 stack-down:
 	docker compose -f compose.test.yaml down $(if $(STACK_PURGE),-v)
 
 stack-logs:
 	docker compose -f compose.test.yaml logs -f
-
-stack-admin-token:
-	@scripts/stack-admin-token.sh
 
 # Local snapshot: archives (no SBOM, since Syft may be absent; CI generates it)
 # and the multi-arch image, built from the repository Dockerfile and never pushed.

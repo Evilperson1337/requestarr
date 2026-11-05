@@ -23,7 +23,6 @@ async function mock(page: Page, role: string, handlers: (path: string, url: URL,
     await page.route('**/api/v1/**', route => {
         const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/api/v1', '')
         const body = request.method() === 'GET' ? undefined : request.postDataJSON?.() ?? undefined
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role, displayName: 'User' }, csrfToken: 'csrf' } })
         calls.push({ method: request.method(), path, search: url.search, body })
         const custom = handlers(path, url, request.method(), body)

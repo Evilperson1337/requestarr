@@ -59,7 +59,7 @@ In your identity provider you register Requestarr as a *client*. The steps below
 4. **Valid redirect URIs**: your public URL followed by `/api/v1/auth/callback`, exactly, for example `https://requests.example.com/api/v1/auth/callback`. No wildcard. Save.
 5. On the **Credentials** tab copy the **Client secret**. You will paste it into Requestarr.
 6. Leave the default client scopes as they are. Requestarr asks for the standard scopes `openid`, `profile` and `email` and needs nothing custom (no groups, no roles). Requestarr decides who is an admin itself (step 6), not the identity provider.
-7. Create or choose the user who will be the first admin and note the user's **ID** (Users > the user > Details > ID). That value is the user's *subject*, used in step 6.
+7. Create or choose users for OIDC sign-in. An existing Requestarr administrator promotes them in Settings, Users; no identity-provider user ID needs to be copied.
 
 Your **issuer** for Keycloak is `https://id.example.com/realms/requestarr` (your Keycloak address, then `/realms/`, then the realm name). You can check it by opening `<issuer>/.well-known/openid-configuration` in a browser; it should show a page of JSON.
 
@@ -144,31 +144,33 @@ Point your reverse proxy at `http://<server address>:8080`, then open your publi
 
 ## 5. Sign in, and what role new users get
 
-Everyone who signs in for the first time is a **viewer**: they can browse and use Notify Me but cannot create requests. Nobody becomes an admin automatically, not even the first person. An admin promotes people to `requester` (can request) afterwards. Tell your users to expect this.
+Everyone who signs in for the first time is a **viewer**: they can browse and use Notify Me but cannot create requests. No OIDC sign-in becomes an admin automatically; the built-in local administrator is separate. An admin promotes people to `requester` (can request) afterwards. Tell your users to expect this.
 
-## 6. Become the first admin
+## 6. Sign in as the local administrator, and recover access
 
-The first admin proves they own the server with a one-time token, valid for 30 minutes, issued from inside the running container. The image has no shell, so you run the program directly through `docker exec`, in the Unraid terminal (not the container's Console button, which opens a shell that is not there):
+On a fresh database, read the local administrator's one-time password in the
+Unraid Docker log view. Open your HTTPS public URL at `/login`, sign in with
+username `admin`, and choose a new password before continuing. If
+`REQUESTARR_ADMIN_PASSWORD` supplied the initial password, use that value; it
+is not logged. Open **Get started** for links to the live Settings.
 
-Sign in first (you become a viewer), then open the claim page. It shows your own command with your user ID already filled in and a Copy button, so you do not look the ID up in the identity provider:
+To recover a forgotten password, use the Unraid host terminal, not the
+container Console button (the image has no shell):
 
 ```sh
-docker exec <container-name> /requestarr setup-token --subject 'YOUR-USER-ID' --stdout
+docker exec <container-name> /requestarr reset-admin-password
 ```
 
-While no administrator exists, the container's log says that the claim page shows this command.
+`<container-name>` is what `docker ps` lists (`Requestarr` for the template).
+The command uses the container's database configuration. It prints one random
+password, never its hash; do not paste it or credential-bearing logs into a
+support ticket. All local administrator sessions end and the next sign-in
+forces another change. The command fails clearly without creating an account
+if the local administrator does not exist, and does not enable a disabled one.
+An upgrade with existing users creates no local account automatically.
 
-- `<container-name>` is what `docker ps` lists: `Requestarr` for the template, something like `requestarr-requestarr-1` for compose.
-- `--issuer` defaults to the Issuer setting, so you leave it out. The claim page adds it only if your sign-in issuer differs from the configured one.
-- The command reads the container's own configuration, so you do not repeat any secret. It prints only the token. Copy it and clear your terminal; do not paste it into chat or tickets. The server keeps only a hash of it, and it works only for that issuer and subject.
-- `--stdout` is needed because you must choose between printing the token and writing it to a file (`--token-file`), and the container has no safe place for a file.
-- If it prints `setup-token requires a valid --issuer and --subject`, the subject is empty or malformed, or no issuer is configured. If the token has expired, run the command again with `--rotate`.
-
-Then:
-
-1. Open your public URL and sign in as the person who will be the admin.
-2. On the claim page, run the command it shows, paste the token it prints into the single token field, then submit.
-3. You are now the admin and land on **Get started**, a short checklist of what is left to set up. Each item opens the part of Settings that applies it (step 7).
+People who sign in through OIDC become admin only when an existing admin
+promotes them in **Settings, Users**. Their OIDC subject is not needed for this.
 
 ## 7. Connect a library
 

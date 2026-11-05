@@ -10,7 +10,7 @@ Read during review. These are judgement calls; anything a test, `go vet`, gofmt 
 ## HTTP
 
 - Every application route registers through the route table (`rt.handle`) with an access level. A handler does not check sessions or roles itself.
-- Narrow existing exception: `auth.Handler.Register` owns the authentication/session bootstrap routes (`/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/me`, `/auth/local/login`, `/auth/local/password`) and the legacy `/setup/claim-admin` route until that flow is retired. These routes establish, inspect or end sessions, or gate the local credential change; they use the auth handler's own session/CSRF checks (and Origin plus JSON checks for local sign-in). The router mirrors each policy with `rt.record` for the route-policy/contract checks. Keep those records aligned with registration; this exception does not permit other application handlers to bypass `rt.handle`.
+- Narrow existing exception: `auth.Handler.Register` owns the authentication/session bootstrap routes (`/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/me`, `/auth/local/login`, `/auth/local/password`). These routes establish, inspect or end sessions, or gate the local credential change; they use the auth handler's own session/CSRF checks (and Origin plus JSON checks for local sign-in). The router mirrors each policy with `rt.record` for the route-policy/contract checks. Keep those records aligned with registration; this exception does not permit other application handlers to bypass `rt.handle`.
 - A new dependency of the router is a required field of `httpapi.Deps`. Discovering a capability by type assertion is a review finding.
 - A route change and its `api/openapi.yaml` entry land in the same change.
 

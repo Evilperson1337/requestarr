@@ -3,7 +3,6 @@ import { expect, test, type Page } from '@playwright/test'
 async function mockApp(page: Page) {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname.replace('/api/v1', '')
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', email: 'user@example.test', displayName: 'User' }, csrfToken: 'csrf-token' } })
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })

@@ -17,7 +17,6 @@
       "mode": "debug",
       "program": "${workspaceFolder}/cmd/requestarr",
       "env": {
-        "REQUESTARR_SETUP_TOKEN": "dev-setup-token",
         "REQUESTARR_LOG_LEVEL": "debug"
       }
     }

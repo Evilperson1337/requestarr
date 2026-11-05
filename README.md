@@ -81,9 +81,9 @@ Before starting the stack, configure valid OIDC issuer/client values and a rando
 
 To run Requestarr on an Unraid server (template or compose), follow the [Unraid guide](docs/UNRAID.md).
 
-For initial administrator provisioning, see [`docs/OIDC_AUTH.md`](docs/OIDC_AUTH.md): operators run `requestarr setup-token --issuer <issuer> --subject <subject>`, then the matching authenticated OIDC user claims it once.
+For first sign-in and recovery, see [`docs/FIRST_RUN.md`](docs/FIRST_RUN.md): sign in as the built-in local administrator (`admin`) at `/login`, choose your own password, and use `requestarr reset-admin-password` from the server if it is forgotten.
 
-After claiming admin you land on **Get started**, a checklist computed from the live state that links to
+After local administrator sign-in, open **Get started**, a checklist computed from the live state that links to
 the part of Settings that applies each item; everything there applies live (provider credentials after a
 restart). See the [setup guide](docs/FIRST_RUN.md), [upgrade and backup notes](docs/UPGRADE_AND_BACKUP.md) and [project status](docs/research/PROJECT_STATUS.md).
 

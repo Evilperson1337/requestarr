@@ -11,7 +11,6 @@ const game = {
 async function openGame(page: Page, resolved: unknown = game, role = 'requester', onRequest?: (body: unknown) => void) {
     await page.route('**/api/v1/**', async route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'user-1', role, displayName: 'User' }, csrfToken: 'csrf-token' } })
         if (path.endsWith('/resolve')) return route.fulfill({ json: resolved })
         if (path.endsWith('/requests') && route.request().method() === 'POST') {

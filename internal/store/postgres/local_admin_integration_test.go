@@ -86,11 +86,6 @@ func TestFreshInstallCreatesOneBuiltInAdministratorIntegration(t *testing.T) {
 	if n := count(t, ctx, s, `SELECT count(*) FROM auth_audit_events WHERE event_type='admin_created'`); n != 1 {
 		t.Fatalf("creation audit rows=%d", n)
 	}
-	// An administrator now exists, so first-run setup counts as complete and the
-	// UI does not offer the claim page to the person who signs in.
-	if done, err := s.SetupComplete(ctx); err != nil || !done {
-		t.Fatalf("setup complete=%v errorType=%T", done, err)
-	}
 	// A second call, as on every later start, creates nothing.
 	created, err = s.CreateLocalAdmin(ctx, hash, time.Now())
 	if err != nil || created {
