@@ -8,12 +8,12 @@ This snapshot describes shipped repository behavior, not the historical target a
 
 | Milestone area | Delivered status |
 | --- | --- |
-| M1 — identity and request loop | OIDC login and one-time admin bootstrap (scripted Keycloak login check passes), TMDB/MusicBrainz/IGDB resolution, shared requests with subscriptions, search/filter/sort/cursor pagination, cancel and leave, admin approve/deny with audit, role matrix tests, and the full setup wizard (General through Finish). Wizard drafts are inactive: configuration is applied by editing the environment and restarting. |
+| M1 — identity and request loop | OIDC login and one-time admin bootstrap (scripted Keycloak login check passes), TMDB/MusicBrainz/IGDB resolution, shared requests with subscriptions, search/filter/sort/cursor pagination, cancel and leave, admin approve/deny with audit, role matrix tests, and the first-admin claim. The seven-step draft wizard built for this milestone was retired in D038 and replaced by a live Get started checklist; settings apply at once (D028, D035, D039). |
 | M2 — availability | Persistent job runner with no-overlap lease and Sync now; Jellyfin, Plex (movies, TV, music), RomM (per-platform games), Navidrome and Audiobookshelf (audiobooks by ASIN, D031) adapters behind one contract suite; positive-evidence availability, targeted reconciliation, suggested matches. Failed syncs never create absence. |
 | M3 — notifications | Durable in-app notifications and a global Apprise outbox/worker. Apprise delivery is at-least-once and can duplicate. |
 | M4 / V1 hardening | Operational status view, frontend smoke and accessibility tests, upgrade/backup notes, release pipeline that builds the UI in every path. Supply-chain policy proposed (D023) but not implemented. |
 
-**Remaining gaps:** see section 4 of [PROJECT_STATUS](research/PROJECT_STATUS.md): no live-service acceptance, wizard settings and request policy not applied at runtime, release workflow and image publishing unverified, accessibility pass incomplete, no log viewer, no security review.
+**Remaining gaps:** see section 4 of [PROJECT_STATUS](research/PROJECT_STATUS.md): no live-service acceptance, release workflow and image publishing unverified, accessibility pass incomplete, no log viewer, no security review.
 
 **Verified checks (2026-10-24):** `make fmt test vet web-check`, the PostgreSQL integration suite, the scripted Keycloak login, 59 frontend tests, `goreleaser check`/snapshot, Docker build and the container check all pass; see [PROJECT_STATUS](research/PROJECT_STATUS.md) and [RELEASES](RELEASES.md).
 
@@ -42,7 +42,7 @@ This section records the state observed when this plan was written. Its componen
 | HTTP | [Router](../internal/httpapi/router.go) serves health/readiness/version, a hard-coded incomplete setup response, and scaffold HTML. Other routes listed in [OpenAPI](../api/openapi.yaml) are documentation placeholders, not implemented 501 handlers; currently they fall through to 404. |
 | Domain | [Media types](../internal/domain/media.go) and [request types](../internal/domain/request.go) exist. The platform validator checks Any exclusivity/nonempty explicit selection only; it does not verify IGDB membership. Availability is currently conflated with a lifecycle constant and timestamp. |
 | Integration boundaries | [OIDC](../internal/auth/oidc/provider.go), [metadata](../internal/providers/metadata/provider.go), and [inventory](../internal/inventory/source.go) are boundary sketches. The [job runner](../internal/jobs/runner.go) is implemented (D018). Reconciliation has no package of its own; it lives in the Postgres store (D014). [Apprise](../internal/notifications/apprise/client.go) always returns an unimplemented error. |
-| UI | [Application](../web/src/App.tsx) renders Home only. [Request modal](../web/src/components/RequestModal.tsx), [Requests](../web/src/pages/RequestsPage.tsx), and [Setup](../web/src/pages/SetupWizardPage.tsx) are static descriptions. [Vite](../web/vite.config.ts) already proxies API/auth paths. No working browser session or product workflow exists. |
+| UI | [Application](../web/src/App.tsx) renders Home only. [Request modal](../web/src/components/RequestModal.tsx), [Requests](../web/src/pages/RequestsPage.tsx), and [Setup](../web/src/pages/ClaimAdminPage.tsx) are static descriptions. [Vite](../web/vite.config.ts) already proxies API/auth paths. No working browser session or product workflow exists. |
 | Tests | Config, domain platform selection, router/probes, and database redaction have tests. [PostgreSQL integration tests](../internal/store/postgres/postgres_integration_test.go) are build-tagged and require a dedicated test database variable; they test initial migration and reopen, not product transactions. |
 | Layout/dependencies | [Module](../go.mod) uses a placeholder module path and currently depends on pgx and golang-migrate. There is no public package tree; keep application code internal rather than inventing a reusable SDK. |
 
@@ -52,7 +52,7 @@ This section records the state observed when this plan was written. Its componen
 - Canonical catalog uniqueness, unique request per catalog item, and composite subscription key already encode central product invariants.
 - Domain types are largely independent of adapters; HTTP does not directly import PostgreSQL.
 - Existing startup/shutdown, config validation, and redaction tests provide useful regression coverage.
-- Clear product decisions and UI direction in [architecture](ARCHITECTURE.md), [integration contracts](INTEGRATIONS.md), [setup](SETUP_WIZARD.md), [UI](UI_UX.md), and [scope](V1_SCOPE.md).
+- Clear product decisions and UI direction in [architecture](ARCHITECTURE.md), [integration contracts](INTEGRATIONS.md), [setup](FIRST_RUN.md), [UI](UI_UX.md), and [scope](V1_SCOPE.md).
 
 ### Problems and risks to address before feature exposure
 
@@ -70,6 +70,8 @@ Read-only checks found Go 1.27.1-X:nodwarf5 on linux/amd64, Node 26.10.0, npm 12
 
 ## 3. M1 acceptance demonstration (remaining target; not yet passed)
 
+> The draft wizard steps in this section and the setup draft endpoints in section 7 are the original plan. D038 retired them; the live design is in [FIRST_RUN](FIRST_RUN.md).
+
 Use a clean dedicated PostgreSQL database, Keycloak, deterministic provider HTTP fixtures, and a browser. Also exercise at least one opt-in real Keycloak run; do not substitute fake authentication for the security acceptance gate.
 
 1. An anonymous visitor sees only minimal setup-required state; cannot read a draft, save credentials, resolve links, list requests, or claim administrator privileges.
@@ -82,7 +84,7 @@ Use a clean dedicated PostgreSQL database, Keycloak, deterministic provider HTTP
 8. Restart preserves setup, identities, requests, subscriptions, policy, and audit. Routine list/detail/me reads work when metadata servers are unavailable; availability says unknown, not missing or available.
 9. Browser flows show usable loading/error/empty states, preserve poster/square artwork, and have keyboard-accessible modal and game choices sourced from IGDB.
 
-Historical M1 target: no notifications or actual library availability, and a full setup wizard. Current implementation differs: durable in-app and global Apprise notifications exist, Jellyfin positive-only sync exists, and the setup UI is bootstrap-only. These delivered slices do not make the full M1 acceptance target pass.
+Historical M1 target: no notifications or actual library availability, and a full setup wizard. Current implementation differs: durable in-app and global Apprise notifications exist, Jellyfin positive-only sync exists, and the setup UI is the first-admin claim followed by the Get started checklist (D038). These delivered slices do not make the full M1 acceptance target pass.
 
 ## 4. Package boundaries and composition
 
@@ -95,7 +97,7 @@ Required semantic boundaries (method signatures are finalized with the first con
 | Consumer | Contract and guarantees |
 | --- | --- |
 | Auth service | Identity repository upserts exact issuer/subject; session repository persists hashed opaque tokens and expiries; OIDC adapter performs discovery, code exchange and full ID-token verification. Existing OIDC boundary must be extended/replaced, not treated as sufficient. |
-| Settings/setup | Draft repository saves redacted settings plus encrypted secrets with revision checks; finalization repository executes activation/admin/audit/revocation in one database transaction. OIDC test proof is bound to draft revision/session and expires. |
+| Settings/setup | Historical (retired in D038): a draft repository with revision checks and a finalization transaction. Today settings are stored live in `app_settings` and the stored-secrets store (D024, D035). |
 | Catalog service | Registry recognizes/parses only supported links; resolvers map validated references to normalized metadata; catalog repository upserts canonical item/cache and lists persisted platform options. No request creation in resolvers. |
 | Requests service | Repository exposes atomic create-or-existing, subscribe/unsubscribe, transition, and local read operations. Inputs include actor and validated policy snapshot; operations recheck current role/policy/version under transactional consistency. Return explicit created/existing and changed/no-change outcomes. |
 | Availability service | Inventory repository publishes successful generations plus durable affected-key jobs atomically. Reconciler reads exact candidate keys/evidence and commits availability changes, events, and outbox entries atomically. |
@@ -119,7 +121,7 @@ Paths below are proposed additions unless marked existing. Test siblings and san
 | HTTP | Split existing [router](../internal/httpapi/router.go) into routing plus new [auth handlers](../internal/httpapi/auth.go), [setup handlers](../internal/httpapi/setup.go), [catalog handlers](../internal/httpapi/catalog.go), [request handlers](../internal/httpapi/requests.go), [settings handlers](../internal/httpapi/settings.go), [middleware](../internal/httpapi/middleware.go), [DTOs](../internal/httpapi/dto.go), [errors](../internal/httpapi/errors.go). |
 | Outbound safety | Add [HTTP transport policy](../internal/outbound/client.go) for bounded responses/redirect policy and [endpoint validation](../internal/outbound/endpoint.go) for administrator-configured destinations. Provider-specific validation remains in each adapter. |
 | Composition/contracts | Extend existing [app wiring](../internal/app/app.go), [entrypoint](../cmd/requestarr/main.go), [OpenAPI](../api/openapi.yaml), [environment example](../.env.example). Add no YAML parser in M1; document that the YAML example is not loaded. |
-| UI | Extend existing [App](../web/src/App.tsx), [Home](../web/src/pages/HomePage.tsx), [Requests](../web/src/pages/RequestsPage.tsx), [Setup](../web/src/pages/SetupWizardPage.tsx), [Settings](../web/src/pages/SettingsPage.tsx), [modal](../web/src/components/RequestModal.tsx), [Artwork](../web/src/components/Artwork.tsx), [styles](../web/src/styles.css). Add [API client](../web/src/api/client.ts), [contract types](../web/src/api/types.ts), [session state](../web/src/auth/SessionProvider.tsx), [request detail](../web/src/pages/RequestDetailPage.tsx). |
+| UI | Extend existing [App](../web/src/App.tsx), [Home](../web/src/pages/HomePage.tsx), [Requests](../web/src/pages/RequestsPage.tsx), [Setup](../web/src/pages/ClaimAdminPage.tsx), [Settings](../web/src/pages/SettingsPage.tsx), [modal](../web/src/components/RequestModal.tsx), [Artwork](../web/src/components/Artwork.tsx), [styles](../web/src/styles.css). Add [API client](../web/src/api/client.ts), [contract types](../web/src/api/types.ts), [session state](../web/src/auth/SessionProvider.tsx), [request detail](../web/src/pages/RequestDetailPage.tsx). |
 | Production UI | Add [asset adapter](../internal/webui/handler.go); extend [build targets](../Makefile) and [container build](../Dockerfile) to serve compiled assets and SPA routes from the same origin. API/auth unknown paths must remain JSON/404, never SPA fallback. Do not break Go-only test builds by requiring unbuilt embedded assets. |
 
 ## 5. Security and setup contract

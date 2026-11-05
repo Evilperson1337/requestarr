@@ -126,7 +126,7 @@ This is the single best next task. Every V1 workflow depends on durable local st
 **Scope**
 
 - Replace hard-coded setup status with PostgreSQL-backed resumable state.
-- Implement the high-entropy setup-token bootstrap, short-lived setup session, transactional finalization, and token invalidation described in the [setup guide](SETUP_WIZARD.md).
+- Implement the high-entropy setup-token bootstrap, short-lived setup session, transactional finalization, and token invalidation described in the [setup guide](FIRST_RUN.md).
 - Implement OIDC discovery, authorization code flow with PKCE/state/nonce validation, secure sessions, Keycloak compatibility, role mapping, and server-side authorization.
 - Persist users by issuer/subject-compatible identity and expose only the minimum setup/auth API required by the UI.
 

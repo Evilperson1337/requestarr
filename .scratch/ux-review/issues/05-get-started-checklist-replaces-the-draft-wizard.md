@@ -12,5 +12,5 @@
 - [x] The IGDB client ID is a field in Settings, Integrations next to the IGDB secret; saving it takes effect where the runtime reads it today (an environment value still wins); a client ID previously saved in the old draft keeps working after upgrade
 - [x] No value is entered twice: the checklist asks for nothing itself
 - [x] After claiming admin the app lands on the checklist; the Playwright setup and smoke tests are rewritten to match; accessibility checks on the new page pass
-- [x] `docs/SETUP_WIZARD.md`, `docs/UNRAID.md` and `docs/MANUAL_TESTING.md` describe the checklist; D038 is written in `docs/DECISIONS.md` and notes what was retired and why
+- [x] `docs/FIRST_RUN.md`, `docs/UNRAID.md` and `docs/MANUAL_TESTING.md` describe the checklist; D038 is written in `docs/DECISIONS.md` and notes what was retired and why
 - [ ] Integration tests run against your own throwaway database; `scripts/check.sh` passes at the end

@@ -1,7 +1,7 @@
 # Accessibility and responsive audit
 
 Scope: Home, request preview dialog, Requests, Notifications, Settings and every
-Setup wizard step, at 1280px and 360px wide. Accessibility and responsive layout
+the former Setup wizard steps, at 1280px and 360px wide. Accessibility and responsive layout
 take precedence over pixel matching the mockups (AGENTS.md).
 
 ## How it is checked
@@ -20,7 +20,7 @@ Remaining gaps (why ticket 26 is not fully closed):
 
 - No manual pass with a real screen reader.
 - Keyboard coverage is the request dialog only; Requests filters/paging,
-  Notifications, Settings and the wizard have not been tabbed through by hand.
+  Notifications and Settings (and the retired wizard, when it existed) have not been tabbed through by hand.
 - Mocked job-run, user and match-suggestion lists are empty, so those tables'
   scroll regions are not axe-checked with data. Login, error/empty states and the
   non-admin view are not audited.
@@ -44,12 +44,12 @@ Intentional:
 
 - **Top navigation bar instead of a left sidebar.** It keeps content full width on
   phones without a collapsing drawer. Navigation is the same set of destinations.
-- **No secret inputs in the wizard.** The Metadata Providers mockup shows API token
+- **No secret inputs in the (retired) wizard.** The Metadata Providers mockup shows API token
   and client secret fields with a reveal toggle. Requestarr shows read-only
   environment-variable references instead, so secrets never pass through the
   browser (AGENTS.md: never log or expose secrets; secrets live in the server
   environment).
-- **Wizard steps are an ordered list** (`aria-current="step"`) rather than the
+- **Wizard steps were an ordered list** (`aria-current="step"`) rather than the
   mockup's connected-circle sidebar, which does not fit narrow screens.
 - **Settings shows an operational status table** (Source, last sync, outcome,
   error) rather than the mockup's per-library cards with health, version and
@@ -61,5 +61,5 @@ Not yet built (gaps, not decisions):
   Review panels from the Home mockup are absent.
 - Settings has no Test Connection / Edit / enable toggle per library, and no
   sub-navigation (Users & Access, Providers, Jobs, Logs). Test Connection exists
-  only in the setup wizard.
+  only in the retired setup wizard; it now lives on each library in Settings (D028).
 - No notification badge count or activity page.

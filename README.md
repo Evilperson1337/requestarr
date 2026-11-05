@@ -85,7 +85,7 @@ For initial administrator provisioning, see [`docs/OIDC_AUTH.md`](docs/OIDC_AUTH
 
 After claiming admin you land on **Get started**, a checklist computed from the live state that links to
 the part of Settings that applies each item; everything there applies live (provider credentials after a
-restart). See the [setup guide](docs/SETUP_WIZARD.md), [upgrade and backup notes](docs/UPGRADE_AND_BACKUP.md) and [project status](docs/research/PROJECT_STATUS.md).
+restart). See the [setup guide](docs/FIRST_RUN.md), [upgrade and backup notes](docs/UPGRADE_AND_BACKUP.md) and [project status](docs/research/PROJECT_STATUS.md).
 
 The frontend lives under `web/`:
 
@@ -141,4 +141,4 @@ Requestarr is licensed under the GNU Affero General Public License v3.0 (AGPL-3.
 
 `make build` runs the Vite production build before compiling the Go binary; Node/npm are required locally. The Docker build performs the same ordering in a Node builder stage and embeds the resulting assets in the Go binary. Browser routes fall back to the SPA, while `/api/` and `/auth/` routes remain server-owned. Development can continue to use `make web-dev`.
 
-This build does not imply V1 completeness. Library synchronization and authoritative availability, native/external notifications, and the complete persistent setup wizard remain outstanding. Configure the required PostgreSQL and OIDC deployment environment according to the setup documentation; no availability is fabricated while library adapters are absent.
+This build does not imply V1 completeness. It has only been exercised against fixtures and mocks; live-service acceptance of the providers and libraries remains outstanding. Configure the required PostgreSQL and OIDC deployment environment according to the setup documentation; no availability is fabricated while library adapters are absent.

@@ -13,7 +13,7 @@ also not enough to restore saved secrets: you need the master key too.
 
 1. The PostgreSQL database named in `REQUESTARR_DATABASE_URL`: requests,
    subscriptions, users and roles, notifications and the Apprise outbox, catalog
-   and inventory data, job runs, the setup draft and audit events.
+   and inventory data, job runs, settings (including the IGDB client ID and people and approval policy) and audit events.
 2. Your environment configuration (`.env`, compose file or secret manager),
    including `REQUESTARR_SESSION_HMAC_SECRET`. Changing that secret signs everyone
    out; it does not corrupt data.
@@ -95,4 +95,4 @@ backup, keep the previous version running, and report the migration error.
 - Job-run history is pruned per Source (newest 200 kept); notifications and audit
   events are retained until you remove them.
 - The first administrator is created with `requestarr setup-token`; see
-  `docs/SETUP_WIZARD.md`. Back up nothing for this: the token is single-use.
+  `docs/FIRST_RUN.md`. Back up nothing for this: the token is single-use.

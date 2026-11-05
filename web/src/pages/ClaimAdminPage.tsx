@@ -11,7 +11,7 @@ export function setupTokenCommand(claim: FirstAdminClaim) {
     return `docker exec <container-name> /requestarr setup-token${claim.issuerIsConfigured ? '' : ` --issuer ${shellQuote(claim.issuer)}`} --subject ${shellQuote(claim.subject)} --stdout`
 }
 
-export function SetupWizardPage({ session, onComplete }: { session: Session | null; onComplete: (session: Session) => void }) {
+export function ClaimAdminPage({ session, onComplete }: { session: Session | null; onComplete: (session: Session) => void }) {
     const [token, setToken] = useState('')
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
@@ -65,6 +65,6 @@ export function SetupWizardPage({ session, onComplete }: { session: Session | nu
                 <button className="button" disabled={busy}>{busy ? 'Claiming admin…' : 'Claim first admin'}</button>
             </form>
         </>}
-        <p className="setupGuide">For operator instructions, see <a href="https://github.com/evilperson1337/requestarr/blob/main/docs/SETUP_WIZARD.md">the server setup guide</a>.</p>
+        <p className="setupGuide">For operator instructions, see <a href="https://github.com/evilperson1337/requestarr/blob/main/docs/FIRST_RUN.md">the server setup guide</a>.</p>
     </section></main>
 }

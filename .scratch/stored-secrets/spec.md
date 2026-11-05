@@ -6,7 +6,7 @@ Source: grilling session of 2026-10-25, D024 (partly supersedes D017) in `docs/D
 
 ## Problem Statement
 
-Every integration credential must be set in the server environment and needs a restart. The setup wizard can record only the names of those variables, so an admin cannot finish configuring Requestarr from the UI. This conflicts with D017 and the "no secret-valued form fields" rule in `docs/SETUP_WIZARD.md`.
+Every integration credential must be set in the server environment and needs a restart. The setup wizard can record only the names of those variables, so an admin cannot finish configuring Requestarr from the UI. This conflicts with D017 and the "no secret-valued form fields" rule in `docs/FIRST_RUN.md`.
 
 ## Solution
 

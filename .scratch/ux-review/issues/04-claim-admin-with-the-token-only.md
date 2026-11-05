@@ -12,6 +12,6 @@
 - [x] `setup-token` defaults `--issuer` to the configured `REQUESTARR_OIDC_ISSUER` (an explicit flag still works); the existing validation and the token's 30-minute single-use binding are unchanged
 - [x] The startup log line (added earlier) is updated to say that the signed-in person's claim page shows the command
 - [x] Negative tests: wrong token, expired token, token issued for a different subject, a different signed-in user, a second claim after success, a viewer reading identity after setup is complete; none changes or leaks anything
-- [x] `docs/UNRAID.md` section 6, `docs/SETUP_WIZARD.md` and the page's text describe the new flow; the Playwright claim test is updated
+- [x] `docs/UNRAID.md` section 6, `docs/FIRST_RUN.md` and the page's text describe the new flow; the Playwright claim test is updated
 - [x] D037 is written in `docs/DECISIONS.md`
 - [ ] Integration tests run against your own throwaway database; `scripts/check.sh` passes at the end
