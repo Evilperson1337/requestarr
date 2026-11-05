@@ -1,5 +1,7 @@
 export type User = { id: string; role: string; email: string; displayName: string }
-export type Session = { user: User; csrfToken: string }
+// firstAdminClaim is the caller's own verified identity, sent only while first-admin setup is unclaimed (D037).
+export type FirstAdminClaim = { issuer: string; subject: string; issuerIsConfigured: boolean }
+export type Session = { user: User; csrfToken: string; firstAdminClaim?: FirstAdminClaim }
 export type SetupStatus = { complete: boolean; required: boolean; wizardComplete?: boolean }
 export type SetupStep = 'general' | 'authentication' | 'providers' | 'libraries' | 'notifications' | 'policy' | 'review'
 export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome' | 'library:audiobookshelf' | 'notifications'
@@ -76,7 +78,7 @@ async function apiError(response: Response): Promise<ApiError> {
 }
 
 // Never surface server-provided error bodies from the bootstrap claim endpoint.
-export async function claimSetupAdmin(input: { issuer: string; subject: string; token: string }, csrf: string): Promise<void> {
+export async function claimSetupAdmin(input: { token: string }, csrf: string): Promise<void> {
     const response = await fetch(base + '/setup/claim-admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
@@ -84,7 +86,7 @@ export async function claimSetupAdmin(input: { issuer: string; subject: string; 
         cache: 'no-store',
         body: JSON.stringify(input),
     })
-    if (!response.ok) throw new Error('Admin claim could not be completed. Check the values and setup token, then try again.')
+    if (!response.ok) throw new Error('Admin claim could not be completed. Check the setup token, then try again.')
 }
 
 export type SecretStatus = {

@@ -14,9 +14,10 @@ type firstAdminState interface {
 
 // announceFirstAdmin tells the operator, once, how to claim the first admin
 // while none exists. The container has no shell on some hosts, so the log is
-// where they look. The line carries the configured issuer and never a token.
+// where they look. The line carries no identity and never a token; the signed-in person's claim
+// page shows their own command (D037).
 // A failed lookup logs nothing at info level and never stops startup.
-func announceFirstAdmin(ctx context.Context, logger *slog.Logger, state firstAdminState, issuer string) {
+func announceFirstAdmin(ctx context.Context, logger *slog.Logger, state firstAdminState) {
 	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	complete, err := state.SetupComplete(lookupCtx)
@@ -27,7 +28,7 @@ func announceFirstAdmin(ctx context.Context, logger *slog.Logger, state firstAdm
 	if complete {
 		return
 	}
-	logger.Info("no administrator exists yet. To claim it, run: docker exec <container-name> /requestarr setup-token --issuer '"+issuer+"' --subject '<OIDC user id>' --stdout",
+	logger.Info("no administrator exists yet. Sign in first (you become a viewer); the claim page shows the exact command to run, which looks like: docker exec <container-name> /requestarr setup-token --subject '<your OIDC user id>' --stdout",
 		"token_valid_for", "30 minutes",
-		"then", "sign in first (you become a viewer), then claim admin on the Setup page")
+		"then", "paste the printed token on the claim page")
 }

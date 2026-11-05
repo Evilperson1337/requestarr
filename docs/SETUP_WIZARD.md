@@ -36,16 +36,16 @@ step marks the wizard complete.
   this as `wizardComplete`, separate from first-admin bootstrap `complete`.
   Finish adds no local-password path; sign-in stays OIDC-only.
 
-The page does not receive identity fields or the setup token from the backend. It does not save the token to browser storage. The token field is cleared as soon as submission begins and after the request finishes. Failed claims use a generic message.
+The page never receives the setup token from the backend. While first-admin setup is unclaimed, `GET /auth/me` returns the signed-in person's own verified issuer and subject (`firstAdminClaim`) so the page can show the `setup-token` command; no other route returns them and they disappear once an administrator exists (D037). It does not save the token to browser storage. The token field is cleared as soon as submission begins and after the request finishes. Failed claims use a generic message.
 
 ## Operator steps
 
 1. Configure OIDC in the Requestarr server environment before first sign-in. At minimum set `REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID`, and `REQUESTARR_OIDC_CLIENT_SECRET`; also set the public base URL and callback-related settings required by the deployment/provider. Follow [OIDC authentication](OIDC_AUTH.md) and the variable names documented in [`.env.example`](../.env.example). Never expose client secrets in the browser or commit them. Newly signed-in users are viewers who can browse and use Notify Me; administrators must promote users to requester to grant request-creation permission.
 2. Restart Requestarr after changing environment configuration. Register the deployed callback URL with the OIDC provider as described in the OIDC guide.
-3. Determine the exact issuer URL and subject (`sub`) of the identity that should become the first administrator. These are operator-provided values; the UI does not discover them.
-4. On the server run `requestarr setup-token --issuer '<exact issuer>' --subject '<exact subject>'`. The CLI needs exactly one of `--token-file PATH` (creates a new file readable only by its owner, mode 0600) or `--stdout` (prints the token; for a container with no safe place for a file, see [the Unraid guide](UNRAID.md)). Keep the token private and provide it to the intended administrator through a secure channel. The token is bound to those exact identity values.
-   While no administrator exists, the server log prints this command once at startup, with the configured issuer filled in and only the subject left as a placeholder; it never prints a token.
-5. Open the Requestarr setup page, sign in with that OIDC identity, and enter the same exact issuer, subject, and setup token. The claim endpoint requires an authenticated session and CSRF protection.
+3. Sign in to Requestarr as the person who should become the first administrator (they are a viewer at first). The claim page then shows that person's own subject in a ready-to-run command; there is no need to look the ID up in the identity provider.
+4. On the server run the command the claim page shows, `requestarr setup-token --subject '<subject>'`. `--issuer` defaults to the configured `REQUESTARR_OIDC_ISSUER`; the page adds it only when the sign-in issuer differs. The CLI needs exactly one of `--token-file PATH` (creates a new file readable only by its owner, mode 0600) or `--stdout` (prints the token; for a container with no safe place for a file, see [the Unraid guide](UNRAID.md)). Keep the token private and provide it to the intended administrator through a secure channel. The token is bound to those exact identity values.
+   While no administrator exists, the server log prints once at startup that the claim page shows the command, with the subject as a placeholder; it never prints a token or an identity.
+5. Paste only the token on the claim page. The claim endpoint requires an authenticated session and CSRF protection and takes issuer and subject from the verified session.
 6. On successful claim, the first administrator opens Setup. Public setup status
    still reports bootstrap completion using its existing semantics; this is not
    a claim that the configuration draft was activated or the full wizard finished.
@@ -175,7 +175,7 @@ remains inactive even after an environment restart.
 
 ## Security and scope
 
-Do not expose setup-token output or the token file to untrusted users. Prefer limiting network access to the instance during bootstrap. The UI intentionally does not echo server error bodies on claim failure. The backend never returns the token or verified issuer/subject as setup status.
+Do not expose setup-token output or the token file to untrusted users. Prefer limiting network access to the instance during bootstrap. The UI intentionally does not echo server error bodies on claim failure. The backend never returns the token, and returns the verified issuer/subject only to their owner while setup is unclaimed (see above); public setup status never carries them.
 
 The draft does not activate settings, edit environment variables, or provide a
 temporary/local-password sign-in. OIDC must work before the claim UI is usable.

@@ -34,10 +34,15 @@ must only be used in a controlled environment. The token expires after 30 minute
 An expired token may be replaced with `--rotate`; a live token or completed setup
 cannot be overwritten.
 
-The matching OIDC user must sign in and POST `issuer`, `subject`, and `token` to
+`--issuer` defaults to `REQUESTARR_OIDC_ISSUER`; pass it only to override.
+
+The matching OIDC user must sign in and POST only the `token` to
 `/api/v1/setup/claim-admin` with the session cookie, CSRF cookie, matching
-`X-CSRF-Token`, and same-origin `Origin`. Issuer and subject are confirmation
-only: authorization uses the verified identity attached to the server session.
+`X-CSRF-Token`, and same-origin `Origin`. The server takes issuer and subject from
+the verified session; a request that still sends them is rejected unless they equal
+the session's. While first-admin setup is unclaimed, `GET /api/v1/auth/me` returns
+the caller's own verified issuer and subject as `firstAdminClaim` so the claim page
+can show the command to run; once an administrator exists it is never returned (D037).
 Consumption, role promotion, setup completion, and audit event commit atomically.
 Failures are intentionally generic. Claim traffic should additionally be
 rate-limited at the reverse proxy; the endpoint does not expose token validity.

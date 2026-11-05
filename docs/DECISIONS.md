@@ -261,3 +261,24 @@ Accepted. Plan: `.scratch/unraid-deployment/`.
 - **Health:** the binary gains a `healthcheck` subcommand (a GET of `/readyz` on the local listener), because the distroless image has no `curl`. The Dockerfile and compose use it.
 - **Publishing:** accepts D023. The image goes to `ghcr.io/evilperson1337/requestarr`. The first tag is a pre-release (`v0.1.0-rc.1`), tested on a real Unraid server with the compose file pinned to it; stable `v0.1.0` follows, and the template then defaults to `latest`.
 - **Public copy:** `git.example.com` stays the source of truth. The GitHub repository is a rewritten export, not a mirror: `scripts/export-public.sh <tag>` runs `git filter-repo` over a fresh clone, changes the module path to `github.com/evilperson1337/requestarr`, replaces every other `example` string and maps all authors to a GitHub noreply identity, then refuses to publish unless no ref, commit message, author, filename or blob contains `example`. The rewrite is deterministic, so hashes are stable between runs. If the gate cannot be satisfied, fall back to one snapshot commit per release. The script is run by hand at first; CI later.
+
+## D037 — Claim the first admin with the token only
+
+Accepted. Plan: `.scratch/ux-review/`. Narrows the claim form described in `docs/OIDC_AUTH.md`; it does not change what the token proves.
+
+- The `setup-token` token stays bound to one issuer and subject, valid 30 minutes, single use. The shell on the server (the ability to run `setup-token`) stays the real gate.
+- `POST /setup/claim-admin` takes the token only. Issuer and subject come from the verified session. A request that still sends them must equal the session's, or it is rejected with the same generic 403. CSRF, origin, session checks, the generic failure and the audit events are unchanged.
+- While first-admin setup is unclaimed, `GET /auth/me` returns the caller's own verified issuer and subject as `firstAdminClaim` (with `issuerIsConfigured`). It is the narrowest place: it is the caller's own session, it is `no-store`, and it is omitted once an administrator exists, when the status lookup fails, and for anyone unauthenticated. The claim page uses it to show the exact `docker exec ... setup-token --subject '...' --stdout` command. The startup log line and every other route, error and audit text carry no identity.
+- `setup-token --issuer` defaults to `REQUESTARR_OIDC_ISSUER`; an explicit flag still wins and is validated as before.
+
+Threat model. An attacker who can sign in but has no shell on the server can:
+- become a viewer (unchanged), and read their own issuer and subject (values they already know from their identity provider, and which cannot be used by anyone else);
+- submit claims, which fail without a token. The token is 32 random bytes held only as a hash, so guessing it is infeasible; claim traffic should still be rate limited at the reverse proxy.
+
+They cannot:
+- obtain a token (only `setup-token` run on the server issues one);
+- claim for another person, because the token is matched against the issuer and subject of the session that submits it, and another user's identity is never shown to them;
+- see anyone else's identity, or any identity once an administrator exists;
+- reuse a spent or expired token.
+
+Showing a user their own identity moves no trust: knowing a subject was never the secret, the token is. Before this decision the operator typed issuer and subject by hand; the server already held them.

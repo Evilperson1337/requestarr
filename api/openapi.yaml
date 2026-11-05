@@ -25,7 +25,22 @@ paths:
     get:
       operationId: getCurrentUser
       responses:
-        '200': { description: Authenticated user and synchronizer CSRF token }
+        '200':
+          description: >-
+            Authenticated user and synchronizer CSRF token. While first-admin setup is
+            unclaimed (and only then) it also carries the caller's own verified issuer and
+            subject as firstAdminClaim, so the claim page can show the setup-token command.
+            The field is absent once an administrator exists or when the status cannot be
+            read, and no other response carries these values (D037).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, csrfToken]
+                properties:
+                  user: { type: object }
+                  csrfToken: { type: string }
+                  firstAdminClaim: { $ref: '#/components/schemas/FirstAdminClaim' }
         '401': { description: Authentication required }
   /auth/logout:
     post:
@@ -103,6 +118,9 @@ paths:
     post:
       operationId: claimInitialAdmin
       summary: Atomically consume the operator-issued initial-admin token
+      description: >-
+        Takes the token only. Issuer and subject come from the verified session. A request
+        that still sends issuer or subject is rejected unless each equals the session's.
       parameters:
         - in: header
           name: X-CSRF-Token
@@ -115,10 +133,10 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [issuer, subject, token]
+              required: [token]
               properties:
-                issuer: { type: string }
-                subject: { type: string }
+                issuer: { type: string, description: "Optional, deprecated. Must equal the signed-in issuer or the claim is rejected." }
+                subject: { type: string, description: "Optional, deprecated. Must equal the signed-in subject or the claim is rejected." }
                 token: { type: string }
       responses:
         '204': { description: Admin role granted and setup atomically completed }
@@ -1306,6 +1324,14 @@ components:
         request_id. Client-supplied values are ignored. Quote it when reporting problems.
       schema: { type: string }
   schemas:
+    FirstAdminClaim:
+      type: object
+      description: The signed-in caller's own verified identity, present only while first-admin setup is unclaimed.
+      required: [issuer, subject, issuerIsConfigured]
+      properties:
+        issuer: { type: string }
+        subject: { type: string }
+        issuerIsConfigured: { type: boolean, description: "True when issuer equals the configured REQUESTARR_OIDC_ISSUER, so setup-token needs no --issuer" }
     SearchResult:
       type: object
       required: [mediaType, provider, providerId, ref, title]

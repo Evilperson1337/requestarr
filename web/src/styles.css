@@ -2558,3 +2558,12 @@ a.tag-available:hover {
         padding: 20px 14px;
     }
 }
+
+.setupCommand {
+  overflow-x: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--line, currentColor);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

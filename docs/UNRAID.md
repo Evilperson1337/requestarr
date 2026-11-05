@@ -150,25 +150,24 @@ Everyone who signs in for the first time is a **viewer**: they can browse and us
 
 The first admin proves they own the server with a one-time token, valid for 30 minutes, issued from inside the running container. The image has no shell, so you run the program directly through `docker exec`, in the Unraid terminal (not the container's Console button, which opens a shell that is not there):
 
+Sign in first (you become a viewer), then open the claim page. It shows your own command with your user ID already filled in and a Copy button, so you do not look the ID up in the identity provider:
+
 ```sh
-docker exec <container-name> /requestarr setup-token \
-  --issuer 'https://id.example.com/realms/requestarr' \
-  --subject 'THE-USER-ID-FROM-STEP-3' \
-  --stdout
+docker exec <container-name> /requestarr setup-token --subject 'YOUR-USER-ID' --stdout
 ```
 
-While no administrator exists, the container's log prints this command with your configured issuer already filled in, so you can copy it from the Unraid log view.
+While no administrator exists, the container's log says that the claim page shows this command.
 
 - `<container-name>` is what `docker ps` lists: `Requestarr` for the template, something like `requestarr-requestarr-1` for compose.
-- `--issuer` must be character-for-character the same as the Issuer setting. `--subject` is the user's ID from step 3.
+- `--issuer` defaults to the Issuer setting, so you leave it out. The claim page adds it only if your sign-in issuer differs from the configured one.
 - The command reads the container's own configuration, so you do not repeat any secret. It prints only the token. Copy it and clear your terminal; do not paste it into chat or tickets. The server keeps only a hash of it, and it works only for that issuer and subject.
 - `--stdout` is needed because you must choose between printing the token and writing it to a file (`--token-file`), and the container has no safe place for a file.
-- If it prints `setup-token requires a valid --issuer and --subject`, one of the two is empty or malformed. If the token has expired, run the command again with `--rotate`.
+- If it prints `setup-token requires a valid --issuer and --subject`, the subject is empty or malformed, or no issuer is configured. If the token has expired, run the command again with `--rotate`.
 
 Then:
 
-1. Open your public URL and sign in as that user.
-2. Open the Setup page. In the claim form enter the same issuer, the same subject and the token, then submit.
+1. Open your public URL and sign in as the person who will be the admin.
+2. On the claim page, run the command it shows, paste the token it prints into the single token field, then submit.
 3. You are now the admin, and Setup continues in the app.
 
 ## 7. Connect a library
