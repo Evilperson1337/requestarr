@@ -116,6 +116,45 @@ func TestDismissIsRememberedAndHidesTheChecklist(t *testing.T) {
 	}
 }
 
+type fakeSignIn struct {
+	configured bool
+	err        error
+}
+
+func (f fakeSignIn) OIDCConfigured(context.Context) (bool, error) { return f.configured, f.err }
+
+func TestOIDCConfiguredIsAnOptionalItemThatReadsLiveState(t *testing.T) {
+	todo, err := New(fakeStatus{}, &fakeStore{}).WithSignIn(fakeSignIn{}).Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := item(t, todo, OIDC)
+	if got.Title != "OIDC configured" || got.Required || got.Done || got.Detail == "" {
+		t.Fatalf("unconfigured OIDC is an optional to-do that says what to do: %+v", got)
+	}
+	done, _ := New(fakeStatus{}, &fakeStore{}).WithSignIn(fakeSignIn{configured: true}).Get(context.Background())
+	if got := item(t, done, OIDC); !got.Done || got.Detail != "" {
+		t.Fatalf("working OIDC is done: %+v", got)
+	}
+}
+
+func TestUnconfiguredOIDCNeverKeepsTheChecklistVisible(t *testing.T) {
+	r, _ := New(fakeStatus{overview: opstatus.Overview{
+		Providers: []opstatus.Provider{{Key: "tmdb", Configured: true}},
+		Sources:   []opstatus.SourceStatus{{Slug: "plex", Configured: true, LastSnapshotAt: synced()}},
+	}}, &fakeStore{}).WithSignIn(fakeSignIn{}).Get(context.Background())
+	if r.Visible {
+		t.Fatal("OIDC is optional, so it cannot keep the checklist open")
+	}
+}
+
+func TestSignInErrorsAreReturned(t *testing.T) {
+	boom := errors.New("boom")
+	if _, err := New(fakeStatus{}, &fakeStore{}).WithSignIn(fakeSignIn{err: boom}).Get(context.Background()); !errors.Is(err, boom) {
+		t.Fatalf("sign-in error: %v", err)
+	}
+}
+
 func TestErrorsAreReturnedNotHidden(t *testing.T) {
 	boom := errors.New("boom")
 	if _, err := New(fakeStatus{err: boom}, &fakeStore{}).Get(context.Background()); !errors.Is(err, boom) {

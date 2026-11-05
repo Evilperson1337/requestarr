@@ -1301,7 +1301,7 @@ paths:
                       type: object
                       required: [key, title, required, done]
                       properties:
-                        key: { type: string, enum: [libraries, metadata, notifications, people] }
+                        key: { type: string, enum: [libraries, metadata, notifications, oidc, people] }
                         title: { type: string }
                         required: { type: boolean }
                         done: { type: boolean }

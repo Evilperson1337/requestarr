@@ -7,6 +7,7 @@ const fresh: Item[] = [
     { key: 'libraries', title: 'Connect a media library', required: true, done: false, detail: 'Connect Jellyfin, Plex, Navidrome, RomM or Audiobookshelf so Requestarr can tell what you already have.' },
     { key: 'metadata', title: 'Add a metadata provider', required: true, done: false, detail: 'A TMDB read token turns on Movies and TV search; IGDB turns on Games. Music works without setup.' },
     { key: 'notifications', title: 'Set up notifications', required: false, done: false, detail: 'Optional. Without Apprise, people only see availability inside Requestarr.' },
+    { key: 'oidc', title: 'OIDC configured', required: false, done: false, detail: 'Optional. Without it, everyone signs in with the local administrator account. Add your identity provider under Settings, Authentication.' },
     { key: 'people', title: 'Review who can do what', required: false, done: false, detail: 'Optional. New people start as viewers and every request waits for approval until you change the default role or the approval policy.' },
 ]
 
@@ -34,7 +35,7 @@ test('the checklist separates required from optional items, shows live state, an
     const required = page.getByRole('region', { name: 'Required' })
     const optional = page.getByRole('region', { name: 'Optional' })
     await expect(required.getByRole('listitem')).toHaveCount(2)
-    await expect(optional.getByRole('listitem')).toHaveCount(2)
+    await expect(optional.getByRole('listitem')).toHaveCount(3)
     await expect(required.getByRole('listitem').filter({ hasText: 'Connect a media library' })).toContainText('To do')
     await expect(required.getByRole('listitem').filter({ hasText: 'Add a metadata provider' })).toContainText('Done')
     await expect(optional.getByRole('listitem').filter({ hasText: 'Set up notifications' })).toContainText('Optional. Without Apprise')
@@ -49,6 +50,7 @@ test('each item links to the Settings section that applies it', async ({ page })
     expect(await hrefs('Connect a media library')).toBe('/settings?tab=integrations#group-libraries')
     expect(await hrefs('Add a metadata provider')).toBe('/settings?tab=integrations#group-metadata')
     expect(await hrefs('Set up notifications')).toBe('/settings?tab=integrations#group-notifications')
+    expect(await hrefs('OIDC configured')).toBe('/settings?tab=authentication')
     expect(await hrefs('Review who can do what')).toBe('/settings?tab=users')
     await page.getByRole('listitem').filter({ hasText: 'Review who can do what' }).getByRole('link').click()
     await expect(page).toHaveURL('/settings?tab=users')

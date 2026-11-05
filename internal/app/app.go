@@ -117,7 +117,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		Requests: requests.New(store), Resolver: providers, Inbox: store, MatchReview: store,
 		MoviePreview: store,
 		JobRuns:      store, Status: ops, Users: store, People: peopleSettings{store}, Approvals: approvalSettings{store}, Syncer: syncer,
-		Checklist: checklist.New(ops, store), IGDB: igdbSettingsService{store: store, envID: envCfg.IGDBClientID, providers: providers}, Secrets: reloadingSecrets{Service: secretsService, manager: manager, providers: providers, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: providers, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
+		Checklist: checklist.New(ops, store).WithSignIn(oidcSignIn{authentication}), IGDB: igdbSettingsService{store: store, envID: envCfg.IGDBClientID, providers: providers}, Secrets: reloadingSecrets{Service: secretsService, manager: manager, providers: providers, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: providers, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize HTTP API: %w", err)

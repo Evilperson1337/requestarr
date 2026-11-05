@@ -29,3 +29,11 @@ func NewAuthentication(ctx context.Context, cfg config.Config, repo authsettings
 	}
 	return authsettings.New(ctx, repo, sealer, authsettings.Values{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret}, cfg.PublicURL, factory)
 }
+
+// oidcSignIn answers the Get started checklist from the live sign-in options:
+// OIDC counts once a discovered provider is active, however it was configured.
+type oidcSignIn struct{ svc *authsettings.Service }
+
+func (o oidcSignIn) OIDCConfigured(context.Context) (bool, error) {
+	return o.svc.Options().OIDCEnabled, nil
+}
