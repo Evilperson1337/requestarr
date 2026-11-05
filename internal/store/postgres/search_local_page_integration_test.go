@@ -11,7 +11,7 @@ import (
 // A whole page is annotated with one database round trip, however many results
 // it holds, and nothing outside the database is consulted.
 func TestSearchLocalStatesAnnotatesAPageWithOneQueryIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	keys := make([]domain.SearchKey, 50)
 	for i := range keys {
 		media := domain.MediaMovie

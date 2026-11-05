@@ -39,7 +39,7 @@ func (f fakeLibrary) Artwork(_ context.Context, id string) (inventory.Artwork, e
 
 func libraryRequest(role, path string, lib fakeLibrary) *httptest.ResponseRecorder {
 	logger := slog.New(slog.NewTextHandler(&strings.Builder{}, nil))
-	h := NewWithSetup(logger, buildinfo.Info{}, lib, nil, nil, nil,
+	h := NewWithBackend(logger, buildinfo.Info{}, lib, nil, nil, nil,
 		&auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: role}}}, Secret: "test-secret", PublicURL: "http://example.test"})
 	r := httptest.NewRequest(http.MethodGet, "/api/v1"+path, nil)
 	r.AddCookie(&http.Cookie{Name: "requestarr_session", Value: "valid"})

@@ -14,7 +14,7 @@ import (
 // An open Request is reported with its catalog ID and status, and a resolved
 // item no library holds is not available.
 func TestSearchLocalStatesReportsRequestAndCatalogIDIntegration(t *testing.T) {
-	ctx, s, user := setupDraftStore(t)
+	ctx, s, user := integrationStore(t)
 	id := newUUID()[:8]
 	item, err := s.Upsert(ctx, domain.ResolvedItem{Item: domain.CatalogItem{MediaType: domain.MediaTV, Provider: "tmdb", ProviderID: id, Title: "Requested show"}})
 	if err != nil {
@@ -42,7 +42,7 @@ func TestSearchLocalStatesReportsRequestAndCatalogIDIntegration(t *testing.T) {
 // Only an enabled source's latest complete snapshot holds an item: a disabled
 // source, an item since removed, and a source with no completed snapshot hold nothing.
 func TestSearchLocalStatesIgnoresDisabledStaleAndUnsyncedSourcesIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	d := inventory.Descriptor{ID: newUUID(), Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaMovie}, IdentifierKinds: []string{"tmdb"}}
 	keep, gone, off := newUUID()[:8], newUUID()[:8], newUUID()[:8]
 	item := func(id string) inventory.Item {

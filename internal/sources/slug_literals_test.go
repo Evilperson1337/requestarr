@@ -24,7 +24,7 @@ var slugAllowed = map[string]bool{
 	"inventory/navidrome/client.go":      true,
 	"inventory/audiobookshelf/client.go": true,
 	"config/config.go":                   true, // libraryFields
-	"setup/draft.go":                     true, // LibrariesSettings.Source, credential env names
+	"setup/targets.go":                   true, // LibrariesSettings.Source, credential env names
 	"app/app.go":                         true, // newInventorySource
 	"setup/checks/checker.go":            true, // libraryProbes
 }

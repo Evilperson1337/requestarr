@@ -13,7 +13,7 @@ import (
 )
 
 func TestBrowseLibraryFiltersPagesAndHidesWhatLeftIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	d := inventory.Descriptor{ID: newUUID(), Kind: "romm", Name: "Browse fixture", MediaTypes: []domain.MediaType{domain.MediaGame, domain.MediaMovie}}
 	base := time.Now().Add(-10 * time.Hour).UTC().Truncate(time.Second)
 	var items []inventory.Item
@@ -95,7 +95,7 @@ func TestBrowseLibraryFiltersPagesAndHidesWhatLeftIntegration(t *testing.T) {
 }
 
 func TestAnAlbumListsItsTracksInOrderIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	d := inventory.Descriptor{ID: newUUID(), Kind: "navidrome", Name: "Track fixture", MediaTypes: []domain.MediaType{domain.MediaAlbum, domain.MediaSong}}
 	tag := newUUID()[:8]
 	album := "album:" + tag
@@ -132,7 +132,7 @@ func TestAnAlbumListsItsTracksInOrderIntegration(t *testing.T) {
 // Every field an adapter sets on an inventory.Item must survive PersistSnapshot and reach the
 // single-item read; the list leaves the heavy ones out.
 func TestLibraryItemDetailsRoundTripIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	d := inventory.Descriptor{ID: newUUID(), Kind: "plex", Name: "Details fixture", MediaTypes: []domain.MediaType{domain.MediaMovie}}
 	want := domain.LibraryDetails{Synopsis: "A story.", Rating: 7.6, ContentRating: "PG-13", Genres: []string{"Drama", "Sci-Fi"}, RuntimeMinutes: 116}
 	items := []inventory.Item{

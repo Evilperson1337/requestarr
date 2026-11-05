@@ -16,7 +16,7 @@ import (
 )
 
 func TestRecentlyAddedOrdersByAddedDateSkipsSongsAndRemovedItemsIntegration(t *testing.T) {
-	ctx, s, _ := setupDraftStore(t)
+	ctx, s, _ := integrationStore(t)
 	d := inventory.Descriptor{ID: plex.SourceID, Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong}}
 	item := func(id, title string, media domain.MediaType, added time.Time, ref string) inventory.Item {
 		return inventory.Item{SourceID: d.ID, SourceItemID: id, MediaType: media, Title: title, AddedAt: added, ArtworkRef: ref}
@@ -78,7 +78,7 @@ func TestRecentlyAddedOrdersByAddedDateSkipsSongsAndRemovedItemsIntegration(t *t
 // A title resolved after its library synced is available at once: the catalog
 // item is matched against the inventory already stored.
 func TestResolvingAfterTheSyncMatchesAgainstStoredInventoryIntegration(t *testing.T) {
-	ctx, s, user := setupDraftStore(t)
+	ctx, s, user := integrationStore(t)
 	d := inventory.Descriptor{ID: plex.SourceID, Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaMovie}, IdentifierKinds: []string{"tmdb"}}
 	tmdbID := newUUID()[:8]
 	snap := inventory.Snapshot{SourceID: d.ID, Complete: true, ObservedAt: time.Now().UTC(), Items: []inventory.Item{
@@ -110,7 +110,7 @@ func TestResolvingAfterTheSyncMatchesAgainstStoredInventoryIntegration(t *testin
 // A library names an album by one of its releases; resolving the album by another
 // edition (or by the release group) must still find it.
 func TestAnAlbumOwnedAsAnotherReleaseIsAvailableOnceResolvedIntegration(t *testing.T) {
-	ctx, s, user := setupDraftStore(t)
+	ctx, s, user := integrationStore(t)
 	d := inventory.Descriptor{ID: plex.SourceID, Kind: "plex", Name: "Plex", MediaTypes: []domain.MediaType{domain.MediaAlbum}, IdentifierKinds: []string{"mbid"}}
 	owned, other, group := newUUID(), newUUID(), newUUID()
 	if err := s.PersistSnapshot(ctx, d, "http://plex.example.test", inventory.Snapshot{SourceID: d.ID, Complete: true, ObservedAt: time.Now().UTC(), Items: []inventory.Item{

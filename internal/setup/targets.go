@@ -1,11 +1,15 @@
+// Package setup holds the connection-check vocabulary shared by the library
+// connection service and the checker: the targets that can be probed, their
+// result codes, and the non-secret runtime facts a probe starts from.
+//
+// The seven-step setup draft wizard that used to live here was retired in D038;
+// what remains is the input the checker still takes.
 package setup
 
 import (
-	"errors"
-	"net/mail"
+	"context"
 	"net/url"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/evilperson1337/requestarr/internal/config"
@@ -14,15 +18,18 @@ import (
 	"github.com/evilperson1337/requestarr/internal/sources"
 )
 
-var (
-	ErrForbidden = errors.New("administrator role required")
-	ErrInvalid   = errors.New("invalid setup draft")
-	ErrConflict  = errors.New("setup draft revision conflict")
-	// ErrCompleted is returned for edits after Finish; the wizard no longer accepts changes.
-	ErrCompleted = errors.New("setup already completed")
-	// ErrNotReady is returned by Finish while required checks are missing, failed or expired.
-	ErrNotReady = errors.New("setup checks are not passing")
-)
+// Checker probes one target with the given settings. Describe is the message
+// shown for a result, including which secret source was verified.
+type Checker interface {
+	Check(context.Context, Target, Settings) (CheckCode, error)
+	Describe(context.Context, Target, CheckCode) string
+}
+
+// SecretSources resolves the value the next restart would use for a secret and
+// says where it comes from (D024). The value must never leave the server.
+type SecretSources interface {
+	Resolve(context.Context, secrets.Name) (secrets.Resolved, error)
+}
 
 // OIDCSecretEnv is the environment-only OIDC client secret; it is not a stored secret.
 const OIDCSecretEnv = "REQUESTARR_OIDC_CLIENT_SECRET"
@@ -39,7 +46,7 @@ func credentialEnv(slug string, role sources.Role) string {
 	return credential.Env
 }
 
-// The fixed environment names a draft may reference, read from the secret and
+// The fixed environment names a check may reference, read from the secret and
 // Source kind registries so each name is written once.
 var (
 	TMDBTokenEnv         = EnvOf(secrets.TMDBReadToken)
@@ -53,9 +60,7 @@ var (
 	NavidromePasswordEnv = credentialEnv("navidrome", sources.RolePassword)
 )
 
-type Actor struct{ ID, Role string }
-
-// Settings is a closed non-secret schema, never an arbitrary configuration map.
+// Settings is the closed, non-secret input of a connection check, never an arbitrary configuration map.
 // Environment references are allowlisted, not arbitrary environment lookups.
 type Settings struct {
 	General        GeneralSettings        `json:"general"`
@@ -190,42 +195,6 @@ const (
 	CheckDisabled       CheckCode = "disabled"
 )
 
-type Validation struct {
-	Target    Target    `json:"target"`
-	Revision  int64     `json:"revision"`
-	Valid     bool      `json:"valid"`
-	Code      CheckCode `json:"code"`
-	Message   string    `json:"message"`
-	CheckedAt time.Time `json:"checkedAt"`
-	ExpiresAt time.Time `json:"expiresAt"`
-}
-
-type Draft struct {
-	Revision    int64             `json:"revision"`
-	CurrentStep Step              `json:"currentStep"`
-	Settings    Settings          `json:"settings"`
-	Validations []Validation      `json:"validations"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
-	Inactive    bool              `json:"inactive"`
-	Environment []EnvironmentItem `json:"environment"`
-	// Blockers lists required checks that are missing, failed or expired for this revision.
-	Blockers    []Blocker  `json:"blockers"`
-	CompletedAt *time.Time `json:"completedAt"`
-}
-
-type Blocker struct {
-	Target Target `json:"target"`
-	Reason string `json:"reason"`
-}
-
-type EnvironmentItem struct {
-	Name         string `json:"name"`
-	Secret       bool   `json:"secret"`
-	Configured   bool   `json:"configured"`
-	NeedsRestart bool   `json:"needsRestart"`
-	DesiredValue string `json:"desiredValue,omitempty"`
-}
-
 // Runtime carries safe configuration and secret-presence flags, not secrets.
 type Runtime struct {
 	PublicURL, OIDCIssuer, OIDCClientID, IGDBClientID string
@@ -252,98 +221,6 @@ func (r Runtime) SecretConfigured(name secrets.Name) bool { return r.SecretsConf
 // LibraryUsername is the plain username in effect for a Source slug.
 func (r Runtime) LibraryUsername(slug string) string { return r.LibraryUsernames[slug] }
 
-type SaveInput struct {
-	ExpectedRevision int64    `json:"expectedRevision"`
-	CurrentStep      Step     `json:"currentStep"`
-	Settings         Settings `json:"settings"`
-}
-
-func (s Settings) Validate(rt Runtime) error {
-	development := rt.Development
-	for _, field := range []struct {
-		value string
-		limit int
-	}{
-		{s.General.InstanceName, 120}, {s.General.Timezone, 128}, {s.Authentication.ClientID, 256}, {s.Providers.IGDBClientID, 256}, {s.Providers.MusicBrainzContact, 254},
-	} {
-		if !utf8.ValidString(field.value) || utf8.RuneCountInString(field.value) > field.limit || strings.ContainsAny(field.value, "\x00\r\n") {
-			return ErrInvalid
-		}
-	}
-	if s.General.Timezone != "" {
-		if _, err := time.LoadLocation(s.General.Timezone); err != nil {
-			return ErrInvalid
-		}
-	}
-	for _, raw := range []string{s.General.PublicURL, s.Authentication.Issuer} {
-		if raw != "" && !ValidServiceURL(raw, development) {
-			return ErrInvalid
-		}
-	}
-	if s.Authentication.ClientSecretEnv != OIDCSecretEnv || s.Providers.TMDBTokenEnv != TMDBTokenEnv || s.Providers.IGDBClientSecretEnv != IGDBSecretEnv {
-		return ErrInvalid
-	}
-	if s.Providers.MusicBrainzContact != "" {
-		address, err := mail.ParseAddress(s.Providers.MusicBrainzContact)
-		if err != nil || address.Address != s.Providers.MusicBrainzContact {
-			return ErrInvalid
-		}
-	}
-	if n := s.Notifications; n.AppriseConfigKeyEnv != AppriseConfigKeyEnv || n.AppriseURL != "" && !ValidServiceURL(n.AppriseURL, development) {
-		return ErrInvalid
-	}
-	seenAuto := map[domain.MediaType]bool{}
-	for _, media := range s.Policy.AutoApproveMediaTypes {
-		if !validMedia(media) || seenAuto[media] {
-			return ErrInvalid
-		}
-		seenAuto[media] = true
-	}
-	for _, kind := range sources.All() {
-		source := *s.Libraries.Source(kind.Slug)
-		if source.URL != "" && !ValidSourceURL(source.URL, rt) {
-			return ErrInvalid
-		}
-		if !validMediaTypes(kind, source.MediaTypes) {
-			return ErrInvalid
-		}
-		if !source.credentialsValid(kind) {
-			return ErrInvalid
-		}
-	}
-	return nil
-}
-
-func validMediaTypes(kind sources.Kind, types []domain.MediaType) bool {
-	seen := make(map[domain.MediaType]bool, len(types))
-	for _, media := range types {
-		if !kind.Covers(media) || seen[media] {
-			return false
-		}
-		seen[media] = true
-	}
-	return true
-}
-
-// credentialsValid reports whether the draft names exactly the credential
-// environment variables the kind declares, and a plain username only where the
-// kind has one.
-func (s SourceSettings) credentialsValid(kind sources.Kind) bool {
-	token, hasToken := kind.Credential(sources.RoleToken)
-	password, hasPassword := kind.Credential(sources.RolePassword)
-	_, hasUsername := kind.Credential(sources.RoleUsername)
-	if hasToken != (s.TokenEnv != "") || hasToken && s.TokenEnv != token.Env {
-		return false
-	}
-	if hasPassword != (s.PasswordEnv != "") || hasPassword && s.PasswordEnv != password.Env {
-		return false
-	}
-	if !hasUsername {
-		return s.Username == ""
-	}
-	return utf8.ValidString(s.Username) && utf8.RuneCountInString(s.Username) <= 256 && !strings.ContainsAny(s.Username, "\x00\r\n")
-}
-
 func ValidServiceURL(raw string, development bool) bool {
 	if len(raw) > 2048 || !utf8.ValidString(raw) || strings.ContainsAny(raw, "\r\n\x00") {
 		return false
@@ -364,60 +241,4 @@ func ValidSourceURL(raw string, rt Runtime) bool {
 		return false
 	}
 	return u.Scheme == "https" || rt.Development || rt.PrivateHosts.Contains(u.Hostname())
-}
-
-// RequiredTargets lists every check that must pass before setup can finish.
-func (s Settings) RequiredTargets() []Target {
-	targets := []Target{TargetGeneral, TargetAuthentication}
-	if s.Providers.TMDBEnabled {
-		targets = append(targets, TargetTMDB)
-	}
-	if s.Providers.MusicBrainzEnabled {
-		targets = append(targets, TargetMusicBrainz)
-	}
-	if s.Providers.IGDBEnabled {
-		targets = append(targets, TargetIGDB)
-	}
-	for _, kind := range sources.All() {
-		if s.Libraries.Source(kind.Slug).Enabled {
-			targets = append(targets, LibraryTarget(kind.Slug))
-		}
-	}
-	if s.Notifications.AppriseEnabled {
-		targets = append(targets, TargetNotifications)
-	}
-	return targets
-}
-
-// pendingBlockers reports required targets without a passing, unexpired check for the draft revision.
-func (d Draft) pendingBlockers(now time.Time) []Blocker {
-	blockers := []Blocker{}
-	for _, target := range d.Settings.RequiredTargets() {
-		reason := "not_checked"
-		for _, v := range d.Validations {
-			if v.Target != target || v.Revision != d.Revision {
-				continue
-			}
-			switch {
-			case !v.Valid:
-				reason = "failed"
-			case !v.ExpiresAt.After(now):
-				reason = "expired"
-			default:
-				reason = ""
-			}
-		}
-		if reason != "" {
-			blockers = append(blockers, Blocker{Target: target, Reason: reason})
-		}
-	}
-	return blockers
-}
-
-func validMedia(media domain.MediaType) bool {
-	switch media {
-	case domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong, domain.MediaGame, domain.MediaAudiobook:
-		return true
-	}
-	return false
 }

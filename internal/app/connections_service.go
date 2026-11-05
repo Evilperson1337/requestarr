@@ -20,7 +20,7 @@ type connectionWriter interface {
 	DeleteLibraryConnection(context.Context, string) error
 }
 
-// connectionChecker is the setup wizard's probe, reused for an explicit test.
+// connectionChecker is the connection probe, used for an explicit test.
 type connectionChecker interface {
 	Check(context.Context, setup.Target, setup.Settings) (setup.CheckCode, error)
 	Describe(context.Context, setup.Target, setup.CheckCode) string
@@ -162,7 +162,7 @@ func (s *connectionsService) TestConnection(ctx context.Context, slug string) (h
 	target := setup.LibraryTarget(slug)
 	code, _ := s.checker.Check(ctx, target, settings)
 	if code == setup.CheckOK {
-		// The wizard's success text talks about draft settings, which is not what this is.
+		// The checker's generic success text talks about draft settings, which is not what this is.
 		return httpapi.ConnectionTest{OK: true, Code: string(code), Message: kind.Name + " answered with the saved address and credentials."}, nil
 	}
 	return httpapi.ConnectionTest{OK: false, Code: string(code), Message: s.checker.Describe(ctx, target, code)}, nil

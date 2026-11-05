@@ -85,10 +85,9 @@ type PeoplePolicy interface {
 	SetDefaultFirstSignInRole(ctx context.Context, role string) error
 }
 
-// SetupState reports whether first-run setup and the wizard are finished.
+// SetupState reports whether the first administrator has been claimed.
 type SetupState interface {
 	SetupComplete(context.Context) (bool, error)
-	SetupWizardComplete(context.Context) (bool, error)
 }
 
 // Deps is everything the HTTP API needs. Every field except DevelopmentLogs is
@@ -111,7 +110,8 @@ type Deps struct {
 	People       PeoplePolicy
 	SetupState   SetupState
 	Syncer       SourceSyncer
-	Wizard       SetupService
+	Checklist    ChecklistService
+	IGDB         IGDBSettings
 	Secrets      SecretsService
 	Connections  ConnectionsService
 	Library      LibraryReader
@@ -138,7 +138,7 @@ func (d Deps) missing() []string {
 		{"MoviePreview", d.MoviePreview == nil},
 		{"MatchReview", d.MatchReview == nil}, {"JobRuns", d.JobRuns == nil}, {"Status", d.Status == nil},
 		{"Users", d.Users == nil}, {"People", d.People == nil}, {"SetupState", d.SetupState == nil}, {"Syncer", d.Syncer == nil},
-		{"Wizard", d.Wizard == nil}, {"Secrets", d.Secrets == nil}, {"Connections", d.Connections == nil}, {"Library", d.Library == nil}, {"Search", d.Search == nil}, {"Issues", d.Issues == nil},
+		{"Checklist", d.Checklist == nil}, {"IGDB", d.IGDB == nil}, {"Secrets", d.Secrets == nil}, {"Connections", d.Connections == nil}, {"Library", d.Library == nil}, {"Search", d.Search == nil}, {"Issues", d.Issues == nil},
 	} {
 		if f.nil {
 			names = append(names, f.name)
@@ -161,7 +161,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		return nil, nil, fmt.Errorf("httpapi: missing dependencies: %s", strings.Join(missing, ", "))
 	}
 	logger, buildInfo, readiness, authHandler := d.Logger, d.Build, d.Readiness, d.Auth
-	requestService, resolverService, syncer, wizard := d.Requests, d.Resolver, d.Syncer, d.Wizard
+	requestService, resolverService, syncer := d.Requests, d.Resolver, d.Syncer
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "time": time.Now().UTC()})
@@ -216,7 +216,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	}
 	rt.handle("GET /version", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) { writeJSON(w, http.StatusOK, buildInfo) })
 	registerMatchReviewRoutes(rt, d.MatchReview)
-	registerSetupRoutes(rt, wizard)
+	registerChecklistRoutes(rt, d.Checklist, d.IGDB)
 	registerSecretsRoutes(rt, d.Secrets)
 	registerConnectionRoutes(rt, d.Connections)
 	registerLibraryRoutes(rt, d.Library)
@@ -580,12 +580,7 @@ func writeSetupStatus(w http.ResponseWriter, r *http.Request, state SetupState) 
 		writeJSON(w, http.StatusServiceUnavailable, map[string]bool{"complete": false, "required": true})
 		return
 	}
-	wizardComplete := false
-	if complete {
-		// A lookup failure reads as "not finished"; the wizard stays reachable.
-		wizardComplete, _ = state.SetupWizardComplete(r.Context())
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"complete": complete, "required": !complete, "wizardComplete": wizardComplete})
+	writeJSON(w, http.StatusOK, map[string]bool{"complete": complete, "required": !complete})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

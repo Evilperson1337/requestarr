@@ -58,7 +58,7 @@ func specOperations(t *testing.T) map[string]bool {
 // api/openapi.yaml is the HTTP contract: every registered API route is
 // documented there and every documented operation is served.
 func TestOpenAPIMatchesTheRouteTable(t *testing.T) {
-	d := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, &fakeSetup{}, &auth.Handler{Secret: "test-secret"})
+	d := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, &auth.Handler{Secret: "test-secret"})
 	d.DevelopmentLogs = &devlogs.Recorder{} // registered only when enabled
 	_, rt, err := buildRouter(d)
 	if err != nil {

@@ -17,7 +17,7 @@ import (
 // library" without anyone having opened it, and a requested game reads
 // "Requested".
 func TestSearchLocalStatesGameByNumericIGDBIDIntegration(t *testing.T) {
-	ctx, s, user := setupDraftStore(t)
+	ctx, s, user := integrationStore(t)
 	// Numeric ids unique to this run, as the search would return them.
 	base := time.Now().UnixNano() % 1_000_000_000
 	held, asked, unknown := base*10+1, base*10+2, base*10+3

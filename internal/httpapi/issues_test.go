@@ -47,7 +47,7 @@ func (f *fakeIssues) OpenIssueCount(context.Context, issues.Actor) (int, error) 
 
 func issueRequest(f *fakeIssues, role, method, path, body string) *httptest.ResponseRecorder {
 	logger := slog.New(slog.NewTextHandler(&strings.Builder{}, nil))
-	h := NewWithSetup(logger, buildinfo.Info{}, f, nil, nil, nil,
+	h := NewWithBackend(logger, buildinfo.Info{}, f, nil, nil, nil,
 		&auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: role}}}, Secret: "test-secret", PublicURL: "http://example.test"})
 	r := httptest.NewRequest(method, "/api/v1"+path, strings.NewReader(body))
 	r.AddCookie(&http.Cookie{Name: "requestarr_session", Value: "valid"})

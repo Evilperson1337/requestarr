@@ -2,8 +2,8 @@ package secrets
 
 // Name identifies one stored-capable secret. Adding one takes a constant and a
 // registry entry here, plus: its Config field in app.secretFields, the
-// checker's resolver call, and its wizard step in the web UI (Settings lists
-// secrets from GET /admin/secrets). Setup's environment names and the Source kind
+// checker's resolver call, and its field in the web UI (Settings lists
+// secrets from GET /admin/secrets). The check environment names and the Source kind
 // credentials are read from this registry. This package itself knows nothing
 // about a specific provider.
 type Name string

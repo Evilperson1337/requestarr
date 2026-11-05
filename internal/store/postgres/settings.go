@@ -60,3 +60,44 @@ func (s *Store) SetDefaultFirstSignInRole(ctx context.Context, role string) erro
 	}
 	return s.SetSetting(ctx, settingDefaultRole, role)
 }
+
+const (
+	settingIGDBClientID       = "igdb.client_id"
+	settingChecklistDismissed = "setup.checklist_dismissed"
+)
+
+// LoadIGDBClientID returns the saved IGDB client ID. A value saved in Settings
+// wins, including an explicitly cleared one. An installation that predates it
+// may only have the ID in the retired setup draft (D038), so that is read as a
+// fallback; the read never writes.
+func (s *Store) LoadIGDBClientID(ctx context.Context) (string, error) {
+	if id, ok, err := s.Setting(ctx, settingIGDBClientID); err != nil || ok {
+		return id, err
+	}
+	var id string
+	err := s.pool.QueryRow(ctx, `SELECT COALESCE(draft->'providers'->>'igdbClientId','') FROM setup_state WHERE singleton AND draft_revision > 0`).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
+}
+
+// SetIGDBClientID saves the non-secret IGDB client ID; empty clears it.
+func (s *Store) SetIGDBClientID(ctx context.Context, id string) error {
+	return s.SetSetting(ctx, settingIGDBClientID, id)
+}
+
+// DefaultRoleSet reports whether an administrator ever saved the default role.
+func (s *Store) DefaultRoleSet(ctx context.Context) (bool, error) {
+	_, ok, err := s.Setting(ctx, settingDefaultRole)
+	return ok, err
+}
+
+func (s *Store) ChecklistDismissed(ctx context.Context) (bool, error) {
+	_, ok, err := s.Setting(ctx, settingChecklistDismissed)
+	return ok, err
+}
+
+func (s *Store) DismissChecklist(ctx context.Context) error {
+	return s.SetSetting(ctx, settingChecklistDismissed, "true")
+}

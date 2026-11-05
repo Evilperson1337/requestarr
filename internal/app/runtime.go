@@ -28,7 +28,7 @@ type booted struct {
 	// Unreadable names each stored secret that could not be opened.
 	Unreadable map[secrets.Name]string
 	// IGDBClientIDFromEnvironment is true when the operator set the client ID,
-	// as opposed to it being loaded from the saved setup draft.
+	// as opposed to it being loaded from the saved setting.
 	IGDBClientIDFromEnvironment bool
 	// Connections says where each library Source's URL came from.
 	Connections map[string]connectionOrigin
