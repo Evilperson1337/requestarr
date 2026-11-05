@@ -8,7 +8,7 @@ const row = (id: string, title: string, mediaType: string, status: string, over:
 type Reply = { status?: number; json: unknown }
 const noLibrary = (): Reply => ({ json: { items: [] } })
 
-async function openHome(page: Page, requests: (url: URL) => Reply, library: (url: URL) => Reply = noLibrary) {
+async function openHome(page: Page, requests: (url: URL) => Reply, library: (url: URL) => Reply = noLibrary, other: (path: string) => Reply | undefined = () => undefined) {
     const calls: string[] = []
     await page.route('**/api/v1/**', route => {
         const url = new URL(route.request().url())
@@ -17,6 +17,8 @@ async function openHome(page: Page, requests: (url: URL) => Reply, library: (url
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
         if (path === '/requests') { calls.push(url.search); return route.fulfill(requests(url)) }
         if (path === '/library/recent') return route.fulfill(library(url))
+        const extra = other(path)
+        if (extra) return route.fulfill(extra)
         return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'unmocked' } } })
     })
     await page.goto('/')
@@ -92,4 +94,35 @@ test('Home leaves the library shelves out when libraries have nothing to show', 
     await openHome(page, () => ({ json: { items: [], nextCursor: null } }))
     await expect(page.getByText('Nothing yet. Paste a link above to make your first request.')).toBeVisible()
     await expect(page.getByRole('region', { name: /in your libraries/ })).toHaveCount(0)
+})
+
+const arrivalRecent = { id: 'a', title: 'Arrival', year: 2016, mediaType: 'movie', source: 'Plex', addedAt: '2026-11-01T12:00:00Z' }
+const arrivalFull = { ...arrivalRecent, sourceKind: 'plex', openIssues: 0, link: 'https://plex.example/web#!/x', issueKinds: [{ kind: 'video', label: 'Video' }], details: { synopsis: 'A linguist is recruited to talk to visitors.', rating: 7.6 } }
+const recentMovies = (url: URL): Reply => ({ json: { items: url.searchParams.get('types') === 'movie,tv' ? [arrivalRecent] : [] } })
+const noRequests = (): Reply => ({ json: { items: [], nextCursor: null } })
+
+test('a cover under "New … in your libraries" opens that item, as it does in the Library', async ({ page }) => {
+    const fetched: string[] = []
+    await openHome(page, noRequests, recentMovies, path => { if (path === '/library/items/a') { fetched.push(path); return { json: arrivalFull } } })
+    const shelf = page.getByRole('region', { name: 'New movies and shows in your libraries' })
+    const cover = shelf.getByRole('button', { name: /Arrival/ })
+    await cover.click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: 'Arrival (2016)' })).toBeVisible()
+    await expect(dialog.getByRole('region', { name: 'Synopsis' })).toContainText('A linguist is recruited')
+    await expect(dialog.getByRole('link', { name: /Open in Plex/ })).toHaveAttribute('href', 'https://plex.example/web#!/x')
+    await expect(dialog.getByRole('button', { name: 'Report an issue' })).toBeVisible()
+    expect(fetched.length).toBeGreaterThan(0)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(cover).toBeFocused()
+})
+
+test('an item that cannot be opened says so and the shelf keeps working', async ({ page }) => {
+    await openHome(page, noRequests, recentMovies, path => path === '/library/items/a' ? { status: 500, json: { error: { code: 'library_browse_failed', message: 'could not load the library item' } } } : undefined)
+    const shelf = page.getByRole('region', { name: 'New movies and shows in your libraries' })
+    await shelf.getByRole('button', { name: /Arrival/ }).click()
+    await expect(page.getByRole('alert').filter({ hasText: 'could not be opened' })).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(shelf.getByRole('button', { name: /Arrival/ })).toBeEnabled()
 })

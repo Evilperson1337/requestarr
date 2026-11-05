@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, ApiError, type MoviePreviewState, type SearchPage, type SearchResult, type RecentLibraryItem, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
+import { api, ApiError, type LibraryItem, type MoviePreviewState, type SearchPage, type SearchResult, type RecentLibraryItem, type RequestItem, type RequestPage, type ResolvedItem, type Session } from '../api'
 import { LibraryRail, RequestRail } from '../components/RequestRail'
 import { RequestModal } from '../components/RequestModal'
+import { LibraryItemDialog } from '../components/LibraryItemDialog'
 import { followLink, navigate, useLocation } from '../navigation'
 import { isLinkInput, locationForSearch, searchBadges, searchFromLocation, searchHints, searchTypeLabels, singlesTypes, typeaheadTypes, useSearchTypes, type SearchState } from '../search'
 
@@ -61,6 +62,21 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         void shelf('movie,tv', setAddedVideo); void shelf('album', setAddedMusic); void shelf('game', setAddedGames); void shelf('audiobook', setAddedBooks)
         return () => controller.abort()
     }, [session.user.id])
+    // A cover under "New … in your libraries" opens that item as the Library page does. The shelf holds only
+    // a summary, so the full item (details, issue kinds, link) is read when it is opened.
+    const [libraryItem, setLibraryItem] = useState<LibraryItem | null>(null)
+    const [libraryError, setLibraryError] = useState('')
+    const openingLibrary = useRef<AbortController | null>(null)
+    useEffect(() => () => openingLibrary.current?.abort(), [])
+    async function openLibraryItem(recentItem: RecentLibraryItem) {
+        openingLibrary.current?.abort()
+        const controller = new AbortController(); openingLibrary.current = controller
+        setLibraryError('')
+        try {
+            const full = await api<LibraryItem>(`/library/items/${encodeURIComponent(recentItem.id)}`, { signal: controller.signal, cache: 'no-store' })
+            if (!controller.signal.aborted) setLibraryItem(full)
+        } catch { if (!controller.signal.aborted) setLibraryError(`${recentItem.title} could not be opened. Try again, or find it in the Library.`) }
+    }
     // Search state is kept apart from the link-resolve state above.
     const { types, searchType, chooseType } = useSearchTypes(fromUrl.current.type)
     const [search, setSearch] = useState<SearchState>({ status: 'idle', query: '', results: [], error: '' })
@@ -200,20 +216,22 @@ export function HomePage({ session, onCreated }: { session: Session; onCreated: 
         </section>}
         {addedVideo.length > 0 && <section className="recent" aria-labelledby="added-video-heading">
             <div className="recentHeader"><h2 id="added-video-heading">New movies and shows in your libraries</h2></div>
-            <LibraryRail items={addedVideo} label="movies and shows" />
+            <LibraryRail items={addedVideo} label="movies and shows" onOpen={item => void openLibraryItem(item)} />
         </section>}
         {addedMusic.length > 0 && <section className="recent" aria-labelledby="added-music-heading">
             <div className="recentHeader"><h2 id="added-music-heading">New music in your libraries</h2></div>
-            <LibraryRail items={addedMusic} label="albums" />
+            <LibraryRail items={addedMusic} label="albums" onOpen={item => void openLibraryItem(item)} />
         </section>}
         {addedGames.length > 0 && <section className="recent" aria-labelledby="added-games-heading">
             <div className="recentHeader"><h2 id="added-games-heading">New games in your libraries</h2></div>
-            <LibraryRail items={addedGames} label="games" />
+            <LibraryRail items={addedGames} label="games" onOpen={item => void openLibraryItem(item)} />
         </section>}
         {addedBooks.length > 0 && <section className="recent" aria-labelledby="added-books-heading">
             <div className="recentHeader"><h2 id="added-books-heading">New audiobooks in your libraries</h2></div>
-            <LibraryRail items={addedBooks} label="audiobooks" />
+            <LibraryRail items={addedBooks} label="audiobooks" onOpen={item => void openLibraryItem(item)} />
         </section>}
+        {libraryError && <p role="alert" className="error">{libraryError}</p>}
+        {libraryItem && <LibraryItemDialog item={libraryItem} session={session} onClose={() => setLibraryItem(null)} onReported={() => undefined} />}
         {item && <RequestModal resolved={item} session={session} onCreated={onCreated} onClose={() => { setItem(null); void loadRecent(); requestAnimationFrame(() => returnFocus.current?.focus({ preventScroll: true })) }} />}
     </main>
 }

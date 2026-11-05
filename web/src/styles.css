@@ -2068,14 +2068,6 @@ a.tag-available:hover {
     margin-top: 0;
 }
 
-.railCard.plain {
-    cursor: default;
-}
-
-.railCard.plain:hover .railCover {
-    outline: none;
-}
-
 /* Library and Issues (D030). */
 .navCount {
     margin-left: 8px;
