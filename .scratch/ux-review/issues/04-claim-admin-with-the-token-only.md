@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] While first-admin setup is unclaimed, the signed-in caller (and only the caller) can see their own verified issuer and subject; once an admin exists, or for any other caller, nothing identity-related is exposed; the OpenAPI describes it
 - [x] The claim page shows the exact command for the container (`docker exec <container-name> /requestarr setup-token --subject '<their subject>' --stdout`, issuer included when it differs from the configured one) with a copy control, then a single token field

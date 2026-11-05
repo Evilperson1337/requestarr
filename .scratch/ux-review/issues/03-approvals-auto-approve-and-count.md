@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (the settings store)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] A setting, auto-approve by media type (movie, tv, album, song, game, audiobook), default none, readable and changeable by admins in Settings; the API and OpenAPI describe it
 - [x] A request created for an auto-approved type starts `approved`, records an audit event that says it was auto-approved by policy, and notifies its subscriber as an approval does today; other types still start `requested`; existing requests are untouched; a request joined by a second person behaves as before

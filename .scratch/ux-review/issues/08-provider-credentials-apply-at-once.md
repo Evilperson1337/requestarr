@@ -4,7 +4,7 @@
 
 **Blocked by:** 05, 06 (the IGDB client ID moves to Settings in 05; 06 changes the same credential field)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] After saving or clearing a TMDB token, IGDB secret or client ID, or Apprise key, the running server uses the new value without a restart: resolvers, the search types offered by `GET /search/types`, and the notification worker all reflect it
 - [x] The UI says "saved and applied", the "pending restart" state is gone for these credentials, and the Movies and TV (and Games) search types appear without reloading the server

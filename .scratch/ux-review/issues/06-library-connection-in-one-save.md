@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] One form per library holds the address, the username where the library takes one, and the write-only credential; one "Save and apply" saves what changed; a credential field left empty keeps the saved one; "Clear stored value" still works
 - [x] The address and credential are written atomically (one server request, one transaction): either both apply or neither does, and the error says which part failed; no secret is ever echoed, logged or kept in the page after submit

@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] A settings store holds "default role for first sign-in", valid values `viewer` and `requester`, default `viewer`; it can never be `admin`; it applies only to users created after it is set
 - [x] An admin can read and change it in Settings, Users (admin only); a requester or viewer cannot; the API and OpenAPI describe it; the contract test passes

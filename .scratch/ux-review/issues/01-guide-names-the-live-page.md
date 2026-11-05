@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `docs/UNRAID.md` section 7 and every other place it says to add a library, credential or provider "in Setup" names Settings, Integrations, and says that saving there applies at once (libraries) or after a restart (metadata credentials, until ticket 08)
 - [x] `docs/MANUAL_TESTING.md` section 14 and the template and example text that say the same are corrected
 - [x] The words "Setup" and "Settings" are used consistently across `docs/`, the template description and the app's own text that this ticket touches; the wizard is called the setup wizard only where it still exists
 - [x] The deployment-file guide check still passes (`bash scripts/deploy-files-test.sh`)
-- [ ] `scripts/check.sh` passes
+- [x] `scripts/check.sh` passes (run on the integration branch tip with the PostgreSQL integration tests and Playwright)

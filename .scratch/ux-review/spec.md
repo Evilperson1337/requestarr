@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # UX review: first run, new people, approvals, follow-up
 

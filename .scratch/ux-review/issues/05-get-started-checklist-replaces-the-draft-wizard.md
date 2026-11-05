@@ -4,7 +4,7 @@
 
 **Blocked by:** 01, 04
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The setup draft wizard (UI, `/admin/setup/draft`, `/admin/setup/validate`, `/admin/setup/finish`, and `/admin/setup/source-kinds` if nothing else uses it) is removed with its tests and OpenAPI entries; database tables and migrations are left alone; the OpenAPI contract test passes
 - [x] A checklist page, shown to admins after the claim and from the nav until every required item is done or the admin dismisses it, computes each item from live state: at least one library connected and synced, a metadata provider configured (a TMDB token enables Movies and TV search), notifications configured (optional), default role and approval policy reviewed (optional); each item links to the Settings section that applies it
