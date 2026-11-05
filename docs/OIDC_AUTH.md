@@ -10,7 +10,7 @@ Authentication configuration does not grant an administrator role. PostgreSQL in
 
 ## Runtime Authentication API (D040)
 
-The backend for Settings, Authentication applies changes without a process restart. The Authentication page and final sign-in-screen design are separate tickets; these endpoints do not imply those UI changes have shipped.
+The backend for Settings, Authentication applies changes without a process restart. The Authentication page (Settings, Authentication) uses these endpoints; the final sign-in-screen design is a separate ticket.
 
 - `GET /api/v1/auth/options` is unauthenticated and returns **only** `oidcEnabled` and `providerName`, from the current local snapshot. It makes no outbound request and carries `Cache-Control: no-store`. The local form remains served at `/login` even when OIDC is unavailable; an unavailable OIDC start answers 503 rather than panicking.
 - Admin-only `GET /api/v1/admin/settings/authentication` returns saved non-secret metadata, effective metadata, the derived redirect URI, secret presence/readability, master-key capability, override conflicts and the current snapshot's working state. “Working” means a discovered snapshot is active, not that a new health request has just succeeded. No settings response ever contains the client secret.
@@ -25,7 +25,7 @@ All mutations require the existing matching Origin, session and CSRF protections
 
 ### Recovery-account management backend
 
-The admin-only `/api/v1/admin/settings/authentication/local-administrator` endpoint supports GET (presence, disabled state and disable eligibility) and POST (explicit creation on an upgraded instance). Creation returns a generated password **once**, in its non-cacheable response, never in logs; it does not reset an existing credential. The account must change that password on first sign-in. PUT to its `/disabled` suffix accepts `disabled` and preserves its password. Disable requires another enabled administrator, revokes all local sessions and commits a value-free actor/target audit in the same transaction. Role changes and disable share the last-admin lock; a disabled local account does not count as a remaining administrator. The built-in account's role is locked to admin. These are backend seams for the later Authentication page, not additional local-account management.
+The admin-only `/api/v1/admin/settings/authentication/local-administrator` endpoint supports GET (presence, disabled state and disable eligibility) and POST (explicit creation on an upgraded instance). Creation returns a generated password **once**, in its non-cacheable response, never in logs; it does not reset an existing credential. The account must change that password on first sign-in. PUT to its `/disabled` suffix accepts `disabled` and preserves its password. Disable requires another enabled administrator, revokes all local sessions and commits a value-free actor/target audit in the same transaction. Role changes and disable share the last-admin lock; a disabled local account does not count as a remaining administrator. The built-in account's role is locked to admin. Settings, Authentication drives these endpoints (create, disable and enable, and change password through `/auth/local/password`); it is not additional local-account management. The Get started checklist lists "OIDC configured" as an optional item, done once a provider is active.
 
 ## The built-in local administrator (D040)
 

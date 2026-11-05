@@ -1,7 +1,7 @@
 export type User = { id: string; role: string; email: string; displayName: string }
 export type Session = { user: User; csrfToken: string; mustChangePassword?: boolean }
 export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome' | 'library:audiobookshelf' | 'notifications'
-export type ChecklistItem = { key: 'libraries' | 'metadata' | 'notifications' | 'people'; title: string; required: boolean; done: boolean; detail?: string }
+export type ChecklistItem = { key: 'libraries' | 'metadata' | 'notifications' | 'oidc' | 'people'; title: string; required: boolean; done: boolean; detail?: string }
 export type Checklist = { items: ChecklistItem[]; dismissed: boolean; visible: boolean }
 export type IgdbSettings = { clientId: string; fromEnvironment: boolean }
 export type CatalogItem = { ID: string; MediaType: string; Provider: string; ProviderID: string; Title: string; Year: number; ArtworkURL: string; ArtworkKind: string; ExternalURL: string; Metadata?: Record<string, unknown> }
@@ -87,3 +87,13 @@ export type DevelopmentLogEntry = {
     httpStatus?: number; durationMs: number
 }
 export type DevelopmentLogs = { entries: DevelopmentLogEntry[]; capacity: number }
+
+export type OIDCSettings = { enabled: boolean; providerName: string; issuer: string; clientId: string }
+export type AuthenticationState = {
+    state: 'not_configured' | 'saved_only' | 'environment_only' | 'environment_overriding_saved' | 'environment_incomplete'
+    missing: string[]; ignored: string[]; differing: string[]; saved: OIDCSettings | null; effective: OIDCSettings
+    secretConfigured: boolean; secretUnreadable: boolean; canSaveSecret: boolean; readOnly: boolean
+    redirectUri: string; working: boolean; problem: string
+}
+export type LocalAdministratorState = { exists: boolean; disabled: boolean; canDisable: boolean }
+export type CreatedLocalAdministrator = { username: string; password: string; mustChangePassword: true }

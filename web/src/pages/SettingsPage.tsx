@@ -5,9 +5,10 @@ import { MatchSuggestions } from '../components/MatchSuggestions'
 import { ApprovalPolicy } from '../components/ApprovalPolicy'
 import { DevelopmentLogsPanel } from '../components/DevelopmentLogs'
 import { LibraryConnections } from '../components/LibraryConnections'
+import { AuthenticationSettings } from '../components/AuthenticationSettings'
 import { ProviderIntegrations } from '../components/ProviderIntegrations'
 
-const tabs = [['integrations', 'Integrations'], ['activity', 'Activity'], ['matches', 'Matches'], ['users', 'Users']] as const
+const tabs = [['integrations', 'Integrations'], ['authentication', 'Authentication'], ['activity', 'Activity'], ['matches', 'Matches'], ['users', 'Users']] as const
 
 export function SettingsPage({ session }: { session: Session }) {
     return <SettingsForSession key={`${session.user.id}:${session.csrfToken}`} session={session} />
@@ -79,6 +80,7 @@ function SettingsForSession({ session }: { session: Session }) {
     const failing = ops?.sources.filter(source => source.configured && source.lastRun?.status === 'failed').length ?? 0
     return <main className="shell settingsPage"><h1 id="opsHeading">Settings</h1>
         <div className="settingsTabs" role="group" aria-label="Settings sections">{tabs.map(([key, label]) => <button key={key} type="button" className="settingsTab" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}{key === 'activity' && failing > 0 && <span className="tabCount" aria-label={`${failing} failing`}>{failing}</span>}</button>)}</div>
+        {tab === 'authentication' && !authorizationLost && <AuthenticationSettings session={session} onRequestError={checkAuthorization} />}
         {opsError && <p role="alert" className="error">{opsError}</p>}{!ops && !opsError && <p role="status">Loading operational status…</p>}
         {ops && <div hidden={tab !== 'integrations'}>
             <section className="integrationGroup" aria-labelledby="group-libraries"><div className="groupHead"><h2 id="group-libraries">Media libraries</h2><p>Where Requestarr looks to see what you already have. Saving an address or its credential applies at once; an address set by an environment variable is shown but cannot be changed here.</p></div>

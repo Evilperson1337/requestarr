@@ -2498,3 +2498,48 @@ a.tag-available:hover {
         padding: 20px 14px;
     }
 }
+
+/* Settings, Authentication reuses the integration cards; these rules only add the form,
+   the switch and the notices inside them (D040). */
+.authCards { grid-template-columns: minmax(0, 1fr); }
+.authCards>.integration { min-width: 0; }
+.authLoadingTitle { margin: 0 0 8px; font-size: 1.1rem; }
+.authForm { display: grid; gap: 16px; }
+.authForm h4, .reveal h4 { margin: 0; font-size: 1rem; }
+.authFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+.authFields .wide { grid-column: 1 / -1; }
+.authForm .field { display: grid; gap: 6px; align-content: start; margin: 0; }
+.authForm .draftActions, .reveal .draftActions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
+/* These two cards have no brand mark: drop the blank tile so titles start at the card edge. */
+.authCards .logoBlank { display: none; }
+.authCards .integrationHead { grid-template-columns: minmax(0, 1fr) auto; }
+.authCards .integrationMeta, .authCards .integrationBody { margin-left: 0; }
+.authCards .integrationBody .authForm label { font-weight: 600; }
+.authForm label { margin: 0; }
+.authForm input:not([type="checkbox"]) { width: 100%; min-width: 0; }
+.authForm input[readonly], .authForm input:disabled { color: var(--muted); }
+.fieldHelp { margin: 0; color: var(--muted); font-size: .9rem; }
+.authCopy { display: flex; gap: 8px; }
+.authCopy .button { flex-shrink: 0; }
+.authMessages:empty, .authMessages>:empty { display: none; }
+.authMessages { display: grid; gap: 10px; margin-bottom: 16px; }
+.authMessages:empty { margin: 0; }
+.authMessages p, .authMessages ul { margin: 0; }
+.authNotice { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--raised); display: grid; gap: 8px; overflow-wrap: anywhere; }
+.authNotice p { margin: 0; }
+.authNotice.warn { border-left: 3px solid var(--warning); }
+.authNotice .button { justify-self: start; background: var(--ground); }
+.authOk { margin: 0; color: var(--accent); }
+.authOk:empty { display: none; }
+.reveal { margin-bottom: 16px; }
+.reveal:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.oneTime { display: inline-block; padding: 6px 10px; border-radius: 8px; background: var(--ground); font-size: 1.05rem; user-select: all; overflow-wrap: anywhere; }
+.switch { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.switch input { width: 20px; height: 20px; margin: 0; }
+.switch:has(input:disabled) { cursor: not-allowed; color: var(--muted); }
+@media (max-width: 600px) {
+    .authCards .integrationHead { grid-template-columns: minmax(0, 1fr); }
+    .authFields { grid-template-columns: 1fr; }
+    .authCopy { flex-direction: column; }
+    .authForm .button, .authNotice .button { min-height: 44px; }
+}
