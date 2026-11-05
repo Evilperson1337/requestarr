@@ -42,6 +42,10 @@ func (absentRepo) MergeSelection(context.Context, string, string, domain.Selecti
 func (absentRepo) List(context.Context, string, requests.ListQuery) (requests.Page, error) {
 	return requests.Page{}, errAbsent
 }
+func (absentRepo) AutoApproveTypes(context.Context) ([]domain.MediaType, error) {
+	return nil, errAbsent
+}
+func (absentRepo) AwaitingApprovalCount(context.Context) (int, error) { return 0, errAbsent }
 func (absentRepo) CatalogMediaType(context.Context, string) (domain.MediaType, error) {
 	return "", errAbsent
 }
@@ -67,6 +71,8 @@ func (absentInbox) ListInbox(context.Context, string) ([]notifications.InboxItem
 func (absentInbox) MarkInboxRead(context.Context, string, string) (bool, error) {
 	return false, errAbsent
 }
+
+func (absentInbox) CountUnreadInbox(context.Context, string) (int, error) { return 0, errAbsent }
 
 type absentMatchReview struct{}
 
@@ -193,6 +199,11 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 	} else {
 		d.People = absentPeople{}
 	}
+	if v, ok := readiness.(ApprovalPolicy); ok {
+		d.Approvals = v
+	} else {
+		d.Approvals = absentApprovals{}
+	}
 	if v, ok := readiness.(SetupState); ok {
 		d.SetupState = v
 	} else {
@@ -305,7 +316,7 @@ type absentConnections struct{}
 func (absentConnections) ListConnections(context.Context) ([]Connection, error) {
 	return nil, errAbsent
 }
-func (absentConnections) SaveConnection(context.Context, string, sources.Connection) (Connection, error) {
+func (absentConnections) SaveConnection(context.Context, string, sources.Connection, map[secrets.Name]string) (Connection, error) {
 	return Connection{}, errAbsent
 }
 func (absentConnections) RemoveConnection(context.Context, string) (Connection, error) {
@@ -357,6 +368,15 @@ func (absentIssues) TransitionIssue(context.Context, issues.Actor, string, domai
 }
 func (absentIssues) LeaveIssue(context.Context, issues.Actor, string) error    { return errAbsent }
 func (absentIssues) OpenIssueCount(context.Context, issues.Actor) (int, error) { return 0, errAbsent }
+
+type absentApprovals struct{}
+
+func (absentApprovals) AutoApproveTypes(context.Context) ([]domain.MediaType, error) {
+	return nil, errAbsent
+}
+func (absentApprovals) SetAutoApproveTypes(context.Context, []domain.MediaType) error {
+	return errAbsent
+}
 
 type absentPeople struct{}
 

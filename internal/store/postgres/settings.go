@@ -4,8 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
 // settingDefaultRole is the role a person gets the first time they sign in (D035).
@@ -33,6 +37,57 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 		return fmt.Errorf("store setting: %w", err)
 	}
 	return nil
+}
+
+// settingAutoApprove holds the media types whose new Requests start approved
+// (D036), as a comma-separated list. Absent means none.
+const settingAutoApprove = "approval.auto_types"
+
+// ErrInvalidMediaType is returned when the approval policy names a media type
+// Requestarr does not have.
+var ErrInvalidMediaType = errors.New("unknown media type")
+
+// canonicalMediaTypes is the order the policy is stored and returned in.
+var canonicalMediaTypes = []domain.MediaType{domain.MediaMovie, domain.MediaTV, domain.MediaAlbum, domain.MediaSong, domain.MediaGame, domain.MediaAudiobook}
+
+// AutoApproveTypes returns the media types whose Requests are approved on
+// creation; none unless an administrator chose some. A stored name that is no
+// longer a media type is ignored.
+func (s *Store) AutoApproveTypes(ctx context.Context) ([]domain.MediaType, error) {
+	v, _, err := s.Setting(ctx, settingAutoApprove)
+	if err != nil {
+		return nil, err
+	}
+	chosen := map[domain.MediaType]bool{}
+	for _, name := range strings.Split(v, ",") {
+		chosen[domain.MediaType(strings.TrimSpace(name))] = true
+	}
+	out := []domain.MediaType{}
+	for _, t := range canonicalMediaTypes {
+		if chosen[t] {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+// SetAutoApproveTypes replaces the approval policy. It applies to Requests
+// created afterwards and never changes an existing Request.
+func (s *Store) SetAutoApproveTypes(ctx context.Context, types []domain.MediaType) error {
+	chosen := map[domain.MediaType]bool{}
+	for _, t := range types {
+		if !slices.Contains(canonicalMediaTypes, t) {
+			return fmt.Errorf("%w: %q", ErrInvalidMediaType, t)
+		}
+		chosen[t] = true
+	}
+	names := []string{}
+	for _, t := range canonicalMediaTypes {
+		if chosen[t] {
+			names = append(names, string(t))
+		}
+	}
+	return s.SetSetting(ctx, settingAutoApprove, strings.Join(names, ","))
 }
 
 // firstSignInRole turns a stored value into a role; anything but requester is viewer.
@@ -87,10 +142,15 @@ func (s *Store) SetIGDBClientID(ctx context.Context, id string) error {
 	return s.SetSetting(ctx, settingIGDBClientID, id)
 }
 
-// DefaultRoleSet reports whether an administrator ever saved the default role.
-func (s *Store) DefaultRoleSet(ctx context.Context) (bool, error) {
-	_, ok, err := s.Setting(ctx, settingDefaultRole)
-	return ok, err
+// PolicyReviewed reports whether an administrator ever saved the default role
+// for new people or the approval policy.
+func (s *Store) PolicyReviewed(ctx context.Context) (bool, error) {
+	for _, key := range []string{settingDefaultRole, settingAutoApprove} {
+		if _, ok, err := s.Setting(ctx, key); err != nil || ok {
+			return ok, err
+		}
+	}
+	return false, nil
 }
 
 func (s *Store) ChecklistDismissed(ctx context.Context) (bool, error) {

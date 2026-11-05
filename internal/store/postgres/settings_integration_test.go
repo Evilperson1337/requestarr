@@ -19,7 +19,7 @@ func settingsStore(t *testing.T) (context.Context, *Store) {
 	t.Cleanup(s.Close)
 	reset := func() {
 		// Serial tests against the dedicated integration database.
-		_, _ = s.pool.Exec(context.Background(), `DELETE FROM app_settings WHERE key IN ('igdb.client_id','setup.checklist_dismissed','people.default_role')`)
+		_, _ = s.pool.Exec(context.Background(), `DELETE FROM app_settings WHERE key IN ('igdb.client_id','setup.checklist_dismissed','people.default_role','approval.auto_types')`)
 		_, _ = s.pool.Exec(context.Background(), `UPDATE setup_state SET draft='{}',current_step='welcome',draft_revision=0,draft_validations='[]' WHERE singleton`)
 	}
 	reset()
@@ -77,12 +77,12 @@ func TestSavedIGDBClientIDBeatsTheLegacyDraftAndClearingStaysClearedIntegration(
 	}
 }
 
-func TestChecklistDismissalAndDefaultRoleFlagsIntegration(t *testing.T) {
+func TestChecklistDismissalAndPolicyReviewedIntegration(t *testing.T) {
 	ctx, s := settingsStore(t)
 	if d, err := s.ChecklistDismissed(ctx); err != nil || d {
 		t.Fatalf("fresh dismissed=%v error=%v", d, err)
 	}
-	if set, err := s.DefaultRoleSet(ctx); err != nil || set {
+	if set, err := s.PolicyReviewed(ctx); err != nil || set {
 		t.Fatalf("fresh role set=%v error=%v", set, err)
 	}
 	if err := s.DismissChecklist(ctx); err != nil {
@@ -97,8 +97,17 @@ func TestChecklistDismissalAndDefaultRoleFlagsIntegration(t *testing.T) {
 	if err := s.SetDefaultFirstSignInRole(ctx, "viewer"); err != nil {
 		t.Fatal(err)
 	}
-	if set, _ := s.DefaultRoleSet(ctx); !set {
-		t.Fatal("saving the default role marks it reviewed")
+	if set, _ := s.PolicyReviewed(ctx); !set {
+		t.Fatal("saving the default role marks the policy reviewed")
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM app_settings WHERE key='people.default_role'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAutoApproveTypes(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if set, _ := s.PolicyReviewed(ctx); !set {
+		t.Fatal("saving the approval policy marks it reviewed too")
 	}
 }
 

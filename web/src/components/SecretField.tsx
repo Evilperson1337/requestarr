@@ -4,10 +4,17 @@ import { api, type SecretStatus, type SecretsOverview } from '../api'
 // Write-only entry for one stored secret (D024). The value lives only in this
 // input until submit, is cleared whether or not the save succeeds, and is never
 // put in browser storage, the URL, or the setup draft.
-export function SecretField({ name, label, csrfToken, onRequestError, appliesImmediately, onChanged }: { name: string; label: string; csrfToken: string; onRequestError?: (error: unknown) => void; appliesImmediately?: boolean; onChanged?: () => void }) {
+//
+// With `entry` the field sits inside a larger form: the form owns the typed value
+// and submits it together with its other fields, so this field has no Save button
+// of its own (it keeps "Clear stored value").
+export type SecretEntry = { value: string; onChange: (value: string) => void; disabled?: boolean }
+
+export function SecretField({ name, label, csrfToken, onRequestError, appliesImmediately, onChanged, entry }: { name: string; label: string; csrfToken: string; onRequestError?: (error: unknown) => void; appliesImmediately?: boolean; onChanged?: () => void; entry?: SecretEntry }) {
     const id = useId()
     const [overview, setOverview] = useState<SecretsOverview | null>(null)
-    const [value, setValue] = useState('')
+    const [ownValue, setValue] = useState('')
+    const value = entry ? entry.value : ownValue
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
     const [notice, setNotice] = useState('')
@@ -57,13 +64,13 @@ export function SecretField({ name, label, csrfToken, onRequestError, appliesImm
     return <div className="secretField">
         <label htmlFor={id}>{label}</label>
         <input id={id} type="password" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} maxLength={4096}
-            value={value} disabled={disabled || busy} aria-describedby={`${id}-help`}
+            value={value} disabled={disabled || busy || !!entry?.disabled} aria-describedby={`${id}-help`}
             placeholder={status?.configured ? 'Saved. Enter a new value to replace it' : ''}
-            onChange={event => setValue(event.target.value)}
-            onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void save() } }} />
+            onChange={event => entry ? entry.onChange(event.target.value) : setValue(event.target.value)}
+            onKeyDown={event => { if (!entry && event.key === 'Enter') { event.preventDefault(); void save() } }} />
         <div className="draftActions">
-            <button className="button secondary" type="button" disabled={disabled || busy || !value} onClick={() => void save()}>Save {label}</button>
-            {status && (status.source !== 'none' && status.source !== 'environment') && <button className="button secondary" type="button" disabled={busy} onClick={() => void clear()}>Clear stored value</button>}
+            {!entry && <button className="button secondary" type="button" disabled={disabled || busy || !value} onClick={() => void save()}>Save {label}</button>}
+            {status && (status.source !== 'none' && status.source !== 'environment') && <button className="button secondary" type="button" disabled={busy || !!entry?.disabled} onClick={() => void clear()}>Clear stored value</button>}
         </div>
         <p id={`${id}-help`}>
             {name === 'tmdb_read_token' && <>Use the API Read Access Token from TMDB API settings, not the v3 API key. Paste only the token, without a Bearer prefix. </>}

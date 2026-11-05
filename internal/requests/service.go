@@ -65,6 +65,11 @@ type Repository interface {
 	// user, and reports whether the selection grew. It never narrows a Request.
 	MergeSelection(ctx context.Context, requestID, userID string, selection domain.Selection) (domain.Request, bool, error)
 	List(context.Context, string, ListQuery) (Page, error)
+	// AutoApproveTypes is the approval policy (D036): media types whose new
+	// Requests start approved.
+	AutoApproveTypes(context.Context) ([]domain.MediaType, error)
+	// AwaitingApprovalCount counts Requests whose status is requested.
+	AwaitingApprovalCount(context.Context) (int, error)
 	CatalogMediaType(context.Context, string) (domain.MediaType, error)
 	ValidatePlatforms(context.Context, string, domain.PlatformSelection) error
 	CatalogPlatforms(context.Context, string) ([]domain.Platform, error)
@@ -142,6 +147,31 @@ func (s *Service) CatalogPlatforms(ctx context.Context, catalogID string) ([]dom
 	return s.repo.CatalogPlatforms(ctx, catalogID)
 }
 
+// autoApproves reports whether the approval policy (D036) approves this media
+// type on creation. If the policy cannot be read the Request waits for a
+// person, which is the safe direction.
+func (s *Service) autoApproves(ctx context.Context, media domain.MediaType) bool {
+	types, err := s.repo.AutoApproveTypes(ctx)
+	if err != nil {
+		return false
+	}
+	for _, t := range types {
+		if t == media {
+			return true
+		}
+	}
+	return false
+}
+
+// AwaitingApprovalCount is how many Requests still have status requested; only
+// an administrator can act on them, so only an administrator may ask.
+func (s *Service) AwaitingApprovalCount(ctx context.Context, actor Actor) (int, error) {
+	if actor.ID == "" || actor.Role != "admin" {
+		return 0, ErrForbidden
+	}
+	return s.repo.AwaitingApprovalCount(ctx)
+}
+
 type Service struct{ repo Repository }
 
 func New(repo Repository) *Service { return &Service{repo: repo} }
@@ -174,7 +204,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	if err := in.Selection.Validate(resolvedType); err != nil {
 		return CreateResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	req := domain.Request{CatalogItemID: in.CatalogID, Status: domain.RequestRequested, RequestedBy: in.Actor.ID, Note: in.Note, Platforms: in.Platforms, Selection: in.Selection}
+	status := domain.RequestRequested
+	if s.autoApproves(ctx, resolvedType) {
+		status = domain.RequestApproved
+	}
+	req := domain.Request{CatalogItemID: in.CatalogID, Status: status, RequestedBy: in.Actor.ID, Note: in.Note, Platforms: in.Platforms, Selection: in.Selection}
 	sub := domain.RequestSubscription{UserID: in.Actor.ID, Source: domain.SubscriptionRequester}
 	created, isNew, err := s.repo.CreateOrGet(ctx, req, sub)
 	if err != nil {

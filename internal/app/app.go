@@ -138,7 +138,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		Logger: logger, Build: build, Readiness: store, Auth: authHandler,
 		Requests: requests.New(store), Resolver: metadataService, Inbox: store, MatchReview: store,
 		MoviePreview: store,
-		JobRuns:      store, Status: ops, Users: store, People: store, SetupState: store, Syncer: syncer,
+		JobRuns:      store, Status: ops, Users: store, People: store, Approvals: store, SetupState: store, Syncer: syncer,
 		Checklist: checklist.New(ops, store), IGDB: igdbSettingsService{store: store, envID: envCfg.IGDBClientID}, Secrets: reloadingSecrets{Service: secretsService, manager: manager, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: searchService, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
 	})
 	if err != nil {

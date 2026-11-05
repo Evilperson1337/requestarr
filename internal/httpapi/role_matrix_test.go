@@ -49,6 +49,7 @@ func mutationCases() []mutationCase {
 		{"sync source", "POST /admin/sources/{source}/sync", "/admin/sources/jellyfin/sync", "", "admin", 202, "source.sync"},
 		{"change role", "PUT /admin/users/{userID}/role", "/admin/users/" + matrixItemID + "/role", `{"role":"viewer"}`, "admin", 204, "user.role"},
 		{"set default first sign-in role", "PUT /admin/settings/people", "/admin/settings/people", `{"defaultRole":"requester"}`, "admin", 200, "people.default_role"},
+		{"set auto-approve types", "PUT /admin/settings/approvals", "/admin/settings/approvals", `{"autoApproveTypes":["movie"]}`, "admin", 200, "approvals.auto_types"},
 		{"accept match", "POST /admin/match-suggestions/{suggestionID}/accept", "/admin/match-suggestions/" + matrixItemID + "/accept", "", "admin", 204, "match.accept"},
 		{"dismiss match", "POST /admin/match-suggestions/{suggestionID}/dismiss", "/admin/match-suggestions/" + matrixItemID + "/dismiss", "", "admin", 204, "match.dismiss"},
 		{"logout", "POST /auth/logout", "/auth/logout", "", "authenticated", 204, "session.revoke"},
@@ -141,6 +142,8 @@ func (*matrixBackend) ListInbox(context.Context, string) ([]notifications.InboxI
 	return nil, nil
 }
 
+func (*matrixBackend) CountUnreadInbox(context.Context, string) (int, error) { return 0, nil }
+
 func (b *matrixBackend) MarkInboxRead(_ context.Context, userID, notificationID string) (bool, error) {
 	b.record("notification.read", userID)
 	return true, nil
@@ -155,6 +158,18 @@ func (b *matrixBackend) ChangeUserRole(_ context.Context, actor, target, role st
 	b.record("user.role", actor)
 	if target != matrixItemID || role != "viewer" {
 		b.t.Errorf("unexpected role change target=%q role=%q", target, role)
+	}
+	return nil
+}
+
+func (*matrixBackend) AutoApproveTypes(context.Context) ([]domain.MediaType, error) {
+	return nil, nil
+}
+
+func (b *matrixBackend) SetAutoApproveTypes(_ context.Context, types []domain.MediaType) error {
+	b.record("approvals.auto_types", matrixUserID)
+	if len(types) != 1 || types[0] != domain.MediaMovie {
+		b.t.Errorf("unexpected auto-approve types %v", types)
 	}
 	return nil
 }
@@ -228,7 +243,7 @@ func (b *matrixBackend) Clear(_ context.Context, actor string, _ secrets.Name) e
 }
 
 func (b *matrixBackend) ListConnections(context.Context) ([]Connection, error) { return nil, nil }
-func (b *matrixBackend) SaveConnection(_ context.Context, actor string, c sources.Connection) (Connection, error) {
+func (b *matrixBackend) SaveConnection(_ context.Context, actor string, c sources.Connection, _ map[secrets.Name]string) (Connection, error) {
 	b.record("connection.save", actor)
 	return Connection{Slug: c.Slug}, nil
 }

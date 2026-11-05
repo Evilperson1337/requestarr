@@ -21,7 +21,15 @@ type fakeRepository struct {
 	merged       *domain.Selection
 	subscribeErr error
 	leaveConfirm bool
+	autoTypes    []domain.MediaType
+	autoErr      error
+	awaiting     int
 }
+
+func (f *fakeRepository) AutoApproveTypes(context.Context) ([]domain.MediaType, error) {
+	return f.autoTypes, f.autoErr
+}
+func (f *fakeRepository) AwaitingApprovalCount(context.Context) (int, error) { return f.awaiting, nil }
 
 func (f *fakeRepository) CatalogMediaType(context.Context, string) (domain.MediaType, error) {
 	return f.mediaType, f.mediaErr

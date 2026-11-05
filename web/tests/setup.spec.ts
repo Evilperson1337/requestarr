@@ -7,7 +7,7 @@ const fresh: Item[] = [
     { key: 'libraries', title: 'Connect a media library', required: true, done: false, detail: 'Connect Jellyfin, Plex, Navidrome, RomM or Audiobookshelf so Requestarr can tell what you already have.' },
     { key: 'metadata', title: 'Add a metadata provider', required: true, done: false, detail: 'A TMDB read token turns on Movies and TV search; IGDB turns on Games. Music works without setup.' },
     { key: 'notifications', title: 'Set up notifications', required: false, done: false, detail: 'Optional. Without Apprise, people only see availability inside Requestarr.' },
-    { key: 'people', title: 'Review who can do what', required: false, done: false, detail: 'Optional. New people start as viewers until you change the default role.' },
+    { key: 'people', title: 'Review who can do what', required: false, done: false, detail: 'Optional. New people start as viewers and every request waits for approval until you change the default role or the approval policy.' },
 ]
 
 async function mockChecklist(page: Page, options: { role?: string; items?: Item[]; visible?: boolean; dismissed?: boolean } = {}) {

@@ -22,4 +22,6 @@ type InboxItem struct {
 type InboxRepository interface {
 	ListInbox(context.Context, string) ([]InboxItem, error)
 	MarkInboxRead(context.Context, string, string) (bool, error)
+	// CountUnreadInbox is a cheap count for one person's unread inbox entries.
+	CountUnreadInbox(context.Context, string) (int, error)
 }

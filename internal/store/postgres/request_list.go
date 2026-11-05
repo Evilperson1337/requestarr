@@ -17,6 +17,15 @@ const maxRequestSnapshotItems = 10000
 
 // List freezes membership/order once and loads live details for each page.
 // No live OFFSET or mutable status/title keyset can skip or duplicate members.
+// AwaitingApprovalCount counts Requests whose status is requested.
+func (s *Store) AwaitingApprovalCount(ctx context.Context) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM requests WHERE status='requested'`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count requests awaiting approval: %w", err)
+	}
+	return n, nil
+}
+
 func (s *Store) List(ctx context.Context, userID string, query requests.ListQuery) (requests.Page, error) {
 	query, err := query.Normalize()
 	if err != nil {

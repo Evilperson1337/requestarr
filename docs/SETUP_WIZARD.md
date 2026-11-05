@@ -21,7 +21,7 @@ value is ever entered twice.
 | Connect a media library | yes | a library is connected and has completed a sync (Settings, Integrations, Media libraries) |
 | Add a metadata provider | yes | a TMDB token (Movies and TV search) or IGDB (Games) is configured; MusicBrainz is always on and does not count (Settings, Integrations, Metadata) |
 | Set up notifications | no | Apprise is configured (Settings, Integrations, Notifications) |
-| Review who can do what | no | an administrator has saved the default role for new people (Settings, Users) |
+| Review who can do what | no | an administrator has saved the default role for new people or the approval policy (Settings, Users) |
 
 - Required and optional items are listed apart, each with a text status ("Done"
   or "To do"), not only a colour.

@@ -17,11 +17,11 @@ type fakeStatus struct {
 func (f fakeStatus) Overview(context.Context) (opstatus.Overview, error) { return f.overview, f.err }
 
 type fakeStore struct {
-	roleSet, dismissed bool
-	err                error
+	reviewed, dismissed bool
+	err                 error
 }
 
-func (f *fakeStore) DefaultRoleSet(context.Context) (bool, error)     { return f.roleSet, f.err }
+func (f *fakeStore) PolicyReviewed(context.Context) (bool, error)     { return f.reviewed, f.err }
 func (f *fakeStore) ChecklistDismissed(context.Context) (bool, error) { return f.dismissed, f.err }
 func (f *fakeStore) DismissChecklist(context.Context) error {
 	f.dismissed = true
@@ -98,7 +98,7 @@ func TestChecklistHidesWhenRequiredItemsAreDone(t *testing.T) {
 }
 
 func TestOptionalItemsReadLiveState(t *testing.T) {
-	r, _ := New(fakeStatus{overview: opstatus.Overview{Providers: []opstatus.Provider{{Key: "apprise", Configured: true}}}}, &fakeStore{roleSet: true}).Get(context.Background())
+	r, _ := New(fakeStatus{overview: opstatus.Overview{Providers: []opstatus.Provider{{Key: "apprise", Configured: true}}}}, &fakeStore{reviewed: true}).Get(context.Background())
 	if !item(t, r, Notifications).Done || !item(t, r, People).Done {
 		t.Fatalf("apprise configured and role reviewed should be done: %+v", r.Items)
 	}

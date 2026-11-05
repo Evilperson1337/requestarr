@@ -753,7 +753,7 @@ func TestAdminCancelsOpenRequestsOutright(t *testing.T) {
 			if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM request_events WHERE request_id=$1 AND event_type='request.cancelled' AND operation_id=$2`, requestID, in.OperationID).Scan(&events); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM notification_deliveries WHERE channel='in_app' AND event_key='request.cancelled' AND request_event_id IN (SELECT id FROM request_events WHERE request_id=$1)`, requestID).Scan(&inApp); err != nil {
+			if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM notification_deliveries WHERE channel='in_app' AND event_key LIKE 'request.cancelled:%' AND request_event_id IN (SELECT id FROM request_events WHERE request_id=$1)`, requestID).Scan(&inApp); err != nil {
 				t.Fatal(err)
 			}
 			if events != 1 || inApp != 1 {

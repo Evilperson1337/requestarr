@@ -182,3 +182,10 @@ func TestOpenAPILibrarySchemasMatchTheGoTypes(t *testing.T) {
 		}
 	}
 }
+
+// The combined save request is documented as its own schema.
+func TestOpenAPISaveLibraryConnectionRequestListsTheCombinedFields(t *testing.T) {
+	if got := strings.Join(specProperties(t, "LibraryConnectionSave"), ","); got != "credentials,url,username" {
+		t.Fatalf("LibraryConnectionSave properties = %s", got)
+	}
+}

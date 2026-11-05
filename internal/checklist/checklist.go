@@ -45,9 +45,9 @@ type Status interface {
 
 // Store is the small amount of stored state the checklist reads.
 type Store interface {
-	// DefaultRoleSet reports whether an administrator ever saved the default
-	// role for new people.
-	DefaultRoleSet(context.Context) (bool, error)
+	// PolicyReviewed reports whether an administrator ever saved the default
+	// role for new people or the approval policy (D035, D036).
+	PolicyReviewed(context.Context) (bool, error)
 	ChecklistDismissed(context.Context) (bool, error)
 	DismissChecklist(context.Context) error
 }
@@ -64,7 +64,7 @@ func (s *Service) Get(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("load status: %w", err)
 	}
-	roleSet, err := s.store.DefaultRoleSet(ctx)
+	reviewed, err := s.store.PolicyReviewed(ctx)
 	if err != nil {
 		return Result{}, fmt.Errorf("load people settings: %w", err)
 	}
@@ -77,8 +77,8 @@ func (s *Service) Get(ctx context.Context) (Result, error) {
 		metadata(overview),
 		{Key: Notifications, Title: "Set up notifications", Done: providerOn(overview, "apprise"),
 			Detail: doneDetail(providerOn(overview, "apprise"), "Optional. Without Apprise, people only see availability inside Requestarr.")},
-		{Key: People, Title: "Review who can do what", Done: roleSet,
-			Detail: doneDetail(roleSet, "Optional. New people start as viewers until you change the default role.")},
+		{Key: People, Title: "Review who can do what", Done: reviewed,
+			Detail: doneDetail(reviewed, "Optional. New people start as viewers and every request waits for approval until you change the default role or the approval policy.")},
 	}
 	result := Result{Items: items, Dismissed: dismissed}
 	requiredOpen := false
