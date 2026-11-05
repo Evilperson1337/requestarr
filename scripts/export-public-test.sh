@@ -81,4 +81,17 @@ if scripts/publish-public.sh "$work/dirty" "$work/remote.git" >/dev/null 2>&1; t
 [[ -z "$(git -C "$work/remote.git" for-each-ref)" ]] || fail 'dirty export reached the remote'
 scripts/publish-public.sh "$work/out1" "$work/remote.git" >/dev/null || fail 'publish of a clean export failed'
 git -C "$work/remote.git" rev-parse -q --verify refs/heads/main >/dev/null || fail 'main not pushed'
+
+# 6. GitHub creates no workflow events for a tag pushed together with a branch (or with more than
+# two others), so a release would never start. Every ref is its own push, and given a release tag
+# only that version tag is published: an older one would start a release of its own.
+git init -q --bare "$work/remote2.git"
+printf '#!/bin/sh\nwc -l >> "%s"\n' "$work/pushes.log" > "$work/remote2.git/hooks/pre-receive"
+chmod +x "$work/remote2.git/hooks/pre-receive"
+scripts/publish-public.sh "$work/out1" "$work/remote2.git" v0.0.2 >/dev/null 2>&1 || fail 'publish with a release tag failed'
+[[ -s "$work/pushes.log" ]] || fail 'the push recorder never ran'
+[[ "$(tr -d ' ' < "$work/pushes.log" | sort -u)" == 1 ]] || fail 'every ref must be its own push'
+git -C "$work/remote2.git" rev-parse -q --verify refs/heads/main >/dev/null || fail 'main not pushed with a release tag'
+git -C "$work/remote2.git" rev-parse -q --verify refs/tags/v0.0.2 >/dev/null || fail 'the release tag was not pushed'
+if git -C "$work/remote2.git" rev-parse -q --verify refs/tags/v0.0.1 >/dev/null; then fail 'an older version tag was published and would start its own release'; fi
 echo 'export-public: all checks passed'

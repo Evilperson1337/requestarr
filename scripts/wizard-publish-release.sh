@@ -212,8 +212,10 @@ REPO_ROOT="$PWD"
 TICKET="$REPO_ROOT/.scratch/unraid-deployment/issues/08-publish-rc-and-test-on-unraid.md"
 
 # Answers are remembered in a state file OUTSIDE the repo, so the app's own .env is never touched.
-ENV_FILE="${ENV_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/requestarr/publish-release.env}"
+# Assigned outright: the library above defaults ENV_FILE to ".env", which must not be used here.
+ENV_FILE="${WIZARD_STATE_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/requestarr/publish-release.env}"
 mkdir -p "$(dirname "$ENV_FILE")"
+[[ -e "$ENV_FILE" ]] || (umask 077 && : > "$ENV_FILE")
 
 PUBLISH_CHECKS=()   # one line per automated check of the published image, for the ticket
 
@@ -227,6 +229,26 @@ anon_manifest_status() {
     -H "Authorization: Bearer $token" \
     -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json' \
     "https://ghcr.io/v2/${repo}/manifests/${tag}" || true
+}
+
+# find_run waits up to $1 seconds for the release workflow run of $RELEASE_TAG and prints its id.
+find_run() {
+  local waited=0 id=""
+  while ((waited < $1)); do
+    id=$(gh run list -R "$GH_REPO" --workflow release.yml --limit 5 --json databaseId,headBranch \
+      --jq "map(select(.headBranch==\"$RELEASE_TAG\"))[0].databaseId // empty" 2>/dev/null || true)
+    [[ -n "$id" ]] && { printf '%s' "$id"; return 0; }
+    sleep 4; waited=$((waited + 4))
+  done
+  return 1
+}
+
+# gh_push runs git with gh's login for this one command; no global git config is changed.
+gh_push() {
+  GIT_CONFIG_COUNT=2 \
+    GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+    GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='!gh auth git-credential' \
+    git -C "$EXPORT_DIR" push "https://github.com/$GH_REPO.git" "$@"
 }
 
 stage_1() {
@@ -360,15 +382,15 @@ stage_3() {
 
 stage_4() {
   stage "Push to GitHub (this makes the code public)"
-  say "This pushes main and every tag of the export to https://github.com/$GH_REPO"
-  say "The $RELEASE_TAG tag starts the release workflow (image build, signing, attestation)."
-  say "It never forces, and it re-runs the gate first."
+  say "This pushes main, then the tags to https://github.com/$GH_REPO, each as its own push."
+  say "The $RELEASE_TAG tag goes last and alone: that is what starts the release workflow"
+  say "(image build, signing, attestation). GitHub starts nothing for a tag pushed together with a branch."
+  say "Other version tags are not published. It never forces, and it re-runs the gate first."
   confirm "Push now?" || exit 1
-  # Use gh's login for this one push only; no global git config is changed.
   GIT_CONFIG_COUNT=2 \
     GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
     GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='!gh auth git-credential' \
-    "$REPO_ROOT/scripts/publish-public.sh" "$EXPORT_DIR" "https://github.com/$GH_REPO.git"
+    "$REPO_ROOT/scripts/publish-public.sh" "$EXPORT_DIR" "https://github.com/$GH_REPO.git" "$RELEASE_TAG"
   say "✓ pushed"
 }
 
@@ -376,18 +398,25 @@ stage_5() {
   stage "Watch the release workflow"
   open_url "https://github.com/$GH_REPO/actions"
   say "Waiting for the run for $RELEASE_TAG to appear..."
-  local run_id="" i
-  for i in $(seq 1 30); do
-    run_id=$(gh run list -R "$GH_REPO" --workflow release.yml --limit 5 --json databaseId,headBranch \
-      --jq "map(select(.headBranch==\"$RELEASE_TAG\"))[0].databaseId // empty" 2>/dev/null || true)
-    [[ -n "$run_id" ]] && break
-    sleep 4
-  done
+  local run_id=""
+  run_id=$(find_run 120) || run_id=""
   if [[ -z "$run_id" ]]; then
     warn "No run appeared after two minutes."
-    step "On the Actions page, check that workflows are enabled for the repository."
-    pause "Press Enter when you have found out why, or Ctrl-C to stop"
-    return
+    say "Tags on GitHub: $(gh api "repos/$GH_REPO/tags" --jq '[.[].name] | join(", ")' 2>/dev/null || echo unknown)"
+    say "Runs so far:    $(gh api "repos/$GH_REPO/actions/runs" --jq .total_count 2>/dev/null || echo unknown)"
+    note "A tag pushed in the same push as a branch can be dropped by GitHub, so no workflow starts."
+    say "Fix: delete the tag on GitHub and push it again on its own. That is safe: it is the same tag object."
+    if confirm "Re-push $RELEASE_TAG alone now?"; then
+      gh_push ":refs/tags/$RELEASE_TAG"
+      gh_push "refs/tags/$RELEASE_TAG"
+      say "Waiting for the run..."
+      run_id=$(find_run 90) || run_id=""
+    fi
+    if [[ -z "$run_id" ]]; then
+      warn "Still no run. Check the Actions page: workflows may be disabled for the repository or the account."
+      say "Copy what you see to Claude."
+      exit 1
+    fi
   fi
   write_env RUN_URL "https://github.com/$GH_REPO/actions/runs/$run_id"
   say "Run: $RUN_URL"
