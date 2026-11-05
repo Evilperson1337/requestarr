@@ -61,12 +61,18 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	}
 	cfg = boot.Config
 	secretsService := boot.Secrets
+	// On a fresh install the built-in local administrator is created here, and
+	// its one-time password is logged once (D040). The first-admin announcement
+	// below then stays silent: an administrator exists.
+	if err := auth.BootstrapLocalAdmin(ctx, store, auth.BootstrapOptions{PublicURL: cfg.PublicURL, InitialPassword: cfg.AdminPassword, Logger: logger}); err != nil {
+		return err
+	}
 	announceFirstAdmin(ctx, logger, store)
 	provider, err := oidc.New(ctx, oidc.Config{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret}, cfg.PublicURL+"/api/v1/auth/callback")
 	if err != nil {
 		return fmt.Errorf("initialize OIDC provider: %w", err)
 	}
-	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Setup: store}
+	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Setup: store, Local: store, Logger: logger}
 	// The TMDB token, IGDB credentials and Apprise key are read per call from one
 	// swappable set, so saving them in Settings applies at once (D039).
 	providers := newProviderSet(cfg, boot.Unreadable, store, func(ctx context.Context) (booted, error) {

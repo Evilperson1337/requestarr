@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/evilperson1337/requestarr/internal/auth/password"
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"github.com/evilperson1337/requestarr/internal/sources"
@@ -31,9 +33,12 @@ type Config struct {
 	OIDCClientID      string
 	OIDCClientSecret  string
 	SessionHMACSecret string
-	TMDBReadToken     string
-	IGDBClientID      string
-	IGDBClientSecret  string
+	// AdminPassword is the optional initial password of the built-in local
+	// administrator (D040). It is a secret: never log or print it.
+	AdminPassword    string
+	TMDBReadToken    string
+	IGDBClientID     string
+	IGDBClientSecret string
 	// AudibleRegion is the marketplace assumed for a bare ASIN (D031); "us" when unset.
 	AudibleRegion        string
 	JellyfinURL          string
@@ -73,6 +78,7 @@ func FromEnv() Config {
 		OIDCClientID:      os.Getenv("REQUESTARR_OIDC_CLIENT_ID"),
 		OIDCClientSecret:  os.Getenv("REQUESTARR_OIDC_CLIENT_SECRET"),
 		SessionHMACSecret: os.Getenv("REQUESTARR_SESSION_HMAC_SECRET"),
+		AdminPassword:     os.Getenv("REQUESTARR_ADMIN_PASSWORD"),
 		TMDBReadToken:     os.Getenv("REQUESTARR_TMDB_READ_TOKEN"),
 		IGDBClientID:      os.Getenv("REQUESTARR_IGDB_CLIENT_ID"),
 		IGDBClientSecret:  os.Getenv("REQUESTARR_IGDB_CLIENT_SECRET"),
@@ -194,8 +200,17 @@ func (c Config) ValidateBootstrap() error {
 		problems = append(problems, "REQUESTARR_AUDIBLE_REGION must be one of us, ca, uk, au, fr, de, jp, it, in, es")
 	}
 	problems = append(problems, c.developmentLogsProblems()...)
+	problems = append(problems, c.adminPasswordProblems()...)
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+// adminPasswordProblems names the variable and never repeats its value.
+func (c Config) adminPasswordProblems() []string {
+	if c.AdminPassword != "" && !password.ValidLength(c.AdminPassword) {
+		return []string{fmt.Sprintf("REQUESTARR_ADMIN_PASSWORD must be %d to %d characters", password.MinLength, password.MaxLength)}
 	}
 	return nil
 }

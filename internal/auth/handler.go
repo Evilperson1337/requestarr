@@ -8,9 +8,11 @@ import (
 	"errors"
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
@@ -26,6 +28,17 @@ type Handler struct {
 	Issuer, PublicURL, Secret string
 	Secure                    bool
 	Setup                     SetupState
+
+	// The local administrator (D040). Local may be nil, which turns local
+	// sign-in off. Hasher, Clock, Throttle and Logger default sensibly.
+	Local    LocalStore
+	Hasher   PasswordHasher
+	Clock    func() time.Time
+	Throttle *Throttle
+	Logger   *slog.Logger
+
+	throttleOnce, dummyOnce sync.Once
+	dummy                   string
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
@@ -34,6 +47,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/logout", h.logout)
 	mux.HandleFunc("GET /auth/me", h.me)
 	mux.HandleFunc("POST /setup/claim-admin", h.claimAdmin)
+	mux.HandleFunc("POST /auth/local/login", h.localLogin)
+	mux.Handle("POST /auth/local/password", h.CSRFMiddleware(http.HandlerFunc(h.changePassword)))
 }
 
 func (h *Handler) claimAdmin(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +77,7 @@ func (h *Handler) claimAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hash := sha256.Sum256([]byte(in.Token))
-	if repo.ClaimAdmin(r.Context(), u.ID, u.Issuer, u.Subject, hash[:], time.Now()) != nil {
+	if repo.ClaimAdmin(r.Context(), u.ID, u.Issuer, u.Subject, hash[:], h.now()) != nil {
 		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
 		return
 	}
@@ -99,7 +114,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
-	if err = h.Repo.SaveTransaction(r.Context(), HashString(h.Secret, state), nonce, verifier, HashString(h.Secret, preauth), time.Now().Add(5*time.Minute)); err != nil {
+	if err = h.Repo.SaveTransaction(r.Context(), HashString(h.Secret, state), nonce, verifier, HashString(h.Secret, preauth), h.now().Add(5*time.Minute)); err != nil {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
@@ -120,7 +135,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	clearCookie(w, preauthCookie, "/api/v1/auth", h.Secure)
 	clearCookie(w, "requestarr_oidc_state", "/api/v1/auth", h.Secure)
-	nonce, verifier, err := h.Repo.ConsumeTransaction(r.Context(), HashString(h.Secret, c.Value), HashString(h.Secret, preauth.Value), time.Now())
+	nonce, verifier, err := h.Repo.ConsumeTransaction(r.Context(), HashString(h.Secret, c.Value), HashString(h.Secret, preauth.Value), h.now())
 	if err != nil {
 		apierror.Write(w, r, 400, "invalid_login_transaction", "invalid login transaction")
 		return
@@ -139,36 +154,42 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
-	u, err := h.Repo.Login(r.Context(), h.Issuer, id.Subject, id.Email, id.DisplayName, uid, time.Now())
+	u, err := h.Repo.Login(r.Context(), h.Issuer, id.Subject, id.Email, id.DisplayName, uid, h.now())
 	if err != nil {
 		apierror.Write(w, r, 500, "sign_in_failed", "sign-in failed")
 		return
 	}
-	token, err := oidc.RandomValue()
-	if err != nil {
+	if err = h.issueSession(w, r, u.ID); err != nil {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
+	}
+	http.Redirect(w, r, h.PublicURL+"/", http.StatusSeeOther)
+}
+
+// issueSession creates a session for the user and sets its cookies.
+func (h *Handler) issueSession(w http.ResponseWriter, r *http.Request, userID string) error {
+	token, err := oidc.RandomValue()
+	if err != nil {
+		return err
 	}
 	csrf, err := oidc.RandomValue()
 	if err != nil {
-		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
-		return
+		return err
 	}
-	exp := time.Now().Add(lifetime)
-	if err = h.Repo.CreateSession(r.Context(), u.ID, Hash(h.Secret, token), Hash(h.Secret, csrf), exp); err != nil {
-		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
-		return
+	exp := h.now().Add(lifetime)
+	if err = h.Repo.CreateSession(r.Context(), userID, Hash(h.Secret, token), Hash(h.Secret, csrf), exp); err != nil {
+		return err
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, Expires: exp})
 	http.SetCookie(w, &http.Cookie{Name: "requestarr_csrf", Value: csrf, Path: "/", Secure: h.Secure, SameSite: http.SameSiteLaxMode, Expires: exp})
-	http.Redirect(w, r, h.PublicURL+"/", http.StatusSeeOther)
+	return nil
 }
 func (h *Handler) current(r *http.Request) (User, []byte, time.Time, error) {
 	c, e := r.Cookie(sessionCookie)
 	if e != nil {
 		return User{}, nil, time.Time{}, e
 	}
-	return h.Repo.GetSession(r.Context(), Hash(h.Secret, c.Value), time.Now())
+	return h.Repo.GetSession(r.Context(), Hash(h.Secret, c.Value), h.now())
 }
 
 // CurrentSession reports whether the request carries a valid session.
@@ -197,7 +218,8 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 		User            User             `json:"user"`
 		CSRF            string           `json:"csrfToken"`
 		FirstAdminClaim *FirstAdminClaim `json:"firstAdminClaim,omitempty"`
-	}{u, token, h.firstAdminClaim(r.Context(), u)})
+		MustChange      bool             `json:"mustChangePassword"`
+	}{u, token, h.firstAdminClaim(r.Context(), u), u.MustChange})
 }
 
 // FirstAdminClaim is the caller's own verified identity, shown only to that
@@ -238,7 +260,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 403, "csrf_invalid", "CSRF validation failed")
 		return
 	}
-	if err = h.Repo.RevokeSession(r.Context(), Hash(h.Secret, c.Value), time.Now()); err != nil {
+	if err = h.Repo.RevokeSession(r.Context(), Hash(h.Secret, c.Value), h.now()); err != nil {
 		apierror.Write(w, r, 500, "logout_failed", "logout failed")
 		return
 	}

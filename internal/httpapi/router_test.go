@@ -61,7 +61,7 @@ func TestEmbeddedSPAAndRouteBoundaries(t *testing.T) {
 	for _, tc := range []struct {
 		path, contentType string
 		status            int
-	}{{"/", "text/html", 200}, {"/requests", "text/html", 200}, {"/missing.js", "", 404}, {"/auth/not-real", "", 404}} {
+	}{{"/", "text/html", 200}, {"/requests", "text/html", 200}, {"/login", "text/html", 200}, {"/login/", "text/html", 200}, {"/missing.js", "", 404}, {"/auth/not-real", "", 404}} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
 		if rec.Code != tc.status {

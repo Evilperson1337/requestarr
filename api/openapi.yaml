@@ -6,6 +6,9 @@ info:
     Every error response (4xx/5xx, including unknown paths and wrong methods) has the JSON body
     described by components/schemas/Error, and every response carries an X-Request-Id header
     (components/headers/RequestId). Per-operation error entries only list status meanings.
+    A session of the local administrator who has not yet chosen their own password (mustChangePassword
+    on /auth/me) gets 403 password_change_required from every route except /auth/me, /auth/logout and
+    /auth/local/password (D040).
     Initial contract scaffold. Keep this synchronized with implemented handlers and
     generate clients/types only after endpoint semantics are reviewed.
 servers:
@@ -40,6 +43,9 @@ paths:
                 properties:
                   user: { type: object }
                   csrfToken: { type: string }
+                  mustChangePassword:
+                    type: boolean
+                    description: True until the local administrator has chosen their own password; every other API route answers 403 password_change_required meanwhile.
                   firstAdminClaim: { $ref: '#/components/schemas/FirstAdminClaim' }
         '401': { description: Authentication required }
   /auth/logout:
@@ -53,6 +59,74 @@ paths:
       responses:
         '204': { description: Session revoked }
         '403': { description: Origin or CSRF validation failed }
+  /auth/local/login:
+    post:
+      operationId: localLogin
+      summary: Sign the built-in local administrator in with a password (D040)
+      description: |
+        Unauthenticated. The request must carry an Origin header equal to the public URL and a JSON content type, which a cross-site form cannot send.
+        A wrong password, an unknown username and a disabled account all answer the same 401 after the same hashing work. Failed attempts add an
+        exponentially growing delay (1 second doubling to a 5 minute cap, in memory) per account name and per client address; a delayed request
+        answers 429 with Retry-After and is not checked. Nothing locks the account. Every success and failure is audited.
+        On success the session and CSRF cookies are set, as after an OIDC sign-in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              additionalProperties: false
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, mustChangePassword]
+                properties:
+                  user: { type: object }
+                  mustChangePassword: { type: boolean }
+        '400': { description: Body is not the expected JSON }
+        '401': { description: Incorrect username or password (code invalid_credentials) }
+        '403': { description: Origin missing or not the public URL }
+        '415': { description: Content type is not application/json }
+        '429': { description: Too many attempts; wait Retry-After seconds (code too_many_attempts) }
+        '503': { description: Local sign-in is unavailable }
+  /auth/local/password:
+    post:
+      operationId: changeLocalPassword
+      summary: The local administrator chooses a new password
+      description: |
+        Verifies the current password (a wrong one is throttled like a failed sign-in), requires 12 to 128 characters with no composition rules,
+        refuses the current password, ends the account's other sessions and clears the must-change flag. Allowed while mustChangePassword is true.
+        Only the account that has a local password may call it; anyone else is 403.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              additionalProperties: false
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 12, maxLength: 128 }
+      responses:
+        '204': { description: Password changed }
+        '400': { description: invalid_password (length) or password_unchanged (same as current) }
+        '401': { description: Authentication required }
+        '403': { description: current_password_incorrect, forbidden (no local password), or Origin or CSRF validation failed }
+        '429': { description: Too many attempts; wait Retry-After seconds }
   /notifications:
     get:
       operationId: listNotifications

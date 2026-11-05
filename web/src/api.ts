@@ -1,7 +1,7 @@
 export type User = { id: string; role: string; email: string; displayName: string }
 // firstAdminClaim is the caller's own verified identity, sent only while first-admin setup is unclaimed (D037).
 export type FirstAdminClaim = { issuer: string; subject: string; issuerIsConfigured: boolean }
-export type Session = { user: User; csrfToken: string; firstAdminClaim?: FirstAdminClaim }
+export type Session = { user: User; csrfToken: string; firstAdminClaim?: FirstAdminClaim; mustChangePassword?: boolean }
 export type SetupStatus = { complete: boolean; required: boolean }
 export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome' | 'library:audiobookshelf' | 'notifications'
 export type ChecklistItem = { key: 'libraries' | 'metadata' | 'notifications' | 'people'; title: string; required: boolean; done: boolean; detail?: string }

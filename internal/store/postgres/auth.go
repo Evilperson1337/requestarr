@@ -142,7 +142,9 @@ func (s *Store) GetSession(ctx context.Context, hash []byte, now time.Time) (aut
 	var u auth.User
 	var csrf []byte
 	var exp time.Time
-	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.role,i.email,i.display_name,i.issuer,i.subject,s.csrf_hash,s.expires_at FROM auth_sessions s JOIN users u ON u.id=s.user_id JOIN oidc_identities i ON i.user_id=u.id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>$2`, hash, now).Scan(&u.ID, &u.Role, &u.Email, &u.DisplayName, &u.Issuer, &u.Subject, &csrf, &exp)
+	// The built-in local administrator has no OIDC identity, hence the LEFT JOIN. Its
+	// must-change flag rides along, and a disabled local account has no live session.
+	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.role,COALESCE(i.email,''),COALESCE(i.display_name,u.display_name),COALESCE(i.issuer,''),COALESCE(i.subject,''),COALESCE(lc.must_change,FALSE),s.csrf_hash,s.expires_at FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN oidc_identities i ON i.user_id=u.id LEFT JOIN local_credentials lc ON lc.user_id=u.id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>$2 AND NOT COALESCE(lc.disabled,FALSE)`, hash, now).Scan(&u.ID, &u.Role, &u.Email, &u.DisplayName, &u.Issuer, &u.Subject, &u.MustChange, &csrf, &exp)
 	return u, csrf, exp, err
 }
 func (s *Store) RevokeSession(ctx context.Context, hash []byte, now time.Time) error {

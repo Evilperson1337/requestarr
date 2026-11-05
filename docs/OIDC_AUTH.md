@@ -8,6 +8,17 @@ Set `REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID`, `REQUESTARR_OIDC_CLIE
 
 Request operations remain intentionally unavailable until request listing/use cases and explicit role authorization are wired. Setup status remains incomplete: authentication configuration does not mean setup has been completed. PostgreSQL integration checks require a disposable database; app startup applies migrations.
 
+## The built-in local administrator (D040)
+
+One account, `admin`, signs in with a password instead of OIDC. It is an ordinary `users` row with the admin role, marked `builtin`, with the fixed `oidc_subject` `local:admin` (OIDC subjects are stored as `oidc:<digest>`, so they cannot collide). Its credential (hash, must-change, disabled) is in `local_credentials`; every sign-in success and failure, password change and creation is in `auth_audit_events`, which never holds password material.
+
+- **Creation.** At startup, only when there are no users, it is created with a random 24-character password, or with `REQUESTARR_ADMIN_PASSWORD` (12 to 128 characters; startup fails naming the variable otherwise). Must-change is set either way. A generated password is printed in exactly one Info log line, after the account is committed; an environment-supplied password is never printed. With users already present nothing is created.
+- **Sign-in.** `POST /api/v1/auth/local/login` with JSON `username` and `password`, behind the local form at `/login` (always served by the single-page app). It needs a matching `Origin` and a JSON content type, because it has no session to carry a CSRF token. A wrong password, an unknown username and a disabled account answer the same 401 after the same hashing work.
+- **Delay, not lockout.** Failed attempts add a delay of 1 second doubling to a 5 minute cap, per account name (after 2 free typos) and per client address (after 5), held in memory, so a restart clears it. A delayed request answers 429 with `Retry-After` and is not checked; nothing locks the account. The client address is the TCP peer: behind a reverse proxy that is the proxy, which is why the address allowance is looser.
+- **Passwords.** PBKDF2-HMAC-SHA256, 600000 iterations, 16-byte random salt, stored as `pbkdf2-sha256$<iterations>$<salt>$<hash>` so the cost can be raised later. 12 to 128 characters, no composition rules.
+- **Forced change.** While `mustChangePassword` (on `/auth/me`) is true, every API route except `/auth/me`, `/auth/logout` and `/auth/local/password` answers 403 `password_change_required`. The change verifies the current password, refuses reusing it, ends the account's other sessions and clears the flag.
+- **First-run setup.** Creating the account marks first-run setup complete, so the claim page is not offered. The claim flow itself is removed by a later ticket.
+
 ## Roles and permissions
 
 Viewers can browse shared requests and use **Notify Me** to subscribe to request updates, but cannot create requests. An administrator must promote a user to `requester` to grant request-creation permission. Requesters can create requests; administrators retain administrative permissions. A user's role is not reset during subsequent OIDC logins. This default change does not alter or demote roles already stored in the database.

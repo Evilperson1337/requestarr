@@ -180,6 +180,10 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		rt.record("POST /auth/logout", accessSession, false) // checks CSRF itself
 		rt.record("GET /auth/me", accessSession, false)
 		rt.record("POST /setup/claim-admin", accessSession, true)
+		// Local sign-in is unauthenticated and guards itself (Origin and JSON
+		// content type); the password change needs a session and CSRF.
+		rt.record("POST /auth/local/login", accessPublic, false)
+		rt.record("POST /auth/local/password", accessSession, true)
 	}
 	if inbox := d.Inbox; inbox != nil {
 		rt.handle("GET /notifications", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
@@ -506,8 +510,15 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 			return
 		}
-		if _, err := authHandler.CurrentSession(r); err != nil {
+		user, err := authHandler.CurrentSession(r)
+		if err != nil {
 			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
+			return
+		}
+		// Until the local administrator has chosen a password the session can
+		// do nothing else (D040): this covers every route, including unknown ones.
+		if user.MustChange && !auth.AllowedWhileMustChange(path) {
+			apierror.Write(w, r, http.StatusForbidden, "password_change_required", "choose a new password before continuing")
 			return
 		}
 		dispatch := http.Handler(http.StripPrefix("/api/v1", routeMisses(api)))

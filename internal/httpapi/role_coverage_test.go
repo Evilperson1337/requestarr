@@ -7,6 +7,12 @@ import (
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 )
 
+// localAuthRoutes are the routes of the built-in local account (D040). Neither
+// fits the four-role matrix: sign-in is public, and the password change works
+// only for the one account that has a local password. local_auth_test.go
+// covers both, for every role.
+var localAuthRoutes = map[string]bool{"POST /auth/local/login": true, "POST /auth/local/password": true}
+
 // The route table is the registry of every route, so coverage is read from it
 // rather than inferred from source: a route can only exist by being registered
 // there with an access rule, and a state-changing one needs a role-matrix row.
@@ -21,7 +27,7 @@ func TestEveryMutatingEndpointHasARoleMatrixRow(t *testing.T) {
 	}
 	registered := map[string]routePolicy{}
 	for _, policy := range rt.Policies() {
-		if !mutating(policy.Pattern) {
+		if !mutating(policy.Pattern) || localAuthRoutes[policy.Pattern] {
 			continue
 		}
 		registered[policy.Pattern] = policy

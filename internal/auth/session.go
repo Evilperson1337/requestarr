@@ -16,6 +16,9 @@ type User struct {
 	DisplayName string `json:"displayName"`
 	Issuer      string `json:"-"`
 	Subject     string `json:"-"`
+	// MustChange is set while the local administrator has not yet chosen
+	// their own password; the session can do nothing else until then (D040).
+	MustChange bool `json:"-"`
 }
 type Session struct {
 	Token     string
