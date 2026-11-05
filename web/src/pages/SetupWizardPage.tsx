@@ -1,17 +1,21 @@
 import { useState, type FormEvent } from 'react'
-import { api, claimSetupAdmin, type Session } from '../api'
+import { api, claimSetupAdmin, type FirstAdminClaim, type Session } from '../api'
 
-const MAX_ISSUER = 2048
-const MAX_SUBJECT = 1024
 const MIN_TOKEN = 32
 const MAX_TOKEN = 512
 
+// POSIX single-quote escaping, so a subject with a quote still pastes safely.
+const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`
+
+export function setupTokenCommand(claim: FirstAdminClaim) {
+    return `docker exec <container-name> /requestarr setup-token${claim.issuerIsConfigured ? '' : ` --issuer ${shellQuote(claim.issuer)}`} --subject ${shellQuote(claim.subject)} --stdout`
+}
+
 export function SetupWizardPage({ session, onComplete }: { session: Session | null; onComplete: (session: Session) => void }) {
-    const [issuer, setIssuer] = useState('')
-    const [subject, setSubject] = useState('')
     const [token, setToken] = useState('')
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+    const [copied, setCopied] = useState(false)
 
     async function submit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault()
@@ -21,15 +25,19 @@ export function SetupWizardPage({ session, onComplete }: { session: Session | nu
         const submittedToken = token
         setToken('')
         try {
-            await claimSetupAdmin({ issuer, subject, token: submittedToken }, session.csrfToken)
+            await claimSetupAdmin({ token: submittedToken }, session.csrfToken)
             const refreshed = await api<Session>('/auth/me', { cache: 'no-store' })
             onComplete(refreshed)
         } catch {
-            setError('Admin claim could not be completed. Verify that you signed in as the configured identity and that the setup token is correct, then try again.')
+            setError('Admin claim could not be completed. Check that the setup token is correct and has not expired or been used, then try again.')
         } finally {
             setToken('')
             setBusy(false)
         }
+    }
+
+    async function copy(command: string) {
+        try { await navigator.clipboard.writeText(command); setCopied(true) } catch { setCopied(false) }
     }
 
     return <main className="shell setupShell"><section className="card setupCard">
@@ -40,19 +48,15 @@ export function SetupWizardPage({ session, onComplete }: { session: Session | nu
             <h2>Before you continue</h2>
             <ol>
                 <li>Configure the OIDC issuer, client ID, and client secret in the server environment, then restart Requestarr.</li>
-                <li>Use the configured provider below to sign in as the exact identity that will become the first administrator.</li>
-                <li>Run <code>requestarr setup-token --issuer ISSUER --subject SUBJECT</code> on the server. Enter the same exact issuer and subject here. Add exactly one of <code>--token-file PATH</code> (writes an owner-only file) or <code>--stdout</code> (prints the token).</li>
+                <li>Sign in below as the person who will become the first administrator.</li>
+                <li>This page then shows the exact command to run on the server. Run it, and paste the token it prints.</li>
             </ol>
         </div>
         {!session ? <><p>Setup is still required. Sign in through your configured identity provider to continue with the admin claim.</p><a className="button" href="/api/v1/auth/login">Sign in with OIDC</a></> : session.user.role === 'admin' ? <div role="status" className="setupNotice"><h2>Administrator access is ready</h2><p>Your session is already an administrator. Continue to Requestarr.</p><button className="button" onClick={() => onComplete(session)}>Continue to app</button></div> : <>
-            <div className="setupNotice"><h2>Signed in, not yet an administrator</h2><p>Enter the identity values used when issuing the setup token. They are compared exactly with your verified sign-in identity. Requestarr does not reveal or prefill either value.</p></div>
+            <div className="setupNotice"><h2>Signed in, not yet an administrator</h2>{session.firstAdminClaim ? <><p>Run this on the server that hosts Requestarr. It prints a one-time token for your sign-in identity, valid for 30 minutes. Replace <code>&lt;container-name&gt;</code> with the name of the Requestarr container.</p>
+                <pre className="setupCommand"><code data-testid="setup-token-command">{setupTokenCommand(session.firstAdminClaim)}</code></pre>
+                <button type="button" className="button secondary" onClick={() => void copy(setupTokenCommand(session.firstAdminClaim!))}>Copy command</button>{copied && <span role="status"> Copied.</span>}</> : <p>Requestarr could not show the command for your sign-in. Run <code>requestarr setup-token --subject YOUR_OIDC_USER_ID --stdout</code> on the server, where the subject is your identity provider's user ID, and paste the token below.</p>}</div>
             <form className="setupForm" onSubmit={submit}>
-                <label>OIDC issuer
-                    <input required maxLength={MAX_ISSUER} autoComplete="url" value={issuer} onChange={e => setIssuer(e.target.value)} />
-                </label>
-                <label>OIDC subject
-                    <input required maxLength={MAX_SUBJECT} autoComplete="off" value={subject} onChange={e => setSubject(e.target.value)} />
-                </label>
                 <label>One-time setup token
                     <input required type="password" minLength={MIN_TOKEN} maxLength={MAX_TOKEN} autoComplete="new-password" value={token} onChange={e => setToken(e.target.value)} />
                 </label>

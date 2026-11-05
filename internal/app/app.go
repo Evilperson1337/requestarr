@@ -66,12 +66,12 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	}
 	cfg = boot.Config
 	secretsService := boot.Secrets
-	announceFirstAdmin(ctx, logger, store, cfg.OIDCIssuer)
+	announceFirstAdmin(ctx, logger, store)
 	provider, err := oidc.New(ctx, oidc.Config{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret}, cfg.PublicURL+"/api/v1/auth/callback")
 	if err != nil {
 		return fmt.Errorf("initialize OIDC provider: %w", err)
 	}
-	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://")}
+	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Setup: store}
 	// One IGDB provider serves links and searches, so they share its token and its request cap.
 	igdbProvider := igdb.New(cfg.IGDBClientID, cfg.IGDBClientSecret, nil)
 	// One Audible resolver serves links and searches; both use the admin's default marketplace (D031).

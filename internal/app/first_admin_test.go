@@ -20,7 +20,7 @@ func announce(t *testing.T, state fakeSetupState) string {
 	t.Helper()
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	announceFirstAdmin(context.Background(), logger, state, "https://id.example.test/realms/home")
+	announceFirstAdmin(context.Background(), logger, state)
 	return buf.String()
 }
 
@@ -31,9 +31,9 @@ func TestAnnounceFirstAdminLogsTheClaimCommandOnceWhenNoAdminExists(t *testing.T
 	}
 	for _, want := range []string{
 		"level=INFO",
-		"setup-token --issuer 'https://id.example.test/realms/home' --subject '<OIDC user id>' --stdout",
+		"setup-token --subject '<your OIDC user id>' --stdout",
 		"30 minutes",
-		"Setup page",
+		"claim page shows",
 	} {
 		if !strings.Contains(out, want) && !strings.Contains(out, strings.ReplaceAll(want, "'", `\'`)) {
 			t.Errorf("log %q does not contain %q", out, want)

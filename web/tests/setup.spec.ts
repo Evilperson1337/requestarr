@@ -412,22 +412,48 @@ test('unavailable draft can be retried without rendering configuration or making
 test('existing first-admin claim redirects to the inactive draft instead of home', async ({ page }) => {
     await mockSetup(page)
     let claimed = false
+    let claimBody: unknown
     await page.route('**/api/v1/setup/status', route => route.fulfill({ json: { complete: false, required: true } }))
-    await page.route('**/api/v1/auth/me', route => route.fulfill({ json: { user: { id: 'user-1', role: claimed ? 'admin' : 'viewer', email: 'admin@example.test', displayName: 'Admin' }, csrfToken: 'csrf-token' } }))
+    await page.route('**/api/v1/auth/me', route => route.fulfill({ json: { user: { id: 'user-1', role: claimed ? 'admin' : 'viewer', email: 'admin@example.test', displayName: 'Admin' }, csrfToken: 'csrf-token', ...(claimed ? {} : { firstAdminClaim: { issuer: 'https://identity.example.test', subject: 'bootstrap-identity', issuerIsConfigured: true } }) } }))
     await page.route('**/api/v1/setup/claim-admin', route => {
         expect(route.request().headers()['x-csrf-token']).toBe('csrf-token')
+        claimBody = route.request().postDataJSON()
         claimed = true
         return route.fulfill({ status: 204 })
     })
     await page.goto('/')
-    await page.getByLabel('OIDC issuer').fill('https://identity.example.test')
-    await page.getByLabel('OIDC subject').fill('bootstrap-identity')
+    await expect(page.getByLabel('OIDC issuer')).toHaveCount(0)
+    await expect(page.getByLabel('OIDC subject')).toHaveCount(0)
+    await expect(page.getByTestId('setup-token-command')).toHaveText("docker exec <container-name> /requestarr setup-token --subject 'bootstrap-identity' --stdout")
     await page.getByLabel('One-time setup token').fill('one-time-bootstrap-fixture-token-123456789')
     await page.getByRole('button', { name: 'Claim first admin' }).click()
     await expect(page).toHaveURL('/setup')
+    expect(claimBody).toEqual({ token: 'one-time-bootstrap-fixture-token-123456789' })
     await expect(page.getByRole('heading', { name: 'Setup · Inactive draft' })).toBeVisible()
     await expect(page.locator('input[type=password]')).toHaveCount(0)
     expect(await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))).toEqual({ local: {}, session: {} })
+})
+
+test('claim page adds --issuer to the command when the sign-in issuer is not the configured one, and offers a copy control', async ({ page, context }) => {
+    await mockSetup(page)
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.route('**/api/v1/setup/status', route => route.fulfill({ json: { complete: false, required: true } }))
+    await page.route('**/api/v1/auth/me', route => route.fulfill({ json: { user: { id: 'user-1', role: 'viewer', email: 'a@example.test', displayName: 'A' }, csrfToken: 'csrf-token', firstAdminClaim: { issuer: 'https://other.example.test', subject: "o'brien", issuerIsConfigured: false } } }))
+    await page.goto('/')
+    const expected = "docker exec <container-name> /requestarr setup-token --issuer 'https://other.example.test' --subject 'o'\\''brien' --stdout"
+    await expect(page.getByTestId('setup-token-command')).toHaveText(expected)
+    await page.getByRole('button', { name: 'Copy command' }).click()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(expected)
+})
+
+test('claim page without an identity from the server shows no command and no identity fields', async ({ page }) => {
+    await mockSetup(page)
+    await page.route('**/api/v1/setup/status', route => route.fulfill({ json: { complete: false, required: true } }))
+    await page.route('**/api/v1/auth/me', route => route.fulfill({ json: { user: { id: 'user-1', role: 'viewer', email: 'a@example.test', displayName: 'A' }, csrfToken: 'csrf-token' } }))
+    await page.goto('/')
+    await expect(page.getByTestId('setup-token-command')).toHaveCount(0)
+    await expect(page.getByLabel('OIDC subject')).toHaveCount(0)
+    await expect(page.getByLabel('One-time setup token')).toBeVisible()
 })
 
 test('invalid settings keep edits and do not run connection checks until saving succeeds', async ({ page }) => {

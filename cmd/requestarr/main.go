@@ -123,13 +123,16 @@ func healthcheck(args []string, listenAddr string) error {
 
 func issueSetupToken(args []string) error {
 	fs := flag.NewFlagSet("setup-token", flag.ContinueOnError)
-	issuer := fs.String("issuer", "", "exact configured OIDC issuer")
+	issuer := fs.String("issuer", "", "exact OIDC issuer (defaults to REQUESTARR_OIDC_ISSUER)")
 	subject := fs.String("subject", "", "exact OIDC subject")
 	rotate := fs.Bool("rotate", false, "replace an expired outstanding token")
 	tokenFile := fs.String("token-file", "", "create token file exclusively with mode 0600")
 	stdout := fs.Bool("stdout", false, "explicitly print token to stdout (insecure; may be captured)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *issuer == "" {
+		*issuer = config.FromEnv().OIDCIssuer
 	}
 	if !validIssuer(*issuer, config.FromEnv().Environment == "development") || !validSubject(*subject) || fs.NArg() != 0 {
 		return fmt.Errorf("setup-token requires a valid --issuer and --subject")

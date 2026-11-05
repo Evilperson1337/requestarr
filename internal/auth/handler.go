@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"io"
 	"net/http"
@@ -23,6 +25,7 @@ type Handler struct {
 	Provider                  oidc.Provider
 	Issuer, PublicURL, Secret string
 	Secure                    bool
+	Setup                     SetupState
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
@@ -36,20 +39,20 @@ func (h *Handler) Register(mux *http.ServeMux) {
 func (h *Handler) claimAdmin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	var in struct {
-		Issuer  string `json:"issuer"`
-		Subject string `json:"subject"`
-		Token   string `json:"token"`
+		Issuer  *string `json:"issuer"`
+		Subject *string `json:"subject"`
+		Token   string  `json:"token"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	decodeErr := d.Decode(&in)
-	if decodeErr != nil || requireEOF(d) != nil || in.Issuer == "" || in.Subject == "" || len(in.Token) < 32 || len(in.Token) > 512 {
+	if decodeErr != nil || requireEOF(d) != nil || len(in.Token) < 32 || len(in.Token) > 512 {
 		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
 		return
 	}
 	u, _, _, err := h.current(r)
-	if err != nil || u.Issuer != in.Issuer || u.Subject != in.Subject {
+	if err != nil || (in.Issuer != nil && *in.Issuer != u.Issuer) || (in.Subject != nil && *in.Subject != u.Subject) {
 		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
 		return
 	}
@@ -68,6 +71,9 @@ func (h *Handler) claimAdmin(w http.ResponseWriter, r *http.Request) {
 func requireEOF(d *json.Decoder) error {
 	var extra json.RawMessage
 	if err := d.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return errors.New("trailing JSON value")
+		}
 		return err
 	}
 	return nil
@@ -188,9 +194,32 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Session-Expires", exp.UTC().Format(time.RFC3339))
 	_ = json.NewEncoder(w).Encode(struct {
-		User User   `json:"user"`
-		CSRF string `json:"csrfToken"`
-	}{u, token})
+		User            User             `json:"user"`
+		CSRF            string           `json:"csrfToken"`
+		FirstAdminClaim *FirstAdminClaim `json:"firstAdminClaim,omitempty"`
+	}{u, token, h.firstAdminClaim(r.Context(), u)})
+}
+
+// FirstAdminClaim is the caller's own verified identity, shown only to that
+// caller while first-admin setup is unclaimed (D037). It is what the operator
+// types into setup-token; it grants nothing without the shell-issued token.
+type FirstAdminClaim struct {
+	Issuer             string `json:"issuer"`
+	Subject            string `json:"subject"`
+	IssuerIsConfigured bool   `json:"issuerIsConfigured"`
+}
+
+// firstAdminClaim returns nil unless setup is known to be unclaimed; a failed
+// lookup exposes nothing.
+func (h *Handler) firstAdminClaim(ctx context.Context, u User) *FirstAdminClaim {
+	if h.Setup == nil {
+		return nil
+	}
+	complete, err := h.Setup.SetupComplete(ctx)
+	if err != nil || complete {
+		return nil
+	}
+	return &FirstAdminClaim{Issuer: u.Issuer, Subject: u.Subject, IssuerIsConfigured: u.Issuer == h.Issuer}
 }
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	if !sameOrigin(r, h.PublicURL) {

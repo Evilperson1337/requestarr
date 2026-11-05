@@ -270,3 +270,24 @@ Accepted. Plan: `.scratch/ux-review/` (ticket 02).
 - **Notice:** the first sign-in of a new identity sends every administrator an in-app notification, "<name> signed in for the first time as <role>", linking to Settings, Users. It is written in the same transaction that creates the user, keyed `user.first_sign_in:<user id>`, so it goes once per administrator; a repeat sign-in sends nothing and the person who signs in is never told about themselves. It is in-app only (not the global Apprise route). A notification gains an optional `link`, an application path starting with `/`.
 - **Settings store:** one small table, `app_settings(key, value, updated_at)`, with a generic `Setting`/`SetSetting` pair on the PostgreSQL store and typed accessors on top (`DefaultFirstSignInRole`/`SetDefaultFirstSignInRole`). Values are plain, non-secret text; secrets stay in D024's encrypted store. Where an environment variable exists for a setting the environment still wins, as in D024; this setting has none. Later policy settings (the auto-approve policy) reuse the table.
 - **Viewer message:** the "cannot create Requests" text names the role and tells the person to ask an administrator.
+
+## D037 — Claim the first admin with the token only
+
+Accepted. Plan: `.scratch/ux-review/`. Narrows the claim form described in `docs/OIDC_AUTH.md`; it does not change what the token proves.
+
+- The `setup-token` token stays bound to one issuer and subject, valid 30 minutes, single use. The shell on the server (the ability to run `setup-token`) stays the real gate.
+- `POST /setup/claim-admin` takes the token only. Issuer and subject come from the verified session. A request that still sends them must equal the session's, or it is rejected with the same generic 403. CSRF, origin, session checks, the generic failure and the audit events are unchanged.
+- While first-admin setup is unclaimed, `GET /auth/me` returns the caller's own verified issuer and subject as `firstAdminClaim` (with `issuerIsConfigured`). It is the narrowest place: it is the caller's own session, it is `no-store`, and it is omitted once an administrator exists, when the status lookup fails, and for anyone unauthenticated. The claim page uses it to show the exact `docker exec ... setup-token --subject '...' --stdout` command. The startup log line and every other route, error and audit text carry no identity.
+- `setup-token --issuer` defaults to `REQUESTARR_OIDC_ISSUER`; an explicit flag still wins and is validated as before.
+
+Threat model. An attacker who can sign in but has no shell on the server can:
+- become a viewer (unchanged), and read their own issuer and subject (values they already know from their identity provider, and which cannot be used by anyone else);
+- submit claims, which fail without a token. The token is 32 random bytes held only as a hash, so guessing it is infeasible; claim traffic should still be rate limited at the reverse proxy.
+
+They cannot:
+- obtain a token (only `setup-token` run on the server issues one);
+- claim for another person, because the token is matched against the issuer and subject of the session that submits it, and another user's identity is never shown to them;
+- see anyone else's identity, or any identity once an administrator exists;
+- reuse a spent or expired token.
+
+Showing a user their own identity moves no trust: knowing a subject was never the secret, the token is. Before this decision the operator typed issuer and subject by hand; the server already held them.
