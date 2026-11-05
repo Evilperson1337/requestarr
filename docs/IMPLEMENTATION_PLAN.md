@@ -8,7 +8,7 @@ This snapshot describes shipped repository behavior, not the historical target a
 
 | Milestone area | Delivered status |
 | --- | --- |
-| M1 — identity and request loop | OIDC login and one-time admin bootstrap (scripted Keycloak login check passes), TMDB/MusicBrainz/IGDB resolution, shared requests with subscriptions, search/filter/sort/cursor pagination, cancel and leave, admin approve/deny with audit, role matrix tests, and the first-admin claim. The seven-step draft wizard built for this milestone was retired in D038 and replaced by a live Get started checklist; settings apply at once (D028, D035, D039). |
+| M1 — identity and request loop | OIDC login and one-time admin bootstrap (scripted Keycloak login check passes), TMDB/MusicBrainz/IGDB resolution, shared requests with subscriptions, search/filter/sort/cursor pagination, cancel and leave, admin approve/deny with audit, role matrix tests, and the local administrator (D040). The seven-step draft wizard built for this milestone was retired in D038 and replaced by a live Get started checklist; settings apply at once (D028, D035, D039). |
 | M2 — availability | Persistent job runner with no-overlap lease and Sync now; Jellyfin, Plex (movies, TV, music), RomM (per-platform games), Navidrome and Audiobookshelf (audiobooks by ASIN, D031) adapters behind one contract suite; positive-evidence availability, targeted reconciliation, suggested matches. Failed syncs never create absence. |
 | M3 — notifications | Durable in-app notifications and a global Apprise outbox/worker. Apprise delivery is at-least-once and can duplicate. |
 | M4 / V1 hardening | Operational status view, frontend smoke and accessibility tests, upgrade/backup notes, release pipeline that builds the UI in every path. Supply-chain policy proposed (D023) but not implemented. |
@@ -74,9 +74,9 @@ Read-only checks found Go 1.27.1-X:nodwarf5 on linux/amd64, Node 26.10.0, npm 12
 
 Use a clean dedicated PostgreSQL database, Keycloak, deterministic provider HTTP fixtures, and a browser. Also exercise at least one opt-in real Keycloak run; do not substitute fake authentication for the security acceptance gate.
 
-1. An anonymous visitor sees only minimal setup-required state; cannot read a draft, save credentials, resolve links, list requests, or claim administrator privileges.
-2. Operator supplies an out-of-band random setup token, receives a short-lived setup-only session, resumes a draft after restart, and configures/test-validates OIDC and enabled metadata providers. All wizard steps appear; no libraries and external notifications disabled are explicitly supported with warnings.
-3. Test login binds the intended first administrator's verified issuer/subject to this setup session and draft revision. Finalization atomically activates settings, creates/binds that administrator, records audit, marks complete, and invalidates every bootstrap capability. It then requires a normal OIDC sign-in.
+1. An anonymous visitor sees only the sign-in screen; cannot save credentials, resolve links, list requests, or obtain administrator privileges.
+2. On a fresh database startup creates the local administrator `admin` with a one-time password (D040). The operator signs in at `/login`, chooses a new password, then configures and tests OIDC and the metadata providers in Settings; changes apply at once. No libraries and external notifications disabled are explicitly supported.
+3. The first person who signs in through OIDC is a viewer; an administrator promotes them in Settings, Users. No sign-in is ever made administrator automatically.
 4. Normal user signs in using Authorization Code + PKCE. TMDB movie/TV, MusicBrainz release-group/recording, and IGDB game links each resolve to local canonical catalog records. Disabled media fail with an explicit capability error rather than fake metadata.
 5. Requester creates a request; the same transaction creates its automatic subscription and audit event. Default approval requirement is true for every enabled type. Another user resolving the same item sees Already Requested and can explicitly choose Notify Me.
 6. Concurrent creation by different users produces one request, retains the first creator/platform criteria, and never silently subscribes the losing user. No duplicate rows or votes. Requests are visible to every authenticated role; My Requests filters attribution only.
@@ -84,7 +84,7 @@ Use a clean dedicated PostgreSQL database, Keycloak, deterministic provider HTTP
 8. Restart preserves setup, identities, requests, subscriptions, policy, and audit. Routine list/detail/me reads work when metadata servers are unavailable; availability says unknown, not missing or available.
 9. Browser flows show usable loading/error/empty states, preserve poster/square artwork, and have keyboard-accessible modal and game choices sourced from IGDB.
 
-Historical M1 target: no notifications or actual library availability, and a full setup wizard. Current implementation differs: durable in-app and global Apprise notifications exist, Jellyfin positive-only sync exists, and the setup UI is the first-admin claim followed by the Get started checklist (D038). These delivered slices do not make the full M1 acceptance target pass.
+Historical M1 target: no notifications or actual library availability, and a full setup wizard. Current implementation differs: durable in-app and global Apprise notifications exist, Jellyfin positive-only sync exists, and the first sign-in is the local administrator (D040) followed by the Get started checklist (D038). These delivered slices do not make the full M1 acceptance target pass.
 
 ## 4. Package boundaries and composition
 
@@ -128,7 +128,7 @@ Paths below are proposed additions unless marked existing. Test siblings and san
 
 ### Deployment configuration and secret handling
 
-Environment remains authoritative for bind/public URL, database connection, setup token, encryption key material, and development-only transport exceptions. Persist user-editable instance, OIDC, provider, request-policy, library, and notification settings in PostgreSQL. Effective settings come from the active revision, not ambiguous environment overrides. Reject wizard public URL differing from deployment public URL and show the corrective deployment instruction. OIDC/provider variables currently only shown in examples must be removed or clearly marked unsupported in the implementation update, not silently granted precedence.
+Environment remains authoritative for bind/public URL, database connection, encryption key material, and development-only transport exceptions. Persist user-editable instance, OIDC, provider, request-policy, library, and notification settings in PostgreSQL. Effective settings come from the active revision, not ambiguous environment overrides. Reject wizard public URL differing from deployment public URL and show the corrective deployment instruction. OIDC/provider variables currently only shown in examples must be removed or clearly marked unsupported in the implementation update, not silently granted precedence.
 
 Require a random 32-byte deployment encryption key (proposed REQUESTARR_SECRET_KEY, base64), with a key identifier. Encrypt saved secrets using authenticated encryption with fresh nonces and setting/secret identifier as associated data. Store ciphertext, nonce, and key ID separately from redacted configuration; keep keys out of PostgreSQL and logs. Invalid/missing keys fail closed for setup/config writes; never fall back to plaintext. Browser GETs expose only configured booleans. PATCH semantics: omitted secret retains it; explicit clear uses a separate clear flag, never a fake masked password. Key backup/rotation procedure must precede production release; loss of key requires re-entering integration secrets, not bypassing encryption.
 
@@ -136,13 +136,7 @@ Validate public URL as a canonical absolute origin with no credentials/query/fra
 
 ### Controlled bootstrap
 
-- Require operator-provided REQUESTARR_SETUP_TOKEN with at least 256 bits of generated entropy; reject shipped placeholder and weak values. Never print it or put it in URLs/browser persistent storage. Missing token does not expose unprotected setup.
-- Token exchange is rate-limited by bounded process limiter plus persisted failed-attempt/backoff state for bootstrap; compare its digest in constant time. A token grants setup capability only, never normal API access or general admin role.
-- Exchange creates a hashed opaque server-side setup session: 30-minute idle, two-hour absolute lifetime, host-only HttpOnly SameSite=Lax cookie, Secure in production. Rotate on exchange; draft remains resumable with a new valid exchange after expiry. CSRF token and exact Origin required for all cookie-authenticated writes, including draft saves, validation, completion, and logout.
-- Public setup status reveals complete/required only; protect draft, validation details, secrets, and configuration endpoints. Completed state rejects token exchange even if the deployment still contains the token. No HTTP reset route in M1; recovery is a documented explicit operator procedure, not an unauthenticated escape hatch.
-- Draft saves use an expected revision. Changing OIDC/public URL/provider config invalidates relevant validation proofs. Network validation occurs outside transactions, then commits a result only if the draft revision is unchanged.
-- Setup OIDC test uses a purpose-tagged flow and separate callback. Bind verified issuer/subject to the setup session and revision. Require explicit Review confirmation of that identity as first administrator; never make the first unrelated normal login admin.
-- Completion locks singleton setup state and checks revision, current validation proofs, enabled-provider requirements, and test-login proof. In one transaction activate immutable settings revision/secrets, insert or bind initial admin by issuer/subject, append setup audit, mark complete, revoke all setup sessions/flow records. Retry with the same completion operation ID returns the original outcome, not a second admin. Browser performs a fresh ordinary login afterward.
+The original plan here described a token-protected setup session that bound an initial OIDC identity to administrator rights. It was retired: the first administrator is the local administrator that startup creates on a fresh database (D040; see [FIRST_RUN](FIRST_RUN.md) and [OIDC authentication](OIDC_AUTH.md)). Draft changes used an expected revision and network validation ran outside transactions; Settings, Authentication keeps that discipline (write-only secret, test before enable, atomic save).
 
 ### OIDC/session behavior
 

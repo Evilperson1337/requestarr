@@ -10,10 +10,25 @@ log access can read the initial password: never copy logs containing it into
 chat or tickets. `REQUESTARR_ADMIN_PASSWORD` can supply the initial password for
 automation; it is never logged and still requires a change.
 
+The startup log line to look for begins `Requestarr created the local
+administrator. Sign in as 'admin' at <your public URL>/login with the one-time
+password in this line`; the password is the `one_time_password` value at its
+end. It is written once, when the account is created. With
+`REQUESTARR_ADMIN_PASSWORD` the line says so and shows no password.
+
+HTTPS is a prerequisite for the password as well as for OIDC: the session
+cookies are Secure, so a browser on a plain `http://` address would not keep
+the sign-in, and the password would cross the network in clear. Put a TLS
+reverse proxy in front first ([Unraid guide](UNRAID.md)).
+
 An upgrade with existing users creates no local account and preserves their
-roles. Existing administrators retain access. Other people sign in through
-OIDC and become administrators only when an existing administrator promotes
-them in **Settings, Users**. There is no public administrator-enrollment flow.
+roles. Existing administrators retain access, and an OIDC configuration in the
+environment keeps working unchanged. An existing administrator can create the
+local administrator later in **Settings, Authentication** with **Create local
+administrator** (the password is shown once and must be changed at first
+sign-in). Other people sign in through OIDC and become administrators only when
+an existing administrator promotes them in **Settings, Users**. There is no
+public administrator-enrollment flow.
 
 ## Recovering a forgotten password
 
@@ -75,12 +90,19 @@ nothing else is carried over. There is no public setup-status endpoint.
 
 ## Operator steps
 
-1. Set the database and public URL for the server. Keep HTTPS in production so password and session cookies are protected; follow [the Unraid guide](UNRAID.md) for reverse-proxy setup.
-2. On a fresh database, obtain the one-time local administrator password from the startup log (or your initial-password environment setting).
-3. Open `/login`, sign in as `admin`, and choose a new password. Open **Get started** (`/get-started`); each item links to the Settings that applies it.
-4. Configure OIDC for other people following [OIDC authentication](OIDC_AUTH.md). Register the exact callback URL; never expose the client secret in the browser or commit it. Runtime OIDC Settings are delivered separately from password recovery.
-5. In **Settings, Users**, promote signed-in people to requester or admin as appropriate. New OIDC sign-ins default to viewer unless the existing default-role policy changes it; a login never grants admin automatically.
+1. Set the database, the master key, the session secret and the public URL for the server. Keep HTTPS in production so password and session cookies are protected; follow [the Unraid guide](UNRAID.md) for reverse-proxy setup. No identity provider is needed yet.
+2. On a fresh database, obtain the one-time local administrator password from the startup log (or use your `REQUESTARR_ADMIN_PASSWORD`).
+3. Open `/login`, sign in as `admin`, and choose a new password (**Choose a new password**). Open **Get started** (`/get-started`); each item links to the Settings that applies it.
+4. In **Settings, Authentication**, fill the **OpenID Connect** card (Provider name, Client ID, Issuer, Client secret), register the shown **Redirect address** with your provider, press **Save OIDC settings**, **Test OIDC connection**, then switch on **Enable OIDC**. It applies at once. Never expose the client secret in the browser or commit it; see [OIDC authentication](OIDC_AUTH.md) and the Keycloak example in the [Unraid guide](UNRAID.md).
+5. Sign in once through OIDC with the person who should administer, then in **Settings, Users** promote them. New OIDC sign-ins default to viewer unless **New people** (the default role: viewer or requester) says otherwise; a login never grants admin automatically.
 6. For a forgotten local administrator password, use the recovery command above.
+
+If you set `REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID` and
+`REQUESTARR_OIDC_CLIENT_SECRET` in the environment instead, Settings,
+Authentication shows them as set by the environment and read-only; anything
+saved in the app is ignored and the card says so (with **Discard saved
+settings**). If only some of the three are set the card names the missing ones
+and OIDC stays off. The local administrator keeps working in every case.
 
 ## Secrets
 

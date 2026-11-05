@@ -30,7 +30,7 @@ trap 'rm -rf "$work"' EXIT
 failures=0
 fail() { echo "FAIL: $*" >&2; failures=$((failures + 1)); }
 
-# The removed first-administrator claim flow (D040). Split so this file does not match itself.
+# The retired enrolment of the first person who signs in (D040). Split so this file does not match itself.
 old_flow='setup[-_ ]?tok''en|claim-ad''min|claim (the )?(first )?ad''min|first-ad''min'
 
 # Fixture values: shaped like real ones so resolution can be asserted; fake.
@@ -352,6 +352,18 @@ mutate_template "a description without a purpose" '/Target="REQUESTARR_PUBLIC_UR
 # The template must also notice a compose file that gained a setting.
 sed 's#^\(      REQUESTARR_PUBLIC_URL:.*\)#\1\n      REQUESTARR_NEW_SETTING: ${REQUESTARR_NEW_SETTING:-x}#' "$compose" > "$work/extra.yaml"
 expect_rejected "a compose setting with no template field" check_template "$template" "$work/extra.yaml"
+
+# ---- Section: the retired enrolment flow is gone from documents and scripts ----
+# Only a decision record (docs/DECISIONS.md) and .scratch/ may mention it, as history.
+check_no_old_flow() { # root
+  local root=$1 hits
+  hits="$(cd "$root" && grep -rIlE "$old_flow" README.md .env.example docs deploy scripts prompts AGENTS.md CLAUDE.md GLOSSARY.md 2>/dev/null | grep -v '^docs/DECISIONS.md$' || true)"
+  if [[ -n $hits ]]; then echo "FAIL: the removed claim flow is still mentioned in: $hits" >&2; return 1; fi
+}
+check_no_old_flow "$PWD" || failures=$((failures + 1))
+mkdir -p "$work/tree/docs" "$work/tree/scripts"
+echo 'Run setup-tok''en first.' > "$work/tree/docs/X.md"
+expect_rejected "a guide that still mentions the removed claim flow" check_no_old_flow "$work/tree"
 
 # ---- Section: guide ----------------------------------------------------------
 # Every REQUESTARR_* name docs/UNRAID.md mentions must be read by the configuration

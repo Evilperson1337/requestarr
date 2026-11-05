@@ -6,6 +6,8 @@ The server provides OIDC authorization-code login at `/api/v1/auth/login`, callb
 
 OIDC is optional at startup. Set a unique `REQUESTARR_SESSION_HMAC_SECRET` of at least 32 bytes. To configure OIDC using deployment overrides, set all three of `REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID` and `REQUESTARR_OIDC_CLIENT_SECRET`; otherwise use the runtime Authentication API described below. Set `REQUESTARR_PUBLIC_URL` to the externally reachable canonical origin; register its exact callback URL with the provider. HTTPS is required in deployment so cookies are Secure. POST requests require the matching Origin and `X-CSRF-Token` obtained from `/me`; the CSRF cookie is intentionally readable by the same-origin UI.
 
+The scopes requested are `openid`, `profile` and `email` (fixed in `internal/auth/oidc`; there is no scope or groups setting). The provider needs a confidential client (client authentication on) with the standard authorization-code flow and the redirect address shown in Settings, Authentication. A worked Keycloak example is in the [Unraid guide](UNRAID.md). Without OIDC configured, startup still succeeds and the local administrator signs in at `/login`; a person who signs in through OIDC is promoted in Settings, Users.
+
 Authentication configuration does not grant an administrator role. PostgreSQL integration checks require a disposable database; app startup applies migrations.
 
 ## Runtime Authentication API (D040)

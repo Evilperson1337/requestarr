@@ -1,18 +1,19 @@
 # Installing Requestarr on Unraid
 
-This guide takes you from nothing to a running Requestarr that you can sign in to and connect to your media library. It assumes you run Unraid and have never seen Requestarr before. Words with a special meaning here (Source, Stored secret, Master key, Private host) are explained in [`GLOSSARY.md`](../GLOSSARY.md).
+This guide takes you from nothing to a running Requestarr that you have signed in to and connected to your identity provider and your media library. It assumes you run Unraid and have never seen Requestarr before. Words with a special meaning here (Source, Stored secret, Master key, Private host) are explained in [`GLOSSARY.md`](../GLOSSARY.md).
 
 Requestarr is a shared request portal: people ask for a movie, show, album, audiobook or game once, and everyone who wants it is told when it shows up in your library. It never downloads anything.
 
 ## 1. What you must bring
 
-Requestarr is one container. It does **not** include any of these three things, on purpose, so that it does not guess at how your network is built:
+Requestarr is one container. It does **not** include either of these two things, on purpose, so that it does not guess at how your network is built:
 
-1. **PostgreSQL.** All of Requestarr's data lives in one PostgreSQL database. Run a recent PostgreSQL as another container (Community Applications has several), or use the compose file in step 4, which includes one.
-2. **A reverse proxy that serves Requestarr over https.** This is a small web server in front of Requestarr (Nginx Proxy Manager, SWAG, Caddy, Traefik and so on) that holds a certificate for a name such as `https://requests.example.com` and forwards to Requestarr's web port.
-3. **An OIDC identity provider reachable over https.** This is the service that signs people in (Keycloak, Authentik, Authelia, Pocket ID and so on). Requestarr has no passwords of its own.
+1. **PostgreSQL.** All of Requestarr's data lives in one PostgreSQL database. Run a recent PostgreSQL as another container (Community Applications has several), or use the compose file in step 3, which includes one.
+2. **A reverse proxy that serves Requestarr over https.** This is a small web server in front of Requestarr (Nginx Proxy Manager, SWAG, Caddy, Traefik and so on) that holds a certificate for a name such as `https://requests.example.com` and forwards to Requestarr's web port. It is a prerequisite, not an extra: see the next paragraph.
 
-**Why https is required.** The *public URL* (the address people type) and the identity provider's address (the *issuer*) must start with `https://`. Sign-in cookies are only marked secure when the public URL is https, and the sign-in exchange carries codes and tokens that anyone on the network path could copy over plain http. So Requestarr refuses to start with an `http://` public URL or issuer rather than run unsafely.
+You do **not** need an identity provider to install. On a fresh database Requestarr creates one built-in **local administrator** (username `admin`) and prints a one-time password in the container log. You sign in with it first, and only then connect an OIDC identity provider (Keycloak, Authentik, Authelia, Pocket ID and so on) in Settings, Authentication (step 5). Everyone else signs in through that provider; the local administrator is the only password account.
+
+**Why https is required, and why a password makes it matter more.** The *public URL* (the address people type) must start with `https://`, and so must the identity provider's address (the *issuer*). Requestarr's sign-in cookies are marked *Secure*, which tells the browser to send them only over https, so over plain `http://` a browser would not keep your sign-in at all. And a password typed on a plain `http://` page, like the codes and tokens of an OIDC sign-in, can be read by anyone on the network path. So Requestarr refuses to start with an `http://` public URL or issuer rather than run unsafely. The local administrator password is the reason a TLS reverse proxy must be in place before you first sign in, not after.
 
 The template and the compose file set `REQUESTARR_ENV` to `production` for you. That variable switches on these https checks, and the library address rule in step 7, and it must stay `production` on a real server (the application's own default, `development`, switches them off and is for developers only).
 
@@ -49,27 +50,11 @@ Two details:
 - A container name as the host only works when both containers are on the same **user-defined Docker network**. Unraid's default `bridge` network does *not* resolve names. Create a network if you have none (`docker network create requestarr`), then set each container's Network Type to `Custom: requestarr`. Otherwise use the server's LAN address and the PostgreSQL port as the host and port.
 - The optional SSL mode (`REQUESTARR_DB_SSLMODE`, one of `disable`, `allow`, `prefer`, `require`, `verify-ca` or `verify-full`) can stay empty for a database on the same server; use `require` or stronger if the traffic crosses a network you do not control.
 
-## 3. Create the sign-in client (Keycloak example)
-
-In your identity provider you register Requestarr as a *client*. The steps below are for Keycloak; the generic rules follow them.
-
-1. In the Admin Console pick (or create) the realm you want, for example `requestarr`.
-2. **Clients > Create client.** Client type `OpenID Connect`, Client ID `requestarr`. Next.
-3. Turn **Client authentication** on (this makes it a confidential client, one that has a secret) and keep **Standard flow** ticked. Untick Direct access grants. Next.
-4. **Valid redirect URIs**: your public URL followed by `/api/v1/auth/callback`, exactly, for example `https://requests.example.com/api/v1/auth/callback`. No wildcard. Save.
-5. On the **Credentials** tab copy the **Client secret**. You will paste it into Requestarr.
-6. Leave the default client scopes as they are. Requestarr asks for the standard scopes `openid`, `profile` and `email` and needs nothing custom (no groups, no roles). Requestarr decides who is an admin itself (step 6), not the identity provider.
-7. Create or choose users for OIDC sign-in. An existing Requestarr administrator promotes them in Settings, Users; no identity-provider user ID needs to be copied.
-
-Your **issuer** for Keycloak is `https://id.example.com/realms/requestarr` (your Keycloak address, then `/realms/`, then the realm name). You can check it by opening `<issuer>/.well-known/openid-configuration` in a browser; it should show a page of JSON.
-
-**Any other OIDC provider** needs the same four things: an https issuer URL, a client ID, a client secret (a confidential client using the authorization-code flow), and the redirect URI `<public URL>/api/v1/auth/callback` registered exactly. The provider must put a stable `sub` (subject) in the ID token, which every compliant provider does.
-
-## 4. Install Requestarr
+## 3. Install Requestarr
 
 Pick one of two paths. Both pull the published image `ghcr.io/evilperson1337/requestarr`. While only pre-releases exist, both are pinned to an exact pre-release tag (such as `v0.1.0-rc.3`) instead of `latest`, so that you run the build that was tested.
 
-### First, generate the two secrets
+### First, generate the two required secrets
 
 Run these in the Unraid terminal and keep each output; you will paste them in.
 
@@ -105,14 +90,15 @@ If the master key is not valid, Requestarr stops at start and the container log 
    | Database Host, Port, Name, User, Password | The values from step 2. The password field is masked. |
    | Database SSL Mode, Database URL (override) | Leave empty (advanced). |
    | Public URL | `https://requests.example.com` (https, no path). |
-   | OIDC Issuer, Client ID, Client Secret | From step 3. |
+   | Initial Administrator Password | Leave empty to get a random one-time password in the container log (recommended). Or choose one of 12 to 128 characters; it is masked, used only on a fresh database, and you must change it at first sign-in. |
+   | OIDC Issuer, Client ID, Client Secret (override) | Leave all three empty (advanced). You set OIDC up in the app in step 5. Fill them only if you want the environment to control OIDC; see the note after this table. |
    | Session Secret | The first generated value. |
    | Master Key | The second generated value. |
    | Environment | Leave `production` (advanced). |
    | Log Level | Leave `info`. |
    | Extra Private Networks | Optional; see step 7. |
 
-   The secret fields are masked and have no default, so the template will not accept them empty. There is no appdata folder: Requestarr stores nothing on the flash drive or array itself.
+   If you do set any one of the three OIDC override fields, all three come from the environment and they override anything saved in Settings, Authentication (step 6 explains what you then see). The required secret fields are masked and have no default, so the template will not accept them empty. There is no appdata folder: Requestarr stores nothing on the flash drive or array itself.
 
 4. Click **Apply**. Unraid pulls the image and starts it.
 
@@ -126,7 +112,7 @@ curl -fsSLO https://raw.githubusercontent.com/evilperson1337/requestarr/main/dep
 curl -fsSL https://raw.githubusercontent.com/evilperson1337/requestarr/main/deploy/unraid/requestarr.env.example -o requestarr.env
 ```
 
-Edit `requestarr.env` and replace every `CHANGE_ME` value (the example values are deliberately rejected by the server). Then start it:
+Edit `requestarr.env` and replace every `CHANGE_ME` value (the example values are deliberately rejected by the server). The OIDC lines and `REQUESTARR_ADMIN_PASSWORD` in that file are optional and commented out; leave them so. Then start it:
 
 ```sh
 docker compose --env-file requestarr.env up -d
@@ -138,39 +124,75 @@ Compose refuses to start while any required value is missing. Keep `requestarr.e
 
 The container shows as **healthy** in the Docker tab (or `docker ps`) only when Requestarr is ready, which includes reaching its database. If it never turns healthy, read the log (Docker tab, the container's icon, Logs; or `docker logs <name>`). The log shows migrations being applied and any configuration problem by variable name, for example `REQUESTARR_PUBLIC_URL must use https outside development`.
 
-Point your reverse proxy at `http://<server address>:8080`, then open your public URL. You should see the sign-in page.
+Point your reverse proxy at `http://<server address>:8080`, then open your public URL. You should see the sign-in page (with no OIDC set up yet it is the administrator form).
 
-**SWAG.** If you use the SWAG container, copy [`deploy/swag/requestarr.subdomain.conf.sample`](../deploy/swag/requestarr.subdomain.conf.sample) into SWAG's `config/nginx/proxy-confs/`, rename it to `requestarr.subdomain.conf`, and restart SWAG. It expects the Requestarr container to be named `requestarr`, to share a user-defined Docker network with SWAG, and your DNS to have a `requestarr` name. Leave SWAG's own login includes (Authelia, Authentik and so on) off: Requestarr signs people in with your OIDC provider itself. Whatever proxy you use, it must pass the `Host` and `Origin` headers through unchanged, because Requestarr checks every POST against your public URL.
+**SWAG.** If you use the SWAG container, copy [`deploy/swag/requestarr.subdomain.conf.sample`](../deploy/swag/requestarr.subdomain.conf.sample) into SWAG's `config/nginx/proxy-confs/`, rename it to `requestarr.subdomain.conf`, and restart SWAG. It expects the Requestarr container to be named `requestarr`, to share a user-defined Docker network with SWAG, and your DNS to have a `requestarr` name. Leave SWAG's own login includes (Authelia, Authentik and so on) off: Requestarr signs people in itself (the local administrator now, your OIDC provider once you set it up). Whatever proxy you use, it must pass the `Host` and `Origin` headers through unchanged, because Requestarr checks every POST against your public URL.
 
-## 5. Sign in, and what role new users get
+## 4. Sign in for the first time
 
-Everyone who signs in for the first time is a **viewer**: they can browse and use Notify Me but cannot create requests. No OIDC sign-in becomes an admin automatically; the built-in local administrator is separate. An admin promotes people to `requester` (can request) afterwards. Tell your users to expect this.
+On a fresh database, Requestarr creates the local administrator when it starts and writes the one-time password to the container log, once.
 
-## 6. Sign in as the local administrator, and recover access
+1. In Unraid open the **Docker** tab, click the Requestarr container's icon and choose **Logs** (or run `docker logs <name>`).
+2. Find the line that starts `Requestarr created the local administrator. Sign in as 'admin' at https://requests.example.com/login with the one-time password in this line`. The password is the value of `one_time_password=` at the end of that line. Anyone who can read the log can read it, so do not paste the line into a chat or a ticket.
+   - If you set the Initial Administrator Password (`REQUESTARR_ADMIN_PASSWORD`) instead, the line says the account was created with the password from that variable and shows no password; use the value you set.
+   - The line is written only when the account is created, which is the first start on an empty database. If you missed it, use the recovery command in step 6.
+3. Open your public address at `/login`, for example `https://requests.example.com/login`. Sign in as `admin` with that password.
+4. Requestarr asks you to **Choose a new password** (12 to 128 characters, no other rules) before it lets you do anything else. Choose one and keep it in a password manager.
 
-On a fresh database, read the local administrator's one-time password in the
-Unraid Docker log view. Open your HTTPS public URL at `/login`, sign in with
-username `admin`, and choose a new password before continuing. If
-`REQUESTARR_ADMIN_PASSWORD` supplied the initial password, use that value; it
-is not logged. Open **Get started** for links to the live Settings.
+You are now signed in as an administrator. The **Get started** page lists what is still open and links to the Settings that fix it; see [First-run setup](FIRST_RUN.md).
 
-To recover a forgotten password, use the Unraid host terminal, not the
-container Console button (the image has no shell):
+## 5. Set up OIDC for everyone else (Keycloak example)
+
+OIDC is configured in the app, not in the container settings. In your identity provider you register Requestarr as a *client*; then you enter its details in **Settings, Authentication**. The steps below are for Keycloak; the generic rules follow them.
+
+1. In the Keycloak Admin Console pick (or create) the realm you want, for example `requestarr`.
+2. **Clients > Create client.** Client type `OpenID Connect`, Client ID `requestarr`. Next.
+3. Turn **Client authentication** on (this makes it a confidential client, one that has a secret) and keep **Standard flow** ticked. Untick Direct access grants. Next.
+4. **Valid redirect URIs**: the exact **Redirect address** shown in Settings, Authentication, which is your public URL followed by `/api/v1/auth/callback`, for example `https://requests.example.com/api/v1/auth/callback`. The **Copy redirect address** button there copies it. No wildcard. Save.
+5. On the **Credentials** tab copy the **Client secret**.
+6. Leave the default client scopes as they are. Requestarr requests exactly the standard scopes `openid`, `profile` and `email` and needs nothing custom (no groups, no roles). Requestarr decides who is an administrator itself (below), not the identity provider.
+
+In Requestarr open **Settings**, then the **Authentication** section, and in the **OpenID Connect** card fill in:
+
+| Field | Value |
+| --- | --- |
+| Provider name | Shown on the sign-in button, for example `Keycloak` |
+| Client ID | `requestarr` |
+| Issuer | `https://id.example.com/realms/requestarr` (your Keycloak address, then `/realms/`, then the realm name) |
+| Client secret | The secret from the Credentials tab. It is stored encrypted with the master key and never shown again; leave it blank later to keep the saved one. |
+
+Then:
+
+1. Press **Save OIDC settings**.
+2. Press **Test OIDC connection**. It contacts the issuer and checks its published settings. It does **not** prove that the client secret is right or that a person can sign in; the next steps prove that.
+3. Switch on **Enable OIDC**. The status then reads `On · <provider name>`. Changes apply at once; there is no restart.
+4. Open a private browser window and your public address. It now offers **Sign in with** your provider name. Sign in once with the account you want to make an administrator. The first time, that person is a **viewer**.
+
+You can check the issuer in a browser by opening `<issuer>/.well-known/openid-configuration`; it should show a page of JSON.
+
+**Any other OIDC provider** needs the same things: an https issuer URL, a client ID, a client secret (a confidential client using the authorization-code flow), and the redirect address from Settings, Authentication registered exactly. The provider must put a stable `sub` (subject) in the ID token, which every compliant provider does.
+
+If OIDC breaks later (the provider is down, a secret expired), the administrator form at `/login` keeps working, so OIDC cannot lock you out. The OIDC sign-in page also carries an **Administrator sign-in** link.
+
+### Promote the first OIDC person, and the role new people get
+
+No OIDC sign-in becomes an administrator automatically. Back in the administrator session, open **Settings, Users**, find the person in **User management** and change their role to `admin` (or `requester`, who can create requests). The local administrator is shown with a **Local administrator** badge and "Always administrator"; its role cannot be changed. You do not need the person's identity-provider user ID.
+
+Everyone else who signs in for the first time is a **viewer**: they can browse and use Notify Me but cannot create requests. In the same tab, **New people** has the setting *Role for people who sign in for the first time*, either `viewer` (the default) or `requester`; it never applies to people who already have an account and cannot be administrator. Every administrator is notified when someone signs in for the first time.
+
+## 6. Recover access, and the other ways OIDC can be set
+
+**Forgotten local administrator password.** Use the Unraid terminal (or any shell on the server), not the container's Console button (the image has no shell):
 
 ```sh
 docker exec <container-name> /requestarr reset-admin-password
 ```
 
-`<container-name>` is what `docker ps` lists (`Requestarr` for the template).
-The command uses the container's database configuration. It prints one random
-password, never its hash; do not paste it or credential-bearing logs into a
-support ticket. All local administrator sessions end and the next sign-in
-forces another change. The command fails clearly without creating an account
-if the local administrator does not exist, and does not enable a disabled one.
-An upgrade with existing users creates no local account automatically.
+`<container-name>` is what `docker ps` lists (`Requestarr` for the template). The command uses the container's own database settings, prints one new random password and nothing else, ends all of the local administrator's sessions and forces a change at the next sign-in. Keep the printed password private and do not paste it into a support ticket. It does not create the account if it does not exist (it says so) and does not re-enable a disabled one.
 
-People who sign in through OIDC become admin only when an existing admin
-promotes them in **Settings, Users**. Their OIDC subject is not needed for this.
+**OIDC set in the environment.** If you set the OIDC override fields (`REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID`, `REQUESTARR_OIDC_CLIENT_SECRET`), Settings, Authentication shows the card as **Set by environment** and read-only. If any one of the three is set, all three are taken from the environment and anything saved in the app is ignored; the card then says **Saved settings are ignored**, lists which saved values differ, and offers **Discard saved settings**. If only some of the three are set, the card says the environment configuration is incomplete and names the missing variables; OIDC stays off until all three are set. To manage OIDC in the app again, remove the three variables and restart the container.
+
+**Upgrading an existing instance.** An instance that already has users gets no local administrator automatically, and an OIDC configuration in its environment keeps working unchanged. An existing administrator can create the local administrator in **Settings, Authentication** with **Create local administrator**: the password is shown once on screen and must be changed at first sign-in. The same card can disable and re-enable the account and change its password.
 
 ## 7. Connect a library
 
@@ -202,6 +224,8 @@ Anything else, such as `plex.example.com`, must use `https://`, so that a librar
 | --- | --- |
 | Container restarts; log names a `REQUESTARR_` variable | That value is missing or invalid; the log says which. |
 | Container never becomes healthy | It cannot reach PostgreSQL. Check the database host, port, user and password, and that container names resolve (step 2). |
-| The provider reports an invalid redirect | The redirect URI registered there is not exactly `<public URL>/api/v1/auth/callback`. |
+| The provider reports an invalid redirect | The redirect URI registered there is not exactly the Redirect address shown in Settings, Authentication (`<public URL>/api/v1/auth/callback`). |
+| I cannot find the one-time password | It is logged once, when the account is created on a fresh database. Run `reset-admin-password` (step 6). |
+| Signing in at `/login` does not stick | The public address is not https, so the browser drops the Secure cookie. |
 | A saved credential reports "stored secret unreadable" | The master key changed. Restore the original key or enter the credential again. |
 | A library address is rejected | The message says whether to use https or to add the network (step 7). |
