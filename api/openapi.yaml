@@ -726,7 +726,17 @@ paths:
       operationId: listAdminUsers
       summary: List users and their roles (administrator only)
       responses:
-        '200': { description: Users with id, email, displayName, role (viewer, requester or admin) and createdAt }
+        '200':
+          description: Users with id, email, displayName, role (viewer, requester or admin), builtin and createdAt; the local administrator is listed first with builtin true
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminUser' }
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
   /admin/settings/people:
@@ -820,7 +830,7 @@ paths:
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
         '404': { description: User not found }
-        '409': { description: Cannot change your own role, or cannot demote the last administrator; nothing is changed }
+        '409': { description: "Cannot change your own role (self_role_change), cannot demote the last administrator (last_admin), or the target is the local administrator, whose role is always admin and is refused even for admin (builtin_admin_role); nothing is changed" }
   /library/recent:
     get:
       operationId: listRecentlyAddedToLibraries
@@ -1561,6 +1571,17 @@ components:
         exists: { type: boolean }
         disabled: { type: boolean }
         canDisable: { type: boolean }
+    AdminUser:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName, role, builtin, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        displayName: { type: string }
+        role: { type: string, enum: [viewer, requester, admin] }
+        builtin: { type: boolean, description: True only for the local administrator, whose role is locked to admin }
+        createdAt: { type: string, format: date-time }
     SignInOptions:
       type: object
       additionalProperties: false
