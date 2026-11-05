@@ -67,7 +67,7 @@ Your **issuer** for Keycloak is `https://id.example.com/realms/requestarr` (your
 
 ## 4. Install Requestarr
 
-Pick one of two paths. Both pull the published image `ghcr.io/evilperson1337/requestarr`. While only pre-releases exist, both are pinned to an exact pre-release tag (such as `v0.1.0-rc.1`) instead of `latest`, so that you run the build that was tested.
+Pick one of two paths. Both pull the published image `ghcr.io/evilperson1337/requestarr`. While only pre-releases exist, both are pinned to an exact pre-release tag (such as `v0.1.0-rc.3`) instead of `latest`, so that you run the build that was tested.
 
 ### First, generate the two secrets
 

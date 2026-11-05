@@ -15,7 +15,7 @@ dir=deploy/unraid
 compose=$dir/compose.yaml
 example=$dir/requestarr.env.example
 template=$dir/requestarr.xml
-pinned_tag=v0.1.0-rc.1
+pinned_tag=v0.1.0-rc.3
 # Independent list of what an operator must supply (the spec's settings).
 required=(REQUESTARR_TAG POSTGRES_PASSWORD REQUESTARR_PUBLIC_URL REQUESTARR_OIDC_ISSUER
   REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
