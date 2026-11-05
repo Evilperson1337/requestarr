@@ -12,14 +12,14 @@ Requestarr is **request + availability + notification software**. It must not ac
 2. One shared request per canonical item. No vote count and no duplicate per-user request rows.
 3. The creator is automatically subscribed; other authenticated users may choose **Notify Me**.
 4. Requests are visible to all authenticated users. `My Requests` is a filter only.
-5. OIDC is required. Keycloak is the primary tested provider. Do not add permanent local-password authentication as a shortcut.
+5. People sign in through OIDC; Keycloak is the primary tested provider. The one exception is the built-in **local administrator** (D040): a single password account that exists so a new instance can be set up and recovered without an identity provider. Do not add any other local-password account or any other way to sign in.
 6. Apprise API is the external notification integration. In-app notifications remain native.
 7. Libraries are authoritative for availability, not metadata providers and not acquisition tools.
 8. Preserve artwork aspect ratio: posters for movie/TV/game; square for album/song/audiobook.
 9. Game platform options come dynamically from IGDB and are multi-select OR semantics. `Any` is first and mutually exclusive with explicit selections.
 10. External services must not block routine UI rendering. Prefer local state, background jobs, caching, and stale-but-known data.
 11. Temporary library failures must never mass-mark previously available content missing.
-12. First-run setup is the OIDC-only admin claim followed by a live Get started checklist that links to Settings and asks for no values itself (D038). The draft setup wizard was retired; do not reintroduce inactive drafts.
+12. First-run setup is signing in as the local administrator, then a live Get started checklist that links to Settings and asks for no values itself (D038, D040). The draft setup wizard was retired; do not reintroduce inactive drafts.
 
 ## Engineering rules
 

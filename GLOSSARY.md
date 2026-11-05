@@ -87,3 +87,7 @@ _Avoid_: Issue type, severity
 **Private host**:
 A Source address that is, by its form alone, on a local or private network: a private or loopback IP, a single-label name, or a name ending in a local suffix the operator allows. Only a Source on a private host may be reached without https.
 _Avoid_: Local server, LAN address
+
+**Local administrator**:
+The single built-in account that signs in with a password instead of through OIDC. It exists so a new instance can be set up, and recovered when OIDC is misconfigured, without an identity provider. It is the only account with a local password and always has the admin role.
+_Avoid_: Root, superuser, default user, local user
