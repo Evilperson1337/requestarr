@@ -24,7 +24,7 @@ You need an empty database and a user that owns it. If your PostgreSQL container
 docker exec -it postgres psql -U postgres
 ```
 
-Then, at the `postgres=#` prompt (choose your own password; letters and digits are safest because it goes inside a URL):
+Then, at the `postgres=#` prompt (choose your own password; any characters are fine):
 
 ```sql
 CREATE USER requestarr WITH PASSWORD 'choose-a-password';
@@ -32,18 +32,22 @@ CREATE DATABASE requestarr OWNER requestarr;
 \q
 ```
 
-Your **database URL** is made of the user, password, container name, port and database name:
+Requestarr takes the database as five separate settings, so you fill in what you just created:
 
-```
-postgres://requestarr:choose-a-password@postgres:5432/requestarr?sslmode=disable
-```
+| Setting | Value |
+| --- | --- |
+| Host (`REQUESTARR_DB_HOST`) | `postgres`, the container name of your PostgreSQL container |
+| Port (`REQUESTARR_DB_PORT`) | `5432` (the default; leave it unless your database uses another) |
+| Name (`REQUESTARR_DB_NAME`) | `requestarr` |
+| User (`REQUESTARR_DB_USER`) | `requestarr` |
+| Password (`REQUESTARR_DB_PASSWORD`) | the password you chose; Requestarr escapes it itself, so any characters work |
+
+There is also an optional `REQUESTARR_DATABASE_URL` setting that takes one complete connection URL instead; when it is set it replaces the five settings above, so most installs leave it empty.
 
 Two details:
 
-- `postgres` after the `@` is the container name. A container name only works as an address when both containers are on the same **user-defined Docker network**. Unraid's default `bridge` network does *not* resolve names. Create a network if you have none (`docker network create requestarr`), then set each container's Network Type to `Custom: requestarr`. Otherwise use the server's LAN address and the PostgreSQL port in place of `postgres:5432`.
-- Characters such as `@`, `/` or `#` in the password must be percent-encoded inside the URL. Letters and digits avoid the problem.
-
-`sslmode=disable` is fine for a database on the same server; use `require` if the traffic crosses a network you do not control.
+- A container name as the host only works when both containers are on the same **user-defined Docker network**. Unraid's default `bridge` network does *not* resolve names. Create a network if you have none (`docker network create requestarr`), then set each container's Network Type to `Custom: requestarr`. Otherwise use the server's LAN address and the PostgreSQL port as the host and port.
+- The optional SSL mode (`REQUESTARR_DB_SSLMODE`, one of `disable`, `allow`, `prefer`, `require`, `verify-ca` or `verify-full`) can stay empty for a database on the same server; use `require` or stronger if the traffic crosses a network you do not control.
 
 ## 3. Create the sign-in client (Keycloak example)
 
@@ -98,7 +102,8 @@ If the master key is not valid, Requestarr stops at start and the container log 
    | --- | --- |
    | Network Type | `bridge` is fine if PostgreSQL is reached by LAN address. Choose your user-defined network to reach containers by name. |
    | Web Port | `8080`, unless another container uses it. Your reverse proxy points here. |
-   | Database URL | The URL from step 2. |
+   | Database Host, Port, Name, User, Password | The values from step 2. The password field is masked. |
+   | Database SSL Mode, Database URL (override) | Leave empty (advanced). |
    | Public URL | `https://requests.example.com` (https, no path). |
    | OIDC Issuer, Client ID, Client Secret | From step 3. |
    | Session Secret | The first generated value. |
@@ -113,7 +118,7 @@ If the master key is not valid, Requestarr stops at start and the container log 
 
 ### Path B: Docker Compose (a first try, or the Compose Manager plugin)
 
-The compose file starts Requestarr and its own PostgreSQL together, so step 2 is done for you. On the server:
+The compose file starts Requestarr and its own PostgreSQL together, so step 2 is done for you: it creates the `requestarr` database and user with the password you put in `requestarr.env`, and passes the host, port, name, user and password to Requestarr itself. On the server:
 
 ```sh
 mkdir -p /mnt/user/appdata/requestarr && cd /mnt/user/appdata/requestarr
@@ -195,7 +200,7 @@ Anything else, such as `plex.example.com`, must use `https://`, so that a librar
 | Symptom | Likely cause |
 | --- | --- |
 | Container restarts; log names a `REQUESTARR_` variable | That value is missing or invalid; the log says which. |
-| Container never becomes healthy | It cannot reach PostgreSQL. Check the database URL and that container names resolve (step 2). |
+| Container never becomes healthy | It cannot reach PostgreSQL. Check the database host, port, user and password, and that container names resolve (step 2). |
 | The provider reports an invalid redirect | The redirect URI registered there is not exactly `<public URL>/api/v1/auth/callback`. |
 | A saved credential reports "stored secret unreadable" | The master key changed. Restore the original key or enter the credential again. |
 | A library address is rejected | The message says whether to use https or to add the network (step 7). |

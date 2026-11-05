@@ -19,6 +19,8 @@ pinned_tag=v0.1.0-rc.1
 # Independent list of what an operator must supply (the spec's settings).
 required=(REQUESTARR_TAG POSTGRES_PASSWORD REQUESTARR_PUBLIC_URL REQUESTARR_OIDC_ISSUER
   REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
+# Database settings the template must ask for (the compose file derives them).
+db_required=(REQUESTARR_DB_HOST REQUESTARR_DB_NAME REQUESTARR_DB_USER REQUESTARR_DB_PASSWORD)
 secrets=(POSTGRES_PASSWORD REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
 
 work="$(mktemp -d)"
@@ -68,6 +70,23 @@ if "healthcheck" in r:
     errs.append("requestarr must use the image health check, not its own")
 if r.get("environment", {}).get("REQUESTARR_ENV") != "production":
     errs.append("requestarr must set REQUESTARR_ENV=production, got %r" % r.get("environment", {}).get("REQUESTARR_ENV"))
+env = r.get("environment", {})
+penv = p.get("environment", {})
+if "REQUESTARR_DATABASE_URL" in env:
+    errs.append("requestarr must get the database as separate settings, not REQUESTARR_DATABASE_URL")
+for k, v in env.items():
+    if "://" in str(v) and "@" in str(v):
+        errs.append("%s looks like a URL carrying credentials" % k)
+if env.get("REQUESTARR_DB_HOST") != "postgres" or "postgres" not in svc:
+    errs.append("REQUESTARR_DB_HOST must be the postgres service name, got %r" % env.get("REQUESTARR_DB_HOST"))
+if env.get("REQUESTARR_DB_PORT") != "5432":
+    errs.append("REQUESTARR_DB_PORT must be 5432, got %r" % env.get("REQUESTARR_DB_PORT"))
+if not env.get("REQUESTARR_DB_NAME") or env.get("REQUESTARR_DB_NAME") != penv.get("POSTGRES_DB"):
+    errs.append("REQUESTARR_DB_NAME must be the database the postgres service creates")
+if not env.get("REQUESTARR_DB_USER") or env.get("REQUESTARR_DB_USER") != penv.get("POSTGRES_USER"):
+    errs.append("REQUESTARR_DB_USER must be the user the postgres service creates")
+if not env.get("REQUESTARR_DB_PASSWORD") or env.get("REQUESTARR_DB_PASSWORD") != penv.get("POSTGRES_PASSWORD"):
+    errs.append("REQUESTARR_DB_PASSWORD must be the postgres service password")
 vols = [v for v in p.get("volumes", []) if v.get("target") == "/var/lib/postgresql/data"]
 if not vols or vols[0].get("type") != "volume" or not vols[0].get("source"):
     errs.append("postgres data must be on a named volume")
@@ -116,6 +135,8 @@ check_example() { # example-file
   for key in "${required[@]}"; do
     if ! grep -Eq "^$key=" "$ex"; then echo "FAIL: $ex has no $key= line" >&2; rc=1; fi
   done
+  if grep -Eq 'DATABASE_URL|postgres://' "$ex"; then echo "FAIL: $ex must not build or mention a database URL" >&2; rc=1; fi
+  if grep -Eiq 'letters and digits|percent-encod' "$ex"; then echo "FAIL: $ex still restricts the database password to letters and digits" >&2; rc=1; fi
   [[ $(sed -n 's/^REQUESTARR_TAG=//p' "$ex") == "$pinned_tag" ]] || { echo "FAIL: $ex must set REQUESTARR_TAG=$pinned_tag" >&2; rc=1; }
   for key in "${secrets[@]}"; do
     v="$(sed -n "s/^$key=//p" "$ex" | head -n1)"
@@ -154,7 +175,7 @@ check_template() { # template-file [compose-file]
     xmllint --noout "$t" 2>/dev/null || { echo "FAIL: $t is not well-formed XML" >&2; return 1; }
   fi
   TEMPLATE="$t" PINNED="$pinned_tag" PROJECT="$project_url" TEMPLATE_URL="$template_url" \
-    COMPOSE_ENV="$(compose_env_names "$c")" REQUIRED="${required[*]}" SECRETS="${secrets[*]}" CONFIG=internal/config/config.go \
+    COMPOSE_ENV="$(compose_env_names "$c")" REQUIRED="${required[*]}" DB_REQUIRED="${db_required[*]}" SECRETS="${secrets[*]}" CONFIG=internal/config/config.go \
     python3 -I "$PWD/scripts/deploy-template-check.py"
 }
 
@@ -191,6 +212,20 @@ mutate "$compose" "$work/floating.yaml" REQUESTARR_TAG latest
 expect_rejected "a floating tag" check_tag_pinned "$work/floating.yaml"
 mutate "$compose" "$work/floating.yaml" REQUESTARR_TAG '${REQUESTARR_TAG:-latest}'
 expect_rejected "a defaulted tag" check_no_defaults "$work/floating.yaml"
+sed 's#^\( *REQUESTARR_DB_PASSWORD:.*\)#\1\n      REQUESTARR_DATABASE_URL: postgres://u:p@postgres:5432/requestarr#' "$compose" > "$work/mut.yaml"
+expect_rejected "a compose file that also sets a database URL" check_compose "$work/mut.yaml"
+sed 's#^\( *REQUESTARR_DB_HOST:\).*#\1 elsewhere#' "$compose" > "$work/mut.yaml"
+expect_rejected "a compose file with a wrong database host" check_compose "$work/mut.yaml"
+sed 's#^\( *REQUESTARR_DB_USER:\).*#\1 other#' "$compose" > "$work/mut.yaml"
+expect_rejected "a compose file with a wrong database user" check_compose "$work/mut.yaml"
+sed 's#^\( *REQUESTARR_DB_PASSWORD:\).*#\1 hardcoded#' "$compose" > "$work/mut.yaml"
+expect_rejected "a compose file with a different database password" check_compose "$work/mut.yaml"
+grep -v '^ *REQUESTARR_DB_NAME:' "$compose" > "$work/mut.yaml"
+expect_rejected "a compose file without a database name" check_compose "$work/mut.yaml"
+{ cat "$example"; echo 'REQUESTARR_DATABASE_URL=postgres://u:p@postgres/requestarr'; } > "$work/short.env.example"
+expect_rejected "an example that builds a database URL" check_example "$work/short.env.example"
+{ cat "$example"; echo '# Use letters and digits only.'; } > "$work/short.env.example"
+expect_rejected "an example that restricts the password" check_example "$work/short.env.example"
 for key in "${required[@]}"; do
   grep -v "^$key=" "$example" > "$work/short.env.example" 2>/dev/null || true
   expect_rejected "an example missing $key" check_example "$work/short.env.example"
@@ -203,13 +238,36 @@ mutate_template() { # description sed-expression
   if cmp -s "$template" "$work/mutant.xml"; then fail "template mutation did not apply: $what"; return; fi
   expect_rejected "$what" check_template "$work/mutant.xml"
 }
-for key in REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_DATABASE_URL; do
+for key in REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_DB_PASSWORD; do
   mutate_template "unmasked $key" "/Target=\"$key\"/ s/Mask=\"true\"/Mask=\"false\"/"
   mutate_template "a default for $key" "/Target=\"$key\"/ s/Default=\"\"/Default=\"usable-default\"/"
   mutate_template "$key not required" "/Target=\"$key\"/ s/Required=\"true\"/Required=\"false\"/"
 done
+# The database password and the URL override are the secrets; the override is the
+# only database field that is optional, advanced and defaultless at once.
+for key in REQUESTARR_DB_HOST REQUESTARR_DB_USER REQUESTARR_DB_NAME; do
+  mutate_template "$key not required" "/Target=\"$key\"/ s/Required=\"true\"/Required=\"false\"/"
+done
+mutate_template "a default for the database host" '/Target="REQUESTARR_DB_HOST"/ s/Default=""/Default="postgres"/'
+mutate_template "a default for the database user" '/Target="REQUESTARR_DB_USER"/ s/Default=""/Default="requestarr"/'
+mutate_template "a different default port" '/Target="REQUESTARR_DB_PORT"/ s/Default="5432"/Default="5433"/'
+mutate_template "a required port" '/Target="REQUESTARR_DB_PORT"/ s/Required="false"/Required="true"/'
+mutate_template "a different default database name" '/Target="REQUESTARR_DB_NAME"/ s/Default="requestarr"/Default="other"/'
+mutate_template "a required SSL mode" '/Target="REQUESTARR_DB_SSLMODE"/ s/Required="false"/Required="true"/'
+mutate_template "a defaulted SSL mode" '/Target="REQUESTARR_DB_SSLMODE"/ s/Default=""/Default="disable"/'
+mutate_template "an SSL mode shown by default" '/Target="REQUESTARR_DB_SSLMODE"/ s/Display="advanced"/Display="always"/'
+mutate_template "a required database URL override" '/Target="REQUESTARR_DATABASE_URL"/ s/Required="false"/Required="true"/'
+mutate_template "a defaulted database URL override" '/Target="REQUESTARR_DATABASE_URL"/ s#Default=""#Default="postgres://x"#'
+mutate_template "an unmasked database URL override" '/Target="REQUESTARR_DATABASE_URL"/ s/Mask="true"/Mask="false"/'
+mutate_template "a database URL override shown by default" '/Target="REQUESTARR_DATABASE_URL"/ s/Display="advanced"/Display="always"/'
+mutate_template "an override that does not say it replaces the fields" '/Target="REQUESTARR_DATABASE_URL"/ s/replaces/mentions/'
+mutate_template "a password description that restricts characters" '/Target="REQUESTARR_DB_PASSWORD"/ s/any characters/letters and digits/'
+# A setting the template sets that the compose file does not.
+grep -v '^ *REQUESTARR_DB_PORT:' "$compose" > "$work/mut.yaml"
+expect_rejected "a template setting the compose file does not" check_template "$template" "$work/mut.yaml"
 for key in REQUESTARR_PUBLIC_URL REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET \
-  REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_DATABASE_URL REQUESTARR_LOG_LEVEL \
+  REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_DB_HOST REQUESTARR_DB_NAME REQUESTARR_DB_USER REQUESTARR_DB_PASSWORD \
+  REQUESTARR_DB_PORT REQUESTARR_DB_SSLMODE REQUESTARR_DATABASE_URL REQUESTARR_LOG_LEVEL \
   REQUESTARR_HTTP_ALLOWED_NETWORKS REQUESTARR_ENV 8080; do
   mutate_template "a template without $key" "/Target=\"$key\"/ d"
 done

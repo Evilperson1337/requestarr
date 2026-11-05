@@ -48,7 +48,9 @@ for c in root.findall("Config"):
 
 wanted = os.environ["REQUIRED"].split()
 needed_targets = [w for w in wanted if w.startswith("REQUESTARR_") and w != "REQUESTARR_TAG"]
-for t in needed_targets + ["REQUESTARR_DATABASE_URL", "REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS", "REQUESTARR_ENV", "8080"]:
+db_required = os.environ["DB_REQUIRED"].split()
+for t in needed_targets + db_required + ["REQUESTARR_DB_PORT", "REQUESTARR_DB_SSLMODE", "REQUESTARR_DATABASE_URL",
+                                         "REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS", "REQUESTARR_ENV", "8080"]:
     if t not in configs:
         err("template has no field for %s" % t)
 
@@ -71,9 +73,42 @@ for name in ("REQUESTARR_OIDC_CLIENT_SECRET", "REQUESTARR_SESSION_HMAC_SECRET", 
         err("%s must be Mask=true and Required=true" % name)
     if c.get("Default") or (c.text or "").strip():
         err("%s must have no default or value" % name)
+# The database is asked for as separate fields (D034). The password is masked, required and
+# has no default; host and user are required with no default; the name defaults to requestarr.
+c = configs.get("REQUESTARR_DB_PASSWORD")
+if c is not None:
+    if c.get("Mask") != "true" or c.get("Required") != "true":
+        err("REQUESTARR_DB_PASSWORD must be Mask=true and Required=true")
+    if c.get("Default") or (c.text or "").strip():
+        err("REQUESTARR_DB_PASSWORD must have no default or value")
+    if "any characters" not in (c.get("Description") or ""):
+        err("REQUESTARR_DB_PASSWORD description must say any characters are fine")
+for name in ("REQUESTARR_DB_HOST", "REQUESTARR_DB_USER"):
+    c = configs.get(name)
+    if c is not None and (c.get("Default") or (c.text or "").strip()):
+        err("%s must have no default or value" % name)
+c = configs.get("REQUESTARR_DB_HOST")
+if c is not None and "user-defined" not in (c.get("Description") or ""):
+    err("REQUESTARR_DB_HOST description must say a container name needs a user-defined network")
+c = configs.get("REQUESTARR_DB_NAME")
+if c is not None and (c.get("Default") != "requestarr" or (c.text or "").strip() != "requestarr"):
+    err("REQUESTARR_DB_NAME must default to requestarr, with that value")
+c = configs.get("REQUESTARR_DB_PORT")
+if c is not None:
+    if c.get("Default") != "5432" or (c.text or "").strip() != "5432" or c.get("Required") != "false":
+        err("REQUESTARR_DB_PORT must be optional with default and value 5432")
+c = configs.get("REQUESTARR_DB_SSLMODE")
+if c is not None:
+    if c.get("Display") != "advanced" or c.get("Required") != "false" or c.get("Default") or (c.text or "").strip():
+        err("REQUESTARR_DB_SSLMODE must be advanced, optional and have no default")
 c = configs.get("REQUESTARR_DATABASE_URL")
-if c is not None and (c.get("Mask") != "true" or c.get("Default") or (c.text or "").strip()):
-    err("REQUESTARR_DATABASE_URL carries a password: Mask=true and no default")
+if c is not None:
+    if c.get("Display") != "advanced" or c.get("Required") != "false":
+        err("REQUESTARR_DATABASE_URL is an advanced override and must not be required")
+    if c.get("Mask") != "true" or c.get("Default") or (c.text or "").strip():
+        err("REQUESTARR_DATABASE_URL can carry a password: Mask=true and no default")
+    if "replaces" not in (c.get("Description") or ""):
+        err("REQUESTARR_DATABASE_URL description must say it replaces the database fields")
 for name in ("REQUESTARR_SESSION_HMAC_SECRET", "REQUESTARR_SECRETS_KEY"):
     c = configs.get(name)
     if c is not None and "openssl rand -base64" not in (c.get("Description") or ""):
@@ -90,10 +125,11 @@ for t, c in configs.items():
         err("%s is required, so its description must start with 'Required.'" % t)
     if not want and not d.startswith("Optional."):
         err("%s is optional, so its description must start with 'Optional.'" % t)
-for t in needed_targets + ["REQUESTARR_DATABASE_URL", "8080"]:
+for t in needed_targets + db_required + ["8080"]:
     if t in configs and configs[t].get("Required") != "true":
         err("%s must be Required=true" % t)
-for t in ("REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS", "REQUESTARR_ENV"):
+for t in ("REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS", "REQUESTARR_ENV", "REQUESTARR_DB_PORT",
+          "REQUESTARR_DB_SSLMODE", "REQUESTARR_DATABASE_URL"):
     if t in configs and configs[t].get("Required") == "true":
         err("%s must be optional" % t)
 
@@ -119,7 +155,7 @@ for f in os.listdir(cfgdir):
 known.add("REQUESTARR_SECRETS_KEY")  # read through internal/secrets.MasterKeyEnv
 for n in sorted(template_env - known):
     err("template sets %s, which the configuration code does not read" % n)
-for n in sorted(template_env - compose_env - {"REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS"}):
+for n in sorted(template_env - compose_env - {"REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS", "REQUESTARR_DATABASE_URL"}):
     err("template sets %s, which the compose file does not" % n)
 
 # ---- text and links ----------------------------------------------------------------

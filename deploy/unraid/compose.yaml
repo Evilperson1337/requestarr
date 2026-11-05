@@ -35,7 +35,15 @@ services:
       # the public URL, the OIDC issuer and library Sources. The application's own
       # default is development.
       REQUESTARR_ENV: production
-      REQUESTARR_DATABASE_URL: postgres://requestarr:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in requestarr.env}@postgres:5432/requestarr?sslmode=disable
+      # The database as separate settings. The host is the PostgreSQL service name;
+      # the name, user and password are the values that service creates. The password
+      # may contain any characters.
+      REQUESTARR_DB_HOST: postgres
+      REQUESTARR_DB_PORT: "5432"
+      REQUESTARR_DB_NAME: requestarr
+      REQUESTARR_DB_USER: requestarr
+      REQUESTARR_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in requestarr.env}
+      REQUESTARR_DB_SSLMODE: disable
       REQUESTARR_PUBLIC_URL: ${REQUESTARR_PUBLIC_URL:?set REQUESTARR_PUBLIC_URL in requestarr.env}
       REQUESTARR_OIDC_ISSUER: ${REQUESTARR_OIDC_ISSUER:?set REQUESTARR_OIDC_ISSUER in requestarr.env}
       REQUESTARR_OIDC_CLIENT_ID: ${REQUESTARR_OIDC_CLIENT_ID:?set REQUESTARR_OIDC_CLIENT_ID in requestarr.env}
