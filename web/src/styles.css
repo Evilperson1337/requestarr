@@ -1238,92 +1238,71 @@ legend {
     }
 }
 
-.draftWizard {
-    max-width: 1100px;
+/* Get started checklist (D038): a status the page computes, with links and no fields. */
+.checklist {
+    max-width: 760px;
 }
 
-.draftWizard .draftFields {
-    border: 0;
+.checklist section {
+    margin-top: 28px;
+}
+
+.checklist ul {
+    list-style: none;
     padding: 0;
-    margin: 0;
+    margin: 12px 0 0;
     display: grid;
-    gap: 18px;
-    min-width: 0;
-}
-
-.draftWizard .draftSteps {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px 28px;
-    padding-left: 24px;
-    color: var(--muted);
-}
-
-.draftWizard .draftSteps [aria-current="step"] {
-    color: var(--text);
-    font-weight: 700;
-}
-
-.draftWizard .draftActions {
-    display: flex;
-    flex-wrap: wrap;
     gap: 12px;
 }
 
-.draftWizard :focus-visible {
-    outline: 3px solid var(--text);
-    outline-offset: 4px;
-}
-
-.draftWizard time,
-.draftWizard p {
-    overflow-wrap: anywhere;
-}
-
-@media (max-width: 600px) {
-    .draftWizard {
-        padding: 20px 14px;
-    }
-
-    .draftWizard .card {
-        padding: 22px 18px;
-        min-width: 0;
-    }
-
-    .draftWizard .draftActions .button {
-        flex: 1 1 100%;
-        min-height: 44px;
-    }
-}
-
-
-.draftWizard .draftToggle {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-height: 44px;
-}
-
-.draftWizard .draftToggle input {
-    width: 22px;
-    min-height: 22px;
-    height: 22px;
-}
-
-.draftWizard .draftProvider {
-    padding: 18px;
+.checklist li {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 6px 16px;
+    align-items: start;
+    padding: 16px 18px;
     border: 1px solid var(--border);
     border-radius: 12px;
 }
 
-.draftWizard .draftEnvironment {
-    display: grid;
-    gap: 18px;
+.checklist .checkState {
+    font-weight: 700;
+    min-width: 5.5em;
 }
 
-.draftWizard .draftEnvironment dd {
-    margin: 6px 0 0;
+.checklist .checkState.done {
+    color: var(--text);
 }
+
+.checklist .checkTitle {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.checklist .checkDetail {
+    grid-column: 2;
+    margin: 0;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+.checklist .checkActions {
+    margin-top: 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+@media (max-width: 600px) {
+    .checklist li {
+        grid-template-columns: 1fr;
+    }
+
+    .checklist .checkDetail {
+        grid-column: 1;
+    }
+}
+
 /* Form controls and tables share one look everywhere, so a screen need not restyle them. */
 /* :where() keeps this base at the lowest specificity, so any component rule overrides it. */
 :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]), select, textarea) {

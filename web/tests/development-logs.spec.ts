@@ -1,6 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 import type { DevelopmentLogEntry } from '../src/api'
-import { sourceKinds } from './fixtures'
 
 const record: DevelopmentLogEntry = {
     seq: 1, time: '2026-10-27T12:00:00Z', target: 'igdb', stage: 'oauth',
@@ -17,7 +16,7 @@ async function mock(page: Page, options: { enabled?: boolean; role?: string; sta
         const request = route.request()
         const path = new URL(request.url()).pathname.replace('/api/v1', '')
         state.calls.push(`${request.method()} ${path}`)
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false, wizardComplete: false } })
+        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'admin-1', role: options.role ?? 'admin', displayName: 'Test admin', email: 'admin@example.test' }, csrfToken: 'csrf' } })
         if (path === '/auth/logout') return route.fulfill({ status: 204 })
         if (path === '/admin/status') {
@@ -28,9 +27,6 @@ async function mock(page: Page, options: { enabled?: boolean; role?: string; sta
             if (state.logs) return state.logs(route)
             return route.fulfill({ status: state.logStatus, json: state.logStatus === 200 ? { entries: state.entries, capacity: 200 } : { error: { code: 'private_error', message: 'RAW_ERROR_SECRET_MUST_NOT_RENDER' } } })
         }
-        // A failed draft load must not prevent diagnostics during incomplete setup.
-        if (path === '/admin/setup/source-kinds') return route.fulfill({ json: sourceKinds })
-        if (path === '/admin/setup/draft') return route.fulfill({ status: 503, json: { error: { code: 'setup_failed', message: 'Could not load setup draft.' } } })
         if (path === '/admin/job-runs') return route.fulfill({ json: { sources: [] } })
         if (path === '/admin/users') return route.fulfill({ json: { users: [] } })
         if (path === '/admin/match-suggestions') return route.fulfill({ json: { items: [] } })
@@ -177,7 +173,7 @@ test('Settings non-authentication action failure keeps displayed diagnostics', a
     expect(logCalls(state.calls)).toHaveLength(1)
 })
 
-for (const path of ['/setup', '/settings']) {
+for (const path of ['/settings']) {
     for (const enabled of [undefined, false]) {
         test(`${path}: hidden when capability is ${enabled}`, async ({ page }) => {
             const state = await mock(page, { enabled })
@@ -218,7 +214,6 @@ for (const path of ['/setup', '/settings']) {
         const count = logCalls(state.calls).length
         await page.waitForTimeout(150)
         expect(logCalls(state.calls)).toHaveLength(count)
-        expect(state.calls.some(call => call.startsWith('POST /admin/setup/validate'))).toBe(false)
         expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }))).toEqual({ local: 0, session: 0 })
         await summary(page).click()
         await expect(page.getByRole('region', { name: 'Development connection records' })).toHaveCount(0)
@@ -228,7 +223,7 @@ for (const path of ['/setup', '/settings']) {
 for (const role of ['viewer', 'requester']) {
     test(`nonadmin ${role} cannot discover/read logs on either route`, async ({ page }) => {
         const state = await mock(page, { enabled: true, role })
-        for (const path of ['/setup', '/settings']) {
+        for (const path of ['/get-started', '/settings']) {
             await page.goto(path)
             await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
             await expect(summary(page)).toHaveCount(0)
@@ -241,7 +236,8 @@ for (const status of [401, 403]) {
     test(`authorization loss ${status} clears records and stops refresh`, async ({ page }) => {
         const state = await mock(page, { enabled: true })
         state.entries = [record]
-        await page.goto('/setup')
+        await page.goto('/settings')
+        await activity(page)
         await summary(page).click()
         await expect(page.getByRole('cell', { name: 'igdb', exact: true })).toBeVisible()
         state.logStatus = status
@@ -271,7 +267,8 @@ test('closing cancels an in-flight read and a late result cannot replace a newer
     let release!: () => void
     const gate = new Promise<void>(resolve => { release = resolve })
     state.logs = async route => { await gate; await route.fulfill({ json: { entries: [record], capacity: 200 } }).catch(() => undefined) }
-    await page.goto('/setup')
+    await page.goto('/settings')
+    await activity(page)
     await summary(page).click()
     await expect(page.getByRole('button', { name: 'Refresh logs' })).toBeDisabled()
     await expect.poll(() => logCalls(state.calls).length).toBe(1)
@@ -288,7 +285,8 @@ test('unmount cancels pending capability and logs reads; remount starts empty', 
     let releaseStatus!: () => void
     const statusGate = new Promise<void>(resolve => { releaseStatus = resolve })
     state.status = async route => { await statusGate; await route.fulfill({ json: { developmentLogsEnabled: true } }).catch(() => undefined) }
-    await page.goto('/setup')
+    await page.goto('/settings')
+    await activity(page)
     await expect.poll(() => state.calls.includes('GET /admin/status')).toBe(true)
     await page.getByRole('link', { name: 'Notifications', exact: true }).click()
     releaseStatus()
@@ -297,23 +295,26 @@ test('unmount cancels pending capability and logs reads; remount starts empty', 
     let releaseLogs!: () => void
     const logsGate = new Promise<void>(resolve => { releaseLogs = resolve })
     state.logs = async route => { await logsGate; await route.fulfill({ json: { entries: [record], capacity: 200 } }).catch(() => undefined) }
-    await page.getByRole('link', { name: 'Setup', exact: true }).click()
+    await page.getByRole('link', { name: 'Settings', exact: true }).click()
+    await activity(page)
     await summary(page).click()
     await expect.poll(() => logCalls(state.calls).length).toBe(1)
     await page.getByRole('link', { name: 'Notifications', exact: true }).click()
     releaseLogs()
     state.logs = null
-    await page.getByRole('link', { name: 'Setup', exact: true }).click()
+    await page.getByRole('link', { name: 'Settings', exact: true }).click()
+    await activity(page)
     await expect(summary(page)).toBeVisible()
     await expect(page.getByRole('button', { name: 'Refresh logs' })).toHaveCount(0)
     await summary(page).click()
     await expect(page.getByText('No connection diagnostics recorded yet.', { exact: false })).toBeVisible()
 })
 
-test('capability lookup failure leaves optional Setup panel hidden', async ({ page }) => {
+test('capability lookup failure leaves the optional diagnostics panel hidden', async ({ page }) => {
     const state = await mock(page, { statusCode: 503 })
-    await page.goto('/setup')
-    await expect(page.getByRole('heading', { name: 'Setup · Inactive draft' })).toBeVisible()
+    await page.goto('/settings')
+    await activity(page)
+    await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible()
     await expect(summary(page)).toHaveCount(0)
     expect(logCalls(state.calls)).toHaveLength(0)
 })

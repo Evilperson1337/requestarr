@@ -15,7 +15,7 @@ const song = {
 async function open(page: Page, resolved: any, role = 'requester', onRequest?: (body: unknown) => void) {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'user-1', role, displayName: 'User' }, csrfToken: 'csrf-token' } })
         if (path.endsWith('/resolve')) return route.fulfill({ json: resolved })
         if (path.endsWith('/requests') && route.request().method() === 'POST') {
@@ -73,7 +73,7 @@ test('album whose cover art fails to load shows a placeholder and no blurred ban
     const album = { Item: { ID: '11111111-1111-4111-8111-111111111111', MediaType: 'album', Provider: 'musicbrainz', Title: 'No Cover', Year: 2026, ArtworkURL: 'https://coverartarchive.org/release-group/x/front-500', ArtworkKind: 'square', ExternalURL: 'https://musicbrainz.org/release/x' }, Platforms: [], Music: { primaryType: 'Album', artists: ['Someone'] }, Preview: { availability: 'unknown', canRequest: true, canSubscribe: false } }
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u', role: 'requester', displayName: 'U' }, csrfToken: 'c' } })
         if (path.endsWith('/resolve')) return route.fulfill({ json: album })
         return route.fulfill({ json: { items: [], nextCursor: null } })

@@ -15,7 +15,7 @@ async function open(page: Page, path: string, options: Options = {}) {
     await page.route('**/api/v1/**', async route => {
         const url = new URL(route.request().url())
         const p = url.pathname.replace('/api/v1', '')
-        if (p === '/setup/status') return route.fulfill({ json: { complete: true, required: false, wizardComplete: true } })
+        if (p === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (p === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
         if (p === '/search/types') return route.fulfill({ json: { types: options.types ?? ['movie_tv'] } })
         if (p === '/search') {
