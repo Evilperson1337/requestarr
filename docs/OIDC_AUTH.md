@@ -6,7 +6,7 @@ The server provides OIDC authorization-code login at `/api/v1/auth/login`, callb
 
 Set `REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID`, `REQUESTARR_OIDC_CLIENT_SECRET`, and a unique `REQUESTARR_SESSION_HMAC_SECRET` of at least 32 bytes. Set `REQUESTARR_PUBLIC_URL` to the externally reachable canonical origin; register its exact callback URL with the provider. HTTPS is required in deployment so cookies are Secure. POST requests require the matching Origin and `X-CSRF-Token` obtained from `/me`; the CSRF cookie is intentionally readable by the same-origin UI.
 
-Request operations remain intentionally unavailable until request listing/use cases and explicit role authorization are wired. Setup status remains incomplete: authentication configuration does not mean setup has been completed. PostgreSQL integration checks require a disposable database; app startup applies migrations.
+Authentication configuration does not grant an administrator role. PostgreSQL integration checks require a disposable database; app startup applies migrations.
 
 ## The built-in local administrator (D040)
 
@@ -17,7 +17,7 @@ One account, `admin`, signs in with a password instead of OIDC. It is an ordinar
 - **Delay, not lockout.** Failed attempts add a delay of 1 second doubling to a 5 minute cap, per account name (after 2 free typos) and per client address (after 5), held in memory, so a restart clears it. At most one password verification may be in flight for an account name or client address, including current-password checks; overlapping requests answer 429 with `Retry-After` without hashing. Reservations are released when the attempt ends, and tracked in-flight state is bounded. A delayed request also answers 429 with `Retry-After` and is not checked; nothing locks the account. The client address is the TCP peer: behind a reverse proxy that is the proxy, which is why the address allowance is looser.
 - **Passwords.** PBKDF2-HMAC-SHA256, 600000 iterations, 16-byte random salt, stored as `pbkdf2-sha256$<iterations>$<salt>$<hash>` so the cost can be raised later. 12 to 128 characters, no composition rules.
 - **Forced change.** While `mustChangePassword` (on `/auth/me`) is true, every API route except `/auth/me`, `/auth/logout` and `/auth/local/password` answers 403 `password_change_required`. The change verifies the current password, refuses reusing it, ends the account's other sessions and clears the flag. The credential update, session revocations and successful password-change audit (including the client address) commit together; audit failure rolls them all back. A sign-in that verified a credential superseded by a committed password change cannot create a session.
-- **First-run setup.** Creating the account marks first-run setup complete, so the claim page is not offered. The claim flow itself is removed by a later ticket.
+- **First-run setup and recovery.** Sign in as `admin` at `/login`, choose a new password, then open Get started. `requestarr reset-admin-password` (or `docker exec <container-name> /requestarr reset-admin-password`) prints one new random password, forces a change, revokes all local-account sessions and audits the change atomically. It needs only database configuration and fails clearly if the account does not exist. It does not enable a disabled account. Keep the printed password private; neither a hash nor database credentials are printed. See [First run](FIRST_RUN.md).
 
 ## Roles and permissions
 
@@ -31,32 +31,13 @@ Viewers can browse shared requests and use **Notify Me** to subscribe to request
 - `POST /api/v1/auth/logout` requires same-origin `Origin` and `X-CSRF-Token`.
 
 Configuration uses `REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID`, `REQUESTARR_OIDC_CLIENT_SECRET`, and `REQUESTARR_SESSION_HMAC_SECRET` (minimum 32 bytes). `REQUESTARR_PUBLIC_URL` must be the canonical absolute origin. Session cookie security follows HTTPS on that URL. Configure the reverse proxy to preserve that canonical scheme/host and do not expose the service over plain HTTP in production.
-# Initial administrator bootstrap
+## Administrator access
 
-New accounts receive the `viewer` role unless an administrator chose `requester` as the first-sign-in default in Settings, Users (D035); the default is never `admin`. An operator issues a one-time
-bootstrap token with `requestarr setup-token --issuer <exact-issuer> --subject <exact-subject> --token-file /secure/path/token`.
-The command applies migrations, writes only the token's SHA-256 digest, and creates
-the token file exclusively with mode 0600 (it never overwrites an existing file).
-Keep the file in a private location, transfer it only through an approved secret
-channel, and securely remove it after use. Avoid shell tracing, shared temporary
-directories, backups, and command output capture. `--stdout` is an explicit
-opt-in; stdout may be captured by terminals, CI systems, or service managers and
-must only be used in a controlled environment. The token expires after 30 minutes.
-An expired token may be replaced with `--rotate`; a live token or completed setup
-cannot be overwritten.
-
-`--issuer` defaults to `REQUESTARR_OIDC_ISSUER`; pass it only to override.
-
-The matching OIDC user must sign in and POST only the `token` to
-`/api/v1/setup/claim-admin` with the session cookie, CSRF cookie, matching
-`X-CSRF-Token`, and same-origin `Origin`. The server takes issuer and subject from
-the verified session; a request that still sends them is rejected unless they equal
-the session's. While first-admin setup is unclaimed, `GET /api/v1/auth/me` returns
-the caller's own verified issuer and subject as `firstAdminClaim` so the claim page
-can show the command to run; once an administrator exists it is never returned (D037).
-Consumption, role promotion, setup completion, and audit event commit atomically.
-Failures are intentionally generic. Claim traffic should additionally be
-rate-limited at the reverse proxy; the endpoint does not expose token validity.
+Only the built-in local administrator starts with the admin role. An existing
+administrator promotes OIDC users in Settings, Users. New OIDC accounts receive
+viewer, or requester if that default was chosen; never admin. The current-user
+response contains the user, CSRF token and password-change state, not the raw
+OIDC issuer/subject. See [First run and recovery](FIRST_RUN.md).
 
 ## Development issuer over HTTP
 

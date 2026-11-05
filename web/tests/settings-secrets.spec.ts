@@ -8,7 +8,6 @@ const secretList = [
 test('Settings exposes a field for every stored secret', async ({ page }) => {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf' } })
         if (path.endsWith('/admin/secrets')) return route.fulfill({ json: { enabled: true, secrets: secretList.map(([name, label]) => ({ name, label, envVar: 'X', configured: false, source: 'none', unreadable: false, pendingRestart: false })) } })
         if (path.endsWith('/admin/status')) return route.fulfill({ json: { providers: [{ key: 'tmdb', name: 'TMDB', configured: false }, { key: 'igdb', name: 'IGDB', configured: false }, { key: 'apprise', name: 'Apprise', configured: false }], sources: [], recentErrors: [] } })
@@ -33,7 +32,6 @@ async function mockIgdb(page: import('@playwright/test').Page, igdb: { clientId:
     await page.route('**/api/v1/**', route => {
         const request = route.request()
         const path = new URL(request.url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf' } })
         if (path.endsWith('/admin/settings/igdb')) {
             if (request.method() === 'PUT') { puts.push({ body: request.postDataJSON(), csrf: request.headers()['x-csrf-token'] }); igdb = { clientId: request.postDataJSON().clientId, fromEnvironment: false }; return route.fulfill({ json: igdb }) }
@@ -82,7 +80,6 @@ test('the metadata and notification secrets say saved and applied, with no resta
     await page.route('**/api/v1/**', route => {
         const request = route.request()
         const path = new URL(request.url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf' } })
         if (path.includes('/admin/secrets/')) {
             puts.push(request.method() + ' ' + path.split('/').pop())

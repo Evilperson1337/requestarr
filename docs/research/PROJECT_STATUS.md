@@ -23,7 +23,7 @@ Ran with `REQUESTARR_POSTGRES_PORT=5433` because port 5432 was in use on the tes
 | V1 required item | Status | Notes |
 |---|---|---|
 | Go service, React/TS UI, PostgreSQL | Done | Single binary embeds the UI; built in every release path |
-| First-run Get started checklist | Done | After the first-admin claim, a checklist computed from live state links to the Settings that apply each item (D038). It replaced the inactive draft wizard, which applied nothing |
+| First-run Get started checklist | Done | After local administrator sign-in, a checklist computed from live state links to the Settings that apply each item (D038). It replaced the inactive draft wizard, which applied nothing |
 | OIDC-only auth, Keycloak tested | Done | Scripted login passes; dev-only HTTP loopback issuer (D022) |
 | Viewer / requester / admin roles | Done | Role matrix tests cover every mutating route |
 | TMDB, MusicBrainz, IGDB resolvers | Done (fixtures) | Never run against the live services |

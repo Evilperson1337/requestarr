@@ -14,7 +14,6 @@ async function audit(page: Page) {
 const admin = { id: 'u1', role: 'admin', email: '', displayName: 'Administrator' }
 
 async function mockSession(page: Page, state: { session: 'none' | 'must-change' | 'ready' }) {
-    await page.route('**/api/v1/setup/status', route => route.fulfill({ json: { complete: true, required: false } }))
     await page.route('**/api/v1/auth/me', route => state.session === 'none'
         ? route.fulfill({ status: 401, json: { error: { code: 'authentication_required', message: 'authentication required', requestId: 'r' } } })
         : route.fulfill({ json: { user: admin, csrfToken: 'csrf-token', mustChangePassword: state.session === 'must-change' } }))

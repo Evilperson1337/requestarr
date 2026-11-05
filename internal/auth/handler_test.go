@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -89,25 +88,12 @@ func TestLoginSetsBrowserBoundPreauthCookie(t *testing.T) {
 	}
 }
 
-func TestClaimRequiresValidBodyAndVerifiedIdentity(t *testing.T) {
-	repo := &authRepoFake{}
-	h := &Handler{Repo: repo, Secret: "secret"}
-	rec := httptest.NewRecorder()
-	h.claimAdmin(rec, httptest.NewRequest(http.MethodPost, "/setup/claim-admin", strings.NewReader(`{"issuer":"x","subject":"y","token":"z"}`)))
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status=%d", rec.Code)
-	}
-	if rec.Header().Get("Cache-Control") != "no-store" {
-		t.Fatal("missing no-store")
-	}
-}
-
 func TestCSRFMiddlewareRejectsMissingOrInvalidSession(t *testing.T) {
 	h := &Handler{Repo: &authRepoFake{}, Secret: "secret", PublicURL: "https://app.example"}
 	nextCalled := false
 	middleware := h.CSRFMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { nextCalled = true }))
 	for _, cookie := range []string{"", sessionCookie + "=invalid"} {
-		r := httptest.NewRequest(http.MethodPost, "https://app.example/setup/claim-admin", nil)
+		r := httptest.NewRequest(http.MethodPost, "https://app.example/auth/local/password", nil)
 		r.Header.Set("Origin", "https://app.example")
 		if cookie != "" {
 			r.Header.Set("Cookie", cookie)

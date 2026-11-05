@@ -476,28 +476,6 @@ textarea:focus-visible {
     max-width: 26ch;
 }
 
-.setupSteps,
-.setupNotice {
-    margin: 24px 0;
-    padding: 18px 20px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--ground);
-}
-
-.setupSteps h2,
-.setupNotice h2 {
-    margin-bottom: 8px;
-    font-size: 1.15rem;
-}
-
-.setupSteps ol {
-    margin-bottom: 0;
-    padding-left: 1.4rem;
-    color: var(--muted);
-    line-height: 1.7;
-}
-
 .setupForm {
     display: grid;
     gap: 16px;
@@ -520,7 +498,6 @@ textarea:focus-visible {
     padding: 10px 12px;
 }
 
-.setupHint,
 .setupGuide {
     font-size: .92rem;
 }
@@ -2520,13 +2497,4 @@ a.tag-available:hover {
     .attribution {
         padding: 20px 14px;
     }
-}
-
-.setupCommand {
-  overflow-x: auto;
-  padding: 0.75rem;
-  border: 1px solid var(--line, currentColor);
-  border-radius: 6px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }

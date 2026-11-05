@@ -13,7 +13,6 @@ function request(overrides = {}) {
 async function mockApp(page: Page, handler: (route: Route, url: URL) => Promise<void>, role = 'requester') {
     await page.route('**/api/v1/**', async route => {
         const url = new URL(route.request().url())
-        if (url.pathname === '/api/v1/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (url.pathname === '/api/v1/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role, email: 'user@example.test', displayName: 'User' }, csrfToken: 'csrf-token' } })
         return handler(route, url)
     })

@@ -10,11 +10,6 @@ mkdir -p "$work/scripts" "$work/bin"
 cp Makefile compose.test.yaml "$work/"
 cp scripts/stack-http-url.sh "$work/scripts/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$work/scripts/stack-secrets-key.sh"
-cat > "$work/scripts/stack-admin-token.sh" <<'MOCK'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ "$(bash scripts/stack-http-url.sh)" == "http://localhost:$EXPECTED_PORT" ]]
-MOCK
 cat > "$work/bin/docker" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -40,6 +35,7 @@ cd "$work"
 check() {
   make --no-print-directory stack-start "$@" > output
   grep -q "Requestarr:  http://localhost:$EXPECTED_PORT  " output
+  grep -q 'Local administrator: admin' output
   if grep -q 'test-only-placeholder\|REQUESTARR_SESSION_HMAC_SECRET\|REQUESTARR_OIDC_CLIENT_SECRET' output; then
     echo 'FAIL: resolved configuration leaked into output' >&2; exit 1
   fi
@@ -57,4 +53,4 @@ check REQUESTARR_STACK_HTTP_PORT=48080
 export EXPECTED_PORT=18080
 check REQUESTARR_STACK_HTTP_PORT=
 make --no-print-directory -n stack-up REQUESTARR_STACK_HTTP_PORT=48080 > /dev/null
-echo 'PASS: Compose listen/public URL, Make printed/bootstrap URL, default, .env, shell, Make override and empty fallback (no containers started)'
+echo 'PASS: Compose listen/public URL, Make printed URL, local administrator guidance, default, .env, shell, Make override and empty fallback (no containers started)'

@@ -94,5 +94,4 @@ backup, keep the previous version running, and report the migration error.
 
 - Job-run history is pruned per Source (newest 200 kept); notifications and audit
   events are retained until you remove them.
-- The first administrator is created with `requestarr setup-token`; see
-  `docs/FIRST_RUN.md`. Back up nothing for this: the token is single-use.
+- On a fresh database the local administrator is created at startup; sign in at `/login` and choose a password. Existing users/roles survive upgrades without adding a local account. Shell recovery is `requestarr reset-admin-password`; see [First run](FIRST_RUN.md).

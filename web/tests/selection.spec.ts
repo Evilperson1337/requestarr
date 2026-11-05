@@ -18,7 +18,6 @@ const series = {
 async function open(page: Page, resolved: unknown, link: string, posts: { body?: any }, preview?: unknown) {
     await page.route('**/api/v1/**', route => {
         const request = route.request(), path = new URL(request.url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'requester', displayName: 'U' }, csrfToken: 'c' } })
         if (path.endsWith('/resolve')) return route.fulfill({ json: resolved })
         if (path.endsWith('/preview')) return route.fulfill({ json: preview ?? (resolved as any).Preview })
@@ -113,7 +112,6 @@ test('a second person can add seasons to an open partial request, but not the on
 test('the request list says what part of an item was requested', async ({ page }) => {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/setup/status')) return route.fulfill({ json: { complete: true, required: false } })
         if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'requester', displayName: 'U' }, csrfToken: 'c' } })
         if (path.endsWith('/requests')) return route.fulfill({ json: { nextCursor: null, items: [
             { ID: 'a', CatalogItemID: 'ca', Title: 'Some album', MediaType: 'album', ArtworkURL: '', ArtworkKind: 'square', Status: 'requested', Version: 1, RequestedBy: 'u1', Note: '', availability: 'unknown', Platforms: { any: true }, CreatedAt: '2026-10-28T12:00:00Z', subscribed: true, subscriptionSource: 'requester', selection: { tracks: [{ id: 't1', title: 'First' }, { id: 't2', title: 'Second' }] } },

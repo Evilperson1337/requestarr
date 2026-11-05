@@ -125,11 +125,9 @@ func TestRouteTablePolicy(t *testing.T) {
 		"POST /admin/checklist/dismiss":          {Access: accessAdmin, CSRF: true},
 		"GET /admin/checklist":                   {Access: accessAdmin},
 		"PUT /admin/settings/igdb":               {Access: accessAdmin, CSRF: true},
-		"POST /setup/claim-admin":                {Access: accessSession, CSRF: true},
 		"POST /auth/logout":                      {Access: accessSession},
 		"GET /auth/login":                        {Access: accessPublic},
 		"GET /version":                           {Access: accessPublic},
-		"GET /setup/status":                      {Access: accessPublic},
 		"GET /search":                            {Access: accessSession},
 		"GET /search/types":                      {Access: accessSession},
 	}
@@ -170,7 +168,6 @@ func TestPublicAndUnknownAPIPathsHaveExpectedAuthBoundary(t *testing.T) {
 		want int
 	}{
 		{"/api/v1/version", http.StatusOK},
-		{"/api/v1/setup/status", http.StatusOK},
 		{"/api/v1/not-a-route", http.StatusUnauthorized},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
