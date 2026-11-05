@@ -3,7 +3,7 @@ import { api, ApiError, type IgdbSettings } from '../api'
 
 // The non-secret half of the IGDB credentials. The secret is the stored-secret field
 // beside it; an environment value for the ID wins and is shown read-only.
-export function IgdbClientId({ csrfToken, onRequestError }: { csrfToken: string; onRequestError?: (error: unknown) => void }) {
+export function IgdbClientId({ csrfToken, onRequestError, onChanged }: { csrfToken: string; onRequestError?: (error: unknown) => void; onChanged?: () => void }) {
     const id = useId()
     const [saved, setSaved] = useState<IgdbSettings | null>(null)
     const [value, setValue] = useState('')
@@ -28,10 +28,12 @@ export function IgdbClientId({ csrfToken, onRequestError }: { csrfToken: string;
         try {
             const result = await api<IgdbSettings>('/admin/settings/igdb', { method: 'PUT', body: JSON.stringify({ clientId: value.trim() }) }, csrfToken)
             setSaved({ clientId: result.clientId, fromEnvironment: false }); setValue(result.clientId)
-            setNotice('IGDB client ID saved. It applies after Requestarr restarts.')
+            setNotice('IGDB client ID saved and applied.'); onChanged?.()
         } catch (e) {
             onRequestError?.(e)
-            setError(e instanceof ApiError && e.status === 409 ? 'The client ID is set by the server environment and cannot be changed here.' : 'The IGDB client ID could not be saved.')
+            setError(e instanceof ApiError && e.status === 409 ? 'The client ID is set by the server environment and cannot be changed here.'
+                : e instanceof ApiError && e.code === 'settings_not_applied' ? 'The IGDB client ID was saved but could not be applied. The previous configuration is still in use.'
+                    : 'The IGDB client ID could not be saved.')
         } finally { setBusy(false) }
     }
 
@@ -48,7 +50,7 @@ export function IgdbClientId({ csrfToken, onRequestError }: { csrfToken: string;
         <p id={`${id}-help`}>
             {loadFailed ? 'The client ID could not be loaded.'
                 : fromEnvironment ? <>Set by <code>REQUESTARR_IGDB_CLIENT_ID</code> on the server, which always wins. Change it there.</>
-                    : <>The Twitch application client ID. It is not secret, so it is shown here, and it applies after a restart.</>}
+                    : <>The Twitch application client ID. It is not secret, so it is shown here, and it applies at once.</>}
         </p>
         <div aria-live="polite">{notice && <p role="status">{notice}</p>}</div>
         {error && <p role="alert" className="error">{error}</p>}

@@ -45,6 +45,8 @@ func registerSecretsRoutes(rt *routeTable, service SecretsService) {
 			apierror.Write(w, r, 409, "secrets_disabled", "REQUESTARR_SECRETS_KEY is not configured, so secret values cannot be saved")
 		case errors.Is(err, secrets.ErrInvalidValue):
 			apierror.Write(w, r, 422, "invalid_secret_value", "the value must be non-empty, at most 4096 characters, without surrounding whitespace or control characters")
+		case errors.Is(err, ErrNotApplied):
+			apierror.Write(w, r, 500, "settings_not_applied", "the change was saved but could not be applied; the previous configuration is still in use")
 		default:
 			// Storage errors can carry connection details; never echo them.
 			apierror.Write(w, r, 500, "secret_update_failed", "could not update the stored secret")

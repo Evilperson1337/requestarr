@@ -200,37 +200,50 @@ func (s *connectionsService) TestConnection(ctx context.Context, slug string) (h
 	return httpapi.ConnectionTest{OK: false, Code: string(code), Message: s.checker.Describe(ctx, target, code)}, nil
 }
 
-// reloadingSecrets applies a Source's new credential at once instead of waiting
-// for a restart.
+// reloadingSecrets applies a new credential at once instead of waiting for a
+// restart: a library Source's through the sourceManager (D028), and the TMDB
+// token, IGDB secret and Apprise key through the providerSet (D039). The value
+// is written first, as SaveConnection does; if the rebuild then fails the
+// previous running configuration stays and the save is reported as not applied.
 type reloadingSecrets struct {
 	*secrets.Service
-	manager *sourceManager
-	logger  *slog.Logger
+	manager   *sourceManager
+	providers providerReloader
+	logger    *slog.Logger
 }
 
-func (r reloadingSecrets) reload(ctx context.Context, name secrets.Name) {
+func (r reloadingSecrets) reload(ctx context.Context, name secrets.Name) error {
+	if providerSecrets[name] && r.providers != nil {
+		if err := r.providers.Reload(ctx); err != nil {
+			r.logger.Warn("could not apply the saved credential", "secret", string(name))
+			return httpapi.ErrNotApplied
+		}
+		if err := r.Service.Applied(ctx, name); err != nil && !errors.Is(err, context.Canceled) {
+			r.logger.Warn("could not record applied secrets", "secret", string(name))
+		}
+		return nil
+	}
 	kind, ok := unreadableSource(name)
 	if !ok {
-		return
+		return nil
 	}
 	var incomplete ErrIncomplete
 	if err := r.manager.Apply(ctx, kind.Slug); err != nil && !errors.As(err, &incomplete) {
 		r.logger.Warn("could not apply the saved credential", "source", kind.Slug)
 	}
+	return nil
 }
 
 func (r reloadingSecrets) Set(ctx context.Context, actorID string, name secrets.Name, value string) error {
 	if err := r.Service.Set(ctx, actorID, name, value); err != nil {
 		return err
 	}
-	r.reload(ctx, name)
-	return nil
+	return r.reload(ctx, name)
 }
 
 func (r reloadingSecrets) Clear(ctx context.Context, actorID string, name secrets.Name) error {
 	if err := r.Service.Clear(ctx, actorID, name); err != nil {
 		return err
 	}
-	r.reload(ctx, name)
-	return nil
+	return r.reload(ctx, name)
 }

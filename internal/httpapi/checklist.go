@@ -28,6 +28,9 @@ type IGDBSettings interface {
 var (
 	ErrInvalidIGDBClientID         = errors.New("invalid IGDB client ID")
 	ErrIGDBClientIDFromEnvironment = errors.New("IGDB client ID is set by the environment")
+	// ErrNotApplied means a credential was saved but the running providers could
+	// not be rebuilt from it; the previous configuration is still in use (D039).
+	ErrNotApplied = errors.New("saved but not applied")
 )
 
 type igdbSettingsBody struct {
@@ -77,6 +80,8 @@ func registerChecklistRoutes(rt *routeTable, list ChecklistService, igdb IGDBSet
 			apierror.Write(w, r, 400, "invalid_client_id", "the client ID must be plain text of at most 256 characters")
 		case errors.Is(err, ErrIGDBClientIDFromEnvironment):
 			apierror.Write(w, r, 409, "managed_by_environment", "the client ID is set by REQUESTARR_IGDB_CLIENT_ID; change it there")
+		case errors.Is(err, ErrNotApplied):
+			apierror.Write(w, r, 500, "settings_not_applied", "the client ID was saved but could not be applied; the previous configuration is still in use")
 		case err != nil:
 			apierror.Write(w, r, 500, "igdb_settings_failed", "could not save the IGDB client ID")
 		default:

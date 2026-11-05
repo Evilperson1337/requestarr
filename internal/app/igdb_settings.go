@@ -15,8 +15,8 @@ type igdbSettingsStore interface {
 }
 
 // The client ID is a non-secret setting (an older installation may still have
-// it in the retired setup draft; the store reads that as a fallback). Like
-// stored secrets it applies on restart; an explicit environment value always wins.
+// it in the retired setup draft; the store reads that as a fallback). Saving
+// it rebuilds the providers at once (D039); an explicit environment value always wins.
 func resolveIGDBClientID(ctx context.Context, cfg config.Config, repo igdbSettingsStore) (config.Config, error) {
 	if cfg.IGDBClientID != "" {
 		return cfg, nil
@@ -46,6 +46,8 @@ type igdbClientIDStore interface {
 type igdbSettingsService struct {
 	store igdbClientIDStore
 	envID string
+	// providers is rebuilt after a save, so the client ID applies at once (D039).
+	providers providerReloader
 }
 
 func (s igdbSettingsService) IGDBClientID(ctx context.Context) (string, bool, error) {
@@ -63,5 +65,13 @@ func (s igdbSettingsService) SetIGDBClientID(ctx context.Context, id string) err
 	if !validIGDBClientID(id) {
 		return httpapi.ErrInvalidIGDBClientID
 	}
-	return s.store.SetIGDBClientID(ctx, id)
+	if err := s.store.SetIGDBClientID(ctx, id); err != nil {
+		return err
+	}
+	if s.providers != nil {
+		if err := s.providers.Reload(ctx); err != nil {
+			return httpapi.ErrNotApplied
+		}
+	}
+	return nil
 }
