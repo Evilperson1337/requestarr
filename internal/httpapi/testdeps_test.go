@@ -298,7 +298,7 @@ type absentConnections struct{}
 func (absentConnections) ListConnections(context.Context) ([]Connection, error) {
 	return nil, errAbsent
 }
-func (absentConnections) SaveConnection(context.Context, string, sources.Connection) (Connection, error) {
+func (absentConnections) SaveConnection(context.Context, string, sources.Connection, map[secrets.Name]string) (Connection, error) {
 	return Connection{}, errAbsent
 }
 func (absentConnections) RemoveConnection(context.Context, string) (Connection, error) {

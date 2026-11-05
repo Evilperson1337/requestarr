@@ -217,7 +217,7 @@ func (b *matrixBackend) Clear(_ context.Context, actor string, _ secrets.Name) e
 }
 
 func (b *matrixBackend) ListConnections(context.Context) ([]Connection, error) { return nil, nil }
-func (b *matrixBackend) SaveConnection(_ context.Context, actor string, c sources.Connection) (Connection, error) {
+func (b *matrixBackend) SaveConnection(_ context.Context, actor string, c sources.Connection, _ map[secrets.Name]string) (Connection, error) {
 	b.record("connection.save", actor)
 	return Connection{Slug: c.Slug}, nil
 }

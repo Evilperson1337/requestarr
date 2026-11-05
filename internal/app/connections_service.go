@@ -16,7 +16,9 @@ import (
 
 type connectionWriter interface {
 	connectionStore
-	PutLibraryConnection(context.Context, sources.Connection) error
+	// SaveLibraryConnection writes the connection (when not nil) and the sealed
+	// credentials in one transaction.
+	SaveLibraryConnection(ctx context.Context, actorID string, c *sources.Connection, sealed map[secrets.Name]secrets.Sealed) error
 	DeleteLibraryConnection(context.Context, string) error
 }
 
@@ -105,23 +107,53 @@ func (s *connectionsService) apply(ctx context.Context, slug string) error {
 	return err
 }
 
-func (s *connectionsService) SaveConnection(ctx context.Context, _ string, c sources.Connection) (httpapi.Connection, error) {
-	if _, ok := sources.Lookup(c.Slug); !ok {
+func (s *connectionsService) SaveConnection(ctx context.Context, actorID string, c sources.Connection, credentials map[secrets.Name]string) (httpapi.Connection, error) {
+	kind, ok := sources.Lookup(c.Slug)
+	if !ok {
 		return httpapi.Connection{}, httpapi.ErrUnknownSource
 	}
-	if s.envCfg.LibraryURL(c.Slug) != nil && *s.envCfg.LibraryURL(c.Slug) != "" {
-		return httpapi.Connection{}, httpapi.ErrSetByEnvironment
+	// An empty address means "leave the address alone", which is how a credential
+	// is saved for an address that an environment variable owns.
+	changesAddress := c.URL != "" || len(credentials) == 0
+	if changesAddress {
+		if s.envCfg.LibraryURL(c.Slug) != nil && *s.envCfg.LibraryURL(c.Slug) != "" {
+			return httpapi.Connection{}, httpapi.ErrSetByEnvironment
+		}
+		if err := c.Validate(); err != nil {
+			return httpapi.Connection{}, err
+		}
 	}
-	if err := c.Validate(); err != nil {
-		return httpapi.Connection{}, err
+	sealed := make(map[secrets.Name]secrets.Sealed, len(credentials))
+	for name, value := range credentials {
+		if !kindHasSecret(kind, name) {
+			return httpapi.Connection{}, httpapi.ErrUnknownCredential
+		}
+		box, err := s.secrets.Seal(name, value)
+		if err != nil {
+			return httpapi.Connection{}, err
+		}
+		sealed[name] = box
 	}
-	if err := s.store.PutLibraryConnection(ctx, c); err != nil {
+	var address *sources.Connection
+	if changesAddress {
+		address = &c
+	}
+	if err := s.store.SaveLibraryConnection(ctx, actorID, address, sealed); err != nil {
 		return httpapi.Connection{}, fmt.Errorf("save library connection: %w", err)
 	}
 	if err := s.apply(ctx, c.Slug); err != nil {
 		return httpapi.Connection{}, err
 	}
 	return s.view(ctx, c.Slug)
+}
+
+func kindHasSecret(kind sources.Kind, name secrets.Name) bool {
+	for _, credential := range kind.Credentials {
+		if credential.Secret != "" && credential.Secret == string(name) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *connectionsService) RemoveConnection(ctx context.Context, slug string) (httpapi.Connection, error) {
