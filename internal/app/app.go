@@ -66,6 +66,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	}
 	cfg = boot.Config
 	secretsService := boot.Secrets
+	announceFirstAdmin(ctx, logger, store, cfg.OIDCIssuer)
 	provider, err := oidc.New(ctx, oidc.Config{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret}, cfg.PublicURL+"/api/v1/auth/callback")
 	if err != nil {
 		return fmt.Errorf("initialize OIDC provider: %w", err)

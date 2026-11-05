@@ -152,6 +152,8 @@ docker exec <container-name> /requestarr setup-token \
   --stdout
 ```
 
+While no administrator exists, the container's log prints this command with your configured issuer already filled in, so you can copy it from the Unraid log view.
+
 - `<container-name>` is what `docker ps` lists: `Requestarr` for the template, something like `requestarr-requestarr-1` for compose.
 - `--issuer` must be character-for-character the same as the Issuer setting. `--subject` is the user's ID from step 3.
 - The command reads the container's own configuration, so you do not repeat any secret. It prints only the token. Copy it and clear your terminal; do not paste it into chat or tickets. The server keeps only a hash of it, and it works only for that issuer and subject.
