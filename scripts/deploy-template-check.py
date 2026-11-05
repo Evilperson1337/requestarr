@@ -160,7 +160,7 @@ for n in sorted(template_env - compose_env - {"REQUESTARR_LOG_LEVEL", "REQUESTAR
 
 # ---- text and links ----------------------------------------------------------------
 overview = root.findtext("Overview") or ""
-for phrase in ("Setup", "PostgreSQL", "OIDC"):
+for phrase in ("Settings", "PostgreSQL", "OIDC"):
     if phrase not in overview:
         err("Overview must mention %s" % phrase)
 if len(overview) < 200:
