@@ -35,7 +35,11 @@ type Config struct {
 	SessionHMACSecret string
 	// AdminPassword is the optional initial password of the built-in local
 	// administrator (D040). It is a secret: never log or print it.
-	AdminPassword    string
+	AdminPassword string
+	// TrustedProxies is the raw REQUESTARR_TRUSTED_PROXIES: comma-separated
+	// CIDRs or addresses of reverse proxies whose X-Forwarded-For is believed.
+	// Empty by default (D040).
+	TrustedProxies   string
 	TMDBReadToken    string
 	IGDBClientID     string
 	IGDBClientSecret string
@@ -79,6 +83,7 @@ func FromEnv() Config {
 		OIDCClientSecret:  os.Getenv("REQUESTARR_OIDC_CLIENT_SECRET"),
 		SessionHMACSecret: os.Getenv("REQUESTARR_SESSION_HMAC_SECRET"),
 		AdminPassword:     os.Getenv("REQUESTARR_ADMIN_PASSWORD"),
+		TrustedProxies:    os.Getenv("REQUESTARR_TRUSTED_PROXIES"),
 		TMDBReadToken:     os.Getenv("REQUESTARR_TMDB_READ_TOKEN"),
 		IGDBClientID:      os.Getenv("REQUESTARR_IGDB_CLIENT_ID"),
 		IGDBClientSecret:  os.Getenv("REQUESTARR_IGDB_CLIENT_SECRET"),
@@ -201,6 +206,9 @@ func (c Config) ValidateBootstrap() error {
 	}
 	problems = append(problems, c.developmentLogsProblems()...)
 	problems = append(problems, c.adminPasswordProblems()...)
+	if _, err := ParseTrustedProxies(c.TrustedProxies); err != nil {
+		problems = append(problems, err.Error())
+	}
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
 	}

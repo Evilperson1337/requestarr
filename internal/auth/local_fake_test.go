@@ -222,6 +222,24 @@ type fixture struct {
 	hasher *countingHasher
 	mux    *http.ServeMux
 	logs   *bytes.Buffer
+
+	sleepMu sync.Mutex
+	slept   []time.Duration
+}
+
+// sleep stands in for holding a failed response: it records the delay and lets
+// the fake clock pass the time.
+func (f *fixture) sleep(_ context.Context, d time.Duration) {
+	f.sleepMu.Lock()
+	f.slept = append(f.slept, d)
+	f.sleepMu.Unlock()
+	f.clock.Advance(d)
+}
+
+func (f *fixture) sleeps() []time.Duration {
+	f.sleepMu.Lock()
+	defer f.sleepMu.Unlock()
+	return append([]time.Duration(nil), f.slept...)
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -236,7 +254,7 @@ func newFixture(t *testing.T) *fixture {
 func newFixtureOn(t *testing.T, store *fakeLocalStore) *fixture {
 	t.Helper()
 	f := &fixture{t: t, store: store, clock: &fakeClock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}, hasher: &countingHasher{Hasher: password.Hasher{Iterations: 1000}}, logs: &bytes.Buffer{}}
-	f.h = &Handler{Repo: f.store, Local: f.store, Hasher: f.hasher, Clock: f.clock.Now, Secret: testSecret, PublicURL: testPublicURL, Secure: true, Logger: slog.New(slog.NewTextHandler(f.logs, nil))}
+	f.h = &Handler{Repo: f.store, Local: f.store, Hasher: f.hasher, Clock: f.clock.Now, Secret: testSecret, PublicURL: testPublicURL, Secure: true, Logger: slog.New(slog.NewTextHandler(f.logs, nil)), Sleep: f.sleep}
 	f.mux = http.NewServeMux()
 	f.h.Register(f.mux)
 	f.hasher.reset()

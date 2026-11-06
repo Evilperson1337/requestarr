@@ -271,49 +271,6 @@ func retryAfter(t *testing.T, w *httptest.ResponseRecorder) int {
 	return n
 }
 
-func TestFailedAttemptsAddAnExponentiallyGrowingCappedDelayPerAccount(t *testing.T) {
-	f := newFixture(t)
-	var delays []int
-	for i := 0; i < 30; i++ {
-		attempt := func() *httptest.ResponseRecorder {
-			return f.login("admin", "wrong password "+strconv.Itoa(i), fromAddr("198.51.100."+strconv.Itoa(i+1)))
-		}
-		w := attempt()
-		if w.Code == http.StatusTooManyRequests {
-			if errorCode(t, w) != "too_many_attempts" {
-				t.Fatalf("code=%q", errorCode(t, w))
-			}
-			d := retryAfter(t, w)
-			delays = append(delays, d)
-			f.clock.Advance(time.Duration(d) * time.Second)
-			w = attempt()
-		}
-		if w.Code != http.StatusUnauthorized {
-			t.Fatalf("attempt %d: status=%d after serving the delay", i, w.Code)
-		}
-	}
-	if len(delays) < 6 {
-		t.Fatalf("delays=%v: too few failures were delayed", delays)
-	}
-	for i := 1; i < len(delays); i++ {
-		if delays[i] < delays[i-1] {
-			t.Fatalf("delay shrank: %v", delays)
-		}
-	}
-	if delays[len(delays)-1] != delays[len(delays)-2] || delays[len(delays)-1] > 300 {
-		t.Fatalf("delay is not capped at 300s: %v", delays)
-	}
-	grew := false
-	for i := 1; i < len(delays); i++ {
-		if delays[i] >= 2*delays[i-1] && delays[i] <= 300 {
-			grew = true
-		}
-	}
-	if !grew {
-		t.Fatalf("delay does not grow exponentially: %v", delays)
-	}
-}
-
 func TestAnAccountIsNeverLockedOut(t *testing.T) {
 	f := newFixture(t)
 	for i := 0; i < 60; i++ {
@@ -325,45 +282,37 @@ func TestAnAccountIsNeverLockedOut(t *testing.T) {
 	}
 }
 
-func TestADelayedAccountRefusesEvenTheRightPasswordAndSkipsTheHashing(t *testing.T) {
-	f := newFixture(t)
-	for i := 0; i < 10; i++ {
-		f.login("admin", "wrong", fromAddr("198.51.100."+strconv.Itoa(i+1)))
-	}
-	f.hasher.reset()
-	w := f.login("admin", testPassword, fromAddr("198.51.100.99"))
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("status=%d", w.Code)
-	}
-	if f.hasher.verifies != 0 {
-		t.Fatal("a throttled attempt must not reach the password check")
-	}
-	if cookie(w.Result().Cookies(), sessionCookie) != nil {
-		t.Fatal("a throttled attempt signed in")
-	}
-}
-
 func TestTheDelayFollowsTheAddressAcrossUsernamesButSparesOtherAddresses(t *testing.T) {
 	f := newFixture(t)
 	for i := 0; i < 12; i++ {
 		f.login("guess"+strconv.Itoa(i), "x", fromAddr("198.51.100.5"))
 	}
-	if w := f.login("admin", testPassword, fromAddr("198.51.100.5")); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("a noisy address must be delayed for every username, got %d", w.Code)
+	if h := f.sleeps(); len(h) == 0 || h[len(h)-1] == 0 {
+		t.Fatalf("a noisy address must be held for every username: %v", h)
 	}
-	if w := f.login("admin", testPassword, fromAddr("198.51.100.6")); w.Code != http.StatusOK {
-		t.Fatalf("a different address must be unaffected, got %d", w.Code)
+	n := len(f.sleeps())
+	f.login("other", "x", fromAddr("198.51.100.6"))
+	if len(f.sleeps()) != n {
+		t.Fatal("a different address must be unaffected")
 	}
 }
 
 func TestDelayForUnknownUsernamesLooksLikeDelayForRealOnes(t *testing.T) {
-	f := newFixture(t)
-	for i := 0; i < 10; i++ {
-		f.login("ghost", "x", fromAddr("198.51.100."+strconv.Itoa(i+1)))
+	holds := func(user string) []time.Duration {
+		f := newFixture(t)
+		for i := 0; i < 10; i++ {
+			f.login(user, "x", fromAddr("198.51.100."+strconv.Itoa(i+1)))
+		}
+		return f.sleeps()
 	}
-	w := f.login("ghost", "x", fromAddr("198.51.100.99"))
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("unknown usernames must be throttled exactly like known ones, got %d", w.Code)
+	real, ghost := holds("admin"), holds("ghost")
+	if len(real) == 0 || len(real) != len(ghost) {
+		t.Fatalf("real=%v ghost=%v", real, ghost)
+	}
+	for i := range real {
+		if real[i] != ghost[i] {
+			t.Fatalf("real=%v ghost=%v", real, ghost)
+		}
 	}
 }
 
@@ -461,25 +410,6 @@ func TestPasswordChangeRejectsAWrongCurrentPasswordWithTheSameWork(t *testing.T)
 	last := f.store.eventTypes()
 	if last[len(last)-1] != AuditPasswordChangeFailure {
 		t.Fatalf("events=%v", last)
-	}
-}
-
-func TestRepeatedWrongCurrentPasswordsAreDelayedToo(t *testing.T) {
-	f := newFixture(t)
-	cs := f.signIn()
-	var got429 bool
-	for i := 0; i < 12; i++ {
-		w := f.authed(http.MethodPost, "/auth/local/password", changeBody("wrong "+strconv.Itoa(i), goodNewPassword), cs)
-		if w.Code == http.StatusTooManyRequests {
-			got429 = true
-			break
-		}
-	}
-	if !got429 {
-		t.Fatal("a stolen session can guess the current password without delay")
-	}
-	if w := f.authed(http.MethodPost, "/auth/local/password", changeBody(testPassword, goodNewPassword), cs); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("even the right password is delayed while the delay runs, got %d", w.Code)
 	}
 }
 

@@ -57,6 +57,9 @@ services:
       # Optional initial password of the local administrator, used only on a fresh
       # database. Empty: a random one is printed once in the container log.
       REQUESTARR_ADMIN_PASSWORD: ${REQUESTARR_ADMIN_PASSWORD:-}
+      # Optional: the reverse proxies whose X-Forwarded-For is believed when the
+      # sign-in delay finds the client address. Empty: the forwarding header is ignored.
+      REQUESTARR_TRUSTED_PROXIES: ${REQUESTARR_TRUSTED_PROXIES:-}
       REQUESTARR_SESSION_HMAC_SECRET: ${REQUESTARR_SESSION_HMAC_SECRET:?set REQUESTARR_SESSION_HMAC_SECRET in requestarr.env}
       REQUESTARR_SECRETS_KEY: ${REQUESTARR_SECRETS_KEY:?set REQUESTARR_SECRETS_KEY in requestarr.env}
     depends_on:

@@ -25,7 +25,7 @@ func TestDelayCurve(t *testing.T) {
 		want            time.Duration
 	}{
 		{1, 2, 0}, {2, 2, 0}, {3, 2, time.Second}, {4, 2, 2 * time.Second}, {5, 2, 4 * time.Second},
-		{12, 2, 300 * time.Second}, {64, 2, 300 * time.Second}, {5, 5, 0}, {6, 5, time.Second},
+		{12, 2, delayCap}, {64, 2, delayCap}, {5, 5, 0}, {6, 5, time.Second},
 	} {
 		if got := delayFor(tc.failures, tc.grace); got != tc.want {
 			t.Errorf("delayFor(%d,%d)=%v want %v", tc.failures, tc.grace, got, tc.want)

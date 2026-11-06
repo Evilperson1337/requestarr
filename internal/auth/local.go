@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -125,17 +126,75 @@ func (h *Handler) warn(msg string) {
 
 // audit writes one row; the error is the caller's to act on.
 func (h *Handler) audit(ctx context.Context, typ, userID, username string, r *http.Request) error {
-	return h.Local.RecordAuthEvent(ctx, AuditEvent{Type: typ, UserID: userID, Username: username, RemoteAddr: clientAddr(r), At: h.now().UTC()})
+	return h.Local.RecordAuthEvent(ctx, AuditEvent{Type: typ, UserID: userID, Username: username, RemoteAddr: h.clientAddr(r), At: h.now().UTC()})
 }
 
-// clientAddr is the peer address without its port. Forwarding headers are not
-// trusted: any client can set them.
-func clientAddr(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+// clientAddr is the address a request is attributed to, for the sign-in delay
+// and the audit. It is the TCP peer address, unless the peer is inside the
+// operator's trusted proxy set (D040): then it is the rightmost X-Forwarded-For
+// entry that is not itself a trusted proxy. Any client can send that header, so
+// it is believed only from a trusted peer and only from the right, where the
+// operator's own proxies wrote it. Anything unparseable falls back to the peer.
+func (h *Handler) clientAddr(r *http.Request) string {
+	peer := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(peer); err == nil {
+		peer = host
 	}
-	return host
+	if len(h.TrustedProxies) == 0 {
+		return peer
+	}
+	peerIP, err := netip.ParseAddr(peer)
+	if err != nil || !h.trusts(peerIP) {
+		return peer
+	}
+	var hops []string
+	for _, line := range r.Header.Values("X-Forwarded-For") {
+		hops = append(hops, strings.Split(line, ",")...)
+	}
+	for i := len(hops) - 1; i >= 0; i-- {
+		ip, err := netip.ParseAddr(strings.TrimSpace(hops[i]))
+		if err != nil {
+			return peer
+		}
+		if !h.trusts(ip) {
+			return ip.Unmap().String()
+		}
+	}
+	return peer
+}
+
+func (h *Handler) trusts(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	for _, p := range h.TrustedProxies {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// hold delays a failed response by d, ending early if the client goes away.
+// At most maxHolds responses are held at once; beyond that none is, since the
+// verification bounds already limit how fast guesses can be made.
+func (h *Handler) hold(ctx context.Context, d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	end, ok := h.throttle().beginHold()
+	if !ok {
+		return
+	}
+	defer end()
+	if h.Sleep != nil {
+		h.Sleep(ctx, d)
+		return
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
 }
 
 func normalizeUsername(s string) string {
@@ -206,14 +265,14 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
-	account, addr := normalizeUsername(in.Username), clientAddr(r)
+	account, addr := normalizeUsername(in.Username), h.clientAddr(r)
 	ctx := r.Context()
-	release, wait := h.throttle().Begin(account, addr)
-	if wait > 0 {
+	release, ok := h.throttle().Admit(ctx, account, addr)
+	if !ok {
 		if h.audit(ctx, AuditSignInThrottled, "", "", r) != nil {
 			h.warn("could not write the authentication audit")
 		}
-		writeThrottled(w, r, wait)
+		writeThrottled(w, r, time.Second)
 		return
 	}
 	defer release()
@@ -230,7 +289,7 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 	// One verification whatever was wrong, so timing does not say which.
 	matched := h.hasher().Verify(in.Password, stored)
 	if !known || !matched || cred.Disabled {
-		h.throttle().Fail(account, addr)
+		delay := h.throttle().Fail(account, addr)
 		name := ""
 		if known {
 			name = cred.Username
@@ -238,6 +297,8 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 		if h.audit(ctx, AuditSignInFailure, cred.UserID, name, r) != nil {
 			h.warn("could not write the authentication audit")
 		}
+		release()
+		h.hold(ctx, delay)
 		writeInvalidCredentials(w, r)
 		return
 	}
@@ -247,10 +308,12 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 		return h.Local.CreateLocalSession(ctx, cred, token, csrf, expiry, addr, h.now().UTC())
 	}); err != nil {
 		if errors.Is(err, ErrNoCredential) {
-			h.throttle().Fail(account, addr)
+			delay := h.throttle().Fail(account, addr)
 			if h.audit(ctx, AuditSignInFailure, cred.UserID, cred.Username, r) != nil {
 				h.warn("could not write the authentication audit")
 			}
+			release()
+			h.hold(ctx, delay)
 			writeInvalidCredentials(w, r)
 			return
 		}
@@ -292,10 +355,10 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, http.StatusInternalServerError, "auth_unavailable", "auth unavailable")
 		return
 	}
-	account, addr := normalizeUsername(cred.Username), clientAddr(r)
-	release, wait := h.throttle().Begin(account, addr)
-	if wait > 0 {
-		writeThrottled(w, r, wait)
+	account, addr := normalizeUsername(cred.Username), h.clientAddr(r)
+	release, ok := h.throttle().Admit(ctx, account, addr)
+	if !ok {
+		writeThrottled(w, r, time.Second)
 		return
 	}
 	defer release()
@@ -309,10 +372,12 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 	// Always verify the current password first, so a wrong one costs the same
 	// whatever else is wrong with the request.
 	if !h.hasher().Verify(in.CurrentPassword, cred.PasswordHash) {
-		h.throttle().Fail(account, addr)
+		delay := h.throttle().Fail(account, addr)
 		if h.audit(ctx, AuditPasswordChangeFailure, cred.UserID, cred.Username, r) != nil {
 			h.warn("could not write the authentication audit")
 		}
+		release()
+		h.hold(ctx, delay)
 		apierror.Write(w, r, http.StatusForbidden, "current_password_incorrect", "The current password is incorrect.")
 		return
 	}

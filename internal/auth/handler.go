@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -39,6 +40,11 @@ type Handler struct {
 	Clock    func() time.Time
 	Throttle *Throttle
 	Logger   *slog.Logger
+	// TrustedProxies are the reverse proxies whose X-Forwarded-For is believed
+	// when finding the client address. Empty means never (D040).
+	TrustedProxies []netip.Prefix
+	// Sleep holds a failed sign-in response; nil uses a real timer.
+	Sleep func(ctx context.Context, d time.Duration)
 
 	throttleOnce, dummyOnce sync.Once
 	dummy                   string

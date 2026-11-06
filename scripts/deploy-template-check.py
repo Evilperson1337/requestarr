@@ -91,6 +91,15 @@ for name in ("REQUESTARR_OIDC_ISSUER", "REQUESTARR_OIDC_CLIENT_ID", "REQUESTARR_
 c = configs.get("REQUESTARR_OIDC_CLIENT_SECRET")
 if c is not None and c.get("Mask") != "true":
     err("REQUESTARR_OIDC_CLIENT_SECRET must be Mask=true")
+c = configs.get("REQUESTARR_TRUSTED_PROXIES")
+if c is not None:
+    d = c.get("Description") or ""
+    if c.get("Required") != "false" or c.get("Display") != "advanced" or c.get("Mask") != "false":
+        err("REQUESTARR_TRUSTED_PROXIES must be advanced, optional and not masked")
+    if c.get("Default") or (c.text or "").strip():
+        err("REQUESTARR_TRUSTED_PROXIES must have no default or value")
+    if "X-Forwarded-For" not in d or "can forge" not in d:
+        err("REQUESTARR_TRUSTED_PROXIES description must name X-Forwarded-For and say other clients can forge it")
 c = configs.get("REQUESTARR_ADMIN_PASSWORD")
 if c is not None:
     d = c.get("Description") or ""

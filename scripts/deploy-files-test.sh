@@ -20,7 +20,7 @@ pinned_tag=v0.1.0-rc.3
 required=(REQUESTARR_TAG POSTGRES_PASSWORD REQUESTARR_PUBLIC_URL REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
 # Optional settings (D040): OIDC is an override of what is saved in Settings, Authentication, and the
 # initial administrator password is only used on a fresh install. None has a default.
-optional=(REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_ADMIN_PASSWORD)
+optional=(REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_ADMIN_PASSWORD REQUESTARR_TRUSTED_PROXIES)
 # Database settings the template must ask for (the compose file derives them).
 db_required=(REQUESTARR_DB_HOST REQUESTARR_DB_NAME REQUESTARR_DB_USER REQUESTARR_DB_PASSWORD)
 secrets=(POSTGRES_PASSWORD REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
@@ -89,7 +89,7 @@ if not env.get("REQUESTARR_DB_USER") or env.get("REQUESTARR_DB_USER") != penv.ge
     errs.append("REQUESTARR_DB_USER must be the user the postgres service creates")
 if not env.get("REQUESTARR_DB_PASSWORD") or env.get("REQUESTARR_DB_PASSWORD") != penv.get("POSTGRES_PASSWORD"):
     errs.append("REQUESTARR_DB_PASSWORD must be the postgres service password")
-for k in ("REQUESTARR_OIDC_ISSUER", "REQUESTARR_OIDC_CLIENT_ID", "REQUESTARR_OIDC_CLIENT_SECRET", "REQUESTARR_ADMIN_PASSWORD"):
+for k in ("REQUESTARR_OIDC_ISSUER", "REQUESTARR_OIDC_CLIENT_ID", "REQUESTARR_OIDC_CLIENT_SECRET", "REQUESTARR_ADMIN_PASSWORD", "REQUESTARR_TRUSTED_PROXIES"):
     if k not in env:
         errs.append("%s must be passed through to requestarr" % k)
     elif env[k] != "":
@@ -285,7 +285,7 @@ for key in REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY REQUESTARR_DB_P
 done
 # The optional fields: never required, no default, advanced where they are overrides; the two
 # secrets masked. Each is rejected when edited toward the old behaviour.
-for key in REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_ADMIN_PASSWORD; do
+for key in REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIENT_SECRET REQUESTARR_ADMIN_PASSWORD REQUESTARR_TRUSTED_PROXIES; do
   mutate_template "$key required again" "/Target=\"$key\"/ s/Required=\"false\"/Required=\"true\"/"
   mutate_template "a default for $key" "/Target=\"$key\"/ s/Default=\"\"/Default=\"usable-default\"/"
   mutate_template "a value for $key" "/Target=\"$key\"/ s#Mask=\"(true|false)\"/>#Mask=\"\\1\">usable-value</Config>#"
@@ -295,6 +295,9 @@ for key in REQUESTARR_OIDC_ISSUER REQUESTARR_OIDC_CLIENT_ID REQUESTARR_OIDC_CLIE
   mutate_template "$key that does not say the environment overrides Settings" "/Target=\"$key\"/ s/overrides anything saved in Settings, Authentication/mentions Settings/"
   mutate_template "$key that does not say all three come from the environment" "/Target=\"$key\"/ s/all three/some/"
 done
+mutate_template "trusted proxies shown by default" '/Target="REQUESTARR_TRUSTED_PROXIES"/ s/Display="advanced"/Display="always"/'
+mutate_template "trusted proxies that do not warn about spoofing" '/Target="REQUESTARR_TRUSTED_PROXIES"/ s/can forge/can send/'
+mutate_template "trusted proxies read by nothing" 's#Target="REQUESTARR_TRUSTED_PROXIES"#Target="REQUESTARR_TRUSTED_PROXY"#'
 mutate_template "an unmasked OIDC client secret" '/Target="REQUESTARR_OIDC_CLIENT_SECRET"/ s/Mask="true"/Mask="false"/'
 mutate_template "an unmasked initial administrator password" '/Target="REQUESTARR_ADMIN_PASSWORD"/ s/Mask="true"/Mask="false"/'
 mutate_template "an initial password description without the forced change" '/Target="REQUESTARR_ADMIN_PASSWORD"/ s/forced to change/kept/'

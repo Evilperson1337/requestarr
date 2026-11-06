@@ -259,9 +259,12 @@ paths:
       summary: Sign the built-in local administrator in with a password (D040)
       description: |
         Unauthenticated. The request must carry an Origin header equal to the public URL and a JSON content type, which a cross-site form cannot send.
-        A wrong password, an unknown username and a disabled account all answer the same 401 after the same hashing work. Failed attempts add an
-        exponentially growing delay (1 second doubling to a 5 minute cap, in memory) per account name and per client address; a delayed request
-        answers 429 with Retry-After and is not checked. Nothing locks the account. Every success and failure is audited.
+        A wrong password, an unknown username and a disabled account all answer the same 401 after the same hashing work. The response to a FAILED
+        attempt is held for an exponentially growing delay (1 second doubling to a 15 second cap, in memory) per account name and per client
+        address; a correct password is never delayed or refused for that. Only a few verifications run at once (some capacity is reserved for
+        clients that have not failed); a request that finds none free within a moment answers 429 with Retry-After without being checked.
+        The client address is the TCP peer, or, when the peer is inside REQUESTARR_TRUSTED_PROXIES, the rightmost X-Forwarded-For entry outside it.
+        Nothing locks the account. Every success and failure is audited.
         On success the session and CSRF cookies are set, as after an OIDC sign-in.
       requestBody:
         required: true
@@ -289,7 +292,7 @@ paths:
         '401': { description: Incorrect username or password (code invalid_credentials) }
         '403': { description: Origin missing or not the public URL }
         '415': { description: Content type is not application/json }
-        '429': { description: Too many attempts; wait Retry-After seconds (code too_many_attempts) }
+        '429': { description: Too many attempts at once; retry after Retry-After seconds (code too_many_attempts) }
         '503': { description: Local sign-in is unavailable }
   /auth/local/password:
     post:
