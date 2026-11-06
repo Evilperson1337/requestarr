@@ -217,10 +217,11 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Session-Expires", exp.UTC().Format(time.RFC3339))
 	_ = json.NewEncoder(w).Encode(struct {
-		User       User   `json:"user"`
-		CSRF       string `json:"csrfToken"`
-		MustChange bool   `json:"mustChangePassword"`
-	}{u, token, u.MustChange})
+		User               User   `json:"user"`
+		CSRF               string `json:"csrfToken"`
+		MustChange         bool   `json:"mustChangePassword"`
+		LocalAdministrator bool   `json:"localAdministrator"`
+	}{u, token, u.MustChange, u.LocalAdministrator})
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {

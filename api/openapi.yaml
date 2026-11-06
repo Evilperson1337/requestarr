@@ -234,13 +234,16 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [user, csrfToken]
+                required: [user, csrfToken, mustChangePassword, localAdministrator]
                 properties:
                   user: { type: object }
                   csrfToken: { type: string }
                   mustChangePassword:
                     type: boolean
                     description: True until the local administrator has chosen their own password; every other API route answers 403 password_change_required meanwhile.
+                  localAdministrator:
+                    type: boolean
+                    description: True when this session is the built-in local administrator, the only account with a local password. The page offers Change password only then; POST /auth/local/password still answers 403 to everyone else.
         '401': { description: Authentication required }
   /auth/logout:
     post:

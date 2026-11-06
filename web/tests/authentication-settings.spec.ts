@@ -13,7 +13,7 @@ const GENERATED = 'Synthetic-Generated-Pass-0001'
 const savedState = (over: Partial<typeof saved> = {}): Partial<State> => ({ state: 'saved_only', saved: { ...saved, ...over }, effective: { ...saved, ...over }, secretConfigured: true })
 
 type Call = { path: string; method: string; body: Record<string, unknown> | null; csrf?: string }
-async function setup(page: Page, patch: Partial<State> = {}, local: Local = { exists: true, disabled: false, canDisable: true }) {
+async function setup(page: Page, patch: Partial<State> = {}, local: Local = { exists: true, disabled: false, canDisable: true }, localAdministrator = true) {
     const calls: Call[] = []
     const world = { auth: { ...base, ...patch } as State, local: { ...local } }
     page.on('request', req => {
@@ -22,7 +22,7 @@ async function setup(page: Page, patch: Partial<State> = {}, local: Local = { ex
     })
     await page.route('**/api/v1/**', async route => {
         const req = route.request(), path = new URL(req.url()).pathname.replace('/api/v1', ''), method = req.method()
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'admin-local', role: 'admin', displayName: 'Administrator', email: '' }, csrfToken: 'test-csrf' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'admin-local', role: 'admin', displayName: 'Administrator', email: '' }, csrfToken: 'test-csrf', mustChangePassword: false, localAdministrator } })
         if (path.startsWith('/admin/settings/authentication') || path === '/auth/local/password') return route.fulfill({ status: 501, json: { error: { code: 'unmocked', message: `unmocked ${method} ${path}` } } })
         if (path === '/admin/status') return route.fulfill({ json: { providers: [], sources: [], recentErrors: [] } })
         if (path === '/admin/job-runs') return route.fulfill({ json: { sources: [] } })
@@ -284,6 +284,20 @@ test('creating the local administrator when one exists reports the conflict', as
 })
 
 test.describe('change password', () => {
+    test('is offered only to the session of the local administrator', async ({ page }) => {
+        // An administrator who signed in through OIDC has no local password to change.
+        await setup(page, {}, { exists: true, disabled: false, canDisable: true }, false)
+        const card = local(page)
+        await expect(card.getByText('Enabled', { exact: true })).toBeVisible()
+        await expect(card.getByRole('heading', { name: 'Change password' })).toHaveCount(0)
+        await expect(card.getByLabel('Current password', { exact: true })).toHaveCount(0)
+        await axe(page)
+    })
+    test('is offered to the local administrator session', async ({ page }) => {
+        await setup(page)
+        await expect(local(page).getByRole('heading', { name: 'Change password' })).toBeVisible()
+    })
+
     const open = async (page: Page) => {
         const ctx = await setup(page)
         const card = local(page)

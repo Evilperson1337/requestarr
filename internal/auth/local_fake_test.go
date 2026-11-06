@@ -229,6 +229,7 @@ func (f *fakeLocalStore) GetSession(_ context.Context, token []byte, now time.Ti
 	u := s.user
 	if c, ok := f.creds[u.ID]; ok {
 		u.MustChange = c.MustChange
+		u.LocalAdministrator = true
 	}
 	return u, s.csrf, s.expires, nil
 }

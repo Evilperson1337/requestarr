@@ -553,3 +553,32 @@ func TestPasswordChangeAuditFailureLeavesCredentialAndSessionsUnchanged(t *testi
 		}
 	}
 }
+
+// K1: /auth/me says whether the session is the built-in local administrator, so
+// the page can offer Change password only to that account.
+func TestAuthMeSaysWhetherTheSessionIsTheLocalAdministrator(t *testing.T) {
+	f := newFixture(t)
+	f.store.creds[adminUserID].MustChange = false
+	flag := func(cs []*http.Cookie) *bool {
+		w := f.authed(http.MethodGet, "/auth/me", "", cs)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status=%d", w.Code)
+		}
+		var body struct{ LocalAdministrator *bool }
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return body.LocalAdministrator
+	}
+	if got := flag(f.signIn()); got == nil || !*got {
+		t.Fatalf("local administrator session: localAdministrator=%v, want true", got)
+	}
+	// An OIDC person has no local credential: the field is present and false.
+	const personID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	f.store.addUser(personID, "admin")
+	if err := f.store.CreateSession(context.Background(), personID, Hash(testSecret, "person-token"), Hash(testSecret, "person-csrf"), f.clock.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	cs := []*http.Cookie{{Name: sessionCookie, Value: "person-token"}, {Name: "requestarr_csrf", Value: "person-csrf"}}
+	if got := flag(cs); got == nil || *got {
+		t.Fatalf("OIDC session: localAdministrator=%v, want false", got)
+	}
+}

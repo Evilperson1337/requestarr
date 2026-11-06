@@ -13,7 +13,7 @@ export function AuthenticationSettings({ session, onRequestError }: { session: S
         <div className="groupHead"><h2 id="group-authentication">Authentication</h2><p>How people sign in. Everyone except the local administrator signs in through your OpenID Connect provider. Changes apply at once, without a restart.</p></div>
         <ul className="integrations authCards">
             <OidcCard csrfToken={session.csrfToken} onRequestError={onRequestError} />
-            <LocalAdministratorCard csrfToken={session.csrfToken} onRequestError={onRequestError} />
+            <LocalAdministratorCard csrfToken={session.csrfToken} canChangePassword={session.localAdministrator === true} onRequestError={onRequestError} />
         </ul>
     </section>
 }

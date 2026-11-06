@@ -9,7 +9,8 @@ const MAX = 128
 // The recovery account (D040). Its generated password is held in this component only
 // until the administrator confirms they saved it: never in storage, a URL or a log, and
 // no API call returns it again.
-export function LocalAdministratorCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestError: (error: unknown) => void }) {
+// canChangePassword is true only for the local administrator's own session; the server still answers 403 to anyone else.
+export function LocalAdministratorCard({ csrfToken, canChangePassword, onRequestError }: { csrfToken: string; canChangePassword: boolean; onRequestError: (error: unknown) => void }) {
     const id = useId()
     const [admin, setAdmin] = useState<LocalAdministratorState | null>(null)
     const [loadError, setLoadError] = useState('')
@@ -113,7 +114,7 @@ export function LocalAdministratorCard({ csrfToken, onRequestError }: { csrfToke
             </div>
             <p role="status" className="authOk">{copied}</p>
         </div>}
-        {admin.exists && <form className="authForm" onSubmit={e => void changePassword(e)} noValidate>
+        {admin.exists && canChangePassword && <form className="authForm" onSubmit={e => void changePassword(e)} noValidate>
             <h4>Change password</h4>
             <p className="fieldHelp">For the signed-in local administrator. {MIN} to {MAX} characters, no other rules. Other sessions of this account end when you change it.</p>
             <div className="authFields">

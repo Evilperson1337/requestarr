@@ -19,6 +19,10 @@ type User struct {
 	// MustChange is set while the local administrator has not yet chosen
 	// their own password; the session can do nothing else until then (D040).
 	MustChange bool `json:"-"`
+	// LocalAdministrator is set when the session belongs to the built-in local
+	// administrator (the account that has a local credential). /auth/me reports
+	// it at the top level, not inside user.
+	LocalAdministrator bool `json:"-"`
 }
 type Session struct {
 	Token     string
