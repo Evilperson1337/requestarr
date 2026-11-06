@@ -78,19 +78,16 @@ type UserAdmin interface {
 	ChangeUserRole(ctx context.Context, actorID, targetID, role string, at time.Time) error
 }
 
-// SetupState reports whether the first administrator has been claimed.
-type SetupState interface {
-	SetupComplete(context.Context) (bool, error)
-}
-
 // Deps is everything the HTTP API needs. Every field except DevelopmentLogs is
 // required: NewRouter fails at startup naming what is missing, instead of
 // serving a route that answers 503 later.
 type Deps struct {
-	Logger    *slog.Logger
-	Build     buildinfo.Info
-	Readiness ReadinessChecker
-	Auth      *auth.Handler
+	Logger         *slog.Logger
+	Build          buildinfo.Info
+	Readiness      ReadinessChecker
+	Auth           *auth.Handler
+	Authentication AuthenticationService
+	LocalAdmin     LocalAdminManagement
 
 	Requests     *requests.Service
 	Resolver     Resolver
@@ -102,7 +99,6 @@ type Deps struct {
 	Users        UserAdmin
 	People       PeoplePolicy
 	Approvals    ApprovalPolicy
-	SetupState   SetupState
 	Syncer       SourceSyncer
 	Checklist    ChecklistService
 	IGDB         IGDBSettings
@@ -127,11 +123,11 @@ func (d Deps) missing() []string {
 		name string
 		nil  bool
 	}{
-		{"Logger", d.Logger == nil}, {"Readiness", d.Readiness == nil}, {"Auth", d.Auth == nil},
+		{"Logger", d.Logger == nil}, {"Readiness", d.Readiness == nil}, {"Auth", d.Auth == nil}, {"Authentication", d.Authentication == nil}, {"LocalAdmin", d.LocalAdmin == nil},
 		{"Requests", d.Requests == nil}, {"Resolver", d.Resolver == nil}, {"Inbox", d.Inbox == nil},
 		{"MoviePreview", d.MoviePreview == nil},
 		{"MatchReview", d.MatchReview == nil}, {"JobRuns", d.JobRuns == nil}, {"Status", d.Status == nil},
-		{"Users", d.Users == nil}, {"People", d.People == nil}, {"Approvals", d.Approvals == nil}, {"SetupState", d.SetupState == nil}, {"Syncer", d.Syncer == nil},
+		{"Users", d.Users == nil}, {"People", d.People == nil}, {"Approvals", d.Approvals == nil}, {"Syncer", d.Syncer == nil},
 		{"Checklist", d.Checklist == nil}, {"IGDB", d.IGDB == nil}, {"Secrets", d.Secrets == nil}, {"Connections", d.Connections == nil}, {"Library", d.Library == nil}, {"Search", d.Search == nil}, {"Issues", d.Issues == nil},
 	} {
 		if f.nil {
@@ -179,7 +175,10 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		rt.record("GET /auth/callback", accessPublic, false)
 		rt.record("POST /auth/logout", accessSession, false) // checks CSRF itself
 		rt.record("GET /auth/me", accessSession, false)
-		rt.record("POST /setup/claim-admin", accessSession, true)
+		// Local sign-in is unauthenticated and guards itself (Origin and JSON
+		// content type); the password change needs a session and CSRF.
+		rt.record("POST /auth/local/login", accessPublic, false)
+		rt.record("POST /auth/local/password", accessSession, true)
 	}
 	if inbox := d.Inbox; inbox != nil {
 		rt.handle("GET /notifications", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
@@ -221,6 +220,8 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	registerChecklistRoutes(rt, d.Checklist)
 	registerSettingsRoutes(rt, d.People, d.Approvals, d.IGDB)
 	registerSecretsRoutes(rt, d.Secrets)
+	registerAuthenticationRoutes(rt, d.Authentication)
+	registerLocalManagementRoutes(rt, d.LocalAdmin)
 	registerConnectionRoutes(rt, d.Connections)
 	registerLibraryRoutes(rt, d.Library)
 	limiter := d.SearchLimiter
@@ -229,7 +230,6 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	}
 	registerSearchRoutes(rt, d.Search, d.SearchLocal, limiter, logger)
 	registerIssueRoutes(rt, d.Issues)
-	rt.handle("GET /setup/status", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) { writeSetupStatus(w, r, d.SetupState) })
 	rt.handle("POST /admin/sources/{source}/sync", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		run, err := syncer.SyncNow(r.Context(), r.PathValue("source"))
 		switch {
@@ -299,6 +299,8 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		}
 		err := d.Users.ChangeUserRole(r.Context(), user.ID, id, input.Role, time.Now().UTC())
 		switch {
+		case errors.Is(err, auth.ErrBuiltinRole):
+			apierror.Write(w, r, 409, "builtin_admin_role", auth.ErrBuiltinRole.Error())
 		case errors.Is(err, postgres.ErrAdminSelfRoleChange):
 			apierror.Write(w, r, 409, "self_role_change", "cannot change your own role")
 		case errors.Is(err, postgres.ErrLastAdmin):
@@ -506,8 +508,15 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 			return
 		}
-		if _, err := authHandler.CurrentSession(r); err != nil {
+		user, err := authHandler.CurrentSession(r)
+		if err != nil {
 			apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
+			return
+		}
+		// Until the local administrator has chosen a password the session can
+		// do nothing else (D040): this covers every route, including unknown ones.
+		if user.MustChange && !auth.AllowedWhileMustChange(path) {
+			apierror.Write(w, r, http.StatusForbidden, "password_change_required", "choose a new password before continuing")
 			return
 		}
 		dispatch := http.Handler(http.StripPrefix("/api/v1", routeMisses(api)))
@@ -518,9 +527,6 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	})
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle("GET /api/v1/version", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, buildInfo) }))
-	mux.Handle("GET /api/v1/setup/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeSetupStatus(w, r, d.SetupState)
-	}))
 	mux.Handle("/", webui.Handler())
 
 	return apierror.Middleware(requestLogger(logger, securityHeaders(mux))), rt, nil
@@ -555,15 +561,6 @@ func validUUID(value string) bool {
 		}
 	}
 	return true
-}
-
-func writeSetupStatus(w http.ResponseWriter, r *http.Request, state SetupState) {
-	complete, err := state.SetupComplete(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]bool{"complete": false, "required": true})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"complete": complete, "required": !complete})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

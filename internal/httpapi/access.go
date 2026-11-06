@@ -81,6 +81,10 @@ func (t *routeTable) handle(pattern string, a access, fn func(http.ResponseWrite
 				apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 				return
 			}
+			if user.MustChange {
+				apierror.Write(w, r, http.StatusForbidden, "password_change_required", "choose a new password before continuing")
+				return
+			}
 			if a == accessAdmin && user.Role != roleAdmin {
 				apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
 				return

@@ -2,20 +2,23 @@
 
 Requestarr keeps all of its state in one PostgreSQL database. The OIDC client
 secret, the session HMAC secret and the master key (`REQUESTARR_SECRETS_KEY`) live
-only in the server environment. Provider tokens, library credentials, the Apprise
-key and the Navidrome password may be set in the environment or saved through
-Setup (D024); saved values are stored in the database **encrypted** under the
+only in the server environment, except that the OIDC client secret may instead be
+saved in Settings, Authentication (D040), where it is stored encrypted like the
+other saved secrets. Provider tokens, library credentials, the Apprise
+key and the Navidrome password may be set in the environment or saved in
+Settings (D024); saved values are stored in the database **encrypted** under the
 master key. A database backup therefore contains no plaintext credentials (only
-hashed session and setup tokens, secret references and ciphertext), but it is
+hashed session tokens, password hashes, secret references and ciphertext), but it is
 also not enough to restore saved secrets: you need the master key too.
 
 ## What to back up
 
-1. The PostgreSQL database named in `REQUESTARR_DATABASE_URL`: requests,
+1. The PostgreSQL database named by `REQUESTARR_DATABASE_URL` (or the `REQUESTARR_DB_*` settings): requests,
    subscriptions, users and roles, notifications and the Apprise outbox, catalog
    and inventory data, job runs, settings (including the IGDB client ID and people and approval policy) and audit events.
 2. Your environment configuration (`.env`, compose file or secret manager),
-   including `REQUESTARR_SESSION_HMAC_SECRET`. Changing that secret signs everyone
+   including `REQUESTARR_SESSION_HMAC_SECRET` and, if you set them,
+   `REQUESTARR_ADMIN_PASSWORD` and the OIDC variables. Changing that secret signs everyone
    out; it does not corrupt data.
 3. `REQUESTARR_SECRETS_KEY`, **backed up separately from the database**. Keep it
    in a different store than the dump (a password manager or secret store), so
@@ -94,5 +97,7 @@ backup, keep the previous version running, and report the migration error.
 
 - Job-run history is pruned per Source (newest 200 kept); notifications and audit
   events are retained until you remove them.
-- The first administrator is created with `requestarr setup-token`; see
-  `docs/FIRST_RUN.md`. Back up nothing for this: the token is single-use.
+- On a fresh database the local administrator is created at startup; sign in at `/login` with the one-time password from the container log and choose a password. Restoring a backup into an empty database counts as a restore, not a fresh install: the restored users, including the local administrator and its password, come back, and no new account or log line is created.
+- An upgraded instance keeps its users and roles, gets no local administrator automatically and keeps an environment-configured OIDC unchanged. An administrator can create the local administrator in Settings, Authentication. If the instance has no administrator at all, `requestarr reset-admin-password` run from the shell creates it (see below).
+- OIDC settings saved in the app (issuer, client ID, provider name, enabled flag and the encrypted client secret) are in the database backup; the secret needs the master key to be read. If it cannot be read, Settings, Authentication says so and the local administrator can still sign in to enter it again.
+- Shell recovery of the local administrator password is `docker exec <container> /requestarr reset-admin-password`; see [First run](FIRST_RUN.md). It also creates the local administrator when it does not exist, which is the way in for an upgraded instance that has users but no administrator (nothing is created automatically on upgrade).

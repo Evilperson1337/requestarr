@@ -2,16 +2,15 @@ package httpapi
 
 import (
 	"context"
-	"crypto/sha256"
-	"fmt"
-	"github.com/evilperson1337/requestarr/internal/issues"
-	"github.com/evilperson1337/requestarr/internal/sources"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/evilperson1337/requestarr/internal/issues"
+	"github.com/evilperson1337/requestarr/internal/sources"
 
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
@@ -25,7 +24,6 @@ import (
 
 const matrixUserID = "11111111-1111-4111-8111-111111111111"
 const matrixItemID = "22222222-2222-4222-8222-222222222222"
-const matrixToken = "matrix-bootstrap-token-12345678901234567890"
 
 type mutationCase struct {
 	name, pattern, path, body string
@@ -38,6 +36,12 @@ type mutationCase struct {
 // valid positive request is required: denial must not be a validation error.
 func mutationCases() []mutationCase {
 	return []mutationCase{
+		{"create recovery account", "POST /admin/settings/authentication/local-administrator", "/admin/settings/authentication/local-administrator", "", "admin", 201, "localadmin.create"},
+		{"disable recovery account", "PUT /admin/settings/authentication/local-administrator/disabled", "/admin/settings/authentication/local-administrator/disabled", `{"disabled":true}`, "admin", 200, "localadmin.disable"},
+		{"save OIDC", "PUT /admin/settings/authentication", "/admin/settings/authentication", `{"enabled":true,"providerName":"Keycloak","issuer":"https://id.test","clientId":"client","clientSecret":"canary-secret"}`, "admin", 200, "authentication.save"},
+		{"test OIDC", "POST /admin/settings/authentication/test", "/admin/settings/authentication/test", `{}`, "admin", 200, "authentication.test"},
+		{"enable OIDC", "PUT /admin/settings/authentication/enabled", "/admin/settings/authentication/enabled", `{"enabled":true}`, "admin", 200, "authentication.enable"},
+		{"discard OIDC", "DELETE /admin/settings/authentication", "/admin/settings/authentication", "", "admin", 200, "authentication.discard"},
 		{"create request", "POST /requests", "/requests", `{"catalogId":"` + matrixItemID + `","platforms":{"any":false}}`, "requester", 201, "request.create"},
 		{"resolve metadata", "POST /resolve", "/resolve", `{"url":"https://www.themoviedb.org/movie/11"}`, "authenticated", 200, "metadata.resolve"},
 		{"subscribe", "PUT /requests/{requestID}/subscription", "/requests/" + matrixItemID + "/subscription", "", "authenticated", 200, "request.subscribe"},
@@ -47,16 +51,12 @@ func mutationCases() []mutationCase {
 		{"cancel", "POST /requests/{requestID}/transition", "/requests/" + matrixItemID + "/transition", transitionBody("cancelled"), "admin", 200, "request.cancelled"},
 		{"read notification", "POST /notifications/{notificationID}/read", "/notifications/" + matrixItemID + "/read", "", "authenticated", 204, "notification.read"},
 		{"sync source", "POST /admin/sources/{source}/sync", "/admin/sources/jellyfin/sync", "", "admin", 202, "source.sync"},
-		{"change role", "PUT /admin/users/{userID}/role", "/admin/users/" + matrixItemID + "/role", `{"role":"viewer"}`, "admin", 204, "user.role"},
+		{"promote a person to admin", "PUT /admin/users/{userID}/role", "/admin/users/" + matrixItemID + "/role", `{"role":"admin"}`, "admin", 204, "user.role"},
 		{"set default first sign-in role", "PUT /admin/settings/people", "/admin/settings/people", `{"defaultRole":"requester"}`, "admin", 200, "people.default_role"},
 		{"set auto-approve types", "PUT /admin/settings/approvals", "/admin/settings/approvals", `{"autoApproveTypes":["movie"]}`, "admin", 200, "approvals.auto_types"},
 		{"accept match", "POST /admin/match-suggestions/{suggestionID}/accept", "/admin/match-suggestions/" + matrixItemID + "/accept", "", "admin", 204, "match.accept"},
 		{"dismiss match", "POST /admin/match-suggestions/{suggestionID}/dismiss", "/admin/match-suggestions/" + matrixItemID + "/dismiss", "", "admin", 204, "match.dismiss"},
 		{"logout", "POST /auth/logout", "/auth/logout", "", "authenticated", 204, "session.revoke"},
-		// Bootstrap authorization is the matching issuer/subject plus a one-time
-		// token, not a pre-existing admin role. Its real repository is tested
-		// independently for single-use and last-admin serialization.
-		{"claim initial admin", "POST /setup/claim-admin", "/setup/claim-admin", `{"issuer":"https://issuer.example","subject":"subject-1","token":"` + matrixToken + `"}`, "authenticated", 204, "bootstrap.claim"},
 		{"dismiss the Get started checklist", "POST /admin/checklist/dismiss", "/admin/checklist/dismiss", "", "admin", 204, "checklist.dismiss"},
 		{"set the IGDB client ID", "PUT /admin/settings/igdb", "/admin/settings/igdb", `{"clientId":"twitch-id"}`, "admin", 200, "igdb.client_id"},
 		{"set stored secret", "PUT /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", `{"value":"matrix-secret-value"}`, "admin", 204, "secret.set"},
@@ -80,6 +80,8 @@ type matrixBackend struct {
 	requests.Repository
 	t       *testing.T
 	effects []string
+	// authRefuses, when set, is what the authentication service answers to a change.
+	authRefuses error
 }
 
 func (b *matrixBackend) record(effect, actor string) {
@@ -156,7 +158,7 @@ func (b *matrixBackend) SyncNow(_ context.Context, source string) (jobs.Run, err
 
 func (b *matrixBackend) ChangeUserRole(_ context.Context, actor, target, role string, _ time.Time) error {
 	b.record("user.role", actor)
-	if target != matrixItemID || role != "viewer" {
+	if target != matrixItemID || role != "admin" {
 		b.t.Errorf("unexpected role change target=%q role=%q", target, role)
 	}
 	return nil
@@ -202,15 +204,6 @@ type matrixAuthRepo struct {
 
 func (r matrixAuthRepo) RevokeSession(context.Context, []byte, time.Time) error {
 	r.backend.record("session.revoke", r.user.ID)
-	return nil
-}
-
-func (r matrixAuthRepo) ClaimAdmin(_ context.Context, userID, issuer, subject string, tokenHash []byte, _ time.Time) error {
-	expected := sha256.Sum256([]byte(matrixToken))
-	if userID != r.user.ID || issuer != r.user.Issuer || subject != r.user.Subject || !reflect.DeepEqual(tokenHash, expected[:]) {
-		return fmt.Errorf("invalid bootstrap identity or token")
-	}
-	r.backend.record("bootstrap.claim", userID)
 	return nil
 }
 
@@ -322,35 +315,6 @@ func TestMutatingEndpointsRequireCSRFAndOriginAcrossAuthenticatedRoles(t *testin
 					}
 				})
 			}
-		}
-	}
-}
-
-func TestBootstrapClaimRequiresIdentityAndTokenNotExistingAdminRole(t *testing.T) {
-	var endpoint mutationCase
-	for _, candidate := range mutationCases() {
-		if candidate.pattern == "POST /setup/claim-admin" {
-			endpoint = candidate
-		}
-	}
-	if endpoint.pattern == "" {
-		t.Fatal("bootstrap claim row missing")
-	}
-	for _, role := range []string{"viewer", "requester", "admin"} {
-		for _, invalid := range []struct{ name, from, to string }{
-			{"wrong subject", "subject-1", "somebody-else"},
-			{"wrong issuer", "https://issuer.example", "https://other.example"},
-			{"wrong token", matrixToken, "invalid-bootstrap-token-12345678901234567890"},
-		} {
-			t.Run(role+"/"+invalid.name, func(t *testing.T) {
-				tc := endpoint
-				tc.body = strings.Replace(tc.body, invalid.from, invalid.to, 1)
-				backend := &matrixBackend{t: t}
-				assertErrorEnvelope(t, matrixRequest(backend, tc, role, "csrf-token", "http://example.test"), 403, "claim_unavailable")
-				if len(backend.effects) != 0 {
-					t.Fatalf("invalid bootstrap identity/token reached claim: %v", backend.effects)
-				}
-			})
 		}
 	}
 }

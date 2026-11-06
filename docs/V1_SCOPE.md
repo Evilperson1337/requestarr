@@ -3,8 +3,8 @@
 ## Required
 
 - Go service + React/TypeScript web UI + PostgreSQL.
-- First-run Get started checklist (computed from live state, dismissible) after the first-admin claim; configuration itself lives in Settings (D038).
-- OIDC-only normal authentication; Keycloak tested and documented.
+- First-run Get started checklist (computed from live state, dismissible) after the first sign-in as the local administrator; configuration itself lives in Settings (D038, D040).
+- OIDC for everyone else, configured in Settings, Authentication; Keycloak tested and documented. One built-in local administrator for setup and recovery (D040).
 - Roles/capabilities for viewer/requester/admin.
 - URL resolver registry:
   - TMDB movie + TV URLs;

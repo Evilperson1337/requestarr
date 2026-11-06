@@ -11,7 +11,7 @@ Requestarr deliberately stops at **request management, availability reconciliati
 - Other users can choose **Notify Me** on an existing request without creating duplicates or votes.
 - Games dynamically expose the platforms reported by IGDB. Users may choose **Any** or multiple acceptable platforms; any selected platform satisfies the request.
 - Shared **Requests** screen. `My Requests` is only a filter, never a private section.
-- Required **OIDC** authentication, with **Keycloak** as the primary tested/documented provider.
+- **OIDC** sign-in for everyone, configured in Settings, Authentication, with **Keycloak** as the primary tested/documented provider. One built-in **local administrator** (`admin`) is created on a fresh install so you can set everything up, and recover access, without an identity provider.
 - New OIDC users start as viewers: they can browse and use **Notify Me**; an administrator must promote them to requester to allow request creation. Existing roles are preserved on later logins.
 - In-app notifications plus **Apprise API** integration.
 - Sources of truth for availability:
@@ -75,15 +75,15 @@ make test
 
 The Compose stack runs Requestarr and PostgreSQL as separate containers; the database is persisted in the `requestarr-postgres` volume. Requestarr waits for PostgreSQL's health check, applies migrations at startup, and is available at `http://localhost:8080`. Run `docker compose -f compose.dev.yaml down` to stop the stack; the database volume is preserved. Use `docker compose -f compose.dev.yaml down -v` only when intentionally deleting local database data.
 
-Before starting the stack, configure valid OIDC issuer/client values and a random `REQUESTARR_SESSION_HMAC_SECRET` of at least 32 bytes in `.env`. The OIDC issuer must be HTTPS and reachable from the Requestarr container; the example HTTP Keycloak issuer is not accepted by the current runtime config. `docker compose` reads `.env` for interpolation, but the example placeholders are not production credentials. To run only PostgreSQL and the supporting services, use `docker compose -f compose.dev.yaml up -d postgres keycloak apprise`.
+Before starting the stack, set a random `REQUESTARR_SESSION_HMAC_SECRET` of at least 32 bytes in `.env`. The OIDC variables in `.env` are optional overrides (if any one is set, all three come from the environment and override anything saved in Settings, Authentication); the issuer must be HTTPS and reachable from the Requestarr container, and plain-HTTP issuers are accepted only for `localhost` with `REQUESTARR_ENV=development`, so the example `http://keycloak:8080` issuer is not. Without them, sign in as the local administrator and set up OIDC in the app. `docker compose` reads `.env` for interpolation, but the example placeholders are not production credentials. To run only PostgreSQL and the supporting services, use `docker compose -f compose.dev.yaml up -d postgres keycloak apprise`.
 
 `GET /healthz` is a dependency-free liveness probe; `GET /readyz` additionally checks the database and returns `503` while it is unreachable. For the full development environment, open the repository in its Dev Container.
 
 To run Requestarr on an Unraid server (template or compose), follow the [Unraid guide](docs/UNRAID.md).
 
-For initial administrator provisioning, see [`docs/OIDC_AUTH.md`](docs/OIDC_AUTH.md): operators run `requestarr setup-token --issuer <issuer> --subject <subject>`, then the matching authenticated OIDC user claims it once.
+For first sign-in and recovery, see [`docs/FIRST_RUN.md`](docs/FIRST_RUN.md): read the one-time password of the built-in local administrator (`admin`) in the container log, sign in at `/login`, choose your own password, set up OIDC in Settings, Authentication, and use `requestarr reset-admin-password` from the server if it is forgotten.
 
-After claiming admin you land on **Get started**, a checklist computed from the live state that links to
+After local administrator sign-in, open **Get started**, a checklist computed from the live state that links to
 the part of Settings that applies each item; everything there applies live (provider credentials after a
 restart). See the [setup guide](docs/FIRST_RUN.md), [upgrade and backup notes](docs/UPGRADE_AND_BACKUP.md) and [project status](docs/research/PROJECT_STATUS.md).
 
@@ -141,4 +141,4 @@ Requestarr is licensed under the GNU Affero General Public License v3.0 (AGPL-3.
 
 `make build` runs the Vite production build before compiling the Go binary; Node/npm are required locally. The Docker build performs the same ordering in a Node builder stage and embeds the resulting assets in the Go binary. Browser routes fall back to the SPA, while `/api/` and `/auth/` routes remain server-owned. Development can continue to use `make web-dev`.
 
-This build does not imply V1 completeness. It has only been exercised against fixtures and mocks; live-service acceptance of the providers and libraries remains outstanding. Configure the required PostgreSQL and OIDC deployment environment according to the setup documentation; no availability is fabricated while library adapters are absent.
+This build does not imply V1 completeness. It has only been exercised against fixtures and mocks; live-service acceptance of the providers and libraries remains outstanding. Configure the required PostgreSQL and secrets deployment environment according to the setup documentation (OIDC is set up in the app after the first sign-in); no availability is fabricated while library adapters are absent.

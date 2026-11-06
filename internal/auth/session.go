@@ -16,6 +16,13 @@ type User struct {
 	DisplayName string `json:"displayName"`
 	Issuer      string `json:"-"`
 	Subject     string `json:"-"`
+	// MustChange is set while the local administrator has not yet chosen
+	// their own password; the session can do nothing else until then (D040).
+	MustChange bool `json:"-"`
+	// LocalAdministrator is set when the session belongs to the built-in local
+	// administrator (the account that has a local credential). /auth/me reports
+	// it at the top level, not inside user.
+	LocalAdministrator bool `json:"-"`
 }
 type Session struct {
 	Token     string
@@ -30,15 +37,6 @@ type Repository interface {
 	CreateSession(context.Context, string, []byte, []byte, time.Time) error
 	GetSession(context.Context, []byte, time.Time) (User, []byte, time.Time, error)
 	RevokeSession(context.Context, []byte, time.Time) error
-}
-
-// SetupState reports whether first-admin setup is already complete.
-type SetupState interface {
-	SetupComplete(context.Context) (bool, error)
-}
-
-type BootstrapRepository interface {
-	ClaimAdmin(context.Context, string, string, string, []byte, time.Time) error
 }
 
 func Hash(secret, value string) []byte {

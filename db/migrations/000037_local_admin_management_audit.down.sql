@@ -1,0 +1,1 @@
+DROP TABLE local_admin_management_audit_events;

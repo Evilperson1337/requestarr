@@ -118,11 +118,6 @@ func (u testUsers) ChangeUserRole(ctx context.Context, a, b, c string, at time.T
 	return u.change(ctx, a, b, c, at)
 }
 
-// absentSetupState reads as a fresh install.
-type absentSetupState struct{}
-
-func (absentSetupState) SetupComplete(context.Context) (bool, error) { return false, nil }
-
 type absentSyncer struct{}
 
 func (absentSyncer) SyncNow(context.Context, string) (jobs.Run, error) { return jobs.Run{}, errAbsent }
@@ -204,11 +199,6 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 	} else {
 		d.Approvals = absentApprovals{}
 	}
-	if v, ok := readiness.(SetupState); ok {
-		d.SetupState = v
-	} else {
-		d.SetupState = absentSetupState{}
-	}
 	if v, ok := extra.(SecretsService); ok {
 		d.Secrets = v
 	} else {
@@ -246,6 +236,12 @@ func testDeps(logger *slog.Logger, info buildinfo.Info, readiness ReadinessCheck
 	}
 	if v, ok := readiness.(DevelopmentLogsSource); ok {
 		d.DevelopmentLogs = v.DevelopmentLogs()
+	}
+	d.Authentication = authenticationFake{}
+	d.LocalAdmin = matrixLocalManagement{}
+	if b, ok := readiness.(*matrixBackend); ok {
+		d.Authentication = matrixAuthentication{b}
+		d.LocalAdmin = matrixLocalManagement{b}
 	}
 	return d
 }

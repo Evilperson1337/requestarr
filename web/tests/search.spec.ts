@@ -23,7 +23,6 @@ async function openHome(page: Page, options: Options = {}) {
     await page.route('**/api/v1/**', async route => {
         const url = new URL(route.request().url())
         const path = url.pathname.replace('/api/v1', '')
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: options.role ?? 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
         if (path === '/search/types') return route.fulfill({ json: { types: options.types ?? ['movie_tv'] } })
         if (path === '/search') {

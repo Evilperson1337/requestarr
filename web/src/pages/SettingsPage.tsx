@@ -5,13 +5,17 @@ import { MatchSuggestions } from '../components/MatchSuggestions'
 import { ApprovalPolicy } from '../components/ApprovalPolicy'
 import { DevelopmentLogsPanel } from '../components/DevelopmentLogs'
 import { LibraryConnections } from '../components/LibraryConnections'
+import { AuthenticationSettings } from '../components/AuthenticationSettings'
 import { ProviderIntegrations } from '../components/ProviderIntegrations'
 
-const tabs = [['integrations', 'Integrations'], ['activity', 'Activity'], ['matches', 'Matches'], ['users', 'Users']] as const
+const tabs = [['integrations', 'Integrations'], ['authentication', 'Authentication'], ['activity', 'Activity'], ['matches', 'Matches'], ['users', 'Users']] as const
 
 export function SettingsPage({ session }: { session: Session }) {
     return <SettingsForSession key={`${session.user.id}:${session.csrfToken}`} session={session} />
 }
+
+// A list the server leaves out is an empty list, never a reason to throw while rendering.
+const withLists = (status: OperationalStatus): OperationalStatus => ({ ...status, providers: status.providers ?? [], sources: status.sources ?? [], recentErrors: status.recentErrors ?? [] })
 
 function SettingsForSession({ session }: { session: Session }) {
     const [users, setUsers] = useState<AdminUser[]>([])
@@ -35,12 +39,12 @@ function SettingsForSession({ session }: { session: Session }) {
         if (authorizationLost) return
         const controller = new AbortController()
         api<OperationalStatus>('/admin/status', { cache: 'no-store', signal: controller.signal }).then(result => {
-            if (!controller.signal.aborted) setOps(result)
+            if (!controller.signal.aborted) setOps(withLists(result))
         }).catch(e => { if (!controller.signal.aborted) { checkAuthorization(e); setOps(null); setOpsError(e instanceof Error ? e.message : 'Could not load operational status') } })
         return () => controller.abort()
     }, [session.user.id, session.csrfToken, checkAuthorization, authorizationLost])
-    const loadStatus = useCallback(() => api<OperationalStatus>('/admin/status', { cache: 'no-store' }).then(setOps).catch(e => { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not load source status') }), [checkAuthorization])
-    const loadRuns = useCallback(() => api<{ sources: SourceRuns[] }>('/admin/job-runs').then(result => setSources(result.sources)).catch(e => { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not load sync runs'); setSources(current => [...current]) /* new reference keeps an active poll retrying */ }), [checkAuthorization])
+    const loadStatus = useCallback(() => api<OperationalStatus>('/admin/status', { cache: 'no-store' }).then(result => setOps(withLists(result))).catch(e => { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not load source status') }), [checkAuthorization])
+    const loadRuns = useCallback(() => api<{ sources: SourceRuns[] }>('/admin/job-runs').then(result => setSources(result.sources ?? [])).catch(e => { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not load sync runs'); setSources(current => [...current]) /* new reference keeps an active poll retrying */ }), [checkAuthorization])
     const syncActive = sources.some(group => group.runs.some(run => run.status === 'running'))
     useEffect(() => { loadRuns() }, [loadRuns])
     // Follow an active run until it finishes.
@@ -79,6 +83,7 @@ function SettingsForSession({ session }: { session: Session }) {
     const failing = ops?.sources.filter(source => source.configured && source.lastRun?.status === 'failed').length ?? 0
     return <main className="shell settingsPage"><h1 id="opsHeading">Settings</h1>
         <div className="settingsTabs" role="group" aria-label="Settings sections">{tabs.map(([key, label]) => <button key={key} type="button" className="settingsTab" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}{key === 'activity' && failing > 0 && <span className="tabCount" aria-label={`${failing} failing`}>{failing}</span>}</button>)}</div>
+        {tab === 'authentication' && !authorizationLost && <AuthenticationSettings session={session} onRequestError={checkAuthorization} />}
         {opsError && <p role="alert" className="error">{opsError}</p>}{!ops && !opsError && <p role="status">Loading operational status…</p>}
         {ops && <div hidden={tab !== 'integrations'}>
             <section className="integrationGroup" aria-labelledby="group-libraries"><div className="groupHead"><h2 id="group-libraries">Media libraries</h2><p>Where Requestarr looks to see what you already have. Saving an address or its credential applies at once; an address set by an environment variable is shown but cannot be changed here.</p></div>
@@ -94,6 +99,6 @@ function SettingsForSession({ session }: { session: Session }) {
             {!authorizationLost && <DevelopmentLogsPanel session={session} enabled={ops?.developmentLogsEnabled === true} onRequestError={checkAuthorization} />}
         </div>
         <div hidden={tab !== 'matches'}><MatchSuggestions csrfToken={session.csrfToken} onRequestError={checkAuthorization} /></div>
-        <div hidden={tab !== 'users'}><ApprovalPolicy csrfToken={session.csrfToken} onRequestError={checkAuthorization} /><SettingsSection title="New people" description="The role someone gets the first time they sign in. It never applies to people who already have an account, and it cannot be administrator. Every administrator is notified when someone signs in for the first time.">{peopleError && <p role="alert" className="error">{peopleError}</p>}{defaultRole && <label className="field">Role for people who sign in for the first time<select value={defaultRole} onChange={event => void changeDefaultRole(event.target.value as PeopleSettings['defaultRole'])}><option value="viewer">viewer</option><option value="requester">requester</option></select></label>}{peopleMessage && <p role="status">{peopleMessage}</p>}</SettingsSection><SettingsSection title="User management" description="Changing a role revokes that user’s active sessions. Your own role cannot be changed here.">{users.length === 0 ? <p role="status">Loading users…</p> : <div className="table-wrap" role="region" aria-label="Users" tabIndex={0}><table><thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Action</th></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.displayName || user.email || user.id}<br /><small>{user.email}</small></td><td>{user.role}</td><td>{user.id === session.user.id ? 'Current user' : <label><span className="sr-only">Role for {user.displayName || user.email || user.id}</span><select value={user.role} onChange={event => void changeRole(user, event.target.value as AdminUser['role'])}><option value="viewer">viewer</option><option value="requester">requester</option><option value="admin">admin</option></select></label>}</td></tr>)}</tbody></table></div>}</SettingsSection></div>
+        <div hidden={tab !== 'users'}><ApprovalPolicy csrfToken={session.csrfToken} onRequestError={checkAuthorization} /><SettingsSection title="New people" description="The role someone gets the first time they sign in. It never applies to people who already have an account, and it cannot be administrator. Every administrator is notified when someone signs in for the first time.">{peopleError && <p role="alert" className="error">{peopleError}</p>}{defaultRole && <label className="field">Role for people who sign in for the first time<select value={defaultRole} onChange={event => void changeDefaultRole(event.target.value as PeopleSettings['defaultRole'])}><option value="viewer">viewer</option><option value="requester">requester</option></select></label>}{peopleMessage && <p role="status">{peopleMessage}</p>}</SettingsSection><SettingsSection title="User management" description="Changing a role revokes that user’s active sessions. Your own role cannot be changed here.">{users.length === 0 ? <p role="status">Loading users…</p> : <div className="table-wrap" role="region" aria-label="Users" tabIndex={0}><table><thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Action</th></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.displayName || user.email || user.id}{user.builtin && <> <span className="badge">Local administrator</span></>}<br /><small>{user.email}</small></td><td>{user.role}</td><td>{user.builtin ? 'Always administrator' : user.id === session.user.id ? 'Current user' : <label><span className="sr-only">Role for {user.displayName || user.email || user.id}</span><select value={user.role} onChange={event => void changeRole(user, event.target.value as AdminUser['role'])}><option value="viewer">viewer</option><option value="requester">requester</option><option value="admin">admin</option></select></label>}</td></tr>)}</tbody></table></div>}</SettingsSection></div>
     </main>
 }

@@ -48,8 +48,9 @@ for c in root.findall("Config"):
 
 wanted = os.environ["REQUIRED"].split()
 needed_targets = [w for w in wanted if w.startswith("REQUESTARR_") and w != "REQUESTARR_TAG"]
+optional_targets = os.environ["OPTIONAL"].split()
 db_required = os.environ["DB_REQUIRED"].split()
-for t in needed_targets + db_required + ["REQUESTARR_DB_PORT", "REQUESTARR_DB_SSLMODE", "REQUESTARR_DATABASE_URL",
+for t in needed_targets + optional_targets + db_required + ["REQUESTARR_DB_PORT", "REQUESTARR_DB_SSLMODE", "REQUESTARR_DATABASE_URL",
                                          "REQUESTARR_LOG_LEVEL", "REQUESTARR_HTTP_ALLOWED_NETWORKS", "REQUESTARR_ENV", "8080"]:
     if t not in configs:
         err("template has no field for %s" % t)
@@ -65,7 +66,7 @@ if c is not None:
         err("REQUESTARR_ENV description must say why it is production")
 
 # ---- secrets: masked, required, no default, with a generation command ----------
-for name in ("REQUESTARR_OIDC_CLIENT_SECRET", "REQUESTARR_SESSION_HMAC_SECRET", "REQUESTARR_SECRETS_KEY"):
+for name in ("REQUESTARR_SESSION_HMAC_SECRET", "REQUESTARR_SECRETS_KEY"):
     c = configs.get(name)
     if c is None:
         continue
@@ -73,6 +74,46 @@ for name in ("REQUESTARR_OIDC_CLIENT_SECRET", "REQUESTARR_SESSION_HMAC_SECRET", 
         err("%s must be Mask=true and Required=true" % name)
     if c.get("Default") or (c.text or "").strip():
         err("%s must have no default or value" % name)
+# ---- optional (D040): OIDC is an override, the initial password is for a fresh install ---------
+for name in ("REQUESTARR_OIDC_ISSUER", "REQUESTARR_OIDC_CLIENT_ID", "REQUESTARR_OIDC_CLIENT_SECRET"):
+    c = configs.get(name)
+    if c is None:
+        continue
+    d = c.get("Description") or ""
+    if c.get("Required") != "false" or c.get("Display") != "advanced":
+        err("%s must be an advanced, optional override" % name)
+    if c.get("Default") or (c.text or "").strip():
+        err("%s must have no default or value" % name)
+    if "overrides anything saved in Settings, Authentication" not in d:
+        err("%s description must say the environment overrides anything saved in Settings, Authentication" % name)
+    if "all three" not in d:
+        err("%s description must say all three come from the environment if any is set" % name)
+c = configs.get("REQUESTARR_OIDC_CLIENT_SECRET")
+if c is not None and c.get("Mask") != "true":
+    err("REQUESTARR_OIDC_CLIENT_SECRET must be Mask=true")
+c = configs.get("REQUESTARR_TRUSTED_PROXIES")
+if c is not None:
+    d = c.get("Description") or ""
+    if c.get("Required") != "false" or c.get("Display") != "advanced" or c.get("Mask") != "false":
+        err("REQUESTARR_TRUSTED_PROXIES must be advanced, optional and not masked")
+    if c.get("Default") or (c.text or "").strip():
+        err("REQUESTARR_TRUSTED_PROXIES must have no default or value")
+    if "X-Forwarded-For" not in d or "can forge" not in d:
+        err("REQUESTARR_TRUSTED_PROXIES description must name X-Forwarded-For and say other clients can forge it")
+c = configs.get("REQUESTARR_ADMIN_PASSWORD")
+if c is not None:
+    d = c.get("Description") or ""
+    if c.get("Mask") != "true" or c.get("Required") != "false":
+        err("REQUESTARR_ADMIN_PASSWORD must be Mask=true and Required=false")
+    if c.get("Default") or (c.text or "").strip():
+        err("REQUESTARR_ADMIN_PASSWORD must have no default or value")
+    if "forced to change" not in d or "container log" not in d:
+        err("REQUESTARR_ADMIN_PASSWORD description must say it is forced to change at first sign-in and that otherwise a random one is printed in the container log")
+    if "12" not in d or "128" not in d:
+        err("REQUESTARR_ADMIN_PASSWORD description must give the 12 to 128 character rule")
+requires = (root.findtext("Requires") or "").lower()
+if "oidc is optional" not in requires:
+    err("Requires must say OIDC is optional")
 # The database is asked for as separate fields (D034). The password is masked, required and
 # has no default; host and user are required with no default; the name defaults to requestarr.
 c = configs.get("REQUESTARR_DB_PASSWORD")
@@ -176,11 +217,13 @@ for tag in ("Icon", "Project", "Support", "TemplateURL", "Registry"):
     if not v.startswith(("https://github.com/evilperson1337/", "https://raw.githubusercontent.com/evilperson1337/requestarr/main/")):
         err("<%s> must be a public evilperson1337 GitHub address, got %r" % (tag, v))
 text = open(os.environ["TEMPLATE"]).read().lower()
+if re.search(r"setup[-_ ]?tok" "en|claim-ad" "min|claim (the )?(first )?ad" "min|first-ad" "min", text):
+    err("template mentions the removed claim flow")
 if "allour" + "media" in text:  # split so this file does not itself carry the string
     err("template names the private domain")
 if "mnt/user" in text or "/boot" in text or any(c.get("Type") == "Path" for c in root.findall("Config")):
     err("template must not need an appdata path")
-for t in ("REQUESTARR_SETUP_TOKEN", "REQUESTARR_TMDB_READ_TOKEN", "REQUESTARR_PLEX_TOKEN", "REQUESTARR_JELLYFIN_API_KEY"):
+for t in ("REQUESTARR_TMDB_READ_TOKEN", "REQUESTARR_PLEX_TOKEN", "REQUESTARR_JELLYFIN_API_KEY"):
     if t in configs:
         err("%s is a provider credential and must not be a template field" % t)
 

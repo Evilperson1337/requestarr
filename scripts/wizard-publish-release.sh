@@ -513,7 +513,7 @@ stage_8() {
   stage "Test on your Unraid server"
   say "Two passes: (A) the compose file pinned to $RELEASE_TAG, then (B) the template."
   open_url "https://github.com/$GH_REPO/blob/main/docs/UNRAID.md"
-  step "Follow the guide for the prerequisites: PostgreSQL, a TLS reverse proxy, a Keycloak client."
+  step "Follow the guide for the prerequisites: PostgreSQL, a TLS reverse proxy (a Keycloak client comes after the first sign-in)."
   step "Pass A: copy deploy/unraid/ to the server, fill in requestarr.env, set REQUESTARR_TAG=$RELEASE_TAG, run docker compose up -d."
   step "Pass B: Docker tab, Template Repositories, add:"
   say  "      $TEMPLATE_URL"
@@ -522,11 +522,11 @@ stage_8() {
   pause "Press Enter when you have results to record"
 
   local titles=(
-    "Compose pass A: container healthy and first admin signs in"
+    "Compose pass A: container healthy and the local administrator signs in"
     "Install from the Template Repositories URL (icon, link, pinned tag, image pulls)"
     "Healthy container (unhealthy when PostgreSQL stops, recovers when it starts)"
     "Bad configuration reported (http public URL, malformed master key)"
-    "First-admin sign-in through Keycloak; a second user is a viewer"
+    "Local administrator sign-in, OIDC set up in Settings and tested; an OIDC person is a viewer until promoted"
     "Library over a private http:// address syncs; a public http:// name is rejected"
     "Master key separation (restore with a different key does not crash)"
   )
@@ -550,11 +550,11 @@ stage_8() {
 stage_9() {
   stage "Record the results in ticket 08"
   local titles=(
-    "Compose pass A: container healthy and first admin signs in"
+    "Compose pass A: container healthy and the local administrator signs in"
     "Install from the Template Repositories URL"
     "Healthy container"
     "Bad configuration reported"
-    "First-admin sign-in through Keycloak"
+    "Local administrator sign-in and OIDC set up in Settings"
     "Library over a private http:// address"
     "Master key separation"
   )

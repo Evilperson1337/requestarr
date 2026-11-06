@@ -7,6 +7,7 @@ const targets: Record<ChecklistItem['key'], string> = {
     libraries: '/settings?tab=integrations#group-libraries',
     metadata: '/settings?tab=integrations#group-metadata',
     notifications: '/settings?tab=integrations#group-notifications',
+    oidc: '/settings?tab=authentication',
     people: '/settings?tab=users',
 }
 

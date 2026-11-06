@@ -6,16 +6,219 @@ info:
     Every error response (4xx/5xx, including unknown paths and wrong methods) has the JSON body
     described by components/schemas/Error, and every response carries an X-Request-Id header
     (components/headers/RequestId). Per-operation error entries only list status meanings.
+    A session of the local administrator who has not yet chosen their own password (mustChangePassword
+    on /auth/me) gets 403 password_change_required from every route except /auth/me, /auth/logout and
+    /auth/local/password (D040).
     Initial contract scaffold. Keep this synchronized with implemented handlers and
     generate clients/types only after endpoint semantics are reviewed.
 servers:
   - url: /api/v1
 paths:
+  /admin/settings/authentication/local-administrator:
+    get:
+      operationId: getLocalAdministratorStatus
+      summary: Admin-only recovery-account presence, disabled state and disable eligibility
+      responses:
+        '200':
+          description: Local administrator status; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LocalAdministratorStatus' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator required }
+    post:
+      operationId: createLocalAdministrator
+      summary: Explicitly create the single recovery account on an upgraded instance
+      description: Requires same-origin and session CSRF. Returns the generated password exactly once; the account must change it on first sign-in. Never resets an existing credential and never logs the password.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '201':
+          description: Created; Cache-Control no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [username, password, mustChangePassword]
+                properties:
+                  username: { type: string, const: admin }
+                  password: { type: string, description: One-time generated password; never returned by another operation }
+                  mustChangePassword: { type: boolean, const: true }
+        '401': { description: Authentication required }
+        '403': { description: Administrator, Origin and CSRF required }
+        '409': { description: Recovery account already exists }
+        '500': { description: Creation or audit failed; no credential returned }
+  /admin/settings/authentication/local-administrator/disabled:
+    put:
+      operationId: setLocalAdministratorDisabled
+      summary: Enable or disable the recovery account without changing its password
+      description: Requires same-origin and session CSRF. Disabling requires another enabled administrator AND a working OIDC sign-in, and revokes all local sessions atomically with the audit event. A disabled account never satisfies last-admin protection.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [disabled]
+              properties:
+                disabled: { type: boolean }
+      responses:
+        '200':
+          description: Updated; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LocalAdministratorStatus' }
+        '400': { description: Invalid JSON }
+        '401': { description: Authentication required }
+        '403': { description: Administrator, Origin and CSRF required }
+        '404': { description: Recovery account does not exist }
+        '409': { description: "Cannot disable: no other enabled administrator (last_admin), or another admin exists but OIDC is off or not working so nobody could sign in (no_working_sign_in); checked server-side inside the serialised admin section" }
+        '422': { description: disabled field required }
+        '500': { description: Update or audit failed; previous state retained }
+  /auth/options:
+    get:
+      operationId: getSignInOptions
+      summary: Minimal unauthenticated sign-in options (no settings or credentials)
+      responses:
+        '200':
+          description: Live sign-in options; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignInOptions' }
+  /admin/settings/authentication:
+    get:
+      operationId: getAuthenticationSettings
+      summary: Admin-only OIDC state, source conflicts, saved metadata and redirect URI
+      responses:
+        '200':
+          description: Local runtime state; no provider network request; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthenticationSettings' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator required }
+    put:
+      operationId: saveAuthenticationSettings
+      summary: Admin-only atomic save and runtime apply
+      description: >-
+        Requires same-origin and session CSRF. A non-empty clientSecret replaces the encrypted secret;
+        omitted or empty retains it. REQUESTARR_SECRETS_KEY is required for replacement. Enabled
+        settings are discovered before persistence/publication, even if Test previously passed.
+        Failure leaves both saved configuration and live provider unchanged. Concurrent writes serialize.
+        In-flight sign-ins retain the provider and issuer they started with, for five minutes.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthenticationSettingsUpdate' }
+      responses:
+        '200':
+          description: Saved and applied; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthenticationSettings' }
+        '400': { description: Invalid JSON or body exceeds 8192 bytes }
+        '401': { description: Authentication required }
+        '403': { description: Administrator, Origin and CSRF required }
+        '409': { description: Environment override or missing master key }
+        '422': { description: Invalid settings, unreadable secret or discovery failed }
+        '500': { description: Persistence failed; previous configuration retained }
+    delete:
+      operationId: discardAuthenticationSettings
+      summary: Admin-only discard of saved settings and encrypted secret
+      description: Requires same-origin and session CSRF. Does not change an environment-controlled provider.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Saved configuration discarded; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthenticationSettings' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator, Origin and CSRF required }
+        '500': { description: Persistence failed; previous configuration retained }
+  /admin/settings/authentication/test:
+    post:
+      operationId: testAuthenticationSettings
+      summary: Admin-only bounded OIDC discovery; does not save or publish
+      description: Requires same-origin and session CSRF. Environment values are tested as a unit when present. Discovery checks metadata, not client credentials or a complete login.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthenticationSettingsUpdate' }
+      responses:
+        '200':
+          description: Discovery passed
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [ok], properties: { ok: { type: boolean, const: true } } }
+        '400': { description: Invalid JSON or body exceeds 8192 bytes }
+        '401': { description: Authentication required }
+        '403': { description: Administrator, Origin and CSRF required }
+        '422': { description: Invalid settings, unreadable secret or discovery failed }
+  /admin/settings/authentication/enabled:
+    put:
+      operationId: setAuthenticationEnabled
+      summary: Admin-only enable or disable without losing saved settings
+      description: Requires same-origin and session CSRF. Enabling re-runs discovery before publishing. Environment-controlled settings are read-only. Turning OIDC off is refused with 409 oidc_is_only_sign_in while the local administrator is disabled.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: Applied; Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthenticationSettings' }
+        '400': { description: Invalid JSON or body exceeds 8192 bytes }
+        '401': { description: Authentication required }
+        '403': { description: Administrator, Origin and CSRF required }
+        '409': { description: Environment-controlled configuration }
+        '422': { description: No saved configuration or discovery failed }
+        '500': { description: Persistence failed; previous configuration retained }
   /auth/login:
     get:
       operationId: startOIDCLogin
       responses:
         '302': { description: Redirect to configured identity provider }
+        '503': { description: OIDC disabled, unavailable or pending transaction limit reached; local administrator sign-in remains available }
   /auth/callback:
     get:
       operationId: completeOIDCLogin
@@ -26,21 +229,21 @@ paths:
       operationId: getCurrentUser
       responses:
         '200':
-          description: >-
-            Authenticated user and synchronizer CSRF token. While first-admin setup is
-            unclaimed (and only then) it also carries the caller's own verified issuer and
-            subject as firstAdminClaim, so the claim page can show the setup-token command.
-            The field is absent once an administrator exists or when the status cannot be
-            read, and no other response carries these values (D037).
+          description: Authenticated user, synchronizer CSRF token and required password-change state.
           content:
             application/json:
               schema:
                 type: object
-                required: [user, csrfToken]
+                required: [user, csrfToken, mustChangePassword, localAdministrator]
                 properties:
                   user: { type: object }
                   csrfToken: { type: string }
-                  firstAdminClaim: { $ref: '#/components/schemas/FirstAdminClaim' }
+                  mustChangePassword:
+                    type: boolean
+                    description: True until the local administrator has chosen their own password; every other API route answers 403 password_change_required meanwhile.
+                  localAdministrator:
+                    type: boolean
+                    description: True when this session is the built-in local administrator, the only account with a local password. The page offers Change password only then; POST /auth/local/password still answers 403 to everyone else.
         '401': { description: Authentication required }
   /auth/logout:
     post:
@@ -53,6 +256,77 @@ paths:
       responses:
         '204': { description: Session revoked }
         '403': { description: Origin or CSRF validation failed }
+  /auth/local/login:
+    post:
+      operationId: localLogin
+      summary: Sign the built-in local administrator in with a password (D040)
+      description: |
+        Unauthenticated. The request must carry an Origin header equal to the public URL and a JSON content type, which a cross-site form cannot send.
+        A wrong password, an unknown username and a disabled account all answer the same 401 after the same hashing work. The response to a FAILED
+        attempt is held for an exponentially growing delay (1 second doubling to a 15 second cap, in memory) per account name and per client
+        address; a correct password is never delayed or refused for that. Only a few verifications run at once (some capacity is reserved for
+        clients that have not failed); a request that finds none free within a moment answers 429 with Retry-After without being checked.
+        The client address is the TCP peer, or, when the peer is inside REQUESTARR_TRUSTED_PROXIES, the rightmost X-Forwarded-For entry outside it.
+        Nothing locks the account. Every success and failure is audited.
+        On success the session and CSRF cookies are set, as after an OIDC sign-in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              additionalProperties: false
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, mustChangePassword]
+                properties:
+                  user: { type: object }
+                  mustChangePassword: { type: boolean }
+        '400': { description: Body is not the expected JSON }
+        '401': { description: Incorrect username or password (code invalid_credentials) }
+        '403': { description: Origin missing or not the public URL }
+        '415': { description: Content type is not application/json }
+        '429': { description: Too many attempts at once; retry after Retry-After seconds (code too_many_attempts) }
+        '503': { description: Local sign-in is unavailable }
+  /auth/local/password:
+    post:
+      operationId: changeLocalPassword
+      summary: The local administrator chooses a new password
+      description: |
+        Verifies the current password (a wrong one is throttled like a failed sign-in), requires 12 to 128 characters with no composition rules,
+        refuses the current password, ends the account's other sessions and clears the must-change flag. Allowed while mustChangePassword is true.
+        Only the account that has a local password may call it; anyone else is 403.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              additionalProperties: false
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 12, maxLength: 128 }
+      responses:
+        '204': { description: Password changed }
+        '400': { description: invalid_password (length) or password_unchanged (same as current) }
+        '401': { description: Authentication required }
+        '403': { description: current_password_incorrect, forbidden (no local password), or Origin or CSRF validation failed }
+        '429': { description: Too many attempts; wait Retry-After seconds }
   /notifications:
     get:
       operationId: listNotifications
@@ -106,48 +380,6 @@ paths:
                   version: { type: string }
                   commit: { type: string }
                   date: { type: string }
-  /setup/status:
-    get:
-      operationId: getSetupStatus
-      responses:
-        '200':
-          description: Minimal public first-run state; exposes no identity information
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [complete, required]
-                properties:
-                  complete: { type: boolean, description: "First-admin bootstrap is complete" }
-                  required: { type: boolean }
-  /setup/claim-admin:
-    post:
-      operationId: claimInitialAdmin
-      summary: Atomically consume the operator-issued initial-admin token
-      description: >-
-        Takes the token only. Issuer and subject come from the verified session. A request
-        that still sends issuer or subject is rejected unless each equals the session's.
-      parameters:
-        - in: header
-          name: X-CSRF-Token
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [token]
-              properties:
-                issuer: { type: string, description: "Optional, deprecated. Must equal the signed-in issuer or the claim is rejected." }
-                subject: { type: string, description: "Optional, deprecated. Must equal the signed-in subject or the claim is rejected." }
-                token: { type: string }
-      responses:
-        '204': { description: Admin role granted and setup atomically completed }
-        '401': { description: Authentication required }
-        '403': { description: Generic claim failure }
   /catalog/{catalogID}/preview:
     get:
       operationId: moviePreviewState
@@ -500,7 +732,17 @@ paths:
       operationId: listAdminUsers
       summary: List users and their roles (administrator only)
       responses:
-        '200': { description: Users with id, email, displayName, role (viewer, requester or admin) and createdAt }
+        '200':
+          description: Users with id, email, displayName, role (viewer, requester or admin), builtin and createdAt; the local administrator is listed first with builtin true
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminUser' }
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
   /admin/settings/people:
@@ -594,7 +836,7 @@ paths:
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
         '404': { description: User not found }
-        '409': { description: Cannot change your own role, or cannot demote the last administrator; nothing is changed }
+        '409': { description: "Cannot change your own role (self_role_change), cannot demote the last administrator (last_admin), or the target is the local administrator, whose role is always admin and is refused even for admin (builtin_admin_role); nothing is changed" }
   /library/recent:
     get:
       operationId: listRecentlyAddedToLibraries
@@ -1075,7 +1317,7 @@ paths:
                       type: object
                       required: [key, title, required, done]
                       properties:
-                        key: { type: string, enum: [libraries, metadata, notifications, people] }
+                        key: { type: string, enum: [libraries, metadata, notifications, oidc, people] }
                         title: { type: string }
                         required: { type: boolean }
                         done: { type: boolean }
@@ -1327,14 +1569,76 @@ components:
         request_id. Client-supplied values are ignored. Quote it when reporting problems.
       schema: { type: string }
   schemas:
-    FirstAdminClaim:
+    LocalAdministratorStatus:
       type: object
-      description: The signed-in caller's own verified identity, present only while first-admin setup is unclaimed.
-      required: [issuer, subject, issuerIsConfigured]
+      additionalProperties: false
+      required: [exists, disabled, canDisable, otherAdminExists, oidcWorking]
       properties:
-        issuer: { type: string }
-        subject: { type: string }
-        issuerIsConfigured: { type: boolean, description: "True when issuer equals the configured REQUESTARR_OIDC_ISSUER, so setup-token needs no --issuer" }
+        exists: { type: boolean }
+        disabled: { type: boolean }
+        canDisable:
+          type: boolean
+          description: True only while another admin exists and OIDC is enabled with a working provider, so someone can really sign in once the account is off.
+        otherAdminExists: { type: boolean }
+        oidcWorking: { type: boolean, description: From the live OIDC state, not a network probe }
+    AdminUser:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName, role, builtin, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        displayName: { type: string }
+        role: { type: string, enum: [viewer, requester, admin] }
+        builtin: { type: boolean, description: True only for the local administrator, whose role is locked to admin }
+        createdAt: { type: string, format: date-time }
+    SignInOptions:
+      type: object
+      additionalProperties: false
+      required: [oidcEnabled, providerName]
+      properties:
+        oidcEnabled: { type: boolean }
+        providerName: { type: string, maxLength: 100 }
+    OIDCSettings:
+      type: object
+      additionalProperties: false
+      required: [enabled, providerName, issuer, clientId]
+      properties:
+        enabled: { type: boolean }
+        providerName: { type: string, maxLength: 100 }
+        issuer: { type: string, maxLength: 2048 }
+        clientId: { type: string, maxLength: 512 }
+    AuthenticationSettingsUpdate:
+      type: object
+      additionalProperties: false
+      required: [enabled, providerName, issuer, clientId]
+      properties:
+        enabled: { type: boolean }
+        providerName: { type: string, minLength: 1, maxLength: 100 }
+        issuer: { type: string, format: uri, maxLength: 2048 }
+        clientId: { type: string, minLength: 1, maxLength: 512 }
+        clientSecret: { type: string, maxLength: 4096, writeOnly: true, description: Empty or omitted retains the saved secret; never returned }
+    AuthenticationSettings:
+      type: object
+      additionalProperties: false
+      required: [state, missing, ignored, differing, saved, effective, secretConfigured, secretUnreadable, canSaveSecret, readOnly, redirectUri, working, problem]
+      properties:
+        state: { type: string, enum: [not_configured, saved_only, environment_only, environment_overriding_saved, environment_incomplete] }
+        missing: { type: array, items: { type: string }, description: Missing environment variable names, never values }
+        ignored: { type: array, items: { type: string }, description: Saved fields ignored by the environment unit }
+        differing: { type: array, items: { type: string }, description: Variable names whose saved values differ; never secret values }
+        saved:
+          oneOf:
+            - { $ref: '#/components/schemas/OIDCSettings' }
+            - { type: 'null' }
+        effective: { $ref: '#/components/schemas/OIDCSettings' }
+        secretConfigured: { type: boolean }
+        secretUnreadable: { type: boolean }
+        canSaveSecret: { type: boolean }
+        readOnly: { type: boolean }
+        redirectUri: { type: string, format: uri }
+        working: { type: boolean, description: A discovered provider snapshot is active; not a live health request }
+        problem: { type: string, description: Value-free startup failure summary }
     SearchResult:
       type: object
       required: [mediaType, provider, providerId, ref, title]

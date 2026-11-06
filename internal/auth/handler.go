@@ -2,18 +2,21 @@ package auth
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
+	"github.com/evilperson1337/requestarr/internal/authsettings"
 )
 
 const sessionCookie = "requestarr_session"
@@ -21,53 +24,45 @@ const preauthCookie = "requestarr_oidc_preauth"
 const lifetime = 12 * time.Hour
 
 type Handler struct {
-	Repo                      Repository
-	Provider                  oidc.Provider
+	Repo     Repository
+	Provider oidc.Provider
+	// OIDC returns the live immutable snapshot; static Provider is retained for embedders.
+	OIDC                      func() *authsettings.Snapshot
+	pendingMu                 sync.Mutex
+	pending                   map[string]pendingOIDC
 	Issuer, PublicURL, Secret string
 	Secure                    bool
-	Setup                     SetupState
+
+	// The local administrator (D040). Local may be nil, which turns local
+	// sign-in off. Hasher, Clock, Throttle and Logger default sensibly.
+	Local    LocalStore
+	Hasher   PasswordHasher
+	Clock    func() time.Time
+	Throttle *Throttle
+	Logger   *slog.Logger
+	// TrustedProxies are the reverse proxies whose X-Forwarded-For is believed
+	// when finding the client address. Empty means never (D040).
+	TrustedProxies []netip.Prefix
+	// Sleep holds a failed sign-in response; nil uses a real timer.
+	Sleep func(ctx context.Context, d time.Duration)
+
+	throttleOnce, dummyOnce, auditOnce sync.Once
+	auditLim                           *auditLimiter
+	dummy                              string
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
+	if h.Local != nil {
+		h.dummyHash() // made now, at startup, so the first unknown username costs no extra hash
+	}
 	mux.HandleFunc("GET /auth/login", h.login)
 	mux.HandleFunc("GET /auth/callback", h.callback)
 	mux.HandleFunc("POST /auth/logout", h.logout)
 	mux.HandleFunc("GET /auth/me", h.me)
-	mux.HandleFunc("POST /setup/claim-admin", h.claimAdmin)
+	mux.HandleFunc("POST /auth/local/login", h.localLogin)
+	mux.Handle("POST /auth/local/password", h.CSRFMiddleware(http.HandlerFunc(h.changePassword)))
 }
 
-func (h *Handler) claimAdmin(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	var in struct {
-		Issuer  *string `json:"issuer"`
-		Subject *string `json:"subject"`
-		Token   string  `json:"token"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
-	d := json.NewDecoder(r.Body)
-	d.DisallowUnknownFields()
-	decodeErr := d.Decode(&in)
-	if decodeErr != nil || requireEOF(d) != nil || len(in.Token) < 32 || len(in.Token) > 512 {
-		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
-		return
-	}
-	u, _, _, err := h.current(r)
-	if err != nil || (in.Issuer != nil && *in.Issuer != u.Issuer) || (in.Subject != nil && *in.Subject != u.Subject) {
-		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
-		return
-	}
-	repo, ok := h.Repo.(BootstrapRepository)
-	if !ok {
-		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
-		return
-	}
-	hash := sha256.Sum256([]byte(in.Token))
-	if repo.ClaimAdmin(r.Context(), u.ID, u.Issuer, u.Subject, hash[:], time.Now()) != nil {
-		apierror.Write(w, r, http.StatusForbidden, "claim_unavailable", "claim unavailable")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
 func requireEOF(d *json.Decoder) error {
 	var extra json.RawMessage
 	if err := d.Decode(&extra); err != io.EOF {
@@ -79,6 +74,15 @@ func requireEOF(d *json.Decoder) error {
 	return nil
 }
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	snap := &authsettings.Snapshot{Provider: h.Provider, Issuer: h.Issuer}
+	if h.OIDC != nil {
+		snap = h.OIDC()
+	}
+	if snap == nil || snap.Provider == nil {
+		apierror.Write(w, r, 503, "oidc_unavailable", "OIDC sign-in is not available; use administrator sign-in")
+		return
+	}
+
 	preauth, err := oidc.RandomValue()
 	if err != nil {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
@@ -99,13 +103,17 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
-	if err = h.Repo.SaveTransaction(r.Context(), HashString(h.Secret, state), nonce, verifier, HashString(h.Secret, preauth), time.Now().Add(5*time.Minute)); err != nil {
+	if err = h.Repo.SaveTransaction(r.Context(), HashString(h.Secret, state), nonce, verifier, HashString(h.Secret, preauth), h.now().Add(5*time.Minute)); err != nil {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
+		return
+	}
+	if !h.rememberOIDC(HashString(h.Secret, state), snap) {
+		apierror.Write(w, r, 503, "auth_unavailable", "too many pending sign-ins; try again shortly")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: preauthCookie, Value: preauth, Path: "/api/v1/auth", HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, MaxAge: 300})
 	http.SetCookie(w, &http.Cookie{Name: "requestarr_oidc_state", Value: state, Path: "/api/v1/auth", HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, MaxAge: 300})
-	http.Redirect(w, r, h.Provider.AuthorizationURL(state, nonce, oidc.PKCEChallenge(verifier)), http.StatusFound)
+	http.Redirect(w, r, snap.Provider.AuthorizationURL(state, nonce, oidc.PKCEChallenge(verifier)), http.StatusFound)
 }
 func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie("requestarr_oidc_state")
@@ -120,16 +128,21 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	clearCookie(w, preauthCookie, "/api/v1/auth", h.Secure)
 	clearCookie(w, "requestarr_oidc_state", "/api/v1/auth", h.Secure)
-	nonce, verifier, err := h.Repo.ConsumeTransaction(r.Context(), HashString(h.Secret, c.Value), HashString(h.Secret, preauth.Value), time.Now())
+	nonce, verifier, err := h.Repo.ConsumeTransaction(r.Context(), HashString(h.Secret, c.Value), HashString(h.Secret, preauth.Value), h.now())
 	if err != nil {
 		apierror.Write(w, r, 400, "invalid_login_transaction", "invalid login transaction")
+		return
+	}
+	snap := h.takeOIDC(HashString(h.Secret, c.Value))
+	if snap == nil {
+		apierror.Write(w, r, 400, "invalid_login_transaction", "login expired; start sign-in again")
 		return
 	}
 	if r.URL.Query().Get("error") != "" {
 		apierror.Write(w, r, 401, "sign_in_rejected", "identity provider rejected sign-in")
 		return
 	}
-	id, err := h.Provider.Exchange(r.Context(), r.URL.Query().Get("code"), verifier, nonce)
+	id, err := snap.Provider.Exchange(r.Context(), r.URL.Query().Get("code"), verifier, nonce)
 	if err != nil {
 		apierror.Write(w, r, 401, "sign_in_failed", "sign-in failed")
 		return
@@ -139,36 +152,46 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
-	u, err := h.Repo.Login(r.Context(), h.Issuer, id.Subject, id.Email, id.DisplayName, uid, time.Now())
+	u, err := h.Repo.Login(r.Context(), snap.Issuer, id.Subject, id.Email, id.DisplayName, uid, h.now())
 	if err != nil {
 		apierror.Write(w, r, 500, "sign_in_failed", "sign-in failed")
 		return
 	}
-	token, err := oidc.RandomValue()
-	if err != nil {
+	if err = h.issueSession(w, r, u.ID); err != nil {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
+	}
+	http.Redirect(w, r, h.PublicURL+"/", http.StatusSeeOther)
+}
+
+// issueSession creates a session for the user and sets its cookies.
+func (h *Handler) issueSession(w http.ResponseWriter, r *http.Request, userID string) error {
+	return h.issueSessionUsing(w, r, userID, h.Repo.CreateSession)
+}
+
+func (h *Handler) issueSessionUsing(w http.ResponseWriter, r *http.Request, userID string, create func(context.Context, string, []byte, []byte, time.Time) error) error {
+	token, err := oidc.RandomValue()
+	if err != nil {
+		return err
 	}
 	csrf, err := oidc.RandomValue()
 	if err != nil {
-		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
-		return
+		return err
 	}
-	exp := time.Now().Add(lifetime)
-	if err = h.Repo.CreateSession(r.Context(), u.ID, Hash(h.Secret, token), Hash(h.Secret, csrf), exp); err != nil {
-		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
-		return
+	exp := h.now().Add(lifetime)
+	if err = create(r.Context(), userID, Hash(h.Secret, token), Hash(h.Secret, csrf), exp); err != nil {
+		return err
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, Expires: exp})
 	http.SetCookie(w, &http.Cookie{Name: "requestarr_csrf", Value: csrf, Path: "/", Secure: h.Secure, SameSite: http.SameSiteLaxMode, Expires: exp})
-	http.Redirect(w, r, h.PublicURL+"/", http.StatusSeeOther)
+	return nil
 }
 func (h *Handler) current(r *http.Request) (User, []byte, time.Time, error) {
 	c, e := r.Cookie(sessionCookie)
 	if e != nil {
 		return User{}, nil, time.Time{}, e
 	}
-	return h.Repo.GetSession(r.Context(), Hash(h.Secret, c.Value), time.Now())
+	return h.Repo.GetSession(r.Context(), Hash(h.Secret, c.Value), h.now())
 }
 
 // CurrentSession reports whether the request carries a valid session.
@@ -194,33 +217,13 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Session-Expires", exp.UTC().Format(time.RFC3339))
 	_ = json.NewEncoder(w).Encode(struct {
-		User            User             `json:"user"`
-		CSRF            string           `json:"csrfToken"`
-		FirstAdminClaim *FirstAdminClaim `json:"firstAdminClaim,omitempty"`
-	}{u, token, h.firstAdminClaim(r.Context(), u)})
+		User               User   `json:"user"`
+		CSRF               string `json:"csrfToken"`
+		MustChange         bool   `json:"mustChangePassword"`
+		LocalAdministrator bool   `json:"localAdministrator"`
+	}{u, token, u.MustChange, u.LocalAdministrator})
 }
 
-// FirstAdminClaim is the caller's own verified identity, shown only to that
-// caller while first-admin setup is unclaimed (D037). It is what the operator
-// types into setup-token; it grants nothing without the shell-issued token.
-type FirstAdminClaim struct {
-	Issuer             string `json:"issuer"`
-	Subject            string `json:"subject"`
-	IssuerIsConfigured bool   `json:"issuerIsConfigured"`
-}
-
-// firstAdminClaim returns nil unless setup is known to be unclaimed; a failed
-// lookup exposes nothing.
-func (h *Handler) firstAdminClaim(ctx context.Context, u User) *FirstAdminClaim {
-	if h.Setup == nil {
-		return nil
-	}
-	complete, err := h.Setup.SetupComplete(ctx)
-	if err != nil || complete {
-		return nil
-	}
-	return &FirstAdminClaim{Issuer: u.Issuer, Subject: u.Subject, IssuerIsConfigured: u.Issuer == h.Issuer}
-}
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	if !sameOrigin(r, h.PublicURL) {
 		apierror.Write(w, r, 403, "origin_rejected", "origin rejected")
@@ -238,7 +241,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 403, "csrf_invalid", "CSRF validation failed")
 		return
 	}
-	if err = h.Repo.RevokeSession(r.Context(), Hash(h.Secret, c.Value), time.Now()); err != nil {
+	if err = h.Repo.RevokeSession(r.Context(), Hash(h.Secret, c.Value), h.now()); err != nil {
 		apierror.Write(w, r, 500, "logout_failed", "logout failed")
 		return
 	}
@@ -302,4 +305,40 @@ func subtleHashEqual(a, b []byte) bool {
 }
 func clearCookie(w http.ResponseWriter, name, path string, secure bool) {
 	http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: path, HttpOnly: name != "requestarr_csrf", Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0)})
+}
+
+// Pending snapshots have the same lifetime as the browser-bound transaction.
+// Bounded storage prevents abandoned sign-ins from retaining providers forever.
+type pendingOIDC struct {
+	snapshot *authsettings.Snapshot
+	expires  time.Time
+}
+
+func (h *Handler) rememberOIDC(key string, snapshot *authsettings.Snapshot) bool {
+	h.pendingMu.Lock()
+	defer h.pendingMu.Unlock()
+	now := h.now()
+	if h.pending == nil {
+		h.pending = map[string]pendingOIDC{}
+	}
+	for key, p := range h.pending {
+		if !p.expires.After(now) {
+			delete(h.pending, key)
+		}
+	}
+	if len(h.pending) >= 4096 {
+		return false
+	}
+	h.pending[key] = pendingOIDC{snapshot: snapshot, expires: now.Add(5 * time.Minute)}
+	return true
+}
+func (h *Handler) takeOIDC(key string) *authsettings.Snapshot {
+	h.pendingMu.Lock()
+	defer h.pendingMu.Unlock()
+	p := h.pending[key]
+	delete(h.pending, key)
+	if !p.expires.After(h.now()) {
+		return nil
+	}
+	return p.snapshot
 }

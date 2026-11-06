@@ -9,6 +9,7 @@ package secrets
 type Name string
 
 const (
+	OIDCClientSecret  Name = "oidc_client_secret"
 	IGDBClientSecret  Name = "igdb_client_secret"
 	AppriseConfigKey  Name = "apprise_config_key"
 	TMDBReadToken     Name = "tmdb_read_token"
@@ -39,6 +40,7 @@ var registry = []Spec{
 	{Name: PlexToken, EnvVar: "REQUESTARR_PLEX_TOKEN", Label: "Plex token"},
 	{Name: RommToken, EnvVar: "REQUESTARR_ROMM_TOKEN", Label: "RomM token"},
 	{Name: AudiobookshelfAPIKey, EnvVar: "REQUESTARR_AUDIOBOOKSHELF_API_KEY", Label: "Audiobookshelf API key"},
+	{Name: OIDCClientSecret, EnvVar: "REQUESTARR_OIDC_CLIENT_SECRET", Label: "OIDC client secret"},
 }
 
 // All returns the registered secrets in a stable order.

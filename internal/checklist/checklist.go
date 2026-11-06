@@ -17,6 +17,7 @@ const (
 	Libraries     Key = "libraries"
 	Metadata      Key = "metadata"
 	Notifications Key = "notifications"
+	OIDC          Key = "oidc"
 	People        Key = "people"
 )
 
@@ -52,10 +53,20 @@ type Store interface {
 	DismissChecklist(context.Context) error
 }
 
+// SignIn reports whether people can sign in through OpenID Connect right now.
+type SignIn interface {
+	OIDCConfigured(context.Context) (bool, error)
+}
+
 type Service struct {
 	status Status
 	store  Store
+	signIn SignIn
 }
+
+// WithSignIn adds the optional "OIDC configured" item. Without it the item is
+// not listed.
+func (s *Service) WithSignIn(signIn SignIn) *Service { s.signIn = signIn; return s }
 
 func New(status Status, store Store) *Service { return &Service{status: status, store: store} }
 
@@ -79,6 +90,14 @@ func (s *Service) Get(ctx context.Context) (Result, error) {
 			Detail: doneDetail(providerOn(overview, "apprise"), "Optional. Without Apprise, people only see availability inside Requestarr.")},
 		{Key: People, Title: "Review who can do what", Done: reviewed,
 			Detail: doneDetail(reviewed, "Optional. New people start as viewers and every request waits for approval until you change the default role or the approval policy.")},
+	}
+	if s.signIn != nil {
+		configured, err := s.signIn.OIDCConfigured(ctx)
+		if err != nil {
+			return Result{}, fmt.Errorf("load sign-in state: %w", err)
+		}
+		items = append(items[:3:3], append([]Item{{Key: OIDC, Title: "OIDC configured", Done: configured,
+			Detail: doneDetail(configured, "Optional. Without it, everyone signs in with the local administrator account. Add your identity provider under Settings, Authentication.")}}, items[3:]...)...)
 	}
 	result := Result{Items: items, Dismissed: dismissed}
 	requiredOpen := false

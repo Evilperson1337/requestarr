@@ -61,7 +61,7 @@ func TestEmbeddedSPAAndRouteBoundaries(t *testing.T) {
 	for _, tc := range []struct {
 		path, contentType string
 		status            int
-	}{{"/", "text/html", 200}, {"/requests", "text/html", 200}, {"/missing.js", "", 404}, {"/auth/not-real", "", 404}} {
+	}{{"/", "text/html", 200}, {"/requests", "text/html", 200}, {"/login", "text/html", 200}, {"/login/", "text/html", 200}, {"/missing.js", "", 404}, {"/auth/not-real", "", 404}} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
 		if rec.Code != tc.status {
@@ -125,11 +125,9 @@ func TestRouteTablePolicy(t *testing.T) {
 		"POST /admin/checklist/dismiss":          {Access: accessAdmin, CSRF: true},
 		"GET /admin/checklist":                   {Access: accessAdmin},
 		"PUT /admin/settings/igdb":               {Access: accessAdmin, CSRF: true},
-		"POST /setup/claim-admin":                {Access: accessSession, CSRF: true},
 		"POST /auth/logout":                      {Access: accessSession},
 		"GET /auth/login":                        {Access: accessPublic},
 		"GET /version":                           {Access: accessPublic},
-		"GET /setup/status":                      {Access: accessPublic},
 		"GET /search":                            {Access: accessSession},
 		"GET /search/types":                      {Access: accessSession},
 	}
@@ -170,7 +168,6 @@ func TestPublicAndUnknownAPIPathsHaveExpectedAuthBoundary(t *testing.T) {
 		want int
 	}{
 		{"/api/v1/version", http.StatusOK},
-		{"/api/v1/setup/status", http.StatusOK},
 		{"/api/v1/not-a-route", http.StatusUnauthorized},
 	} {
 		t.Run(tc.path, func(t *testing.T) {

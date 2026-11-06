@@ -1,16 +1,66 @@
 # First-run setup and the Get started checklist
 
-## Claiming the first admin
+## Signing in as the local administrator (D040)
 
-First-admin bootstrap is an OIDC sign-in plus one-time claim (D037). The claim
-page reads public `GET /api/v1/setup/status`, which exposes only whether the
-first admin has been claimed, never an identity or a setting. The server checks
-the verified session, CSRF and the CLI-bound token. Everything else is set up
-afterwards, live, in Settings.
+On a fresh install (no users), startup creates the one built-in local
+administrator, username `admin`. Read the generated one-time password in the
+container log and sign in at `/login` on your HTTPS public URL. You must choose
+your own password (12–128 characters) before doing anything else. Anyone with
+log access can read the initial password: never copy logs containing it into
+chat or tickets. `REQUESTARR_ADMIN_PASSWORD` can supply the initial password for
+automation; it is never logged and still requires a change.
+
+The startup log line to look for begins `Requestarr created the local
+administrator. Sign in as 'admin' at <your public URL>/login with the one-time
+password in this line`; the password is the `one_time_password` value at its
+end. It is written once, when the account is created. With
+`REQUESTARR_ADMIN_PASSWORD` the line says so and shows no password.
+
+HTTPS is a prerequisite for the password as well as for OIDC: the session
+cookies are Secure, so a browser on a plain `http://` address would not keep
+the sign-in, and the password would cross the network in clear. Put a TLS
+reverse proxy in front first ([Unraid guide](UNRAID.md)).
+
+An upgrade with existing users creates no local account and preserves their
+roles. Existing administrators retain access, and an OIDC configuration in the
+environment keeps working unchanged. An existing administrator can create the
+local administrator later in **Settings, Authentication** with **Create local
+administrator** (the password is shown once and must be changed at first
+sign-in). Other people sign in through OIDC and become administrators only when
+an existing administrator promotes them in **Settings, Users**. There is no
+public administrator-enrollment flow.
+
+## Recovering a forgotten password
+
+With shell/Docker access to the server, run the binary directly (the container
+image has no shell):
+
+```sh
+docker exec <container-name> /requestarr reset-admin-password
+```
+
+For a non-container deployment, run `requestarr reset-admin-password` with the
+same database configuration as the server. The command needs no OIDC or session
+secret configuration. It prints exactly one new random password after the
+transaction commits; keep it private and clear your terminal. It stores only a
+hash, requires a password change at the next sign-in, ends **all** of the local
+administrator's sessions, turns the account back on if it was disabled (shell
+access is the gate, and this account is the way back in) and records an audit
+event. Other accounts are
+unchanged. A failed database transaction prints no password. If printing fails
+after commit, run the command again. If the local administrator does not exist
+(for example an upgraded instance that has people but no administrator, so
+nobody can reach Settings to create it), the command creates it instead: same
+single printed password, must-change set, an audit event, and a note on the
+error output saying it was created. Shell access is the gate. The command does
+not enable a disabled account.
+
+Historical setup tables and migrations remain for database compatibility but
+are no longer read or written by administrator enrollment.
 
 ## The Get started checklist (D038)
 
-After the claim an administrator lands on **Get started** (`/get-started`). It
+After signing in and changing the initial password, an administrator can open **Get started** (`/get-started`). It
 replaces the seven-step inactive draft wizard that saved values and applied
 nothing. The checklist has no fields of its own: every item is computed from the
 instance's live state and links to the part of Settings that applies it, so no
@@ -42,18 +92,23 @@ The draft tables and migrations stay in the database, unused. A client ID saved
 in the old draft keeps working: while no client ID has been saved in Settings, it
 is read from the old draft at startup. Saving one in Settings (even an empty
 one) supersedes it. Nothing else the old draft held was ever applied, so
-nothing else is carried over. `wizardComplete` is gone from
-`GET /setup/status`.
+nothing else is carried over. There is no public setup-status endpoint.
 
 ## Operator steps
 
-1. Configure OIDC in the Requestarr server environment before first sign-in. At minimum set `REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID`, and `REQUESTARR_OIDC_CLIENT_SECRET`; also set the public base URL and callback-related settings required by the deployment/provider. Follow [OIDC authentication](OIDC_AUTH.md) and the variable names documented in [`.env.example`](../.env.example). Never expose client secrets in the browser or commit them. Newly signed-in users are viewers who can browse and use Notify Me; administrators must promote users to requester to grant request-creation permission.
-2. Restart Requestarr after changing environment configuration. Register the deployed callback URL with the OIDC provider as described in the OIDC guide.
-3. Sign in to Requestarr as the person who should become the first administrator (they are a viewer at first). The claim page then shows that person's own subject in a ready-to-run command; there is no need to look the ID up in the identity provider.
-4. On the server run the command the claim page shows, `requestarr setup-token --subject '<subject>'`. `--issuer` defaults to the configured `REQUESTARR_OIDC_ISSUER`; the page adds it only when the sign-in issuer differs. The CLI needs exactly one of `--token-file PATH` (creates a new file readable only by its owner, mode 0600) or `--stdout` (prints the token; for a container with no safe place for a file, see [the Unraid guide](UNRAID.md)). Keep the token private and provide it to the intended administrator through a secure channel. The token is bound to those exact identity values.
-   While no administrator exists, the server log prints once at startup that the claim page shows the command, with the subject as a placeholder; it never prints a token or an identity.
-5. Paste only the token on the claim page. The claim endpoint requires an authenticated session and CSRF protection and takes issuer and subject from the verified session.
-6. On successful claim, the first administrator lands on **Get started** (`/get-started`), described below. Public `GET /api/v1/setup/status` reports only whether the first admin has been claimed.
+1. Set the database, the master key, the session secret and the public URL for the server. Keep HTTPS in production so password and session cookies are protected; follow [the Unraid guide](UNRAID.md) for reverse-proxy setup. No identity provider is needed yet.
+2. On a fresh database, obtain the one-time local administrator password from the startup log (or use your `REQUESTARR_ADMIN_PASSWORD`).
+3. Open `/login`, sign in as `admin`, and choose a new password (**Choose a new password**). Open **Get started** (`/get-started`); each item links to the Settings that applies it.
+4. In **Settings, Authentication**, fill the **OpenID Connect** card (Provider name, Client ID, Issuer, Client secret), register the shown **Redirect address** with your provider, press **Save OIDC settings**, **Test OIDC connection**, then switch on **Enable OIDC**. It applies at once. Never expose the client secret in the browser or commit it; see [OIDC authentication](OIDC_AUTH.md) and the Keycloak example in the [Unraid guide](UNRAID.md).
+5. Sign in once through OIDC with the person who should administer, then in **Settings, Users** promote them. New OIDC sign-ins default to viewer unless **New people** (the default role: viewer or requester) says otherwise; a login never grants admin automatically.
+6. For a forgotten local administrator password, use the recovery command above.
+
+If you set `REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID` and
+`REQUESTARR_OIDC_CLIENT_SECRET` in the environment instead, Settings,
+Authentication shows them as set by the environment and read-only; anything
+saved in the app is ignored and the card says so (with **Discard saved
+settings**). If only some of the three are set the card names the missing ones
+and OIDC stays off. The local administrator keeps working in every case.
 
 ## Secrets
 
@@ -119,8 +174,9 @@ availability.
 
 ## Security and scope
 
-Do not expose setup-token output or the token file to untrusted users. Prefer limiting network access to the instance during bootstrap. The UI intentionally does not echo server error bodies on claim failure. The backend never returns the token, and returns the verified issuer/subject only to their owner while setup is unclaimed (see D037); public setup status never carries them.
-
-Nothing here provides a temporary or local-password sign-in. OIDC must work
-before the claim page is usable. Changing the active issuer still requires
-operator configuration and a restart.
+Keep initial and recovery passwords private, including logs, terminal capture
+and CI output. Passwords are hashed at rest. Use HTTPS outside development;
+cookies remain Secure. The local administrator is the sole password account:
+everyone else signs in through OIDC. Roles are granted by an existing admin in
+Settings, Users. OIDC runtime Settings and startup without OIDC are separate
+parts of D040; password recovery does not depend on either.

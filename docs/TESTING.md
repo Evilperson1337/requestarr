@@ -28,7 +28,7 @@ This starts the dev-compose `postgres` service, creates a dedicated `requestarr_
 - `scripts/check.sh` runs the suite when `REQUESTARR_TEST_DATABASE_URL` is set, and skips it otherwise.
 
 ## End-to-end
-Cover the first-admin claim and Get started checklist, OIDC sign-in, create request, duplicate resolution, Notify Me, admin approval/denial, simulated inventory arrival, Available transition, notification delivery, source outage retaining last-known state.
+Cover local administrator sign-in, password recovery and the Get started checklist, OIDC sign-in, create request, duplicate resolution, Notify Me, admin approval/denial, simulated inventory arrival, Available transition, notification delivery, source outage retaining last-known state.
 
 ## Performance targets (initial, validate later)
 - shared Requests page backed by local DB should feel instantaneous at household-scale inventories;
@@ -66,7 +66,7 @@ with the app. The suite runs in CI (`web` job) after the typecheck/build.
 
 Coverage by spec file: `smoke.spec.ts` (Home resolve, request modal incl. game
 platform rules, Notifications, non-admin navigation), `requests.spec.ts`
-(Requests page), `setup.spec.ts` (first-admin claim and the Get started checklist) and `status.spec.ts`
+(Requests page), `setup.spec.ts` (local administrator sign-in and the Get started checklist) and `status.spec.ts`
 (Settings operational status), `a11y.spec.ts` (axe and no-horizontal-scroll audit of every main page at desktop and phone widths, plus the dialog keyboard test; see [the audit](ACCESSIBILITY_AUDIT.md)).
 
 ```sh
@@ -105,7 +105,6 @@ the expected actor. Tests use local fakes, not a live OIDC provider or database.
 | Approve / deny / cancel | Forbidden | Forbidden | Allowed |
 | Source sync, user-role change, match accept/dismiss | Forbidden | Forbidden | Allowed |
 | Logout | Allowed | Allowed | Allowed |
-| Initial-admin claim | Matching identity + one-time token | Matching identity + one-time token | Matching identity + one-time token |
 
 Every mutation rejects an unauthenticated caller. All authenticated roles are
 also checked with missing/invalid CSRF and missing/untrusted Origin, including
@@ -130,7 +129,7 @@ and stale matrix rows. Fixtures prove discovery of a new route, loop expansion,
 and failure on unsupported or methodless registrations.
 
 ```sh
-go test ./internal/httpapi -run 'Test(MutatingEndpoint|EveryMutating|RouteCoverageGuard|BootstrapClaimRequires)' -count=1
+go test ./internal/httpapi -run 'Test(MutatingEndpoint|EveryMutating|RouteCoverageGuard)' -count=1
 go test -race ./internal/httpapi
 ```
 
@@ -147,7 +146,7 @@ The Get started checklist (D038) has tests at these seams:
 - PostgreSQL integration tests cover the stored IGDB client ID, the read-time
   fallback to a client ID saved in the retired draft, the remembered dismissal, and
   that the retired draft migration still applies and rolls back.
-- `make web-test` runs the claim and checklist browser tests (required and optional
+- `make web-test` runs the local sign-in and checklist browser tests (required and optional
   items, links to Settings, dismissal, no fields on the page, non-admins never
   seeing it) and the IGDB client ID field.
 

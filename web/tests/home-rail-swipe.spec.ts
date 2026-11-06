@@ -11,7 +11,6 @@ async function openHome(page: Page) {
     await page.route('**/api/v1/**', route => {
         const url = new URL(route.request().url())
         const path = url.pathname.replace('/api/v1', '')
-        if (path === '/setup/status') return route.fulfill({ json: { complete: true, required: false } })
         if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
         if (path === '/requests') return route.fulfill({ json: { items: [], nextCursor: null } })
         if (path === '/library/recent') return route.fulfill({ json: { items: url.searchParams.get('types') === 'movie,tv' ? films : [] } })

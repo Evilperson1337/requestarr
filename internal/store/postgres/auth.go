@@ -142,7 +142,9 @@ func (s *Store) GetSession(ctx context.Context, hash []byte, now time.Time) (aut
 	var u auth.User
 	var csrf []byte
 	var exp time.Time
-	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.role,i.email,i.display_name,i.issuer,i.subject,s.csrf_hash,s.expires_at FROM auth_sessions s JOIN users u ON u.id=s.user_id JOIN oidc_identities i ON i.user_id=u.id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>$2`, hash, now).Scan(&u.ID, &u.Role, &u.Email, &u.DisplayName, &u.Issuer, &u.Subject, &csrf, &exp)
+	// The built-in local administrator has no OIDC identity, hence the LEFT JOIN. Its
+	// must-change flag rides along, and a disabled local account has no live session.
+	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.role,COALESCE(i.email,''),COALESCE(i.display_name,u.display_name),COALESCE(i.issuer,''),COALESCE(i.subject,''),COALESCE(lc.must_change,FALSE),lc.user_id IS NOT NULL,s.csrf_hash,s.expires_at FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN oidc_identities i ON i.user_id=u.id LEFT JOIN local_credentials lc ON lc.user_id=u.id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>$2 AND NOT COALESCE(lc.disabled,FALSE)`, hash, now).Scan(&u.ID, &u.Role, &u.Email, &u.DisplayName, &u.Issuer, &u.Subject, &u.MustChange, &u.LocalAdministrator, &csrf, &exp)
 	return u, csrf, exp, err
 }
 func (s *Store) RevokeSession(ctx context.Context, hash []byte, now time.Time) error {
@@ -150,75 +152,17 @@ func (s *Store) RevokeSession(ctx context.Context, hash []byte, now time.Time) e
 	return err
 }
 
-func (s *Store) IssueAdminToken(ctx context.Context, issuer, subject, token string, expires time.Time, rotate bool) error {
-	if issuer == "" || subject == "" || token == "" || len(issuer) > 2048 || len(subject) > 1024 {
-		return fmt.Errorf("invalid bootstrap target")
-	}
-	hash := sha256.Sum256([]byte(token))
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	var sql string
-	if rotate {
-		sql = `UPDATE setup_state SET target_issuer=$1,target_subject=$2,token_hash=$3,token_expires_at=$4 WHERE singleton=TRUE AND complete=FALSE AND (token_hash IS NULL OR token_expires_at<=now())`
-	} else {
-		sql = `UPDATE setup_state SET target_issuer=$1,target_subject=$2,token_hash=$3,token_expires_at=$4 WHERE singleton=TRUE AND complete=FALSE AND token_hash IS NULL`
-	}
-	tag, err := tx.Exec(ctx, sql, issuer, subject, hash[:], expires)
-	if err != nil {
-		return fmt.Errorf("issue admin bootstrap token: %w", err)
-	}
-	if tag.RowsAffected() != 1 {
-		return fmt.Errorf("bootstrap unavailable")
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO setup_audit_events(id,event_type,target_issuer,target_subject) VALUES($1,'admin_token_issued',$2,$3)`, newUUID(), issuer, subject); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (s *Store) ClaimAdmin(ctx context.Context, userID, issuer, subject string, hash []byte, now time.Time) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, adminRoleAdvisoryLockID); err != nil {
-		return fmt.Errorf("lock admin claim: %w", err)
-	}
-	var targetIssuer, targetSubject string
-	err = tx.QueryRow(ctx, `UPDATE setup_state SET complete=TRUE,claimed_by=$1,completed_at=$2,token_hash=NULL,token_expires_at=NULL WHERE singleton=TRUE AND complete=FALSE AND target_issuer=$3 AND target_subject=$4 AND token_hash=$5 AND token_expires_at>$2 RETURNING target_issuer,target_subject`, userID, now, issuer, subject, hash).Scan(&targetIssuer, &targetSubject)
-	if err != nil {
-		return fmt.Errorf("claim unavailable")
-	}
-	result, err := tx.Exec(ctx, `UPDATE users SET role='admin',updated_at=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM oidc_identities WHERE user_id=users.id AND issuer=$3 AND subject=$4)`, userID, now, issuer, subject)
-	if err != nil || result.RowsAffected() != 1 {
-		return fmt.Errorf("claim unavailable")
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO setup_audit_events(id,event_type,actor_user_id,target_issuer,target_subject,created_at) VALUES($1,'admin_claimed',$2,$3,$4,$5)`, newUUID(), userID, issuer, subject, now); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (s *Store) SetupComplete(ctx context.Context) (bool, error) {
-	var complete bool
-	err := s.pool.QueryRow(ctx, `SELECT complete FROM setup_state WHERE singleton=TRUE`).Scan(&complete)
-	return complete, err
-}
-
 type AdminUser struct {
 	ID          string    `json:"id"`
 	Email       string    `json:"email"`
 	DisplayName string    `json:"displayName"`
 	Role        string    `json:"role"`
+	Builtin     bool      `json:"builtin"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
 func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
-	rows, err := s.pool.Query(ctx, `SELECT u.id::text, COALESCE(i.email,''), COALESCE(i.display_name,''), u.role, u.created_at FROM users u LEFT JOIN LATERAL (SELECT email,display_name FROM oidc_identities WHERE user_id=u.id ORDER BY issuer,subject LIMIT 1) i ON true ORDER BY lower(COALESCE(i.display_name,'')), lower(COALESCE(i.email,'')), u.id`)
+	rows, err := s.pool.Query(ctx, `SELECT u.id::text, COALESCE(i.email,''), COALESCE(i.display_name,u.display_name,''), u.role, u.builtin, u.created_at FROM users u LEFT JOIN LATERAL (SELECT email,display_name FROM oidc_identities WHERE user_id=u.id ORDER BY issuer,subject LIMIT 1) i ON true ORDER BY u.builtin DESC, lower(COALESCE(i.display_name,'')), lower(COALESCE(i.email,'')), u.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list admin users: %w", err)
 	}
@@ -226,7 +170,7 @@ func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 	users := make([]AdminUser, 0)
 	for rows.Next() {
 		var user AdminUser
-		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.Role, &user.CreatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.Role, &user.Builtin, &user.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan admin user: %w", err)
 		}
 		users = append(users, user)
@@ -257,19 +201,23 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 		return ErrAdminSelfRoleChange
 	}
 	var previous string
-	err = tx.QueryRow(ctx, `SELECT role FROM users WHERE id=$1 FOR UPDATE`, targetID).Scan(&previous)
+	var builtin bool
+	err = tx.QueryRow(ctx, `SELECT role,builtin FROM users WHERE id=$1 FOR UPDATE`, targetID).Scan(&previous, &builtin)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrAdminUserNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("read target role: %w", err)
 	}
+	if builtin && role != "admin" {
+		return auth.ErrBuiltinRole
+	}
 	if previous == role {
 		return tx.Commit(ctx)
 	}
 	if previous == "admin" && role != "admin" {
 		var count int
-		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users WHERE role='admin'`).Scan(&count); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users u WHERE role='admin' AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`).Scan(&count); err != nil {
 			return fmt.Errorf("count administrators: %w", err)
 		}
 		if count <= 1 {

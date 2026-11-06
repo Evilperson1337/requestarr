@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/auth"
-	"github.com/evilperson1337/requestarr/internal/auth/oidc"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/checklist"
 	"github.com/evilperson1337/requestarr/internal/config"
@@ -74,12 +73,27 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	}
 	cfg = boot.Config
 	secretsService := boot.Secrets
-	announceFirstAdmin(ctx, logger, store)
-	provider, err := oidc.New(ctx, oidc.Config{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret}, cfg.PublicURL+"/api/v1/auth/callback")
-	if err != nil {
-		return fmt.Errorf("initialize OIDC provider: %w", err)
+	// On a fresh install the built-in local administrator is created here, and
+	// its one-time password is logged once (D040).
+	if err := auth.BootstrapLocalAdmin(ctx, store, auth.BootstrapOptions{PublicURL: cfg.PublicURL, InitialPassword: cfg.AdminPassword, Logger: logger}); err != nil {
+		return err
 	}
-	authHandler := &auth.Handler{Repo: store, Provider: provider, Issuer: cfg.OIDCIssuer, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Setup: store}
+	authentication, err := NewAuthentication(ctx, envCfg, store, nil)
+	if err != nil {
+		return fmt.Errorf("initialize authentication settings: %w", err)
+	}
+	// A disabled local administrator plus switched-off OIDC would lock everyone out.
+	authentication.RequireSignInPath(func(ctx context.Context) (bool, error) {
+		st, err := store.LocalAdminStatus(ctx)
+		return st.Disabled, err
+	})
+	authHandler := &auth.Handler{Repo: store, OIDC: authentication.Snapshot, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Local: store, Logger: logger, TrustedProxies: cfg.TrustedProxyPrefixes()}
+	// Old audit rows are pruned at start and then daily; coalesced sign-in counts are flushed each minute.
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		authHandler.RunAuditMaintenance(workerCtx)
+	}()
 	// The TMDB token, IGDB credentials and Apprise key are read per call from one
 	// swappable set, so saving them in Settings applies at once (D039).
 	providers := newProviderSet(cfg, boot.Unreadable, store, func(ctx context.Context) (booted, error) {
@@ -123,11 +137,11 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	connections := &connectionsService{store: store, boot: store, envCfg: envCfg, manager: manager, secrets: secretsService, checker: checker, logger: logger}
 
 	handler, err := httpapi.NewRouter(httpapi.Deps{
-		Logger: logger, Build: build, Readiness: store, Auth: authHandler,
+		Logger: logger, Build: build, Readiness: store, Auth: authHandler, Authentication: authentication, LocalAdmin: auth.AdminManagement{Repo: store, OIDCWorking: func() bool { snap := authentication.Snapshot(); return snap != nil && snap.Provider != nil }},
 		Requests: requests.New(store), Resolver: providers, Inbox: store, MatchReview: store,
 		MoviePreview: store,
-		JobRuns:      store, Status: ops, Users: store, People: peopleSettings{store}, Approvals: approvalSettings{store}, SetupState: store, Syncer: syncer,
-		Checklist: checklist.New(ops, store), IGDB: igdbSettingsService{store: store, envID: envCfg.IGDBClientID, providers: providers}, Secrets: reloadingSecrets{Service: secretsService, manager: manager, providers: providers, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: providers, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
+		JobRuns:      store, Status: ops, Users: store, People: peopleSettings{store}, Approvals: approvalSettings{store}, Syncer: syncer,
+		Checklist: checklist.New(ops, store).WithSignIn(oidcSignIn{authentication}), IGDB: igdbSettingsService{store: store, envID: envCfg.IGDBClientID, providers: providers}, Secrets: reloadingSecrets{Service: secretsService, manager: manager, providers: providers, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: providers, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize HTTP API: %w", err)

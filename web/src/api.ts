@@ -1,10 +1,8 @@
 export type User = { id: string; role: string; email: string; displayName: string }
-// firstAdminClaim is the caller's own verified identity, sent only while first-admin setup is unclaimed (D037).
-export type FirstAdminClaim = { issuer: string; subject: string; issuerIsConfigured: boolean }
-export type Session = { user: User; csrfToken: string; firstAdminClaim?: FirstAdminClaim }
-export type SetupStatus = { complete: boolean; required: boolean }
+// localAdministrator: this session is the built-in local administrator, the only account with a local password.
+export type Session = { user: User; csrfToken: string; mustChangePassword?: boolean; localAdministrator?: boolean }
 export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome' | 'library:audiobookshelf' | 'notifications'
-export type ChecklistItem = { key: 'libraries' | 'metadata' | 'notifications' | 'people'; title: string; required: boolean; done: boolean; detail?: string }
+export type ChecklistItem = { key: 'libraries' | 'metadata' | 'notifications' | 'oidc' | 'people'; title: string; required: boolean; done: boolean; detail?: string }
 export type Checklist = { items: ChecklistItem[]; dismissed: boolean; visible: boolean }
 export type IgdbSettings = { clientId: string; fromEnvironment: boolean }
 export type CatalogItem = { ID: string; MediaType: string; Provider: string; ProviderID: string; Title: string; Year: number; ArtworkURL: string; ArtworkKind: string; ExternalURL: string; Metadata?: Record<string, unknown> }
@@ -29,7 +27,7 @@ export type SearchLocal = { catalogId?: string; requestStatus?: 'requested' | 'a
 export type SearchResult = { mediaType: string; provider: string; providerId: string; ref: string; title: string; year?: number; subtitle?: string; artworkUrl?: string; artworkKind?: string; local?: SearchLocal }
 export type SearchPage = { results: SearchResult[]; hasMore: boolean }
 export type RequestPage = { items: RequestItem[]; nextCursor: string | null }
-export type AdminUser = { id: string; email: string; displayName: string; role: 'admin' | 'requester' | 'viewer'; createdAt: string }
+export type AdminUser = { id: string; email: string; displayName: string; role: 'admin' | 'requester' | 'viewer'; builtin?: boolean; createdAt: string }
 export type PeopleSettings = { defaultRole: 'viewer' | 'requester' }
 export type ApprovalSettings = { autoApproveTypes: string[] }
 export type MatchSuggestion = { id: string; catalogItemId: string; catalogTitle: string; catalogYear: number; inventoryTitle: string; inventoryYear: number; mediaType: string; platformKey: string; sourceName: string; sourceItemId: string; confidence: 'title_year' | 'title_only'; reason: string; observedAt: string }
@@ -64,18 +62,6 @@ async function apiError(response: Response): Promise<ApiError> {
     return new ApiError(body.trim() || `Request failed (${response.status})`, '', response.status, retryAfter)
 }
 
-// Never surface server-provided error bodies from the bootstrap claim endpoint.
-export async function claimSetupAdmin(input: { token: string }, csrf: string): Promise<void> {
-    const response = await fetch(base + '/setup/claim-admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-        credentials: 'same-origin',
-        cache: 'no-store',
-        body: JSON.stringify(input),
-    })
-    if (!response.ok) throw new Error('Admin claim could not be completed. Check the setup token, then try again.')
-}
-
 export type SecretStatus = {
     name: string; label: string; envVar: string; configured: boolean
     source: 'none' | 'environment' | 'stored' | 'stored (shadowed by environment)' | 'stored secret unreadable'
@@ -102,3 +88,14 @@ export type DevelopmentLogEntry = {
     httpStatus?: number; durationMs: number
 }
 export type DevelopmentLogs = { entries: DevelopmentLogEntry[]; capacity: number }
+
+export type OIDCSettings = { enabled: boolean; providerName: string; issuer: string; clientId: string }
+export type AuthenticationState = {
+    state: 'not_configured' | 'saved_only' | 'environment_only' | 'environment_overriding_saved' | 'environment_incomplete'
+    missing: string[]; ignored: string[]; differing: string[]; saved: OIDCSettings | null; effective: OIDCSettings
+    secretConfigured: boolean; secretUnreadable: boolean; canSaveSecret: boolean; readOnly: boolean
+    redirectUri: string; working: boolean; problem: string
+}
+// canDisable is true only while another admin exists AND OIDC is working; the two flags say which is missing.
+export type LocalAdministratorState = { exists: boolean; disabled: boolean; canDisable: boolean; otherAdminExists: boolean; oidcWorking: boolean }
+export type CreatedLocalAdministrator = { username: string; password: string; mustChangePassword: true }
