@@ -4,11 +4,11 @@
 
 **Blocked by:** 02, 04, 05
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] The Unraid template's OIDC issuer, client ID and client secret fields become optional advanced overrides (not required, no default; the secret masked), with descriptions that say the environment overrides anything saved in Settings, Authentication; a new masked optional field supplies the initial administrator password with no default; the compose example and example environment file follow
 - [x] The deployment-file check is extended and passes: the new fields' flags, no secret default, the template and compose variable names matching each other and the configuration code, and mutation checks in the existing style
 - [x] `docs/UNRAID.md` is rewritten around signing in first: find the one-time password in the log, sign in, choose a password, configure OIDC in Settings, Authentication with a Keycloak worked example (client type, redirect address, scopes), test it, then promote the first OIDC person in Settings, Users; it keeps the HTTPS requirement and explains why a password needs it, and documents `reset-admin-password`
 - [x] `docs/FIRST_RUN.md`, `docs/OIDC_AUTH.md`, `docs/UPGRADE_AND_BACKUP.md` and `docs/MANUAL_TESTING.md` (the real-server checklist) describe the new flow, including that an upgraded instance keeps its environment-configured OIDC and can create the local administrator from Settings
 - [x] No document, template text or script mentions the removed claim flow or `setup-token` except a historical note in a decision record
-- [ ] `scripts/check.sh` passes
+- [x] `scripts/check.sh` passes (run on the integrated branch with the PostgreSQL integration tests and the whole Playwright suite)

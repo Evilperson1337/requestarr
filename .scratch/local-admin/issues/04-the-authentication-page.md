@@ -4,7 +4,7 @@
 
 **Blocked by:** 01, 03
 
-**Status:** in-progress
+**Status:** resolved
 
 - [x] A new Authentication section in Settings follows the existing Settings layout and integration-card pattern, with two cards: Local administrator (status, change password, "Create local administrator" on an instance that has none, disable and enable) and OpenID Connect (enable switch, provider name, issuer, client ID, write-only client secret with the usual "stored encrypted, never shown again" wording, the redirect address with a copy button, a Test button, and a current-state line)
 - [x] Creating the local administrator from the page shows the generated password once and never again; the password is never shown elsewhere; disabling the local administrator is refused unless another admin exists, with a clear message
@@ -12,7 +12,7 @@
 - [x] The page is reviewed with the design skill (`/design-taste-frontend`); its findings are applied where they fit the existing system (hierarchy, spacing, states, polish) and the review notes, including anything deliberately not applied and why, are recorded in the ticket's Comments
 - [x] Keyboard-only completion, accessible errors and status announcements; Playwright with axe at desktop and phone widths for each state above
 - [x] The Get started checklist's sign-in item becomes "OIDC configured" and is optional
-- [ ] `scripts/check.sh` passes
+- [x] `scripts/check.sh` passes (run on the integrated branch with the PostgreSQL integration tests and the whole Playwright suite)
 
 ## Comments
 

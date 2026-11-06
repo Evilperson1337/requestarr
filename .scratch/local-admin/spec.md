@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # A built-in local administrator, and OIDC configured in Settings
 
