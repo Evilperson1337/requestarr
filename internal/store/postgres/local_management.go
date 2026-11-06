@@ -12,8 +12,8 @@ var _ auth.AdminManagementRepository = (*Store)(nil)
 
 func (s *Store) LocalAdminStatus(ctx context.Context) (auth.LocalAdminStatus, error) {
 	var st auth.LocalAdminStatus
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM local_credentials),COALESCE((SELECT disabled FROM local_credentials WHERE username='admin'),false),EXISTS(SELECT 1 FROM users WHERE role='admin' AND NOT builtin)`).Scan(&st.Exists, &st.Disabled, &st.CanDisable)
-	st.CanDisable = st.Exists && !st.Disabled && st.CanDisable
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM local_credentials),COALESCE((SELECT disabled FROM local_credentials WHERE username='admin'),false),EXISTS(SELECT 1 FROM users WHERE role='admin' AND NOT builtin)`).Scan(&st.Exists, &st.Disabled, &st.OtherAdmin)
+	st.CanDisable = st.Exists && !st.Disabled && st.OtherAdmin
 	return st, err
 }
 func (s *Store) CreateRecoveryAdmin(ctx context.Context, actor, hash string, now time.Time) (bool, error) {
@@ -47,7 +47,7 @@ func (s *Store) CreateRecoveryAdmin(ctx context.Context, actor, hash string, now
 	}
 	return true, nil
 }
-func (s *Store) SetLocalAdminDisabled(ctx context.Context, actor string, disabled bool, now time.Time) error {
+func (s *Store) SetLocalAdminDisabled(ctx context.Context, actor string, disabled bool, now time.Time, guard func() bool) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -75,6 +75,11 @@ func (s *Store) SetLocalAdminDisabled(ctx context.Context, actor string, disable
 		}
 		if !another {
 			return auth.ErrLastLocalAdmin
+		}
+		// Evaluated while the lock is held, so the answer cannot go stale
+		// between the check and the update.
+		if guard != nil && !guard() {
+			return auth.ErrNoWorkingSignIn
 		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE local_credentials SET disabled=$1,updated_at=$2 WHERE user_id=$3`, disabled, now, id); err != nil {

@@ -135,7 +135,7 @@ func TestAuthenticationResponseSchemasMatchContract(t *testing.T) {
 		"OIDCSettings":                 {"enabled", "providerName", "issuer", "clientId"},
 		"AuthenticationSettingsUpdate": {"enabled", "providerName", "issuer", "clientId", "clientSecret"},
 		"AuthenticationSettings":       {"state", "missing", "ignored", "differing", "saved", "effective", "secretConfigured", "secretUnreadable", "canSaveSecret", "readOnly", "redirectUri", "working", "problem"},
-		"LocalAdministratorStatus":     {"exists", "disabled", "canDisable"},
+		"LocalAdministratorStatus":     {"exists", "disabled", "canDisable", "otherAdminExists", "oidcWorking"},
 	} {
 		got := specProperties(t, schema)
 		sort.Strings(got)

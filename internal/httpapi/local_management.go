@@ -21,6 +21,8 @@ func registerLocalManagementRoutes(rt *routeTable, s LocalAdminManagement) {
 			apierror.Write(w, r, 409, "local_admin_exists", auth.ErrLocalAdminExists.Error())
 		case errors.Is(err, auth.ErrLastLocalAdmin):
 			apierror.Write(w, r, 409, "last_admin", auth.ErrLastLocalAdmin.Error())
+		case errors.Is(err, auth.ErrNoWorkingSignIn):
+			apierror.Write(w, r, 409, "no_working_sign_in", auth.ErrNoWorkingSignIn.Error())
 		case errors.Is(err, auth.ErrNoCredential):
 			apierror.Write(w, r, 404, "local_admin_missing", "the local administrator does not exist")
 		default:

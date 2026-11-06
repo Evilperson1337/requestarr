@@ -95,5 +95,6 @@ export type AuthenticationState = {
     secretConfigured: boolean; secretUnreadable: boolean; canSaveSecret: boolean; readOnly: boolean
     redirectUri: string; working: boolean; problem: string
 }
-export type LocalAdministratorState = { exists: boolean; disabled: boolean; canDisable: boolean }
+// canDisable is true only while another admin exists AND OIDC is working; the two flags say which is missing.
+export type LocalAdministratorState = { exists: boolean; disabled: boolean; canDisable: boolean; otherAdminExists: boolean; oidcWorking: boolean }
 export type CreatedLocalAdministrator = { username: string; password: string; mustChangePassword: true }

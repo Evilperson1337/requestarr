@@ -56,7 +56,7 @@ paths:
     put:
       operationId: setLocalAdministratorDisabled
       summary: Enable or disable the recovery account without changing its password
-      description: Requires same-origin and session CSRF. Disabling requires another enabled administrator and revokes all local sessions atomically with the audit event. A disabled account never satisfies last-admin protection.
+      description: Requires same-origin and session CSRF. Disabling requires another enabled administrator AND a working OIDC sign-in, and revokes all local sessions atomically with the audit event. A disabled account never satisfies last-admin protection.
       parameters:
         - in: header
           name: X-CSRF-Token
@@ -82,7 +82,7 @@ paths:
         '401': { description: Authentication required }
         '403': { description: Administrator, Origin and CSRF required }
         '404': { description: Recovery account does not exist }
-        '409': { description: Cannot disable the last enabled administrator }
+        '409': { description: "Cannot disable: no other enabled administrator (last_admin), or another admin exists but OIDC is off or not working so nobody could sign in (no_working_sign_in); checked server-side inside the serialised admin section" }
         '422': { description: disabled field required }
         '500': { description: Update or audit failed; previous state retained }
   /auth/options:
@@ -1569,11 +1569,15 @@ components:
     LocalAdministratorStatus:
       type: object
       additionalProperties: false
-      required: [exists, disabled, canDisable]
+      required: [exists, disabled, canDisable, otherAdminExists, oidcWorking]
       properties:
         exists: { type: boolean }
         disabled: { type: boolean }
-        canDisable: { type: boolean }
+        canDisable:
+          type: boolean
+          description: True only while another admin exists and OIDC is enabled with a working provider, so someone can really sign in once the account is off.
+        otherAdminExists: { type: boolean }
+        oidcWorking: { type: boolean, description: From the live OIDC state, not a network probe }
     AdminUser:
       type: object
       additionalProperties: false

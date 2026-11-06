@@ -91,7 +91,8 @@ export function LocalAdministratorCard({ csrfToken, onRequestError }: { csrfToke
         ? 'No local administrator on this instance. Create one to keep a recovery sign-in that does not depend on your identity provider.'
         : admin.disabled ? 'The account is disabled, so it cannot sign in. Its password is kept.'
             : admin.canDisable ? 'The recovery account, username admin. Disabling it ends its sessions and keeps its password.'
-                : 'The recovery account, username admin. Disabling needs another enabled administrator: give someone the Admin role under Users first.'
+                : admin.otherAdminExists ? 'The recovery account, username admin. Turn on OIDC and make sure another admin can sign in first, then you can disable it.'
+                    : 'The recovery account, username admin. Disabling needs another enabled administrator: give someone the Admin role under Users first, and turn on OIDC so they can sign in.'
     const action = !admin.exists
         ? <button type="button" className="button" disabled={!!busy} onClick={create}>{busy === 'create' ? 'Creating…' : 'Create local administrator'}</button>
         : <button type="button" className="button secondary" disabled={!!busy} aria-label={`${admin.disabled ? 'Enable' : 'Disable'} local administrator`} onClick={() => setDisabled(!admin.disabled)}>{admin.disabled ? 'Enable' : 'Disable'}</button>

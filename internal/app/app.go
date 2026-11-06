@@ -119,7 +119,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	connections := &connectionsService{store: store, boot: store, envCfg: envCfg, manager: manager, secrets: secretsService, checker: checker, logger: logger}
 
 	handler, err := httpapi.NewRouter(httpapi.Deps{
-		Logger: logger, Build: build, Readiness: store, Auth: authHandler, Authentication: authentication, LocalAdmin: auth.AdminManagement{Repo: store},
+		Logger: logger, Build: build, Readiness: store, Auth: authHandler, Authentication: authentication, LocalAdmin: auth.AdminManagement{Repo: store, OIDCWorking: func() bool { snap := authentication.Snapshot(); return snap != nil && snap.Provider != nil }},
 		Requests: requests.New(store), Resolver: providers, Inbox: store, MatchReview: store,
 		MoviePreview: store,
 		JobRuns:      store, Status: ops, Users: store, People: peopleSettings{store}, Approvals: approvalSettings{store}, Syncer: syncer,

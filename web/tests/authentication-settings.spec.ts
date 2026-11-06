@@ -6,7 +6,7 @@ const saved = { enabled: false, providerName: 'Keycloak', issuer: 'https://ident
 const empty = { enabled: false, providerName: '', issuer: '', clientId: '' }
 const base = { state: 'not_configured', missing: [] as string[], ignored: [] as string[], differing: [] as string[], saved: null as typeof saved | null, effective: empty, secretConfigured: false, secretUnreadable: false, canSaveSecret: true, readOnly: false, redirectUri: 'https://requestarr.example.test/api/v1/auth/callback', working: false, problem: '' }
 type State = typeof base
-type Local = { exists: boolean; disabled: boolean; canDisable: boolean }
+type Local = { exists: boolean; disabled: boolean; canDisable: boolean; otherAdminExists?: boolean; oidcWorking?: boolean }
 const SECRET = 'synthetic-client-secret-for-test-only'
 const GENERATED = 'Synthetic-Generated-Pass-0001'
 
@@ -218,6 +218,27 @@ for (const width of [1440, 390]) test(`the local administrator card shows its st
     await expect(card.getByRole('alert').filter({ hasText: 'needs another enabled administrator' })).toBeVisible()
     await expect(card.getByText('Enabled', { exact: true })).toBeVisible()
     await axe(page)
+})
+
+test('another admin without working OIDC does not allow disabling, and the card says what to do first', async ({ page }) => {
+    await setup(page, {}, { exists: true, disabled: false, canDisable: false, otherAdminExists: true, oidcWorking: false })
+    const card = local(page)
+    await expect(card.getByText('Turn on OIDC and make sure another admin can sign in first', { exact: false })).toBeVisible()
+    await expect(card.getByText('give someone the Admin role', { exact: false })).toHaveCount(0)
+    await axe(page)
+})
+
+test('with nobody else and working OIDC the card asks for another admin', async ({ page }) => {
+    await setup(page, {}, { exists: true, disabled: false, canDisable: false, otherAdminExists: false, oidcWorking: true })
+    await expect(local(page).getByText('give someone the Admin role', { exact: false })).toBeVisible()
+})
+
+test('a refused disable (no working sign-in) is explained in the card', async ({ page }) => {
+    await setup(page, {}, { exists: true, disabled: false, canDisable: true })
+    await page.route('**/api/v1/admin/settings/authentication/local-administrator/disabled', route => route.fulfill({ status: 409, json: { error: { code: 'no_working_sign_in', message: 'turn on OIDC and make sure another admin can sign in first', requestId: 'r' } } }))
+    const card = local(page)
+    await card.getByRole('button', { name: 'Disable local administrator' }).press('Enter')
+    await expect(card.getByRole('alert').filter({ hasText: 'make sure another admin can sign in first' })).toBeVisible()
 })
 
 test('a local administrator can be disabled and enabled again when another administrator exists', async ({ page }) => {
