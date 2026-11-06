@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/app"
-	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/auth/password"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/config"
@@ -119,11 +117,14 @@ func resetAdminPassword(args []string) error {
 	if err != nil {
 		return fmt.Errorf("hash administrator password")
 	}
-	if err := store.ResetLocalAdminPassword(ctx, hash, time.Now().UTC()); err != nil {
-		if errors.Is(err, auth.ErrNoCredential) {
-			return fmt.Errorf("local administrator does not exist; an existing administrator can create it in Settings, Authentication")
-		}
+	// Shell access is the gate, so a missing account is created rather than
+	// refused: an upgraded instance with no administrator has no other way in.
+	created, err := store.ResetOrCreateLocalAdmin(ctx, hash, time.Now().UTC())
+	if err != nil {
 		return fmt.Errorf("could not reset administrator password; check database availability")
+	}
+	if created {
+		fmt.Fprintln(os.Stderr, "requestarr: the local administrator did not exist, so it was created (username admin); sign in with the password below and choose your own")
 	}
 	if _, err := fmt.Fprintln(os.Stdout, pw); err != nil {
 		return fmt.Errorf("password reset succeeded but output failed; run reset-admin-password again")

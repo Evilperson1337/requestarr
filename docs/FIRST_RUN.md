@@ -46,8 +46,12 @@ transaction commits; keep it private and clear your terminal. It stores only a
 hash, requires a password change at the next sign-in, ends **all** of the local
 administrator's sessions and records an audit event. Other accounts are
 unchanged. A failed database transaction prints no password. If printing fails
-after commit, run the command again. The command neither creates an absent
-account nor enables a disabled one; an absent account produces a clear error.
+after commit, run the command again. If the local administrator does not exist
+(for example an upgraded instance that has people but no administrator, so
+nobody can reach Settings to create it), the command creates it instead: same
+single printed password, must-change set, an audit event, and a note on the
+error output saying it was created. Shell access is the gate. The command does
+not enable a disabled account.
 
 Historical setup tables and migrations remain for database compatibility but
 are no longer read or written by administrator enrollment.

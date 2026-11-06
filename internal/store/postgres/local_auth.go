@@ -126,6 +126,48 @@ func (s *Store) ResetLocalAdminPassword(ctx context.Context, hash string, now ti
 	return tx.Commit(ctx)
 }
 
+// ResetOrCreateLocalAdmin is the shell recovery path (D040): it resets the
+// built-in administrator's password as ResetLocalAdminPassword does, or, when
+// the account does not exist (an upgraded instance with no administrator), creates
+// it with must-change set and an admin_created audit row. Serialised with the
+// other admin-role changes; created reports which one happened.
+func (s *Store) ResetOrCreateLocalAdmin(ctx context.Context, hash string, now time.Time) (created bool, err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, adminRoleAdvisoryLockID); err != nil {
+		return false, fmt.Errorf("lock admin creation: %w", err)
+	}
+	var id string
+	err = tx.QueryRow(ctx, `UPDATE local_credentials c SET password_hash=$1,must_change=TRUE,password_changed_at=$2,updated_at=$2 FROM users u WHERE c.user_id=u.id AND u.builtin AND c.username=$3 RETURNING c.user_id::text`, hash, now, auth.LocalUsername).Scan(&id)
+	switch {
+	case err == nil:
+		if _, err = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at=$2 WHERE user_id=$1::uuid AND revoked_at IS NULL`, id, now); err != nil {
+			return false, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO auth_audit_events(event_type,user_id,username,created_at) VALUES($1,$2::uuid,$3,$4)`, auth.AuditPasswordChanged, id, auth.LocalUsername, now); err != nil {
+			return false, err
+		}
+	case errors.Is(err, pgx.ErrNoRows):
+		id = newUUID()
+		if _, err = tx.Exec(ctx, `INSERT INTO users(id,oidc_subject,email,display_name,role,created_at,updated_at,builtin) VALUES($1,$2,NULL,'Administrator','admin',$3,$3,TRUE)`, id, localAdminSubject, now); err != nil {
+			return false, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO local_credentials(user_id,username,password_hash,must_change,created_at,updated_at) VALUES($1,$2,$3,TRUE,$4,$4)`, id, auth.LocalUsername, hash, now); err != nil {
+			return false, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO auth_audit_events(event_type,user_id,username,created_at) VALUES('admin_created',$1,$2,$3)`, id, auth.LocalUsername, now); err != nil {
+			return false, err
+		}
+		created = true
+	default:
+		return false, err
+	}
+	return created, tx.Commit(ctx)
+}
+
 // RecordAuthEvent appends one authentication audit row.
 func (s *Store) RecordAuthEvent(ctx context.Context, e auth.AuditEvent) error {
 	_, err := s.RecordAuthEventID(ctx, e)
