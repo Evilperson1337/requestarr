@@ -80,6 +80,8 @@ type matrixBackend struct {
 	requests.Repository
 	t       *testing.T
 	effects []string
+	// authRefuses, when set, is what the authentication service answers to a change.
+	authRefuses error
 }
 
 func (b *matrixBackend) record(effect, actor string) {

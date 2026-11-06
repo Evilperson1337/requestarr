@@ -27,6 +27,8 @@ All mutations require the existing matching Origin, session and CSRF protections
 
 ### Recovery-account management backend
 
+While the local administrator is disabled, OIDC is the only way in, so turning OIDC off or discarding its saved settings is refused with a 409 `oidc_is_only_sign_in`; turn the local administrator back on first. Disabling it in turn needs another admin and a working OIDC provider, and `requestarr reset-admin-password` always turns it back on.
+
 The admin-only `/api/v1/admin/settings/authentication/local-administrator` endpoint supports GET (presence, disabled state and disable eligibility) and POST (explicit creation on an upgraded instance). Creation returns a generated password **once**, in its non-cacheable response, never in logs; it does not reset an existing credential. The account must change that password on first sign-in. PUT to its `/disabled` suffix accepts `disabled` and preserves its password. Disable requires another enabled administrator, revokes all local sessions and commits a value-free actor/target audit in the same transaction. Role changes and disable share the last-admin lock; a disabled local account does not count as a remaining administrator. The built-in account's role is locked to admin. Settings, Authentication drives these endpoints (create, disable and enable, and change password through `/auth/local/password`); it is not additional local-account management. The Get started checklist lists "OIDC configured" as an optional item, done once a provider is active.
 
 ## The built-in local administrator (D040)

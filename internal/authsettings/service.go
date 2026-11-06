@@ -16,10 +16,13 @@ import (
 )
 
 var (
-	ErrReadOnly  = errors.New("OIDC is controlled by the environment; update the deployment or discard saved settings")
-	ErrDiscovery = errors.New("OIDC discovery failed; check issuer reachability and discovery metadata")
-	ErrStorage   = errors.New("could not persist OIDC settings; previous configuration remains active")
-	ErrInvalid   = errors.New("OIDC settings are invalid; supply an absolute issuer URL, client ID, client secret and provider name")
+	// ErrNoOtherSignIn means the change would leave nobody able to sign in: the
+	// local administrator is disabled, so OIDC is the only way in.
+	ErrNoOtherSignIn = errors.New("the local administrator is disabled, so OIDC is the only way in; turn the local administrator back on before turning OIDC off")
+	ErrReadOnly      = errors.New("OIDC is controlled by the environment; update the deployment or discard saved settings")
+	ErrDiscovery     = errors.New("OIDC discovery failed; check issuer reachability and discovery metadata")
+	ErrStorage       = errors.New("could not persist OIDC settings; previous configuration remains active")
+	ErrInvalid       = errors.New("OIDC settings are invalid; supply an absolute issuer URL, client ID, client secret and provider name")
 )
 
 type Settings struct {
@@ -85,6 +88,33 @@ type Service struct {
 	factory  Factory
 	record   *Record
 	problem  string
+	// localOff reports whether the local administrator is disabled. Nil means
+	// there is no local sign-in to protect, so nothing is refused.
+	localOff func(context.Context) (bool, error)
+}
+
+// RequireSignInPath makes every change that would turn OIDC off refuse while
+// the local administrator is disabled, so a disabled recovery account cannot be
+// combined with a switched-off provider to lock everyone out. A failure to read
+// the local state refuses too: this is a safety check, so it fails closed.
+func (s *Service) RequireSignInPath(localOff func(context.Context) (bool, error)) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.localOff = localOff
+}
+
+func (s *Service) keepASignInPath(ctx context.Context) error {
+	if s.localOff == nil {
+		return nil
+	}
+	disabled, err := s.localOff(ctx)
+	if err != nil {
+		return ErrStorage
+	}
+	if disabled {
+		return ErrNoOtherSignIn
+	}
+	return nil
 }
 
 func (*Service) String() string     { return "OIDC service [redacted]" }
@@ -237,6 +267,11 @@ func (s *Service) save(ctx context.Context, actor string, u Update) error {
 	if u.ClientSecret != "" && s.sealer == nil {
 		return secrets.ErrNoMasterKey
 	}
+	if !u.Enabled && s.cur.Load().Provider != nil {
+		if err := s.keepASignInPath(ctx); err != nil {
+			return err
+		}
+	}
 	v, err := s.candidate(u)
 	if err != nil {
 		return err
@@ -293,6 +328,9 @@ func (s *Service) SetEnabled(ctx context.Context, actor string, enabled bool) er
 		if !s.record.Settings.Enabled {
 			return nil
 		}
+		if err := s.keepASignInPath(ctx); err != nil {
+			return err
+		}
 		r := *s.record
 		r.Settings.Enabled = false
 		if err := s.repo.SaveOIDC(ctx, actor, &r); err != nil {
@@ -314,6 +352,11 @@ func (s *Service) Discard(ctx context.Context, actor string) error {
 	defer s.writeMu.Unlock()
 	if s.record == nil {
 		return nil
+	}
+	if s.env == (Values{}) && s.cur.Load().Provider != nil {
+		if err := s.keepASignInPath(ctx); err != nil {
+			return err
+		}
 	}
 	if err := s.repo.SaveOIDC(ctx, actor, nil); err != nil {
 		return ErrStorage

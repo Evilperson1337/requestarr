@@ -237,3 +237,63 @@ func TestDiscoveryMessageCollapsesUnknownErrors(t *testing.T) {
 		t.Fatalf("a wrapped known category must show only its fixed phrase: %q", m)
 	}
 }
+
+// With the local administrator disabled, OIDC is the only way in. Turning it off
+// (or discarding its settings) would lock everyone out, so it is refused, and
+// refused closed when the local state cannot be read.
+func TestOIDCCannotBeTurnedOffWhileTheLocalAdministratorIsDisabled(t *testing.T) {
+	ctx := context.Background()
+	repo := &memory{}
+	sealer, _ := secrets.NewAESGCM(bytes.Repeat([]byte{7}, 32))
+	factory := func(_ context.Context, v authsettings.Values, _ string) (oidc.Provider, error) {
+		return &provider{name: v.ClientID}, nil
+	}
+	svc, err := authsettings.New(ctx, repo, sealer, authsettings.Values{}, "https://requestarr.test", factory)
+	if err != nil {
+		t.Fatal("startup failed")
+	}
+	good := authsettings.Update{Settings: authsettings.Settings{Enabled: true, ProviderName: "Keycloak", Issuer: "https://issuer.test", ClientID: "good"}, ClientSecret: "client-secret-value"}
+	if err := svc.Save(ctx, "admin", good); err != nil {
+		t.Fatal("save should discover and publish")
+	}
+	live := svc.Snapshot()
+	state := func(disabled bool, err error) func(context.Context) (bool, error) {
+		return func(context.Context) (bool, error) { return disabled, err }
+	}
+	unchanged := func(what string) {
+		t.Helper()
+		if svc.Snapshot() != live || repo.record == nil || !repo.record.Settings.Enabled {
+			t.Fatalf("%s must change nothing when it is refused", what)
+		}
+	}
+
+	svc.RequireSignInPath(state(true, nil))
+	if err := svc.SetEnabled(ctx, "admin", false); !errors.Is(err, authsettings.ErrNoOtherSignIn) {
+		t.Fatalf("turning OIDC off must be refused, got %v", err)
+	}
+	unchanged("turning OIDC off")
+	off := good
+	off.Enabled = false
+	if err := svc.Save(ctx, "admin", off); !errors.Is(err, authsettings.ErrNoOtherSignIn) {
+		t.Fatalf("saving OIDC as disabled must be refused, got %v", err)
+	}
+	unchanged("saving OIDC as disabled")
+	if err := svc.Discard(ctx, "admin"); !errors.Is(err, authsettings.ErrNoOtherSignIn) {
+		t.Fatalf("discarding the only sign-in must be refused, got %v", err)
+	}
+	unchanged("discarding")
+
+	svc.RequireSignInPath(state(false, errors.New("database down")))
+	if err := svc.SetEnabled(ctx, "admin", false); err == nil {
+		t.Fatal("an unreadable local state must refuse, not allow")
+	}
+	unchanged("turning OIDC off with an unreadable local state")
+
+	svc.RequireSignInPath(state(false, nil))
+	if err := svc.SetEnabled(ctx, "admin", false); err != nil {
+		t.Fatalf("with the local administrator on, turning OIDC off is allowed: %v", err)
+	}
+	if svc.Snapshot().Provider != nil {
+		t.Fatal("OIDC should be off")
+	}
+}

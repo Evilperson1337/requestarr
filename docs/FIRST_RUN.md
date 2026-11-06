@@ -44,7 +44,9 @@ same database configuration as the server. The command needs no OIDC or session
 secret configuration. It prints exactly one new random password after the
 transaction commits; keep it private and clear your terminal. It stores only a
 hash, requires a password change at the next sign-in, ends **all** of the local
-administrator's sessions and records an audit event. Other accounts are
+administrator's sessions, turns the account back on if it was disabled (shell
+access is the gate, and this account is the way back in) and records an audit
+event. Other accounts are
 unchanged. A failed database transaction prints no password. If printing fails
 after commit, run the command again. If the local administrator does not exist
 (for example an upgraded instance that has people but no administrator, so

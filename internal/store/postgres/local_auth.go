@@ -114,8 +114,9 @@ func (s *Store) ChangeLocalPassword(ctx context.Context, userID, hash string, ke
 }
 
 // ResetLocalAdminPassword replaces the credential and revokes every session,
-// serialized with sign-in on the credential row. It does not enable a disabled
-// account or create one on an upgraded instance. The audit commits atomically.
+// serialized with sign-in on the credential row. It turns a disabled account
+// back on (shell access is the gate, and the account is the recovery path) but
+// does not create one on an upgraded instance. The audit commits atomically.
 func (s *Store) ResetLocalAdminPassword(ctx context.Context, hash string, now time.Time) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -123,7 +124,7 @@ func (s *Store) ResetLocalAdminPassword(ctx context.Context, hash string, now ti
 	}
 	defer tx.Rollback(ctx)
 	var id string
-	err = tx.QueryRow(ctx, `UPDATE local_credentials c SET password_hash=$1,must_change=TRUE,password_changed_at=$2,updated_at=$2 FROM users u WHERE c.user_id=u.id AND u.builtin AND c.username=$3 RETURNING c.user_id::text`, hash, now, auth.LocalUsername).Scan(&id)
+	err = tx.QueryRow(ctx, `UPDATE local_credentials c SET password_hash=$1,must_change=TRUE,disabled=FALSE,password_changed_at=$2,updated_at=$2 FROM users u WHERE c.user_id=u.id AND u.builtin AND c.username=$3 RETURNING c.user_id::text`, hash, now, auth.LocalUsername).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return auth.ErrNoCredential
 	}
@@ -154,7 +155,7 @@ func (s *Store) ResetOrCreateLocalAdmin(ctx context.Context, hash string, now ti
 		return false, fmt.Errorf("lock admin creation: %w", err)
 	}
 	var id string
-	err = tx.QueryRow(ctx, `UPDATE local_credentials c SET password_hash=$1,must_change=TRUE,password_changed_at=$2,updated_at=$2 FROM users u WHERE c.user_id=u.id AND u.builtin AND c.username=$3 RETURNING c.user_id::text`, hash, now, auth.LocalUsername).Scan(&id)
+	err = tx.QueryRow(ctx, `UPDATE local_credentials c SET password_hash=$1,must_change=TRUE,disabled=FALSE,password_changed_at=$2,updated_at=$2 FROM users u WHERE c.user_id=u.id AND u.builtin AND c.username=$3 RETURNING c.user_id::text`, hash, now, auth.LocalUsername).Scan(&id)
 	switch {
 	case err == nil:
 		if _, err = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at=$2 WHERE user_id=$1::uuid AND revoked_at IS NULL`, id, now); err != nil {

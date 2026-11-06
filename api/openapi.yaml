@@ -185,7 +185,7 @@ paths:
     put:
       operationId: setAuthenticationEnabled
       summary: Admin-only enable or disable without losing saved settings
-      description: Requires same-origin and session CSRF. Enabling re-runs discovery before publishing. Environment-controlled settings are read-only.
+      description: Requires same-origin and session CSRF. Enabling re-runs discovery before publishing. Environment-controlled settings are read-only. Turning OIDC off is refused with 409 oidc_is_only_sign_in while the local administrator is disabled.
       parameters:
         - in: header
           name: X-CSRF-Token

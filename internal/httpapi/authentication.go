@@ -33,6 +33,8 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 			status, code, message = 409, "secrets_disabled", "REQUESTARR_SECRETS_KEY is not configured, so secret values cannot be saved"
 		case errors.Is(err, secrets.ErrUnreadable):
 			status, code, message = 422, "oidc_secret_unreadable", "restore REQUESTARR_SECRETS_KEY or re-enter the client secret"
+		case errors.Is(err, authsettings.ErrNoOtherSignIn):
+			status, code, message = 409, "oidc_is_only_sign_in", authsettings.ErrNoOtherSignIn.Error()
 		case errors.Is(err, authsettings.ErrInvalid):
 			status, code, message = 422, "invalid_oidc_settings", authsettings.ErrInvalid.Error()
 		case errors.Is(err, authsettings.ErrDiscovery):

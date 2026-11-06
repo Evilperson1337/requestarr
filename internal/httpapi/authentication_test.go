@@ -59,10 +59,16 @@ func (m matrixAuthentication) Test(context.Context, authsettings.Update) error {
 	return nil
 }
 func (m matrixAuthentication) SetEnabled(_ context.Context, actor string, _ bool) error {
+	if m.b.authRefuses != nil {
+		return m.b.authRefuses
+	}
 	m.b.record("authentication.enable", actor)
 	return nil
 }
 func (m matrixAuthentication) Discard(_ context.Context, actor string) error {
+	if m.b.authRefuses != nil {
+		return m.b.authRefuses
+	}
 	m.b.record("authentication.discard", actor)
 	return nil
 }
@@ -199,4 +205,20 @@ func (authProviderForSettings) AuthorizationURL(string, string, string) string {
 }
 func (authProviderForSettings) Exchange(context.Context, string, string, string) (*oidc.Identity, error) {
 	return nil, nil
+}
+
+// Turning OIDC off while the local administrator is disabled would lock everyone
+// out, so the service refuses and the API says why, with a conflict and no effect.
+func TestTurningOIDCOffIsRefusedWhenItWouldLeaveNoSignIn(t *testing.T) {
+	for _, endpoint := range []mutationCase{
+		{pattern: "PUT /admin/settings/authentication/enabled", path: "/admin/settings/authentication/enabled", body: `{"enabled":false}`},
+		{pattern: "DELETE /admin/settings/authentication", path: "/admin/settings/authentication"},
+	} {
+		backend := &matrixBackend{t: t, authRefuses: authsettings.ErrNoOtherSignIn}
+		w := matrixRequest(backend, endpoint, "admin", "csrf-token", "http://example.test")
+		assertErrorEnvelope(t, w, 409, "oidc_is_only_sign_in")
+		if len(backend.effects) != 0 {
+			t.Fatalf("%s must change nothing when it is refused", endpoint.pattern)
+		}
+	}
 }
