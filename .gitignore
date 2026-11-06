@@ -60,6 +60,7 @@ references/source/checkouts/
 references/mockups/archive/
 
 # Tool caches
+.claude/worktrees/
 .cache/
 .golangci-lint-cache/
 web/test-results/

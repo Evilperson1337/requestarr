@@ -18,6 +18,15 @@ Create a new file under `.scratch/<feature-slug>/` (creating the directory if ne
 
 Read the file at the referenced path. The user will normally pass the path or the issue number directly.
 
+## Closing a ticket
+
+When a ticket's work is merged, set its `Status:` line to one of:
+
+- `done`: every acceptance criterion is ticked, and each tick says how it was verified.
+- `needs-review`: merged, but at least one criterion is unticked because it rests on a mock or on a live check not yet made. The unticked criteria say what is missing.
+
+`ready-for-agent` means not started. A merged ticket never keeps it.
+
 ## Wayfinding operations
 
 Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.

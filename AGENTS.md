@@ -43,6 +43,7 @@ make fmt
 make test
 make vet
 make web-check     # once dependencies are installed
+make web-test      # whenever web/ changed; a fresh checkout or worktree needs `make bootstrap` first
 ```
 
 For schema changes, add migration tests. For provider/library changes, add fixtures and failure-path tests. For authentication changes, include explicit tests for unauthorized, viewer/requester, and admin paths.

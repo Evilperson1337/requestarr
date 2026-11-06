@@ -13,6 +13,7 @@ The `prompts/` directory contains a numbered sequence of implementation-phase pr
 ## Commands
 
 ```bash
+make bootstrap      # fresh clone or worktree: npm ci + build the embedded UI (Go tests need it)
 make fmt            # gofmt the Go tree
 make test           # go test ./...
 make vet            # go vet ./...
@@ -30,7 +31,7 @@ make release-check  # goreleaser check
 
 Single Go test: `go test ./internal/domain/... -run TestName -v`.
 
-Before opening a PR, run `scripts/check.sh` (fmt, test, vet, PostgreSQL integration tests, and web typecheck plus Playwright if `web/node_modules` exists). This mirrors CI and what `AGENTS.md` calls "required checks before completing a change". Run it after any change, not just Go changes. A change under `internal/store/` or `db/migrations/` is unverified until `make test-integration` has passed; if port 5432 is taken, set `REQUESTARR_POSTGRES_PORT`.
+Before opening a PR, run `scripts/check.sh` (fmt, test, vet, PostgreSQL integration tests, and web typecheck plus Playwright if `web/node_modules` exists; `make bootstrap` prepares a fresh clone or worktree, and `REQUESTARR_SKIP_BROWSER_TESTS=1` skips the browser tests). This mirrors CI and what `AGENTS.md` calls "required checks before completing a change". Run it after any change, not just Go changes. A change under `internal/store/` or `db/migrations/` is unverified until `make test-integration` has passed; if port 5432 is taken, set `REQUESTARR_POSTGRES_PORT`.
 
 The Go module and development container target Go 1.27. The web app has no third-party runtime deps beyond React/Vite — deliberately, so the architecture can be reviewed before further libraries are added.
 

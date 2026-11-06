@@ -5,7 +5,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: hooks help fmt test test-integration check-login check-container vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down stack-up stack-up-dev stack-start stack-down stack-logs migrate-up snapshot snapshot-image release-check references
+.PHONY: hooks help bootstrap fmt test test-integration check-login check-container vet build run clean web-install web-dev web-build web-check web-test dev-up dev-down stack-up stack-up-dev stack-start stack-down stack-logs migrate-up snapshot snapshot-image release-check references
 
 # Load .env into the recipe's environment when present, without requiring it
 # to be sourced into the caller's shell first.
@@ -13,6 +13,7 @@ LOAD_ENV := if [ -f .env ]; then set -a; . ./.env; set +a; fi;
 
 help:
 	@printf '%s\n' \
+	  'make bootstrap      Prepare a fresh checkout or worktree: install web dependencies and build the embedded UI' \
 	  'make fmt            Format Go code' \
 	  'make test           Run Go tests' \
 	  'make test-integration  Run PostgreSQL integration tests against the dev compose database' \
@@ -37,6 +38,13 @@ help:
 	  'make release-check  Validate GoReleaser config' \
 	  'make references     Fetch reference source trees'
 
+# A fresh clone or worktree has no web/node_modules and no embedded UI
+# (internal/webui/dist is build output), so the Go tests that serve the SPA fail
+# until this has run.
+bootstrap:
+	cd web && npm ci
+	$(MAKE) web-build
+
 fmt:
 	gofmt -w $$(find cmd internal db -name '*.go' -type f)
 
@@ -44,8 +52,10 @@ test:
 	go test ./...
 
 # Integration tests use a dedicated requestarr_test database on the dev compose
-# Postgres so they never touch the application's own database. Override
-# REQUESTARR_TEST_DATABASE_URL to target another disposable database instead.
+# Postgres so they never touch the application's own database. It is dropped and
+# recreated on every run, so fixtures from an earlier run cannot leak into this
+# one. Override REQUESTARR_TEST_DATABASE_URL to target another disposable
+# database instead; that database is never dropped for you.
 # Set REQUESTARR_POSTGRES_PORT when host port 5432 is already taken.
 REQUESTARR_POSTGRES_PORT ?= 5432
 export REQUESTARR_POSTGRES_PORT
@@ -62,10 +72,8 @@ test-integration:
 	    exit 1; \
 	  fi; \
 	  docker compose -f compose.dev.yaml up -d --wait postgres; \
-	  docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -tc "select 1 from pg_database where datname='requestarr_test'" | grep -q 1 \
-	    || docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -c 'create database requestarr_test'; \
-	  : "The tests share one database and leave rows behind, so every run starts from an empty one."; \
-	  docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -c 'drop database requestarr_test with (force)' -c 'create database requestarr_test'; \
+	  docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -v ON_ERROR_STOP=1 \
+	    -c 'drop database if exists requestarr_test with (force)' -c 'create database requestarr_test'; \
 	fi; \
 	REQUESTARR_TEST_DATABASE_URL="$${REQUESTARR_TEST_DATABASE_URL:-$(TEST_DB_URL)}" go test -tags integration -count=1 ./internal/store/postgres/...
 
