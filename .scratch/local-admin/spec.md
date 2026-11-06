@@ -27,7 +27,7 @@ A fresh instance creates one built-in **local administrator** at first startup a
 ### Signing in
 9. As the local administrator, I want to sign in with a username and password, so that I can administer the instance.
 10. As the local administrator, I want a clear error that never says whether the username or the password was wrong, so that nobody can probe for accounts.
-11. As the local administrator, I want repeated failures to slow down further attempts without locking me out, so that an attacker cannot lock me out of my own recovery account.
+11. As the local administrator, I want repeated failures to be answered more slowly, each failed answer delayed longer than the last and a correct password never delayed, without locking me out, so that an attacker cannot lock me out of my own recovery account.
 12. As the local administrator, I want every successful and failed sign-in recorded, so that I can see attempts on the account.
 13. As the local administrator, I want passwords of 12 to 128 characters with no composition rules, so that I can use a passphrase.
 14. As the local administrator, I want changing my password to end my other sessions, so that a stolen session does not survive a change.
@@ -61,7 +61,7 @@ A fresh instance creates one built-in **local administrator** at first startup a
 ### People and roles
 39. As an administrator, I want the local administrator listed in Users and labelled as such, so that I know what it is.
 40. As an administrator, I want its role locked to admin, so that I cannot demote the recovery account by mistake.
-41. As an administrator, I want to disable the local administrator only while another admin exists, so that I can never remove every way in.
+41. As an administrator, I want to disable the local administrator only while another admin exists and OIDC is working, so that I can never remove every way in.
 42. As an administrator, I want to promote a person who signed in through OIDC from Settings, Users, so that they become an admin without any token.
 43. As an administrator, I want new OIDC sign-ins to get the default role I chose, so that the earlier policy still applies.
 44. As an operator, I want the Get started checklist to treat OIDC as optional, so that it does not demand it to finish.

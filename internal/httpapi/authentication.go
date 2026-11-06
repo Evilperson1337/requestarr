@@ -10,6 +10,9 @@ import (
 	"net/http"
 )
 
+// AuthenticationService is the Authentication settings page's view of the OIDC
+// state: read it, save, test or discard the saved settings, and switch OIDC on
+// or off. The string argument is the acting administrator, for the audit trail.
 type AuthenticationService interface {
 	Status(context.Context) (authsettings.Status, error)
 	Options() authsettings.Options

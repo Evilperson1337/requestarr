@@ -35,5 +35,5 @@ func NewAuthentication(ctx context.Context, cfg config.Config, repo authsettings
 type oidcSignIn struct{ svc *authsettings.Service }
 
 func (o oidcSignIn) OIDCConfigured(context.Context) (bool, error) {
-	return o.svc.Options().OIDCEnabled, nil
+	return o.svc.OIDCWorking(), nil
 }

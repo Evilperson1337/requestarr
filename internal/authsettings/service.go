@@ -148,9 +148,13 @@ func New(ctx context.Context, repo Repository, sealer secrets.Sealer, env Values
 }
 func (s *Service) Snapshot() *Snapshot { return s.cur.Load() }
 func (s *Service) Options() Options {
-	p := s.Snapshot()
-	return Options{OIDCEnabled: p.Provider != nil, ProviderName: p.ProviderName}
+	return Options{OIDCEnabled: s.OIDCWorking(), ProviderName: s.Snapshot().ProviderName}
 }
+
+// OIDCWorking reports whether OIDC is enabled and its provider is active. It is
+// the one answer to "can someone sign in with OIDC" for the sign-in screen, the
+// checklist and the lockout guards.
+func (s *Service) OIDCWorking() bool { return s.Snapshot().Provider != nil }
 func (s *Service) savedValues() (*Values, bool) {
 	if s.record == nil {
 		return nil, false
@@ -188,7 +192,7 @@ func (s *Service) Status(context.Context) (Status, error) {
 	saved, unreadable := s.savedValues()
 	r := Resolve(s.env, saved)
 	v, enabled, name := s.effective()
-	st := Status{Resolution: r, Effective: Settings{Enabled: enabled, ProviderName: name, Issuer: v.Issuer, ClientID: v.ClientID}, SecretConfigured: v.ClientSecret != "", SecretUnreadable: unreadable, CanSaveSecret: s.sealer != nil, ReadOnly: s.env != (Values{}), RedirectURI: s.redirect, Working: s.Snapshot().Provider != nil, Problem: s.problem}
+	st := Status{Resolution: r, Effective: Settings{Enabled: enabled, ProviderName: name, Issuer: v.Issuer, ClientID: v.ClientID}, SecretConfigured: v.ClientSecret != "", SecretUnreadable: unreadable, CanSaveSecret: s.sealer != nil, ReadOnly: s.env != (Values{}), RedirectURI: s.redirect, Working: s.OIDCWorking(), Problem: s.problem}
 	if s.record != nil {
 		copy := s.record.Settings
 		st.Saved = &copy
@@ -267,7 +271,7 @@ func (s *Service) save(ctx context.Context, actor string, u Update) error {
 	if u.ClientSecret != "" && s.sealer == nil {
 		return secrets.ErrNoMasterKey
 	}
-	if !u.Enabled && s.cur.Load().Provider != nil {
+	if !u.Enabled && s.OIDCWorking() {
 		if err := s.keepASignInPath(ctx); err != nil {
 			return err
 		}
@@ -353,7 +357,7 @@ func (s *Service) Discard(ctx context.Context, actor string) error {
 	if s.record == nil {
 		return nil
 	}
-	if s.env == (Values{}) && s.cur.Load().Provider != nil {
+	if s.env == (Values{}) && s.OIDCWorking() {
 		if err := s.keepASignInPath(ctx); err != nil {
 			return err
 		}

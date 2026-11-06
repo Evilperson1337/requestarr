@@ -29,6 +29,10 @@ type Spec struct {
 	Name   Name
 	EnvVar string // environment variable that sets it; the environment always wins
 	Label  string
+	// Managed marks a secret that another settings screen owns, so the generic
+	// secret endpoints neither list nor change it: its screen saves it together
+	// with the settings it only works alongside.
+	Managed bool
 }
 
 var registry = []Spec{
@@ -40,7 +44,7 @@ var registry = []Spec{
 	{Name: PlexToken, EnvVar: "REQUESTARR_PLEX_TOKEN", Label: "Plex token"},
 	{Name: RommToken, EnvVar: "REQUESTARR_ROMM_TOKEN", Label: "RomM token"},
 	{Name: AudiobookshelfAPIKey, EnvVar: "REQUESTARR_AUDIOBOOKSHELF_API_KEY", Label: "Audiobookshelf API key"},
-	{Name: OIDCClientSecret, EnvVar: "REQUESTARR_OIDC_CLIENT_SECRET", Label: "OIDC client secret"},
+	{Name: OIDCClientSecret, EnvVar: "REQUESTARR_OIDC_CLIENT_SECRET", Label: "OIDC client secret", Managed: true},
 }
 
 // All returns the registered secrets in a stable order.

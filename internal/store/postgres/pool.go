@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -46,7 +48,8 @@ func newPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 
 // unreachable says why a connection failed, in fixed words chosen from the
 // error's type and never its text (the driver's text can echo the connection
-// string, credentials included). The only values it adds are the host, port and
+// string, credentials included). The one exception is a TLS failure the driver
+// reports only as fixed text; it is matched on that text and nothing is echoed. The only values it adds are the host, port and
 // database name the operator supplied, which are not secret. Without this every
 // cause read the same, and an operator on a container host with no shell to test
 // from could not tell an unresolvable name from a refused connection or a wrong
@@ -82,8 +85,28 @@ func connectionProblem(err error, host, address, database string) (string, bool)
 		return fmt.Sprintf("nothing accepted the connection at %s (is PostgreSQL running, and is the port right?)", address), true
 	case errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()):
 		return fmt.Sprintf("timed out connecting to %s (check that the host name resolves and that the address is reachable from this container)", address), true
-	case strings.Contains(strings.ToLower(err.Error()), "tls"):
+	case isTLSProblem(err):
 		return fmt.Sprintf("a secure (TLS) connection to %s could not be negotiated (check the SSL mode setting)", address), false
 	}
 	return "", true
+}
+
+// isTLSProblem recognises a failed TLS negotiation by type where Go reports one
+// and, because pgx wraps the rest as plain "tls error" or "server refused TLS
+// connection" text, by those two driver phrases.
+func isTLSProblem(err error) bool {
+	var (
+		verify  *tls.CertificateVerificationError
+		unknown x509.UnknownAuthorityError
+		host    x509.HostnameError
+		invalid x509.CertificateInvalidError
+		record  tls.RecordHeaderError
+		alert   tls.AlertError
+	)
+	if errors.As(err, &verify) || errors.As(err, &unknown) || errors.As(err, &host) ||
+		errors.As(err, &invalid) || errors.As(err, &record) || errors.As(err, &alert) {
+		return true
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "tls error") || strings.Contains(text, "refused tls") || strings.HasPrefix(text, "tls:")
 }

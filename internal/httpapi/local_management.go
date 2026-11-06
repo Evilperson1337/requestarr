@@ -8,6 +8,9 @@ import (
 	"net/http"
 )
 
+// LocalAdminManagement is what the Authentication page may do to the local
+// administrator: read its status, create it (returning the one-time password) and
+// disable or enable it. The string argument is the acting administrator.
 type LocalAdminManagement interface {
 	LocalAdminStatus(context.Context) (auth.LocalAdminStatus, error)
 	Create(context.Context, string) (auth.CreatedLocalAdmin, error)
