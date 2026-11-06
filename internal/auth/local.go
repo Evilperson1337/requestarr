@@ -59,6 +59,9 @@ type AuditEvent struct {
 	Username   string
 	RemoteAddr string
 	At         time.Time
+	// Count is how many attempts the row stands for; 0 means 1. Only failure
+	// and throttle rows are ever coalesced.
+	Count int
 }
 
 // LocalStore is the storage the local account needs.
@@ -74,6 +77,12 @@ type LocalStore interface {
 	// exactly one password_changed audit event with remoteAddr, atomically.
 	ChangeLocalPassword(ctx context.Context, userID, hash string, keep []byte, remoteAddr string, now time.Time) error
 	RecordAuthEvent(ctx context.Context, e AuditEvent) error
+	// RecordAuthEventID is RecordAuthEvent returning the row's id, so later
+	// attempts folded into it can be added with AddAuthEventCount.
+	RecordAuthEventID(ctx context.Context, e AuditEvent) (int64, error)
+	AddAuthEventCount(ctx context.Context, id int64, n int) error
+	// PruneAuthEvents deletes audit rows created before the cutoff.
+	PruneAuthEvents(ctx context.Context, before time.Time) (int64, error)
 	// CreateLocalAdmin creates the built-in administrator with must-change
 	// set, but only while there are no users; it reports whether it did.
 	CreateLocalAdmin(ctx context.Context, hash string, now time.Time) (bool, error)
@@ -269,7 +278,7 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	release, ok := h.throttle().Admit(ctx, account, addr)
 	if !ok {
-		if h.audit(ctx, AuditSignInThrottled, "", "", r) != nil {
+		if h.auditAttempt(ctx, AuditSignInThrottled, "", "", account, addr) != nil {
 			h.warn("could not write the authentication audit")
 		}
 		writeThrottled(w, r, time.Second)
@@ -294,7 +303,7 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 		if known {
 			name = cred.Username
 		}
-		if h.audit(ctx, AuditSignInFailure, cred.UserID, name, r) != nil {
+		if h.auditAttempt(ctx, AuditSignInFailure, cred.UserID, name, account, addr) != nil {
 			h.warn("could not write the authentication audit")
 		}
 		release()
@@ -309,7 +318,7 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		if errors.Is(err, ErrNoCredential) {
 			delay := h.throttle().Fail(account, addr)
-			if h.audit(ctx, AuditSignInFailure, cred.UserID, cred.Username, r) != nil {
+			if h.auditAttempt(ctx, AuditSignInFailure, cred.UserID, cred.Username, account, addr) != nil {
 				h.warn("could not write the authentication audit")
 			}
 			release()

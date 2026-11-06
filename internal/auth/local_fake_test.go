@@ -74,6 +74,8 @@ type fakeLocalStore struct {
 	events    []AuditEvent
 	created   int
 	failAudit bool
+
+	prunedBefore time.Time
 }
 
 func newFakeLocalStore() *fakeLocalStore {
@@ -160,6 +162,28 @@ func (f *fakeLocalStore) RecordAuthEvent(_ context.Context, e AuditEvent) error 
 	f.events = append(f.events, e)
 	return nil
 }
+func (f *fakeLocalStore) RecordAuthEventID(_ context.Context, e AuditEvent) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failAudit {
+		return 0, errors.New("audit down")
+	}
+	e.Count = max(e.Count, 1)
+	f.events = append(f.events, e)
+	return int64(len(f.events)), nil
+}
+func (f *fakeLocalStore) AddAuthEventCount(_ context.Context, id int64, n int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events[id-1].Count += n
+	return nil
+}
+func (f *fakeLocalStore) PruneAuthEvents(_ context.Context, before time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prunedBefore = before
+	return 0, nil
+}
 func (f *fakeLocalStore) CreateLocalAdmin(_ context.Context, hash string, _ time.Time) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -227,13 +251,12 @@ type fixture struct {
 	slept   []time.Duration
 }
 
-// sleep stands in for holding a failed response: it records the delay and lets
-// the fake clock pass the time.
+// sleep stands in for holding a failed response: it records the delay (the
+// fake clock is left alone so a flood stays inside one audit window).
 func (f *fixture) sleep(_ context.Context, d time.Duration) {
 	f.sleepMu.Lock()
 	f.slept = append(f.slept, d)
 	f.sleepMu.Unlock()
-	f.clock.Advance(d)
 }
 
 func (f *fixture) sleeps() []time.Duration {

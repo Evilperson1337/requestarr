@@ -128,6 +128,24 @@ func (s *Store) ResetLocalAdminPassword(ctx context.Context, hash string, now ti
 
 // RecordAuthEvent appends one authentication audit row.
 func (s *Store) RecordAuthEvent(ctx context.Context, e auth.AuditEvent) error {
+	_, err := s.RecordAuthEventID(ctx, e)
+	return err
+}
+
+// AddAuthEventCount adds n attempts to a coalesced failure or throttle row.
+func (s *Store) AddAuthEventCount(ctx context.Context, id int64, n int) error {
+	_, err := s.pool.Exec(ctx, `UPDATE auth_audit_events SET count=count+$2 WHERE id=$1`, id, n)
+	return err
+}
+
+// PruneAuthEvents deletes authentication audit rows created before the cutoff.
+func (s *Store) PruneAuthEvents(ctx context.Context, before time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM auth_audit_events WHERE created_at < $1`, before)
+	return tag.RowsAffected(), err
+}
+
+// RecordAuthEventID appends one authentication audit row and returns its id.
+func (s *Store) RecordAuthEventID(ctx context.Context, e auth.AuditEvent) (int64, error) {
 	var user, name, addr any
 	if e.UserID != "" {
 		user = e.UserID
@@ -138,8 +156,9 @@ func (s *Store) RecordAuthEvent(ctx context.Context, e auth.AuditEvent) error {
 	if e.RemoteAddr != "" {
 		addr = e.RemoteAddr
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO auth_audit_events(event_type,user_id,username,remote_addr,created_at) VALUES($1,$2::uuid,$3,$4,$5)`, e.Type, user, name, addr, e.At)
-	return err
+	var id int64
+	err := s.pool.QueryRow(ctx, `INSERT INTO auth_audit_events(event_type,user_id,username,remote_addr,created_at,count) VALUES($1,$2::uuid,$3,$4,$5,$6) RETURNING id`, e.Type, user, name, addr, e.At, max(e.Count, 1)).Scan(&id)
+	return id, err
 }
 
 // CreateLocalSession serializes the verified-hash check and session insertion

@@ -46,8 +46,9 @@ type Handler struct {
 	// Sleep holds a failed sign-in response; nil uses a real timer.
 	Sleep func(ctx context.Context, d time.Duration)
 
-	throttleOnce, dummyOnce sync.Once
-	dummy                   string
+	throttleOnce, dummyOnce, auditOnce sync.Once
+	auditLim                           *auditLimiter
+	dummy                              string
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {

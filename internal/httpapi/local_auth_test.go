@@ -52,6 +52,14 @@ func (f *localFake) RecordAuthEvent(_ context.Context, e auth.AuditEvent) error 
 	f.events = append(f.events, e.Type)
 	return nil
 }
+func (f *localFake) RecordAuthEventID(_ context.Context, e auth.AuditEvent) (int64, error) {
+	f.events = append(f.events, e.Type)
+	return int64(len(f.events)), nil
+}
+func (f *localFake) AddAuthEventCount(context.Context, int64, int) error { return nil }
+func (f *localFake) PruneAuthEvents(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
 func (f *localFake) CreateLocalAdmin(context.Context, string, time.Time) (bool, error) {
 	return false, nil
 }

@@ -70,6 +70,12 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		return fmt.Errorf("initialize authentication settings: %w", err)
 	}
 	authHandler := &auth.Handler{Repo: store, OIDC: authentication.Snapshot, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Local: store, Logger: logger, TrustedProxies: cfg.TrustedProxyPrefixes()}
+	// Old audit rows are pruned at start and then daily; coalesced sign-in counts are flushed each minute.
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		authHandler.RunAuditMaintenance(workerCtx)
+	}()
 	// The TMDB token, IGDB credentials and Apprise key are read per call from one
 	// swappable set, so saving them in Settings applies at once (D039).
 	providers := newProviderSet(cfg, boot.Unreadable, store, func(ctx context.Context) (booted, error) {

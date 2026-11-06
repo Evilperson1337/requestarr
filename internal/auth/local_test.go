@@ -224,8 +224,13 @@ func TestEverySignInSuccessAndFailureIsAuditedWithoutPasswordMaterial(t *testing
 	f.store.creds[adminUserID].Disabled = false
 	f.clock.Advance(time.Hour)
 	f.login("admin", testPassword)
-	want := []string{AuditSignInFailure, AuditSignInFailure, AuditSignInFailure, AuditSignInFailure, AuditSignInSuccess}
+	// The four failures fall in one minute from one address, so they share a row (S2).
+	f.h.FlushAudit(context.Background())
+	want := []string{AuditSignInFailure, AuditSignInSuccess}
 	got := f.store.eventTypes()
+	if _, n := f.store.rows(AuditSignInFailure); n != 4 {
+		t.Fatalf("the failure row stands for %d attempts, want 4", n)
+	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("events=%v want %v", got, want)
 	}
@@ -246,7 +251,7 @@ func TestEverySignInSuccessAndFailureIsAuditedWithoutPasswordMaterial(t *testing
 			t.Fatal("audit row has no time")
 		}
 	}
-	if last := f.store.events[4]; last.UserID != adminUserID || last.Username != "admin" {
+	if last := f.store.events[1]; last.UserID != adminUserID || last.Username != "admin" {
 		t.Fatalf("success audit has incorrect account attribution")
 	}
 }
