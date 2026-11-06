@@ -42,6 +42,7 @@ help:
 # (internal/webui/dist is build output), so the Go tests that serve the SPA fail
 # until this has run.
 bootstrap:
+	@if [ -L web/node_modules ]; then echo "web/node_modules is a symlink: npm ci would empty the directory it points to. Remove the link and run make bootstrap again." >&2; exit 1; fi
 	cd web && npm ci
 	$(MAKE) web-build
 

@@ -41,3 +41,5 @@ Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
 ## Version control
 
 `.scratch/` is committed, not gitignored, so specs and tickets travel with the code.
+
+When a decision in `docs/DECISIONS.md` changes behaviour a spec or ticket states, amend that spec or ticket text in the same commit, so the next reader is not sent to the superseded behaviour.
