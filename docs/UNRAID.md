@@ -231,3 +231,15 @@ Anything else, such as `plex.example.com`, must use `https://`, so that a librar
 | Signing in at `/login` does not stick | The public address is not https, so the browser drops the Secure cookie. |
 | A saved credential reports "stored secret unreadable" | The master key changed. Restore the original key or enter the credential again. |
 | A library address is rejected | The message says whether to use https or to add the network (step 7). |
+
+**The log says `database is unreachable: ...`.** The words after the colon are the cause. The log shows the address and database name Requestarr is using but never the user name or password.
+
+| Log text | What it means, and what to do |
+| --- | --- |
+| `the host name "..." could not be resolved` | The name is not known from inside this container. On Unraid's default bridge network a container name does not resolve: put Requestarr and PostgreSQL on the same user-defined network (the template's Network Type), or use the PostgreSQL container's address. |
+| `timed out connecting to host:port` | Nothing answered within 5 seconds. Check that the host name resolves and that the address is reachable from this container; a wrong address or a firewall looks like this. |
+| `nothing accepted the connection at host:port` | The host answered but nothing listens on that port: PostgreSQL is not running yet (start Requestarr again once it is), or the port is wrong. |
+| `PostgreSQL rejected the user name or password` | Check the user and password fields. Any characters are fine in the password. |
+| `the database "..." does not exist on the server` | Create it (step 2) or correct the name. |
+| `PostgreSQL is still starting up` | Wait a moment and start Requestarr again. |
+| `a secure (TLS) connection ... could not be negotiated` | Set the SSL mode field to match the server (`disable` for a server without TLS). |
