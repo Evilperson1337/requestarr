@@ -199,16 +199,11 @@ Response codes: 400 malformed/unsupported input; 401 absent/expired appropriate 
 
 | Endpoint | Authorization and schema |
 | --- | --- |
-| GET /setup/status | Public → complete:boolean, required:boolean. No draft/issuer/identity details. |
-| POST /setup/session | Before setup only; token:string in body → expiresAt:timestamp, csrfToken:string and setup cookie. Invalid token returns generic 401; completed returns 409 setup_complete. |
-| GET /setup/draft | Setup session → revision:integer, currentStep:enum, config:RedactedSettings, validations:ValidationSummary[], administratorProof:verified/expired/absent plus safe display name. |
-| PUT /setup/draft | Setup+CSRF; expectedRevision:integer, currentStep:enum, config:SettingsInput → redacted draft with incremented revision. Secrets write-only. |
-| POST /setup/validate | Setup+CSRF; expectedRevision:integer, target:oidc/provider identifier → ValidationSummary with target, revision, valid:boolean, checkedAt, expiresAt, safe errors/warnings. Test remote services outside transaction. |
-| POST /setup/oidc-test | Setup+CSRF; expectedRevision → authorizationUrl for purpose-bound redirect. Callback GET /auth/setup/callback consumes flow and redirects only to the fixed setup review page. |
-| POST /setup/complete | Setup+CSRF; expectedRevision, operationId:UUID, confirmAdministrator:boolean → complete:true. Requires proof and all enabled-provider checks; replays of the committed operation are success without privileged details, even though session was revoked. All other post-completion setup writes rejected. |
+| (setup wizard routes) | Removed. The `/setup/*` draft and token endpoints no longer exist (D038, D040): first run is the built-in local administrator signing in, OIDC is configured under Settings, Authentication (`/admin/settings/authentication`), and the Get started checklist is `GET /admin/checklist`. See `api/openapi.yaml` for the live contract. |
 | GET /auth/login | Explicit browser navigation; bounded relative returnTo allowlisted to local UI routes. Creates flow, redirects to issuer. Reject absolute/protocol-relative redirect targets. |
 | GET /auth/callback | Validates bound flow/code/token, sets normal cookie, redirects to saved local route. No tokens in response JSON or redirect URL. |
-| GET /me | Normal session → user:{id,displayName,role}, capabilities:string[], csrfToken:string, settingsRevision:integer, enabledMediaTypes:enum[]. Never expose session/token credentials. |
+| GET /auth/me | Normal session → user:{id,displayName,role,email}, csrfToken:string, mustChangePassword:boolean, localAdministrator:boolean (D040). Never expose session/token credentials. |
+| POST /auth/local/login, POST /auth/local/password | The built-in local administrator (D040): username and password sign-in, and the password change. See `api/openapi.yaml`. |
 | POST /auth/logout | Normal session+CSRF → 204 and revoke cookie/session; local logout does not depend on upstream service. |
 | GET /settings | Admin → revision, RedactedSettings. |
 | PATCH /settings | Admin+CSRF; expectedRevision, changed settings/secret inputs → redacted settings. Require validation for changed integrations; invalidate issuer-dependent sessions when activating a new issuer/client. Record audit and retain last-admin safeguard. |

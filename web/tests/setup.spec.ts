@@ -24,6 +24,11 @@ async function mockChecklist(page: Page, options: { role?: string; items?: Item[
         state.calls.push({ method, path, csrf: request.headers()['x-csrf-token'] })
         if (path === '/admin/checklist') return route.fulfill({ json: { items: state.items, dismissed: state.dismissed, visible: state.visible } })
         if (path === '/admin/checklist/dismiss') { state.dismissed = true; state.visible = false; return route.fulfill({ status: 204 }) }
+        // Settings loads these when a checklist link is followed; answer with their real shapes.
+        if (path === '/admin/status') return route.fulfill({ json: { providers: [], sources: [], recentErrors: [] } })
+        if (path === '/admin/job-runs') return route.fulfill({ json: { sources: [] } })
+        if (path === '/admin/users') return route.fulfill({ json: { users: [] } })
+        if (path === '/admin/settings/people') return route.fulfill({ json: { defaultRole: 'viewer' } })
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })
     return state
@@ -41,6 +46,29 @@ test('the checklist separates required from optional items, shows live state, an
     await expect(optional.getByRole('listitem').filter({ hasText: 'Set up notifications' })).toContainText('Optional. Without Apprise')
     // No value is entered twice: this page has no fields, only links and a dismissal.
     await expect(page.locator('main input, main select, main textarea')).toHaveCount(0)
+})
+
+// K2: the Settings page must not throw while it loads, whatever the sync-run list answers.
+const pageErrors = (page: Page) => { const errors: string[] = []; page.on('pageerror', e => errors.push(e.message)); return errors }
+
+test('Settings does not throw when the sync-run list answers without sources', async ({ page }) => {
+    const errors = pageErrors(page)
+    await mockChecklist(page)
+    await page.route('**/api/v1/admin/job-runs', route => route.fulfill({ json: {} }))
+    await page.goto('/settings?tab=users')
+    await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible()
+    await page.waitForLoadState('networkidle')
+    expect(errors).toEqual([])
+})
+
+test('following a checklist link into Settings throws nothing', async ({ page }) => {
+    const errors = pageErrors(page)
+    await mockChecklist(page)
+    await page.goto('/get-started')
+    await page.getByRole('listitem').filter({ hasText: 'Review who can do what' }).getByRole('link').click()
+    await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible()
+    await page.waitForLoadState('networkidle')
+    expect(errors).toEqual([])
 })
 
 test('each item links to the Settings section that applies it', async ({ page }) => {

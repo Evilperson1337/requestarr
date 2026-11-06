@@ -14,6 +14,9 @@ export function SettingsPage({ session }: { session: Session }) {
     return <SettingsForSession key={`${session.user.id}:${session.csrfToken}`} session={session} />
 }
 
+// A list the server leaves out is an empty list, never a reason to throw while rendering.
+const withLists = (status: OperationalStatus): OperationalStatus => ({ ...status, providers: status.providers ?? [], sources: status.sources ?? [], recentErrors: status.recentErrors ?? [] })
+
 function SettingsForSession({ session }: { session: Session }) {
     const [users, setUsers] = useState<AdminUser[]>([])
     const [error, setError] = useState('')
@@ -36,12 +39,12 @@ function SettingsForSession({ session }: { session: Session }) {
         if (authorizationLost) return
         const controller = new AbortController()
         api<OperationalStatus>('/admin/status', { cache: 'no-store', signal: controller.signal }).then(result => {
-            if (!controller.signal.aborted) setOps(result)
+            if (!controller.signal.aborted) setOps(withLists(result))
         }).catch(e => { if (!controller.signal.aborted) { checkAuthorization(e); setOps(null); setOpsError(e instanceof Error ? e.message : 'Could not load operational status') } })
         return () => controller.abort()
     }, [session.user.id, session.csrfToken, checkAuthorization, authorizationLost])
-    const loadStatus = useCallback(() => api<OperationalStatus>('/admin/status', { cache: 'no-store' }).then(setOps).catch(e => { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not load source status') }), [checkAuthorization])
-    const loadRuns = useCallback(() => api<{ sources: SourceRuns[] }>('/admin/job-runs').then(result => setSources(result.sources)).catch(e => { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not load sync runs'); setSources(current => [...current]) /* new reference keeps an active poll retrying */ }), [checkAuthorization])
+    const loadStatus = useCallback(() => api<OperationalStatus>('/admin/status', { cache: 'no-store' }).then(result => setOps(withLists(result))).catch(e => { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not load source status') }), [checkAuthorization])
+    const loadRuns = useCallback(() => api<{ sources: SourceRuns[] }>('/admin/job-runs').then(result => setSources(result.sources ?? [])).catch(e => { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not load sync runs'); setSources(current => [...current]) /* new reference keeps an active poll retrying */ }), [checkAuthorization])
     const syncActive = sources.some(group => group.runs.some(run => run.status === 'running'))
     useEffect(() => { loadRuns() }, [loadRuns])
     // Follow an active run until it finishes.
