@@ -36,7 +36,16 @@ import (
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
 )
 
-const startupTimeout = 30 * time.Second
+// startupTimeout bounds opening the database. It has to cover the retries below
+// (three 5s connection tries and two 5s pauses is 25s at the very worst) with
+// room left to spare.
+const startupTimeout = 45 * time.Second
+
+// databaseRetry is how a server start waits for a database that is not up yet:
+// three tries, five seconds apart. Waiting only helps when the database is on
+// its way (a container still starting, boot order); a wrong password or a missing
+// database fails at once.
+var databaseRetry = postgres.RetryPolicy{Attempts: 3, Wait: 5 * time.Second}
 
 // sourceSyncInterval is how often each Source syncs. It is also the retry interval: a failed run waits for the next tick.
 const sourceSyncInterval = 15 * time.Minute
@@ -44,7 +53,11 @@ const sourceSyncInterval = 15 * time.Minute
 func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buildinfo.Info) error {
 	startupCtx, cancel := context.WithTimeout(ctx, startupTimeout)
 	logger.Info("connecting to database", "url", postgres.Redact(cfg.DatabaseURL))
-	store, err := postgres.Open(startupCtx, cfg.DatabaseURL)
+	retryPolicy := databaseRetry
+	retryPolicy.OnRetry = func(attempt, attempts int, wait time.Duration, err error) {
+		logger.Warn("database not ready, will try again", "attempt", attempt, "of", attempts, "retry_in", wait.String(), "reason", err.Error())
+	}
+	store, err := postgres.OpenWithRetry(startupCtx, cfg.DatabaseURL, retryPolicy)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("database startup: %w", err)
