@@ -52,6 +52,9 @@ type Handler struct {
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
+	if h.Local != nil {
+		h.dummyHash() // made now, at startup, so the first unknown username costs no extra hash
+	}
 	mux.HandleFunc("GET /auth/login", h.login)
 	mux.HandleFunc("GET /auth/callback", h.callback)
 	mux.HandleFunc("POST /auth/logout", h.logout)

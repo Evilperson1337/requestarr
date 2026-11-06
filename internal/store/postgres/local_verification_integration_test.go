@@ -25,7 +25,7 @@ func TestLocalSessionRejectsStaleCredentialIntegration(t *testing.T) {
 		t.Fatal("current credential was refused")
 	}
 	newHash, _ := fastHasher.Hash("replacement test passphrase")
-	if err := s.ChangeLocalPassword(ctx, cred.UserID, newHash, []byte("not-kept"), "203.0.113.7", now); err != nil {
+	if err := s.ChangeLocalPassword(ctx, cred.UserID, newHash, []byte("not-kept"), "203.0.113.7", now, nil); err != nil {
 		t.Fatal("could not change password")
 	}
 	if err := s.CreateLocalSession(ctx, cred, []byte("after"), []byte("csrf"), now.Add(time.Hour), "203.0.113.7", now); !errors.Is(err, auth.ErrNoCredential) {
@@ -62,7 +62,7 @@ func TestPasswordChangeAuditRollsBackAndRecordsExactlyOnceIntegration(t *testing
 		t.Fatal("could not install audit failure injection")
 	}
 	newHash, _ := fastHasher.Hash("replacement test passphrase")
-	if err := s.ChangeLocalPassword(ctx, cred.UserID, newHash, []byte("keep"), "198.51.100.19", now); err == nil {
+	if err := s.ChangeLocalPassword(ctx, cred.UserID, newHash, []byte("keep"), "198.51.100.19", now, nil); err == nil {
 		t.Error("password change succeeded despite audit insertion failure")
 	}
 	after, err := s.LocalCredentialByUserID(ctx, cred.UserID)
@@ -80,7 +80,7 @@ func TestPasswordChangeAuditRollsBackAndRecordsExactlyOnceIntegration(t *testing
 	if _, err := s.pool.Exec(ctx, `DROP TRIGGER reject_password_audit ON auth_audit_events`); err != nil {
 		t.Fatal("could not remove audit failure injection")
 	}
-	if err := s.ChangeLocalPassword(ctx, cred.UserID, newHash, []byte("keep"), "198.51.100.19", now); err != nil {
+	if err := s.ChangeLocalPassword(ctx, cred.UserID, newHash, []byte("keep"), "198.51.100.19", now, nil); err != nil {
 		t.Fatal("password change failed after restoring audit")
 	}
 	after, err = s.LocalCredentialByUserID(ctx, cred.UserID)

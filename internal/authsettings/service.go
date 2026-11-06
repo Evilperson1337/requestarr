@@ -71,7 +71,12 @@ type Status struct {
 }
 
 type Service struct {
-	mu       sync.Mutex
+	// writeMu serialises the writers (Save, SetEnabled, Discard), which may hold
+	// it across a network discovery. stateMu guards record and problem and is
+	// only ever held briefly, never across I/O, so Status and the sign-in path
+	// (which reads the atomic snapshot) never wait for a discovery.
+	writeMu  sync.Mutex
+	stateMu  sync.RWMutex
 	cur      atomic.Pointer[Snapshot]
 	repo     Repository
 	sealer   secrets.Sealer
@@ -148,8 +153,8 @@ func (s *Service) effective() (Values, bool, string) {
 	return Values{}, false, ""
 }
 func (s *Service) Status(context.Context) (Status, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
 	saved, unreadable := s.savedValues()
 	r := Resolve(s.env, saved)
 	v, enabled, name := s.effective()
@@ -201,15 +206,18 @@ func (s *Service) candidate(u Update) (Values, error) {
 }
 
 // Test performs discovery only; Save always re-tests its own exact candidate.
+//
+// It changes nothing, so it takes no writer lock, and it reads the saved state
+// only briefly: the discovery itself runs with no lock held.
 func (s *Service) Test(ctx context.Context, u Update) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var v Values
 	var err error
 	if s.env != (Values{}) {
 		v = s.env
 	} else {
+		s.stateMu.RLock()
 		v, err = s.candidate(u)
+		s.stateMu.RUnlock()
 		if err != nil {
 			return err
 		}
@@ -218,8 +226,8 @@ func (s *Service) Test(ctx context.Context, u Update) error {
 	return err
 }
 func (s *Service) Save(ctx context.Context, actor string, u Update) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	return s.save(ctx, actor, u)
 }
 func (s *Service) save(ctx context.Context, actor string, u Update) error {
@@ -261,8 +269,10 @@ func (s *Service) save(ctx context.Context, actor string, u Update) error {
 			return ErrStorage
 		}
 	}
+	s.stateMu.Lock()
 	s.record = record
 	s.problem = ""
+	s.stateMu.Unlock()
 	snap := &Snapshot{}
 	if p != nil {
 		snap = &Snapshot{Provider: p, Issuer: v.Issuer, ProviderName: u.ProviderName}
@@ -271,8 +281,8 @@ func (s *Service) save(ctx context.Context, actor string, u Update) error {
 	return nil
 }
 func (s *Service) SetEnabled(ctx context.Context, actor string, enabled bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	if s.env != (Values{}) {
 		return ErrReadOnly
 	}
@@ -288,8 +298,10 @@ func (s *Service) SetEnabled(ctx context.Context, actor string, enabled bool) er
 		if err := s.repo.SaveOIDC(ctx, actor, &r); err != nil {
 			return ErrStorage
 		}
+		s.stateMu.Lock()
 		s.record = &r
 		s.problem = ""
+		s.stateMu.Unlock()
 		s.cur.Store(&Snapshot{})
 		return nil
 	}
@@ -298,18 +310,22 @@ func (s *Service) SetEnabled(ctx context.Context, actor string, enabled bool) er
 	return s.save(ctx, actor, u)
 }
 func (s *Service) Discard(ctx context.Context, actor string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	if s.record == nil {
 		return nil
 	}
 	if err := s.repo.SaveOIDC(ctx, actor, nil); err != nil {
 		return ErrStorage
 	}
+	s.stateMu.Lock()
 	s.record = nil
 	if s.env == (Values{}) {
-		s.cur.Store(&Snapshot{})
 		s.problem = ""
+	}
+	s.stateMu.Unlock()
+	if s.env == (Values{}) {
+		s.cur.Store(&Snapshot{})
 	}
 	return nil
 }

@@ -78,12 +78,25 @@ func (s *Store) CreateLocalAdmin(ctx context.Context, hash string, now time.Time
 // ChangeLocalPassword stores the new hash, clears must-change and ends every
 // other session of the user, with its successful audit event, in one
 // transaction. The session with token hash keep stays.
-func (s *Store) ChangeLocalPassword(ctx context.Context, userID, hash string, keep []byte, remoteAddr string, now time.Time) error {
+func (s *Store) ChangeLocalPassword(ctx context.Context, userID, hash string, keep []byte, remoteAddr string, now time.Time, verify func(storedHash string) bool) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if verify != nil {
+		var stored string
+		err = tx.QueryRow(ctx, `SELECT password_hash FROM local_credentials WHERE user_id=$1::uuid FOR UPDATE`, userID).Scan(&stored)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return auth.ErrNoCredential
+		}
+		if err != nil {
+			return fmt.Errorf("lock local credential: %w", err)
+		}
+		if !verify(stored) {
+			return auth.ErrCurrentPasswordIncorrect
+		}
+	}
 	tag, err := tx.Exec(ctx, `UPDATE local_credentials SET password_hash=$2,must_change=FALSE,password_changed_at=$3,updated_at=$3 WHERE user_id=$1::uuid`, userID, hash, now)
 	if err != nil {
 		return err

@@ -70,7 +70,7 @@ func TestResetAdminPasswordEntrypointIntegration(t *testing.T) {
 		t.Fatal("credential read failed")
 	}
 	// Recover a previously chosen password, not an already-forced initial one.
-	if err := store.ChangeLocalPassword(ctx, cred.UserID, hash, []byte("none"), "", time.Now()); err != nil {
+	if err := store.ChangeLocalPassword(ctx, cred.UserID, hash, []byte("none"), "", time.Now(), nil); err != nil {
 		t.Fatal("initial password change failed")
 	}
 	const secret = "entrypoint-test-session-secret"

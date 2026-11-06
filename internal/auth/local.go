@@ -41,6 +41,10 @@ const (
 // ErrNoCredential means no local credential matches.
 var ErrNoCredential = errors.New("no local credential")
 
+// ErrCurrentPasswordIncorrect means the current password did not match the
+// stored hash at the moment of the change.
+var ErrCurrentPasswordIncorrect = errors.New("current password incorrect")
+
 // LocalCredential is the local administrator's stored password. PasswordHash
 // is the encoded hash and never leaves the server.
 type LocalCredential struct {
@@ -75,7 +79,13 @@ type LocalStore interface {
 	// ChangeLocalPassword stores the new hash, clears must-change and ends
 	// every session of the user except the one with token hash keep, and records
 	// exactly one password_changed audit event with remoteAddr, atomically.
-	ChangeLocalPassword(ctx context.Context, userID, hash string, keep []byte, remoteAddr string, now time.Time) error
+	//
+	// verify, when not nil, is called with the stored hash while the credential
+	// row is locked, in the same transaction as the update; if it returns false
+	// nothing changes and ErrCurrentPasswordIncorrect is returned. That makes
+	// "current password is right" and "replace it" one step, so two concurrent
+	// changes cannot both succeed. Nil skips the check (administrative callers).
+	ChangeLocalPassword(ctx context.Context, userID, hash string, keep []byte, remoteAddr string, now time.Time, verify func(storedHash string) bool) error
 	RecordAuthEvent(ctx context.Context, e AuditEvent) error
 	// RecordAuthEventID is RecordAuthEvent returning the row's id, so later
 	// attempts folded into it can be added with AddAuthEventCount.
@@ -378,18 +388,6 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
-	// Always verify the current password first, so a wrong one costs the same
-	// whatever else is wrong with the request.
-	if !h.hasher().Verify(in.CurrentPassword, cred.PasswordHash) {
-		delay := h.throttle().Fail(account, addr)
-		if h.audit(ctx, AuditPasswordChangeFailure, cred.UserID, cred.Username, r) != nil {
-			h.warn("could not write the authentication audit")
-		}
-		release()
-		h.hold(ctx, delay)
-		apierror.Write(w, r, http.StatusForbidden, "current_password_incorrect", "The current password is incorrect.")
-		return
-	}
 	if !password.ValidLength(in.NewPassword) {
 		apierror.Write(w, r, http.StatusBadRequest, "invalid_password", "Choose a password of 12 to 128 characters.")
 		return
@@ -404,7 +402,22 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cookie, _ := r.Cookie(sessionCookie)
-	if err := h.Local.ChangeLocalPassword(ctx, cred.UserID, hash, Hash(h.Secret, cookie.Value), addr, h.now().UTC()); err != nil {
+	// The current password is verified inside the store, against the hash read
+	// under the credential's row lock, so a concurrent change cannot slip past.
+	err = h.Local.ChangeLocalPassword(ctx, cred.UserID, hash, Hash(h.Secret, cookie.Value), addr, h.now().UTC(), func(stored string) bool {
+		return h.hasher().Verify(in.CurrentPassword, stored)
+	})
+	if errors.Is(err, ErrCurrentPasswordIncorrect) {
+		delay := h.throttle().Fail(account, addr)
+		if h.audit(ctx, AuditPasswordChangeFailure, cred.UserID, cred.Username, r) != nil {
+			h.warn("could not write the authentication audit")
+		}
+		release()
+		h.hold(ctx, delay)
+		apierror.Write(w, r, http.StatusForbidden, "current_password_incorrect", "The current password is incorrect.")
+		return
+	}
+	if err != nil {
 		apierror.Write(w, r, http.StatusInternalServerError, "password_change_failed", "could not change the password")
 		return
 	}

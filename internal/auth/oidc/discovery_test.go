@@ -63,3 +63,29 @@ func TestDiscoveryRejectsUnsafeOrUnboundedMetadata(t *testing.T) {
 		t.Fatal("development HTTP must be loopback only")
 	}
 }
+
+// S5: the issuer URL is admin-set and a private/LAN issuer is the main use case
+// (D040), so there is no private-address block. These are the limits that stay.
+
+func TestDiscoveryIsHTTPSOnlyOutsideDevelopment(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("a plain-http issuer must not be contacted")
+	}))
+	defer srv.Close()
+	_, err := oidc.New(context.Background(), oidc.Config{Issuer: srv.URL, ClientID: "client", ClientSecret: "secret"}, "https://app.test/api/v1/auth/callback")
+	if err == nil {
+		t.Fatal("plain http accepted although AllowHTTP is off, even for loopback")
+	}
+}
+
+func TestDiscoveryGivesUpOnAProviderThatNeverAnswers(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	start := time.Now()
+	_, err := oidc.New(context.Background(), oidc.Config{Issuer: srv.URL, ClientID: "client", ClientSecret: "secret", AllowHTTP: true, HTTPTimeout: 150 * time.Millisecond}, "http://localhost/api/v1/auth/callback")
+	if err == nil || time.Since(start) > 3*time.Second {
+		t.Fatalf("a hanging provider was not abandoned (err=%v after %v)", err, time.Since(start))
+	}
+}

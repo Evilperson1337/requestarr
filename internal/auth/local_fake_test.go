@@ -134,12 +134,15 @@ func (f *fakeLocalStore) LocalCredentialByUserID(_ context.Context, id string) (
 	}
 	return LocalCredential{}, ErrNoCredential
 }
-func (f *fakeLocalStore) ChangeLocalPassword(_ context.Context, userID, hash string, keep []byte, remoteAddr string, now time.Time) error {
+func (f *fakeLocalStore) ChangeLocalPassword(_ context.Context, userID, hash string, keep []byte, remoteAddr string, now time.Time, verify func(string) bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	c, ok := f.creds[userID]
 	if !ok {
 		return ErrNoCredential
+	}
+	if verify != nil && !verify(c.PasswordHash) {
+		return ErrCurrentPasswordIncorrect
 	}
 	if f.failAudit {
 		return errors.New("audit down")

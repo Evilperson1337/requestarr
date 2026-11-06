@@ -198,7 +198,7 @@ func TestChangeLocalPasswordIsAtomicAndEndsOtherSessionsIntegration(t *testing.T
 	if err := s.CreateSession(ctx, other, []byte("bystander"), []byte("c"), now.Add(time.Hour)); err != nil {
 		t.Fatalf("operation failed (%T)", err)
 	}
-	if err := s.ChangeLocalPassword(ctx, cred.UserID, "pbkdf2-sha256$1$BBBB$BBBB", []byte("keep"), "203.0.113.7", now); err != nil {
+	if err := s.ChangeLocalPassword(ctx, cred.UserID, "pbkdf2-sha256$1$BBBB$BBBB", []byte("keep"), "203.0.113.7", now, nil); err != nil {
 		t.Fatalf("operation failed (%T)", err)
 	}
 	after, _ := s.LocalCredentialByUsername(ctx, "admin")
@@ -211,7 +211,7 @@ func TestChangeLocalPasswordIsAtomicAndEndsOtherSessionsIntegration(t *testing.T
 			t.Errorf("session %s alive=%v want %v", tok, err == nil, want)
 		}
 	}
-	if err := s.ChangeLocalPassword(ctx, other, "x", nil, "203.0.113.7", now); err == nil {
+	if err := s.ChangeLocalPassword(ctx, other, "x", nil, "203.0.113.7", now, nil); err == nil {
 		t.Fatal("changed the password of a user who has none")
 	}
 }
@@ -256,7 +256,7 @@ func TestGeneratedPasswordAppearsOnlyInTheOneLogLineIntegration(t *testing.T) {
 	pw := strings.Trim(strings.Fields(rest)[0], `"`)
 
 	handlerLogs := &bytes.Buffer{}
-	h := &auth.Handler{Repo: s, Local: s, Hasher: fastHasher, Secret: "integration-secret", PublicURL: "https://requests.example", Secure: true, Logger: slog.New(slog.NewTextHandler(handlerLogs, nil))}
+	h := &auth.Handler{Repo: s, Local: s, Hasher: fastHasher, Secret: "integration-secret", PublicURL: "https://requests.example", Secure: true, Sleep: func(context.Context, time.Duration) {}, Logger: slog.New(slog.NewTextHandler(handlerLogs, nil))}
 	mux := http.NewServeMux()
 	h.Register(mux)
 	send := func(method, path, body string, cookies []*http.Cookie) *httptest.ResponseRecorder {

@@ -43,7 +43,10 @@ func (f *localFake) CreateLocalSession(_ context.Context, cred auth.LocalCredent
 	f.events = append(f.events, auth.AuditSignInSuccess)
 	return nil
 }
-func (f *localFake) ChangeLocalPassword(context.Context, string, string, []byte, string, time.Time) error {
+func (f *localFake) ChangeLocalPassword(_ context.Context, _ string, _ string, _ []byte, _ string, _ time.Time, verify func(string) bool) error {
+	if verify != nil && !verify(f.hash) {
+		return auth.ErrCurrentPasswordIncorrect
+	}
 	f.changed++
 	f.events = append(f.events, auth.AuditPasswordChanged)
 	return nil
@@ -73,7 +76,7 @@ func localRouter(t *testing.T, user auth.User, local *localFake) http.Handler {
 	backend := &matrixBackend{t: t}
 	repo := matrixAuthRepo{csrfAuthRepo{statusAuthRepo{user: user}}, backend}
 	return NewWithBackend(testLogger(), buildinfo.Info{}, backend, backend, backend, backend,
-		&auth.Handler{Repo: repo, Local: local, Hasher: hasher, Secret: "test-secret", PublicURL: "http://example.test"})
+		&auth.Handler{Repo: repo, Local: local, Hasher: hasher, Secret: "test-secret", PublicURL: "http://example.test", Sleep: func(context.Context, time.Duration) {}})
 }
 
 func localCall(h http.Handler, method, path, body string, signedIn bool) *httptest.ResponseRecorder {

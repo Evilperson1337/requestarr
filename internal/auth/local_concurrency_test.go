@@ -55,7 +55,7 @@ func TestSignInRejectsCredentialChangedAfterRead(t *testing.T) {
 	if err != nil {
 		t.Fatal("could not prepare replacement password")
 	}
-	if err := f.store.ChangeLocalPassword(context.Background(), adminUserID, hash, nil, "203.0.113.7", f.clock.Now()); err != nil {
+	if err := f.store.ChangeLocalPassword(context.Background(), adminUserID, hash, nil, "203.0.113.7", f.clock.Now(), nil); err != nil {
 		t.Fatal("password change failed")
 	}
 	release()

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
 	"github.com/evilperson1337/requestarr/internal/authsettings"
 	"github.com/evilperson1337/requestarr/internal/secrets"
@@ -220,5 +221,19 @@ func TestFailedTestAndEnablePreserveActiveAndDisabledSettings(t *testing.T) {
 	}
 	if svc.SetEnabled(ctx, "admin", true) == nil || svc.Options().OIDCEnabled || repo.record.Settings.Enabled {
 		t.Fatal("undiscovered candidate must not become enabled")
+	}
+}
+
+// S5: whatever the adapter or network says, the message shown is one fixed
+// phrase; addresses, hostnames and response bodies never reach the page.
+func TestDiscoveryMessageCollapsesUnknownErrors(t *testing.T) {
+	leaky := errors.New("dial tcp 10.1.2.3:443: connect: connection refused; body: canary-secret")
+	got := authsettings.DiscoveryMessage(leaky)
+	if got != authsettings.ErrDiscovery.Error() || strings.Contains(got, "10.1.2.3") || strings.Contains(got, "canary") {
+		t.Fatalf("message %q leaks the underlying error", got)
+	}
+	wrapped := fmt.Errorf("%w: dial tcp 10.1.2.3:443", oidc.ErrIssuerURL)
+	if m := authsettings.DiscoveryMessage(wrapped); strings.Contains(m, "10.1.2.3") || !strings.Contains(m, oidc.ErrIssuerURL.Error()) {
+		t.Fatalf("a wrapped known category must show only its fixed phrase: %q", m)
 	}
 }
