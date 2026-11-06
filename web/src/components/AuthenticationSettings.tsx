@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useId, useRef, useState, type FormEvent } from 'react'
 import { api, type AuthenticationState, type Session } from '../api'
 import { IntegrationCard, type Tone } from './IntegrationCard'
+import { LoadingCard, useBusy, useLoadedResource } from './authCard'
 import { LocalAdministratorCard } from './LocalAdministratorCard'
 
 const endpoint = '/admin/settings/authentication'
+type Busy = 'test' | 'save' | 'enable' | 'discard'
+const loadOidc = (signal?: AbortSignal) => api<AuthenticationState>(endpoint, { cache: 'no-store', signal })
 
 // Settings, Authentication (D040): how people sign in. Secrets are write-only: a typed
 // client secret lives in one input until it is submitted, is cleared whether or not the
@@ -31,35 +34,21 @@ function describe(state: AuthenticationState): { label: string; line: string; to
 
 function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestError: (error: unknown) => void }) {
     const id = useId()
-    const [state, setState] = useState<AuthenticationState | null>(null)
-    const [loadError, setLoadError] = useState('')
-    const [retry, setRetry] = useState(0)
     const [providerName, setProviderName] = useState('')
     const [issuer, setIssuer] = useState('')
     const [clientId, setClientId] = useState('')
     const [secret, setSecret] = useState('')
-    const [busy, setBusy] = useState('')
-    const [error, setError] = useState('')
-    const [notice, setNotice] = useState('')
+    const { busy, error, setError, notice, setNotice, run: runBusy } = useBusy<Busy>(onRequestError)
     const [copied, setCopied] = useState('')
     const line = useRef<HTMLParagraphElement>(null)
 
-    const adopt = useCallback((next: AuthenticationState) => {
-        setState(next)
+    const fillFields = useCallback((next: AuthenticationState) => {
         setProviderName(next.effective.providerName); setIssuer(next.effective.issuer); setClientId(next.effective.clientId)
     }, [])
-    useEffect(() => {
-        const controller = new AbortController()
-        setLoadError('')
-        api<AuthenticationState>(endpoint, { cache: 'no-store', signal: controller.signal }).then(result => { if (!controller.signal.aborted) adopt(result) })
-            .catch(e => { if (!controller.signal.aborted) { onRequestError(e); setLoadError('Could not load the OpenID Connect settings.') } })
-        return () => controller.abort()
-    }, [adopt, onRequestError, retry])
+    const { value: state, setValue: setState, loadError, retry } = useLoadedResource(loadOidc, onRequestError, 'Could not load the OpenID Connect settings.', fillFields)
+    const adopt = (next: AuthenticationState) => { setState(next); fillFields(next) }
 
-    if (!state) return <li className="integration" aria-labelledby={`${id}-load`}>
-        <h3 id={`${id}-load`} className="authLoadingTitle">OpenID Connect</h3>
-        {loadError ? <div role="alert" className="errorBox"><p>{loadError}</p><button type="button" className="button secondary" onClick={() => setRetry(n => n + 1)}>Try again</button></div> : <p role="status">Loading…</p>}
-    </li>
+    if (!state) return <LoadingCard title="OpenID Connect" error={loadError} onRetry={retry} />
 
     const locked = state.readOnly
     const { label, line: stateLine, tone } = describe(state)
@@ -74,14 +63,7 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
         if (!typedSecret && !state!.secretConfigured) { setError('Enter the client secret from your provider.'); return null }
         return body
     }
-    async function run(kind: string, work: () => Promise<void>) {
-        if (busy) return
-        setBusy(kind); setError(''); setNotice('')
-        try { await work() } catch (e) {
-            onRequestError(e)
-            setError(`${e instanceof Error && e.message ? e.message : 'The request failed.'} ${kind === 'enable' ? 'The setting was not changed.' : previous}`)
-        } finally { setBusy('') }
-    }
+    const run = (kind: Busy, work: () => Promise<void>) => runBusy(kind, work, message => `${message} ${kind === 'enable' ? 'The setting was not changed.' : previous}`)
     function clearSecret() { setSecret('') } // never keep a secret in the page after submit
     function test() {
         const body = draft()

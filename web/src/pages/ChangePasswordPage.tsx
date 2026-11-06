@@ -1,8 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { api, ApiError, type Session } from '../api'
-
-const MIN = 12
-const MAX = 128
+import { PASSWORD_MAX, PASSWORD_MIN, tooManyAttemptsMessage, validateNewPassword } from '../passwordRules'
 
 // Shown to the local administrator until they choose their own password (D040). The server
 // refuses every other route meanwhile, so this is the only screen.
@@ -16,10 +14,8 @@ export function ChangePasswordPage({ session, onChanged, onSignOut }: { session:
     async function submit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault()
         if (busy) return
-        const length = [...next].length
-        if (length < MIN || length > MAX) { setError(`Choose a password of ${MIN} to ${MAX} characters. A passphrase works well.`); return }
-        if (next !== confirm) { setError('The new password and its confirmation do not match.'); return }
-        if (next === current) { setError('Choose a password different from the current one.'); return }
+        const problem = validateNewPassword(current, next, confirm)
+        if (problem) { setError(problem); return }
         setError('')
         setBusy(true)
         try {
@@ -27,14 +23,14 @@ export function ChangePasswordPage({ session, onChanged, onSignOut }: { session:
             setCurrent(''); setNext(''); setConfirm('')
             onChanged()
         } catch (e) {
-            if (e instanceof ApiError && e.status === 429) setError(`Too many attempts. Try again in ${e.retryAfter || 'a few'} seconds.`)
+            if (e instanceof ApiError && e.status === 429) setError(tooManyAttemptsMessage(e))
             else setError(e instanceof Error ? e.message : 'Could not change the password. Try again.')
         } finally { setBusy(false) }
     }
 
     return <main className="shell setupShell"><section className="card setupCard">
         <h1>Choose a new password</h1>
-        <p>You signed in with a one-time password. Choose your own before continuing: {MIN} to {MAX} characters, no other rules. Other sessions of this account end when you change it.</p>
+        <p>You signed in with a one-time password. Choose your own before continuing: {PASSWORD_MIN} to {PASSWORD_MAX} characters, no other rules. Other sessions of this account end when you change it.</p>
         <form className="setupForm" onSubmit={submit}>
             <label>Current password
                 <input required type="password" maxLength={1024} autoComplete="current-password" autoFocus value={current} onChange={e => setCurrent(e.target.value)} />

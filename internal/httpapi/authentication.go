@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"github.com/evilperson1337/requestarr/internal/auth"
@@ -55,20 +54,10 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 			f(w, r, u.ID)
 		})
 	}
-	decode := func(w http.ResponseWriter, r *http.Request, dst any) bool {
-		r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
-		d := json.NewDecoder(r.Body)
-		d.DisallowUnknownFields()
-		if d.Decode(dst) != nil || requireJSONEOF(d) != nil {
-			apierror.Write(w, r, 400, "invalid_json", "provide one JSON object with only the documented fields")
-			return false
-		}
-		return true
-	}
 	admin("GET /admin/settings/authentication", func(w http.ResponseWriter, r *http.Request, _ string) { respond(w, r) })
 	admin("PUT /admin/settings/authentication", func(w http.ResponseWriter, r *http.Request, actor string) {
 		var u authsettings.Update
-		if !decode(w, r, &u) {
+		if !decodeSettingsBody(w, r, &u, authenticationBodyLimit) {
 			return
 		}
 		if err := s.Save(r.Context(), actor, u); err != nil {
@@ -79,7 +68,7 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 	})
 	admin("POST /admin/settings/authentication/test", func(w http.ResponseWriter, r *http.Request, _ string) {
 		var u authsettings.Update
-		if !decode(w, r, &u) {
+		if !decodeSettingsBody(w, r, &u, authenticationBodyLimit) {
 			return
 		}
 		if err := s.Test(r.Context(), u); err != nil {
@@ -92,7 +81,7 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 		var u struct {
 			Enabled *bool `json:"enabled"`
 		}
-		if !decode(w, r, &u) {
+		if !decodeSettingsBody(w, r, &u, authenticationBodyLimit) {
 			return
 		}
 		if u.Enabled == nil {

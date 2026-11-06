@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { api, ApiError, type CreatedLocalAdministrator, type LocalAdministratorState } from '../api'
 import { IntegrationCard, type Tone } from './IntegrationCard'
+import { LoadingCard, useBusy, useLoadedResource } from './authCard'
+import { PASSWORD_MAX, PASSWORD_MIN, tooManyAttemptsMessage, validateNewPassword } from '../passwordRules'
 
 const endpoint = '/admin/settings/authentication/local-administrator'
-const MIN = 12
-const MAX = 128
+type Busy = 'create' | 'disable' | 'password'
+const loadAdmin = (signal?: AbortSignal) => api<LocalAdministratorState>(endpoint, { cache: 'no-store', signal })
 
 // The recovery account (D040). Its generated password is held in this component only
 // until the administrator confirms they saved it: never in storage, a URL or a log, and
@@ -12,12 +14,8 @@ const MAX = 128
 // canChangePassword is true only for the local administrator's own session; the server still answers 403 to anyone else.
 export function LocalAdministratorCard({ csrfToken, canChangePassword, onRequestError }: { csrfToken: string; canChangePassword: boolean; onRequestError: (error: unknown) => void }) {
     const id = useId()
-    const [admin, setAdmin] = useState<LocalAdministratorState | null>(null)
-    const [loadError, setLoadError] = useState('')
-    const [retry, setRetry] = useState(0)
-    const [busy, setBusy] = useState('')
-    const [error, setError] = useState('')
-    const [notice, setNotice] = useState('')
+    const { value: admin, setValue: setAdmin, loadError, retry } = useLoadedResource(loadAdmin, onRequestError, 'Could not load the local administrator.')
+    const { busy, setBusy, error, notice, setNotice, run } = useBusy<Busy>(onRequestError)
     const [created, setCreated] = useState<CreatedLocalAdministrator | null>(null)
     const [copied, setCopied] = useState('')
     const reveal = useRef<HTMLDivElement>(null)
@@ -27,30 +25,14 @@ export function LocalAdministratorCard({ csrfToken, canChangePassword, onRequest
     const [formError, setFormError] = useState('')
     const [formNotice, setFormNotice] = useState('')
 
-    const load = useCallback((signal?: AbortSignal) => api<LocalAdministratorState>(endpoint, { cache: 'no-store', signal }), [])
-    useEffect(() => {
-        const controller = new AbortController()
-        setLoadError('')
-        load(controller.signal).then(result => { if (!controller.signal.aborted) setAdmin(result) })
-            .catch(e => { if (!controller.signal.aborted) { onRequestError(e); setLoadError('Could not load the local administrator.') } })
-        return () => controller.abort()
-    }, [load, onRequestError, retry])
     useEffect(() => { if (created) reveal.current?.focus() }, [created])
 
-    if (!admin) return <li className="integration" aria-labelledby={`${id}-load`}>
-        <h3 id={`${id}-load`} className="authLoadingTitle">Local administrator</h3>
-        {loadError ? <div role="alert" className="errorBox"><p>{loadError}</p><button type="button" className="button secondary" onClick={() => setRetry(n => n + 1)}>Try again</button></div> : <p role="status">Loading…</p>}
-    </li>
+    if (!admin) return <LoadingCard title="Local administrator" error={loadError} onRetry={retry} />
 
-    async function run(kind: string, work: () => Promise<void>) {
-        if (busy) return
-        setBusy(kind); setError(''); setNotice('')
-        try { await work() } catch (e) { onRequestError(e); setError(e instanceof Error && e.message ? e.message : 'The request failed.') } finally { setBusy('') }
-    }
     function create() {
         void run('create', async () => {
             setCreated(await api<CreatedLocalAdministrator>(endpoint, { method: 'POST', cache: 'no-store' }, csrfToken))
-            setAdmin(await load())
+            setAdmin(await loadAdmin())
         })
     }
     function setDisabled(disabled: boolean) {
@@ -66,11 +48,8 @@ export function LocalAdministratorCard({ csrfToken, canChangePassword, onRequest
         event.preventDefault()
         if (busy) return
         setFormNotice('')
-        const length = [...next].length
-        if (!current) { setFormError('Enter your current password.'); return }
-        if (length < MIN || length > MAX) { setFormError(`Choose a new password of ${MIN} to ${MAX} characters. A passphrase works well.`); return }
-        if (next !== confirm) { setFormError('The new password and its confirmation do not match.'); return }
-        if (next === current) { setFormError('Choose a password different from the current one.'); return }
+        const problem = validateNewPassword(current, next, confirm)
+        if (problem) { setFormError(problem); return }
         setFormError(''); setBusy('password')
         const body = JSON.stringify({ currentPassword: current, newPassword: next })
         setCurrent(''); setNext(''); setConfirm('') // never keep a password in the page after submit
@@ -82,7 +61,7 @@ export function LocalAdministratorCard({ csrfToken, canChangePassword, onRequest
             if (!(e instanceof ApiError && (e.code === 'current_password_incorrect' || e.code === 'forbidden'))) onRequestError(e)
             if (e instanceof ApiError && e.code === 'current_password_incorrect') setFormError('The current password is not correct.')
             else if (e instanceof ApiError && e.code === 'forbidden') setFormError('Only the local administrator can change this password. You are signed in with another account.')
-            else if (e instanceof ApiError && e.status === 429) setFormError(`Too many attempts. Try again in ${e.retryAfter || 'a few'} seconds.`)
+            else if (e instanceof ApiError && e.status === 429) setFormError(tooManyAttemptsMessage(e))
             else setFormError(e instanceof Error ? e.message : 'Could not change the password. Try again.')
         } finally { setBusy('') }
     }
@@ -116,7 +95,7 @@ export function LocalAdministratorCard({ csrfToken, canChangePassword, onRequest
         </div>}
         {admin.exists && canChangePassword && <form className="authForm" onSubmit={e => void changePassword(e)} noValidate>
             <h4>Change password</h4>
-            <p className="fieldHelp">For the signed-in local administrator. {MIN} to {MAX} characters, no other rules. Other sessions of this account end when you change it.</p>
+            <p className="fieldHelp">For the signed-in local administrator. {PASSWORD_MIN} to {PASSWORD_MAX} characters, no other rules. Other sessions of this account end when you change it.</p>
             <div className="authFields">
                 <div className="field wide"><label htmlFor={`${id}-current`}>Current password</label><input id={`${id}-current`} type="password" autoComplete="current-password" maxLength={1024} value={current} onChange={e => setCurrent(e.target.value)} /></div>
                 <div className="field"><label htmlFor={`${id}-new`}>New password</label><input id={`${id}-new`} type="password" autoComplete="new-password" value={next} onChange={e => setNext(e.target.value)} /></div>

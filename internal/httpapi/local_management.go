@@ -55,7 +55,7 @@ func registerLocalManagementRoutes(rt *routeTable, s LocalAdminManagement) {
 		var in struct {
 			Disabled *bool `json:"disabled"`
 		}
-		if !decodeSettingsBody(w, r, &in) {
+		if !decodeSettingsBody(w, r, &in, settingsBodyLimit) {
 			return
 		}
 		if in.Disabled == nil {

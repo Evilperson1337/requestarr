@@ -51,10 +51,18 @@ type igdbSettingsBody struct {
 	FromEnvironment bool   `json:"fromEnvironment"`
 }
 
-// decodeSettingsBody reads exactly one small JSON object with no unknown
-// fields into dst. On failure it writes 400 invalid_json and returns false.
-func decodeSettingsBody(w http.ResponseWriter, r *http.Request, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+// Request body limits for the admin settings handlers. Authentication carries
+// a client secret and a provider URL, so it is allowed a little more.
+const (
+	settingsBodyLimit       = 4 << 10
+	authenticationBodyLimit = 8 << 10
+)
+
+// decodeSettingsBody reads exactly one small JSON object of at most maxBytes
+// with no unknown fields into dst. On failure it writes 400 invalid_json and
+// returns false.
+func decodeSettingsBody(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(dst) != nil || requireJSONEOF(decoder) != nil {
@@ -88,7 +96,7 @@ func registerSettingsRoutes(rt *routeTable, people PeoplePolicy, approvals Appro
 		var input struct {
 			DefaultRole *domain.Role `json:"defaultRole"`
 		}
-		if !decodeSettingsBody(w, r, &input) {
+		if !decodeSettingsBody(w, r, &input, settingsBodyLimit) {
 			return
 		}
 		if input.DefaultRole == nil {
@@ -122,7 +130,7 @@ func registerSettingsRoutes(rt *routeTable, people PeoplePolicy, approvals Appro
 		var input struct {
 			AutoApproveTypes *[]domain.MediaType `json:"autoApproveTypes"`
 		}
-		if !decodeSettingsBody(w, r, &input) {
+		if !decodeSettingsBody(w, r, &input, settingsBodyLimit) {
 			return
 		}
 		if input.AutoApproveTypes == nil {
@@ -156,7 +164,7 @@ func registerSettingsRoutes(rt *routeTable, people PeoplePolicy, approvals Appro
 		var input struct {
 			ClientID *string `json:"clientId"`
 		}
-		if !decodeSettingsBody(w, r, &input) {
+		if !decodeSettingsBody(w, r, &input, settingsBodyLimit) {
 			return
 		}
 		if input.ClientID == nil {
