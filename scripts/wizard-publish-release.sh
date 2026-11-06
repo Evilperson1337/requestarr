@@ -301,8 +301,8 @@ stage_1() {
   confirm "Release this commit?" || exit 1
 
   while :; do
-    ask RELEASE_TAG "Release tag (Enter for v0.1.0-rc.3):" || exit 1
-    [[ -n "$RELEASE_TAG" ]] || RELEASE_TAG="v0.1.0-rc.3"
+    ask RELEASE_TAG "Release tag (Enter for v0.1.0-rc.4):" || exit 1
+    [[ -n "$RELEASE_TAG" ]] || RELEASE_TAG="v0.1.0-rc.4"
     [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] && break
     warn "A tag looks like v0.1.0 or v0.1.0-rc.1."
   done

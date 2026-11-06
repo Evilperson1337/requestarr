@@ -4,7 +4,7 @@
 
 **Blocked by:** 03, 05, 06, 07
 
-**Status:** ready-for-human
+**Status:** resolved
 
 - [ ] A guided script walks through creating the public GitHub repository (no mirror settings, no issues or pull requests needed), adding the push credential, running the export and pushing it with the `v0.1.0-rc.1` tag
 - [ ] The release workflow runs on that tag; the image appears at `ghcr.io/evilperson1337/requestarr:v0.1.0-rc.1` for both architectures, with an SBOM, a provenance attestation and a signature that verify
@@ -23,7 +23,7 @@
 - Check: tag latest not moved by the pre-release
 - Check: tag v0.1 not moved by the pre-release
 - Check: provenance attestation verifies
-- Check: cosign signature: not checked (cosign not installed)
+- Check: cosign signature: not checked (cosign not installed). Checked 2026-11-06: `cosign verify` with the release workflow identity for the rc.3 tag and the GitHub OIDC issuer passes, for digest sha256:b0738482544554b10970d1890f03b2bcc4dc6fdfeabd6c8150b70bcea88e75d5
 - Unraid checklist:
   - Compose pass A: container healthy and first admin signs in: **pass**
   - Install from the Template Repositories URL: **pass**
