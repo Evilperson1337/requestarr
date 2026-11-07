@@ -32,3 +32,21 @@
   - First-admin sign-in through Keycloak: **pass**
   - Library over a private http:// address: **pass**
   - Master key separation: **pass**
+
+### 2026-11-06: v0.1.0-rc.4
+
+- Image: `ghcr.io/evilperson1337/requestarr:v0.1.0-rc.4` (digest sha256:8e263efa4630ce60a79f1c2b76d703525c6c78dafb582824273cce9e4820c2be)
+- Release workflow: https://github.com/Evilperson1337/requestarr/actions/runs/42319751356
+- Check: platforms: linux/amd64 and linux/arm64
+- Check: tag latest not moved by the pre-release
+- Check: tag v0.1 not moved by the pre-release
+- Check: provenance attestation verifies
+- Check: cosign signature: not checked (cosign not installed)
+- Unraid checklist:
+  - Compose pass A: container healthy and the local administrator signs in: **pass**
+  - Install from the Template Repositories URL: **pass**
+  - Healthy container: **pass**
+  - Bad configuration reported: **pass**
+  - Local administrator sign-in and OIDC set up in Settings: **pass**
+  - Library over a private http:// address: **pass**
+  - Master key separation: **pass**

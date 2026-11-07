@@ -200,7 +200,7 @@ finish() {
 
 run_wizard() {
 
-TOTAL_STAGES=9
+TOTAL_STAGES=7
 
 GH_REPO="Evilperson1337/requestarr"
 GH_OWNER="Evilperson1337"
@@ -209,7 +209,6 @@ TEMPLATE_URL="https://raw.githubusercontent.com/evilperson1337/requestarr/main/d
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 REPO_ROOT="$PWD"
-TICKET="$REPO_ROOT/.scratch/unraid-deployment/issues/08-publish-rc-and-test-on-unraid.md"
 
 # Answers are remembered in a state file OUTSIDE the repo, so the app's own .env is never touched.
 # Assigned outright: the library above defaults ENV_FILE to ".env", which must not be used here.
@@ -300,15 +299,20 @@ stage_1() {
   note "The export publishes this commit as the public 'main'."
   confirm "Release this commit?" || exit 1
 
+  # The suggestion is the tag the Unraid template is pinned to, so there is no second copy
+  # to bump. It is prefilled and editable; the tag saved by an earlier run is not offered
+  # (Enter used to keep it, which re-released the previous tag).
+  local suggested
+  suggested=$(sed -n 's:.*<Tag>\(.*\)</Tag>.*:\1:p' "$REPO_ROOT/deploy/unraid/requestarr.xml" | head -n1)
   while :; do
-    ask RELEASE_TAG "Release tag (Enter for v0.1.0-rc.4):" || exit 1
-    [[ -n "$RELEASE_TAG" ]] || RELEASE_TAG="v0.1.0-rc.4"
+    read -e -r -i "$suggested" -p "  Release tag: " RELEASE_TAG || exit 1
     [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] && break
     warn "A tag looks like v0.1.0 or v0.1.0-rc.1."
   done
   write_env RELEASE_TAG "$RELEASE_TAG"
   if [[ "$RELEASE_TAG" == *-* ]]; then
-    note "Pre-release: the image gets only the exact tag. 'latest' and the short vX.Y tag do not move."
+    note "Pre-release: the image gets only the exact tag. 'latest' and the short vX.Y tag are not published"
+    note "until the first stable release, so Unraid must use the exact tag (:$RELEASE_TAG), not :latest."
   else
     note "Stable release: 'latest' and the short vX.Y tag move to this image."
   fi
@@ -470,7 +474,7 @@ stage_7() {
     for t in latest "$short"; do
       status=$(anon_manifest_status "$t")
       if [[ "$status" != "200" ]]; then
-        say "✓ tag '$t' does not exist (a pre-release must not move it)"; PUBLISH_CHECKS+=("tag $t not moved by the pre-release")
+        say "✓ tag '$t' is not published, as intended for a pre-release (use :$RELEASE_TAG in Unraid)"; PUBLISH_CHECKS+=("tag $t not moved by the pre-release")
       else
         warn "Tag '$t' exists and a pre-release should not have moved it."; PUBLISH_CHECKS+=("tag $t: FAILED, it exists")
       fi
@@ -506,81 +510,15 @@ stage_7() {
   fi
   write_env PUBLISH_CHECKS "$(IFS='|'; printf '%s' "${PUBLISH_CHECKS[*]}")"
   say ""
-  pause "Press Enter to go on to the Unraid test"
+  if [[ "$RELEASE_TAG" == *-* ]]; then
+    say "To run it on Unraid, set the container's Repository (or REQUESTARR_TAG in the compose env) to"
+    say "  $IMAGE:$RELEASE_TAG"
+  else
+    say "To run it on Unraid, use $IMAGE:latest or $IMAGE:$RELEASE_TAG."
+  fi
 }
 
-stage_8() {
-  stage "Test on your Unraid server"
-  say "Two passes: (A) the compose file pinned to $RELEASE_TAG, then (B) the template."
-  open_url "https://github.com/$GH_REPO/blob/main/docs/UNRAID.md"
-  step "Follow the guide for the prerequisites: PostgreSQL, a TLS reverse proxy (a Keycloak client comes after the first sign-in)."
-  step "Pass A: copy deploy/unraid/ to the server, fill in requestarr.env, set REQUESTARR_TAG=$RELEASE_TAG, run docker compose up -d."
-  step "Pass B: Docker tab, Template Repositories, add:"
-  say  "      $TEMPLATE_URL"
-  step "then Add Container, choose Requestarr, fill the fields, use a user-defined network."
-  note "The checklist is docs/MANUAL_TESTING.md section 14. Take your time: you can stop and come back with WIZARD_FROM=8."
-  pause "Press Enter when you have results to record"
-
-  local titles=(
-    "Compose pass A: container healthy and the local administrator signs in"
-    "Install from the Template Repositories URL (icon, link, pinned tag, image pulls)"
-    "Healthy container (unhealthy when PostgreSQL stops, recovers when it starts)"
-    "Bad configuration reported (http public URL, malformed master key)"
-    "Local administrator sign-in, OIDC set up in Settings and tested; an OIDC person is a viewer until promoted"
-    "Library over a private http:// address syncs; a public http:// name is rejected"
-    "Master key separation (restore with a different key does not crash)"
-  )
-  local i n answer result_var note_var
-  for i in "${!titles[@]}"; do
-    n=$((i + 1)); result_var="RESULT_$n"; note_var="NOTE_$n"
-    while :; do
-      ask "$result_var" "$n. ${titles[$i]}  [pass/fail/skip]:" || exit 1
-      answer="${!result_var}"
-      case "$answer" in pass|fail|skip) break ;; esac
-      warn "Type pass, fail or skip."
-    done
-    write_env "$result_var" "$answer"
-    if [[ "$answer" != "pass" ]]; then
-      ask "$note_var" "   What happened? (one line):" || exit 1
-      write_env "$note_var" "${!note_var}"
-    fi
-  done
-}
-
-stage_9() {
-  stage "Record the results in ticket 08"
-  local titles=(
-    "Compose pass A: container healthy and the local administrator signs in"
-    "Install from the Template Repositories URL"
-    "Healthy container"
-    "Bad configuration reported"
-    "Local administrator sign-in and OIDC set up in Settings"
-    "Library over a private http:// address"
-    "Master key separation"
-  )
-  local i n res note_text saved checks=()
-  saved=$(_existing PUBLISH_CHECKS || true)
-  [[ -z "$saved" ]] || IFS='|' read -ra checks <<< "$saved"
-  say "This adds a dated entry to the ticket's Comments section: the tag, image digest, workflow run,"
-  say "the automated checks from stage 7 and your results."
-  confirm "Append it to ticket 08?" || return 0
-  {
-    grep -q '^## Comments' "$TICKET" || printf '\n## Comments\n'
-    printf '\n### %s: %s\n\n' "$(date +%F)" "$RELEASE_TAG"
-    printf -- '- Image: `%s:%s`%s\n' "$IMAGE" "$RELEASE_TAG" "${IMAGE_DIGEST:+ (digest $IMAGE_DIGEST)}"
-    [[ -n "${RUN_URL:-}" ]] && printf -- '- Release workflow: %s\n' "$RUN_URL"
-    for note_text in "${checks[@]:-}"; do [[ -n "$note_text" ]] && printf -- '- Check: %s\n' "$note_text"; done
-    printf -- '- Unraid checklist:\n'
-    for i in "${!titles[@]}"; do
-      n=$((i + 1)); res=$(_existing "RESULT_$n" || echo "not recorded"); note_text=$(_existing "NOTE_$n" || true)
-      printf '  - %s: **%s**%s\n' "${titles[$i]}" "$res" "${note_text:+ (${note_text})}"
-    done
-  } >> "$TICKET"
-  say "✓ appended to $TICKET"
-  note "Commit it, and give anything marked fail or skip to Claude. Ticket 09 repeats this wizard with the stable tag."
-}
-
-# Resume support: WIZARD_FROM=8 skips earlier stages, loading what they saved.
+# Resume support: WIZARD_FROM=7 skips earlier stages, loading what they saved.
 FROM="${WIZARD_FROM:-1}"
 RELEASE_TAG=$(_existing RELEASE_TAG || true)
 EXPORT_DIR=$(_existing EXPORT_DIR || true)
@@ -591,9 +529,9 @@ if (( FROM > 1 )) && [[ -z "$RELEASE_TAG" ]]; then
   exit 1
 fi
 
-banner "Publish a Requestarr release to GitHub and test it on Unraid"
+banner "Publish a Requestarr release to GitHub"
 
-for n in 1 2 3 4 5 6 7 8 9; do
+for n in 1 2 3 4 5 6 7; do
   if (( n < FROM )); then _STAGE_INDEX=$n; continue; fi
   "stage_$n"
 done
