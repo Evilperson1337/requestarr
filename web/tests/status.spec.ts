@@ -7,7 +7,7 @@ const connection = (slug: string, name: string, extra: object = {}) => ({ slug, 
 test('admin Settings shows each integration with its outcome, and recent errors under Activity', async ({ page }) => {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, capabilities: capabilitiesFor('admin'), csrfToken: 'csrf' } })
+        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'superuser', email: 'a@example.test', displayName: 'Admin' }, capabilities: capabilitiesFor('superuser'), csrfToken: 'csrf' } })
         if (path.endsWith('/admin/status')) return route.fulfill({ json: {
             providers: [{ key: 'tmdb', name: 'TMDB', configured: true }, { key: 'igdb', name: 'IGDB', configured: false }],
             sources: [

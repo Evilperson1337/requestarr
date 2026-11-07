@@ -23,7 +23,7 @@ async function setup(page: Page, patch: Partial<State> = {}, local: Local = { ex
     })
     await page.route('**/api/v1/**', async route => {
         const req = route.request(), path = new URL(req.url()).pathname.replace('/api/v1', ''), method = req.method()
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'admin-local', role: 'admin', displayName: 'Administrator', email: '' }, capabilities: capabilitiesFor('admin'), csrfToken: 'test-csrf', mustChangePassword: false, localAdministrator } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'admin-local', role: 'superuser', displayName: 'Administrator', email: '' }, capabilities: capabilitiesFor('superuser'), csrfToken: 'test-csrf', mustChangePassword: false, localAdministrator } })
         if (path.startsWith('/admin/settings/authentication') || path === '/auth/local/password') return route.fulfill({ status: 501, json: { error: { code: 'unmocked', message: `unmocked ${method} ${path}` } } })
         if (path === '/admin/status') return route.fulfill({ json: { providers: [], sources: [], recentErrors: [] } })
         if (path === '/admin/job-runs') return route.fulfill({ json: { sources: [] } })
