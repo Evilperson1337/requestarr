@@ -50,7 +50,26 @@ test('viewers cannot request and see no person picker', async ({ page }) => {
     await expect(dialog.getByLabel('Request for')).toHaveCount(0)
 })
 
-test('the chosen person is sent as the requester', async ({ page }) => {
+for (const [name, size] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 844 }]] as const) {
+    test(`the person picker is laid out inside the dialog at ${name} width`, async ({ page }) => {
+        await page.setViewportSize(size)
+        const dialog = await openMovie(page, 'admin')
+        const select = dialog.getByLabel('Request for')
+        await expect(select).toBeVisible()
+        const box = await select.boundingBox()
+        const frame = await dialog.boundingBox()
+        expect(box!.x).toBeGreaterThanOrEqual(frame!.x)
+        expect(box!.x + box!.width).toBeLessThanOrEqual(frame!.x + frame!.width)
+        expect(box!.width).toBeGreaterThan(Math.min(240, frame!.width / 2))
+        if (name === 'phone') expect(box!.height).toBeGreaterThanOrEqual(44)
+        const help = dialog.locator('.requesterPicker .fieldHelp')
+        await expect(help).toBeVisible()
+        expect(await help.evaluate(el => getComputedStyle(el).fontSize)).toBe('14.4px')
+        await page.screenshot({ path: test.info().outputPath(`picker-${name}.png`) })
+    })
+}
+
+test('the chosen person is sent as the requester',async ({ page }) => {
     const dialog = await openMovie(page, 'admin')
     let body: Record<string, unknown> = {}
     await page.route('**/api/v1/requests', route => {

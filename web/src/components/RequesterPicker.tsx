@@ -25,6 +25,6 @@ export function RequesterPicker({ session, value, onChange, disabled }: { sessio
             <option value="">Myself</option>
             {people.map(person => <option key={person.id} value={person.id}>{person.displayName || person.email || person.id}</option>)}
         </select>
-        <p className="hint">{failed ? 'The list of people could not be loaded.' : 'Choose a person to make them the requester. They are notified of its progress.'}</p>
+        <p className="fieldHelp">{failed ? 'The list of people could not be loaded.' : 'Choose a person to make them the requester. They are notified of its progress.'}</p>
     </div>
 }
