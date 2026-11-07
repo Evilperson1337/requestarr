@@ -151,7 +151,7 @@ func registerSettingsRoutes(rt *routeTable, people PeoplePolicy, approvals Appro
 			writeJSON(w, 200, map[string][]domain.MediaType{"autoApproveTypes": nonNilTypes(saved)})
 		}
 	})
-	rt.handle("GET /admin/settings/igdb", accessAdmin, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	rt.handle("GET /admin/settings/igdb", accessSuperuser, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
 		id, fromEnv, err := igdb.IGDBClientID(r.Context())
 		if err != nil {
@@ -160,7 +160,7 @@ func registerSettingsRoutes(rt *routeTable, people PeoplePolicy, approvals Appro
 		}
 		writeJSON(w, 200, igdbSettingsBody{ClientID: id, FromEnvironment: fromEnv})
 	})
-	rt.handle("PUT /admin/settings/igdb", accessAdmin, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	rt.handle("PUT /admin/settings/igdb", accessSuperuser, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		var input struct {
 			ClientID *string `json:"clientId"`
 		}

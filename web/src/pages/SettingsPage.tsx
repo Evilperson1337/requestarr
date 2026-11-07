@@ -8,7 +8,10 @@ import { LibraryConnections } from '../components/LibraryConnections'
 import { AuthenticationSettings } from '../components/AuthenticationSettings'
 import { ProviderIntegrations } from '../components/ProviderIntegrations'
 
-const tabs = [['integrations', 'Integrations'], ['authentication', 'Authentication'], ['activity', 'Activity'], ['matches', 'Matches'], ['users', 'Users']] as const
+const allTabs = [['integrations', 'Integrations'], ['authentication', 'Authentication'], ['activity', 'Activity'], ['matches', 'Matches'], ['users', 'Users']] as const
+type TabKey = (typeof allTabs)[number][0]
+// Integrations and Authentication hold connections, credentials and sign-in: the owner's, and absent for everyone else.
+const accessTabs: TabKey[] = ['integrations', 'authentication']
 
 // Roles the Users table marks with a label; the others read as plain text.
 const roleLabels: Partial<Record<AdminUser['role'], string>> = { superuser: 'Superuser', admin: 'Admin' }
@@ -81,15 +84,16 @@ function SettingsForSession({ session }: { session: Session }) {
         catch (e) { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not change user role') }
     }
     const when = (value: string | null | undefined) => value ? new Date(value).toLocaleString() : 'Never'
-    const [tab, setTab] = useState<(typeof tabs)[number][0]>(() => tabs.find(([key]) => key === new URLSearchParams(window.location.search).get('tab'))?.[0] ?? 'integrations')
+    const tabs = allTabs.filter(([key]) => session.capabilities.manageAccess || !accessTabs.includes(key))
+    const [tab, setTab] = useState<TabKey>(() => tabs.find(([key]) => key === new URLSearchParams(window.location.search).get('tab'))?.[0] ?? tabs[0][0])
     // A deep link such as /settings?tab=integrations#group-metadata (from Get started) scrolls to its section once it exists.
     useEffect(() => { if (ops && window.location.hash) document.getElementById(window.location.hash.slice(1))?.scrollIntoView() }, [ops])
     const failing = ops?.sources.filter(source => source.configured && source.lastRun?.status === 'failed').length ?? 0
     return <main className="shell settingsPage"><h1 id="opsHeading">Settings</h1>
         <div className="settingsTabs" role="group" aria-label="Settings sections">{tabs.map(([key, label]) => <button key={key} type="button" className="settingsTab" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}{key === 'activity' && failing > 0 && <span className="tabCount" aria-label={`${failing} failing`}>{failing}</span>}</button>)}</div>
-        {tab === 'authentication' && !authorizationLost && <AuthenticationSettings session={session} onRequestError={checkAuthorization} />}
+        {session.capabilities.manageAccess && tab === 'authentication' && !authorizationLost && <AuthenticationSettings session={session} onRequestError={checkAuthorization} />}
         {opsError && <p role="alert" className="error">{opsError}</p>}{!ops && !opsError && <p role="status">Loading operational status…</p>}
-        {ops && <div hidden={tab !== 'integrations'}>
+        {ops && session.capabilities.manageAccess && <div hidden={tab !== 'integrations'}>
             <section className="integrationGroup" aria-labelledby="group-libraries"><div className="groupHead"><h2 id="group-libraries">Media libraries</h2><p>Where Requestarr looks to see what you already have. Saving an address or its credential applies at once; an address set by an environment variable is shown but cannot be changed here.</p></div>
                 <LibraryConnections csrfToken={session.csrfToken} onRequestError={checkAuthorization} sources={ops.sources} syncing={starting || (syncActive ? 'running' : '')} onSync={slug => void syncNow(slug)} /></section>
             <section className="integrationGroup" aria-labelledby="group-metadata"><div className="groupHead"><h2 id="group-metadata">Metadata</h2><p>Where a pasted link is looked up and a name is searched. Credentials are stored encrypted, never shown again, and apply as soon as you save them, including whether Movies &amp; TV and Games appear as search types; an environment value always wins.</p></div>

@@ -40,11 +40,11 @@ func registerLocalManagementRoutes(rt *routeTable, s LocalAdminManagement) {
 		}
 		writeJSON(w, 200, st)
 	}
-	rt.handle("GET /admin/settings/authentication/local-administrator", accessAdmin, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	rt.handle("GET /admin/settings/authentication/local-administrator", accessSuperuser, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
 		status(w, r)
 	})
-	rt.handle("POST /admin/settings/authentication/local-administrator", accessAdmin, func(w http.ResponseWriter, r *http.Request, u auth.User) {
+	rt.handle("POST /admin/settings/authentication/local-administrator", accessSuperuser, func(w http.ResponseWriter, r *http.Request, u auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
 		credential, err := s.Create(r.Context(), u.ID)
 		if err != nil {
@@ -53,7 +53,7 @@ func registerLocalManagementRoutes(rt *routeTable, s LocalAdminManagement) {
 		}
 		writeJSON(w, 201, credential)
 	})
-	rt.handle("PUT /admin/settings/authentication/local-administrator/disabled", accessAdmin, func(w http.ResponseWriter, r *http.Request, u auth.User) {
+	rt.handle("PUT /admin/settings/authentication/local-administrator/disabled", accessSuperuser, func(w http.ResponseWriter, r *http.Request, u auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
 		var in struct {
 			Disabled *bool `json:"disabled"`

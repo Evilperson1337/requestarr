@@ -6,5 +6,6 @@ export function capabilitiesFor(role: string) {
     request: role === 'requester' || manages,
     manageRequests: manages,
     manageSystem: manages,
+    manageAccess: role === 'superuser',
   }
 }

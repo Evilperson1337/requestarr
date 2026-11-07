@@ -15,9 +15,10 @@ func TestAuthMeReturnsTheRoleAndItsCapabilities(t *testing.T) {
 	f := newFixture(t)
 	f.store.creds[adminUserID].MustChange = false
 	want := map[string]string{
-		"viewer":    `{"request":false,"manageRequests":false,"manageSystem":false}`,
-		"requester": `{"request":true,"manageRequests":false,"manageSystem":false}`,
-		"admin":     `{"request":true,"manageRequests":true,"manageSystem":true}`,
+		"viewer":    `{"request":false,"manageRequests":false,"manageSystem":false,"manageAccess":false}`,
+		"requester": `{"request":true,"manageRequests":false,"manageSystem":false,"manageAccess":false}`,
+		"admin":     `{"request":true,"manageRequests":true,"manageSystem":true,"manageAccess":false}`,
+		"superuser": `{"request":true,"manageRequests":true,"manageSystem":true,"manageAccess":true}`,
 	}
 	n := 0
 	for role, caps := range want {

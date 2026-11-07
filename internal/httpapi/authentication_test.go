@@ -86,7 +86,7 @@ func TestOIDCSecretCannotBypassAuthenticationSettings(t *testing.T) {
 	for _, method := range []string{"PUT", "DELETE"} {
 		endpoint := mutationCase{pattern: method + " /admin/secrets/{name}", path: "/admin/secrets/oidc_client_secret", body: `{"value":"canary-secret"}`}
 		backend := &matrixBackend{t: t}
-		w := matrixRequest(backend, endpoint, "admin", "csrf-token", "http://example.test")
+		w := matrixRequest(backend, endpoint, "superuser", "csrf-token", "http://example.test")
 		if w.Code != 409 || len(backend.effects) != 0 {
 			t.Fatal("OIDC secret must be managed atomically through Authentication settings")
 		}
@@ -94,14 +94,14 @@ func TestOIDCSecretCannotBypassAuthenticationSettings(t *testing.T) {
 }
 
 func TestRecoveryManagementRoutesRequireAdministrator(t *testing.T) {
-	for _, role := range []string{"unauthenticated", "viewer", "requester", "admin"} {
+	for _, role := range []string{"unauthenticated", "viewer", "requester", "admin", "superuser"} {
 		endpoint := mutationCase{pattern: "GET /admin/settings/authentication/local-administrator", path: "/admin/settings/authentication/local-administrator"}
 		b := &matrixBackend{t: t}
 		w := matrixRequest(b, endpoint, role, "csrf-token", "http://example.test")
 		want := 200
 		if role == "unauthenticated" {
 			want = 401
-		} else if role != "admin" {
+		} else if role != "superuser" {
 			want = 403
 		}
 		if w.Code != want {
@@ -129,14 +129,14 @@ func (m matrixLocalManagement) SetDisabled(_ context.Context, actor string, _ bo
 }
 
 func TestAuthenticationSettingsReadRoleMatrix(t *testing.T) {
-	for _, role := range []string{"unauthenticated", "viewer", "requester", "admin"} {
+	for _, role := range []string{"unauthenticated", "viewer", "requester", "admin", "superuser"} {
 		endpoint := mutationCase{pattern: "GET /admin/settings/authentication", path: "/admin/settings/authentication"}
 		b := &matrixBackend{t: t}
 		w := matrixRequest(b, endpoint, role, "csrf-token", "http://example.test")
 		want := 200
 		if role == "unauthenticated" {
 			want = 401
-		} else if role != "admin" {
+		} else if role != "superuser" {
 			want = 403
 		}
 		if w.Code != want {
@@ -180,7 +180,7 @@ func TestAuthenticationAPIReportsFailureWithoutReplacingWorkingProvider(t *testi
 		}
 		return authProviderForSettings{}, nil
 	})
-	repo := csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "admin"}}}
+	repo := csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "superuser"}}}
 	d := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
 	d.Authentication = svc
 	h := mustRouter(d)
@@ -224,7 +224,7 @@ func TestTurningOIDCOffIsRefusedWhenItWouldLeaveNoSignIn(t *testing.T) {
 		{pattern: "DELETE /admin/settings/authentication", path: "/admin/settings/authentication"},
 	} {
 		backend := &matrixBackend{t: t, authRefuses: authsettings.ErrNoOtherSignIn}
-		w := matrixRequest(backend, endpoint, "admin", "csrf-token", "http://example.test")
+		w := matrixRequest(backend, endpoint, "superuser", "csrf-token", "http://example.test")
 		assertErrorEnvelope(t, w, 409, "oidc_is_only_sign_in")
 		if len(backend.effects) != 0 {
 			t.Fatalf("%s must change nothing when it is refused", endpoint.pattern)
@@ -248,7 +248,7 @@ func TestAuthenticationTestReturnsWarningsWithoutFailing(t *testing.T) {
 		"warning": {warningAuthentication{}, `"warnings":["The provider does not list the groups scope"]`},
 		"none":    {authenticationFake{}, `"warnings":[]`},
 	} {
-		repo := csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "admin"}}}
+		repo := csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "superuser"}}}
 		d := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
 		d.Authentication = tc.svc
 		w := localCall(mustRouter(d), "POST", "/admin/settings/authentication/test", `{"enabled":true,"providerName":"K","issuer":"https://id.test","clientId":"c","scopes":"openid groups"}`, true)

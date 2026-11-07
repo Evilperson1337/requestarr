@@ -58,7 +58,7 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 		writeJSON(w, 200, st)
 	}
 	admin := func(pattern string, f func(http.ResponseWriter, *http.Request, string)) {
-		rt.handle(pattern, accessAdmin, func(w http.ResponseWriter, r *http.Request, u auth.User) {
+		rt.handle(pattern, accessSuperuser, func(w http.ResponseWriter, r *http.Request, u auth.User) {
 			w.Header().Set("Cache-Control", "no-store")
 			f(w, r, u.ID)
 		})

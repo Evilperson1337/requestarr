@@ -371,7 +371,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			status, code, message := 500, "transition_failed", "request could not be transitioned"
 			switch {
 			case errors.Is(err, requests.ErrTransitionForbidden):
-				status, code, message = 403, "forbidden", "administrator role required"
+				status, code, message = 403, "forbidden", "the admin role is required"
 			case errors.Is(err, requests.ErrTransitionInvalid):
 				status, code, message = 400, "invalid_transition", "requested requests can be approved or denied; open requests can be cancelled"
 			case errors.Is(err, requests.ErrTransitionConflict):

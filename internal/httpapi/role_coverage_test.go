@@ -39,7 +39,7 @@ func TestEveryMutatingEndpointHasARoleMatrixRow(t *testing.T) {
 		// A route the table makes administrator-only must be an admin row. The
 		// reverse need not hold: a request transition is checked in the
 		// requests service, not at the route.
-		if policy.Access == accessPublic || policy.Access == accessAdmin && row.policy != "admin" {
+		if policy.Access == accessPublic || policy.Access == accessAdmin && row.policy != "admin" || policy.Access == accessSuperuser && row.policy != "superuser" {
 			t.Errorf("%s: matrix policy %q but route access is %v", policy.Pattern, row.policy, policy.Access)
 		}
 	}

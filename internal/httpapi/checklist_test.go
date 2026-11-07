@@ -78,7 +78,7 @@ func TestChecklistIsAdminOnly(t *testing.T) {
 
 func TestChecklistReturnsTheComputedItems(t *testing.T) {
 	f := &fakeOnboarding{result: checklist.Result{Visible: true, Items: []checklist.Item{{Key: checklist.Libraries, Title: "Connect a media library", Required: true}}}}
-	w := onboardingHTTP(f, "admin", "GET", "/admin/checklist", "")
+	w := onboardingHTTP(f, "superuser", "GET", "/admin/checklist", "")
 	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status %d cache %q", w.Code, w.Header().Get("Cache-Control"))
 	}
@@ -93,36 +93,36 @@ func TestChecklistReturnsTheComputedItems(t *testing.T) {
 		t.Fatalf("body %s err %v", w.Body, err)
 	}
 	f.err = errors.New("db down")
-	assertErrorEnvelope(t, onboardingHTTP(f, "admin", "GET", "/admin/checklist", ""), 500, "checklist_failed")
+	assertErrorEnvelope(t, onboardingHTTP(f, "superuser", "GET", "/admin/checklist", ""), 500, "checklist_failed")
 }
 
 func TestDismissingTheChecklistIsRemembered(t *testing.T) {
 	f := &fakeOnboarding{}
-	if w := onboardingHTTP(f, "admin", "POST", "/admin/checklist/dismiss", ""); w.Code != 204 || f.dismissed != 1 {
+	if w := onboardingHTTP(f, "superuser", "POST", "/admin/checklist/dismiss", ""); w.Code != 204 || f.dismissed != 1 {
 		t.Fatalf("status %d dismissed %d", w.Code, f.dismissed)
 	}
 	f.err = errors.New("db down")
-	assertErrorEnvelope(t, onboardingHTTP(f, "admin", "POST", "/admin/checklist/dismiss", ""), 500, "checklist_failed")
+	assertErrorEnvelope(t, onboardingHTTP(f, "superuser", "POST", "/admin/checklist/dismiss", ""), 500, "checklist_failed")
 }
 
 func TestIGDBClientIDSetting(t *testing.T) {
 	f := &fakeOnboarding{igdbID: "abc", igdbEnv: true}
-	w := onboardingHTTP(f, "admin", "GET", "/admin/settings/igdb", "")
+	w := onboardingHTTP(f, "superuser", "GET", "/admin/settings/igdb", "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"clientId":"abc"`) || !strings.Contains(w.Body.String(), `"fromEnvironment":true`) {
 		t.Fatalf("get: %d %s", w.Code, w.Body)
 	}
 	f = &fakeOnboarding{}
-	w = onboardingHTTP(f, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"twitch-id"}`)
+	w = onboardingHTTP(f, "superuser", "PUT", "/admin/settings/igdb", `{"clientId":"twitch-id"}`)
 	if w.Code != 200 || len(f.saved) != 1 || f.saved[0] != "twitch-id" || !strings.Contains(w.Body.String(), `"clientId":"twitch-id"`) {
 		t.Fatalf("put: %d %s saved %v", w.Code, w.Body, f.saved)
 	}
 	for name, c := range map[string]struct{ body, code string }{"unknown field": {`{"clientId":"a","x":1}`, "invalid_json"}, "missing": {`{}`, "invalid_client_id"}, "not json": {`nope`, "invalid_json"}} {
 		t.Run(name, func(t *testing.T) {
-			assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{}, "admin", "PUT", "/admin/settings/igdb", c.body), 400, c.code)
+			assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{}, "superuser", "PUT", "/admin/settings/igdb", c.body), 400, c.code)
 		})
 	}
-	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrInvalidIGDBClientID}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"bad\nid"}`), 400, "invalid_client_id")
-	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrIGDBClientIDFromEnvironment}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 409, "managed_by_environment")
-	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrNotApplied}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 500, "settings_not_applied")
-	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: errors.New("db down")}, "admin", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 500, "igdb_settings_failed")
+	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrInvalidIGDBClientID}, "superuser", "PUT", "/admin/settings/igdb", `{"clientId":"bad\nid"}`), 400, "invalid_client_id")
+	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrIGDBClientIDFromEnvironment}, "superuser", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 409, "managed_by_environment")
+	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: ErrNotApplied}, "superuser", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 500, "settings_not_applied")
+	assertErrorEnvelope(t, onboardingHTTP(&fakeOnboarding{igdbErr: errors.New("db down")}, "superuser", "PUT", "/admin/settings/igdb", `{"clientId":"x"}`), 500, "igdb_settings_failed")
 }

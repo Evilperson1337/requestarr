@@ -20,6 +20,8 @@ const (
 	accessSession
 	// accessAdmin needs a signed-in administrator.
 	accessAdmin
+	// accessSuperuser needs the owner: sign-in, credentials and who is an admin.
+	accessSuperuser
 )
 
 func (a access) String() string {
@@ -28,6 +30,8 @@ func (a access) String() string {
 		return "public"
 	case accessSession:
 		return "session"
+	case accessSuperuser:
+		return string(domain.RoleSuperuser)
 	}
 	return "manage"
 }
@@ -83,8 +87,13 @@ func (t *routeTable) handle(pattern string, a access, fn func(http.ResponseWrite
 				apierror.Write(w, r, http.StatusForbidden, "password_change_required", "choose a new password before continuing")
 				return
 			}
-			if a == accessAdmin && !domain.Role(user.Role).CanManageSystem() {
-				apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
+			role := domain.Role(user.Role)
+			if a == accessSuperuser && !role.CanManageAccess() {
+				apierror.Write(w, r, http.StatusForbidden, "forbidden", "the superuser role is required")
+				return
+			}
+			if a == accessAdmin && !role.CanManageSystem() {
+				apierror.Write(w, r, http.StatusForbidden, "forbidden", "the admin role is required")
 				return
 			}
 		}

@@ -17,7 +17,7 @@ type ChecklistService interface {
 }
 
 func registerChecklistRoutes(rt *routeTable, list ChecklistService) {
-	rt.handle("GET /admin/checklist", accessAdmin, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	rt.handle("GET /admin/checklist", accessSuperuser, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
 		result, err := list.Get(r.Context())
 		if err != nil {
@@ -26,7 +26,7 @@ func registerChecklistRoutes(rt *routeTable, list ChecklistService) {
 		}
 		writeJSON(w, 200, result)
 	})
-	rt.handle("POST /admin/checklist/dismiss", accessAdmin, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	rt.handle("POST /admin/checklist/dismiss", accessSuperuser, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		if err := list.Dismiss(r.Context()); err != nil {
 			apierror.Write(w, r, 500, "checklist_failed", "could not dismiss the Get started checklist")
 			return
