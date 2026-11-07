@@ -344,7 +344,7 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(struct {
 		User               User `json:"user"`
 		MustChangePassword bool `json:"mustChangePassword"`
-	}{User{ID: cred.UserID, Role: string(domain.RoleAdmin), DisplayName: "Administrator"}, cred.MustChange})
+	}{User{ID: cred.UserID, Role: string(domain.RoleSuperuser), DisplayName: "Administrator"}, cred.MustChange})
 }
 
 func jsonContentType(r *http.Request) bool {
