@@ -60,6 +60,21 @@ func TestRequestMadeOnBehalfIsThePersonsAndRecordsTheAdministrator(t *testing.T)
 		t.Fatalf("listed = %#v", listed)
 	}
 
+	// The people list tells the picker who a request can be made for.
+	people, err := s.ListAdminUsers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, p := range people {
+		if p.ID == person {
+			found = p.CanRequest
+		}
+	}
+	if !found {
+		t.Fatal("the people list does not mark a requester as able to request")
+	}
+
 	// A second request for the same item subscribes the other person instead.
 	again, err := svc.Create(ctx, requests.CreateInput{Actor: requests.Actor{ID: admin, Role: "admin"}, OnBehalfOf: other, CatalogID: item})
 	if err != nil || again.Created || again.Request.ID != res.Request.ID {
