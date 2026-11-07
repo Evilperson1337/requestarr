@@ -20,8 +20,15 @@ const (
 	accessSession
 	// accessAdmin needs a signed-in administrator.
 	accessAdmin
-	// accessSuperuser needs the owner: sign-in, credentials and who is an admin.
+	// accessSuperuser needs a superuser: sign-in, credentials and who is an admin.
 	accessSuperuser
+)
+
+// The refusals a role gate gives; each names the role that is enough.
+const (
+	messageSuperuserRequired = "the superuser role is required"
+	messageAdminRequired     = "the admin role is required"
+	messageRequesterRequired = "the requester role or higher is required"
 )
 
 func (a access) String() string {
@@ -33,7 +40,7 @@ func (a access) String() string {
 	case accessSuperuser:
 		return string(domain.RoleSuperuser)
 	}
-	return "manage"
+	return string(domain.RoleAdmin)
 }
 
 // routePolicy is the access rule of one route. CSRF is required for every
@@ -89,11 +96,11 @@ func (t *routeTable) handle(pattern string, a access, fn func(http.ResponseWrite
 			}
 			role := domain.Role(user.Role)
 			if a == accessSuperuser && !role.CanManageAccess() {
-				apierror.Write(w, r, http.StatusForbidden, "forbidden", "the superuser role is required")
+				apierror.Write(w, r, http.StatusForbidden, "forbidden", messageSuperuserRequired)
 				return
 			}
 			if a == accessAdmin && !role.CanManageSystem() {
-				apierror.Write(w, r, http.StatusForbidden, "forbidden", "the admin role is required")
+				apierror.Write(w, r, http.StatusForbidden, "forbidden", messageAdminRequired)
 				return
 			}
 		}

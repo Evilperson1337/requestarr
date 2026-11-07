@@ -11,7 +11,9 @@ import (
 )
 
 var (
-	ErrForbidden               = errors.New("request creation is not permitted")
+	ErrForbidden = errors.New("request creation is not permitted")
+	// ErrOnBehalfForbidden is ErrForbidden for a person who may request but not for someone else.
+	ErrOnBehalfForbidden       = fmt.Errorf("%w: requesting for someone else needs the admin role", ErrForbidden)
 	ErrInvalid                 = errors.New("invalid request")
 	ErrCatalogNotFound         = errors.New("catalog item not found")
 	ErrAlreadyAvailable        = errors.New("item is already available in a library")
@@ -193,7 +195,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	requester, madeBy := in.Actor.ID, ""
 	if in.OnBehalfOf != "" {
 		if !domain.Role(in.Actor.Role).CanManageRequests() {
-			return CreateResult{}, ErrForbidden
+			return CreateResult{}, ErrOnBehalfForbidden
 		}
 		role, found, err := s.repo.UserRole(ctx, in.OnBehalfOf)
 		if err != nil {
