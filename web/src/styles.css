@@ -921,6 +921,7 @@ p {
 }
 
 .requestFacts,
+.requestBehalf,
 .requestNote {
     margin: 2px 0 0;
     color: var(--muted);
@@ -2545,4 +2546,17 @@ a.tag-available:hover {
     .authFields { grid-template-columns: 1fr; }
     .authCopy { flex-direction: column; }
     .authForm .button, .authNotice .button { min-height: 44px; }
+}
+
+/* The request-on-behalf picker: a labelled select with its help line below. */
+.requesterPicker { margin: 14px 0; gap: 6px; }
+.requesterPicker select { width: 100%; min-width: 0; }
+.requesterPicker .fieldHelp { margin: 0; }
+
+/* Touch targets: the controls the four roles added are 44px high at phone width. */
+@media (max-width: 600px) {
+    .settingsPage select,
+    .settingsPage .authForm input:not([type="checkbox"]),
+    .requesterPicker select { min-height: 44px; }
+    .switch { min-height: 44px; }
 }

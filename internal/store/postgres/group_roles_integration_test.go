@@ -152,6 +152,47 @@ func TestGroupNamesNeverReachTheDatabaseOrTheLogIntegration(t *testing.T) {
 	}
 }
 
+// A first-time person whose groups make them an admin is announced as an admin,
+// not as the default role they had for a moment.
+func TestFirstSignInNoticeNamesTheRoleGroupsGaveIntegration(t *testing.T) {
+	ctx, s := freshStore(t)
+	owner := integrationUser(t, ctx, s)
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id=$1`, owner); err != nil {
+		t.Fatal(err)
+	}
+	mapping := domain.DefaultGroupMapping()
+	mapping.Enabled = true
+	snap := &authsettings.Snapshot{Provider: canaryProvider{groups: []string{"admin"}}, Issuer: "https://id.example", Groups: mapping}
+	h := &auth.Handler{Repo: s, GroupRoles: s, OIDC: func() *authsettings.Snapshot { return snap }, Secret: "secret", PublicURL: "https://app.example"}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	login := httptest.NewRecorder()
+	mux.ServeHTTP(login, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback", nil)
+	for _, c := range login.Result().Cookies() {
+		req.AddCookie(c)
+		if c.Name == "requestarr_oidc_state" {
+			q := req.URL.Query()
+			q.Set("state", c.Value)
+			q.Set("code", "c")
+			req.URL.RawQuery = q.Encode()
+		}
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("callback = %d %s", rec.Code, rec.Body.String())
+	}
+	var title string
+	var n int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*),COALESCE(max(title),'') FROM notification_deliveries WHERE user_id=$1 AND event_key LIKE 'user.first_sign_in:%'`, owner).Scan(&n, &title); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || !strings.HasSuffix(title, " signed in for the first time as admin") {
+		t.Fatalf("%d notices, title %q; want one that ends 'as admin'", n, title)
+	}
+}
+
 // The Users list says whose role was last set by their groups; a later manual
 // change takes the mark away.
 func TestUsersListMarksRolesSetByGroupsIntegration(t *testing.T) {

@@ -596,7 +596,7 @@ paths:
         '200': { description: Existing shared request returned. When it was open and the selection added to it, Merged is true, the selection was widened (never narrowed) and the caller now follows it. }
         '400': { description: Invalid request }
         '409': { description: already_available; a library already has the item and no Request exists, so none is created }
-        '403': { description: User role cannot create requests, or onBehalfOf was sent by a role that cannot manage requests }
+        '403': { description: 'The requester role or higher is required to create a request, and the admin role to make one on behalf of someone else; the message names the role' }
         '401': { description: Authentication required }
   /admin/sources/{source}/sync:
     post:

@@ -181,7 +181,7 @@ func TestSignInSucceedsWithTheOpaqueSessionMechanism(t *testing.T) {
 		User               User `json:"user"`
 		MustChangePassword bool `json:"mustChangePassword"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.User.Role != "admin" || !body.MustChangePassword {
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.User.Role != "superuser" || !body.MustChangePassword {
 		t.Fatalf("bodyBytes=%d decodeFailed=%v", w.Body.Len(), err != nil)
 	}
 	if strings.Contains(w.Body.String(), testPassword) || strings.Contains(w.Body.String(), "pbkdf2") {

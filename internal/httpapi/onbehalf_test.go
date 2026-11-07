@@ -63,6 +63,20 @@ func TestCreateRequestOnBehalfIsRefusedForRolesThatCannotManageRequests(t *testi
 	}
 }
 
+// A refusal says which role would have been enough.
+func TestCreateRequestRefusalsNameTheRoleThatIsRequired(t *testing.T) {
+	plain := `{"catalogId":"` + behalfCatalog + `","platforms":{"any":true}}`
+	rec := approvalCall(t, &approvalBackend{Repository: &behalfBackend{}}, "viewer", http.MethodPost, "/requests", plain)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "the requester role or higher is required") {
+		t.Errorf("viewer: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	b := &behalfBackend{roles: map[string]string{behalfPerson: "requester"}}
+	code, body := behalfCall(t, b, "requester", behalfPerson)
+	if code != http.StatusForbidden || !strings.Contains(body, "the admin role is required") {
+		t.Errorf("requester on behalf: status=%d body=%s", code, body)
+	}
+}
+
 func TestCreateRequestOnBehalfMakesThePersonTheRequesterForAdminAndSuperuser(t *testing.T) {
 	for _, role := range []string{"admin", "superuser"} {
 		b := &behalfBackend{roles: map[string]string{behalfPerson: "requester"}}

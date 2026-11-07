@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import { capabilitiesFor } from './capabilities'
+import { sessionFixture } from './capabilities'
 
 // Settings and the navigation show each role only what it can use: an admin has
 // Activity, Matches and Users; Integrations, Authentication and Get started
@@ -13,7 +13,7 @@ async function openSettings(page: Page, role: Role, url = '/settings') {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname.replace('/api/v1', '')
         asked.push(path)
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u2', role, displayName: 'Ann' }, capabilities: capabilitiesFor(role), csrfToken: 'csrf' } })
+        if (path === '/auth/me') return route.fulfill({ json: sessionFixture(role, { id: 'u2', displayName: 'Ann' }) })
         if (path === '/admin/settings/authentication') return route.fulfill({ json: { state: 'not_configured', missing: [], ignored: [], differing: [], saved: null, effective: { enabled: false, providerName: '', issuer: '', clientId: '', scopes: 'openid profile email groups' }, secretConfigured: false, secretUnreadable: false, canSaveSecret: true, readOnly: false, redirectUri: 'https://requestarr.example.test/api/v1/auth/callback', working: false, problem: '' } })
         if (path === '/admin/settings/authentication/local-administrator') return route.fulfill({ json: { exists: true, disabled: false, canDisable: false } })
         if (path === '/admin/checklist') return route.fulfill({ json: { visible: true, items: [] } })

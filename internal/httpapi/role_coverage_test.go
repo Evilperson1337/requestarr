@@ -49,3 +49,20 @@ func TestEveryMutatingEndpointHasARoleMatrixRow(t *testing.T) {
 		}
 	}
 }
+
+// The request-on-behalf picker reads the person list as an admin, so that list
+// must stay open to an admin and not move to the superuser-only routes.
+func TestThePersonListThePickerUsesIsOpenToAnAdmin(t *testing.T) {
+	backend := &matrixBackend{t: t}
+	repo := matrixAuthRepo{csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "admin"}}}, backend}
+	_, rt := newRouter(testLogger(), buildinfo.Info{}, backend, backend, backend, backend, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
+	for _, policy := range rt.Policies() {
+		if policy.Pattern == "GET /admin/users" {
+			if policy.Access != accessAdmin {
+				t.Fatalf("GET /admin/users access = %v, want %v", policy.Access, accessAdmin)
+			}
+			return
+		}
+	}
+	t.Fatal("GET /admin/users is not registered")
+}

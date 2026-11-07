@@ -271,14 +271,10 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			return
 		}
 		// The roles each person may be given by the signed-in role, decided here so the page
-		// never compares role names. Nobody is offered a change to their own role, and the
-		// built-in account's role is fixed.
+		// never compares role names.
 		listed := make([]listedUser, len(users))
 		for i, person := range users {
-			listed[i] = listedUser{AdminUser: person, RoleChoices: []domain.Role{}}
-			if !person.Builtin && person.ID != user.ID {
-				listed[i].RoleChoices = domain.Role(user.Role).RoleChoices(domain.Role(person.Role))
-			}
+			listed[i] = listedUser{AdminUser: person, RoleChoices: domain.Role(user.Role).RoleChoicesFor(domain.Role(person.Role), person.Builtin, person.ID == user.ID)}
 		}
 		writeJSON(w, 200, map[string]any{"users": listed, "rolesFromGroups": d.Authentication.GroupMapping().Enabled})
 	})
@@ -371,7 +367,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			status, code, message := 500, "transition_failed", "request could not be transitioned"
 			switch {
 			case errors.Is(err, requests.ErrTransitionForbidden):
-				status, code, message = 403, "forbidden", "the admin role is required"
+				status, code, message = 403, "forbidden", messageAdminRequired
 			case errors.Is(err, requests.ErrTransitionInvalid):
 				status, code, message = 400, "invalid_transition", "requested requests can be approved or denied; open requests can be cancelled"
 			case errors.Is(err, requests.ErrTransitionConflict):
@@ -551,7 +547,10 @@ func writeCreateRequestError(w http.ResponseWriter, r *http.Request, err error) 
 	status, code, message := http.StatusBadRequest, "invalid_request", "request details are invalid"
 	switch {
 	case errors.Is(err, requests.ErrForbidden):
-		status, code, message = http.StatusForbidden, "forbidden", "request could not be created"
+		status, code, message = http.StatusForbidden, "forbidden", messageRequesterRequired
+		if errors.Is(err, requests.ErrOnBehalfForbidden) {
+			message = messageAdminRequired
+		}
 	case errors.Is(err, requests.ErrCatalogNotFound):
 		status, code, message = http.StatusNotFound, "catalog_item_not_found", "catalog item was not found"
 	case errors.Is(err, requests.ErrAlreadyAvailable):

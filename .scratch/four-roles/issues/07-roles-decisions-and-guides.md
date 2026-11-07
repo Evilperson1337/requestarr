@@ -4,7 +4,7 @@
 
 **Blocked by:** 03, 05, 06
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] A new decision in the decisions record covers the four roles, the superuser-only list, the group mapping rules, the scopes default and the upgrade, and amends D035 (admin and superuser only by an explicit mapping or a superuser) and D040 (the local administrator is a superuser)
 - [x] The glossary defines Superuser and Admin and updates Requester, Viewer and Local administrator
