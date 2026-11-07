@@ -190,6 +190,21 @@ Everyone else who signs in for the first time is a **viewer**: they can browse a
 docker exec <container-name> /requestarr reset-admin-password
 ```
 
+If `docker exec` fails with `OCI runtime exec failed: open /run/user/0/runc-process…: no such file or directory`, the problem is Unraid's Docker, not Requestarr: the folder it wants for the exec process does not exist (it lives in memory and is gone after a reboot). Create it and run the command again:
+
+```sh
+mkdir -p /run/user/0
+```
+
+If exec still will not work, run the same command in a one-off container on the same network, with the database settings of your Requestarr container (the template's `REQUESTARR_DB_*` fields), and substitute the image tag you run:
+
+```sh
+docker run --rm --network <your-network> \
+  -e REQUESTARR_DB_HOST=<db-host> -e REQUESTARR_DB_NAME=requestarr \
+  -e REQUESTARR_DB_USER=<db-user> -e REQUESTARR_DB_PASSWORD=<db-password> \
+  ghcr.io/evilperson1337/requestarr:<tag> reset-admin-password
+```
+
 `<container-name>` is what `docker ps` lists (`Requestarr` for the template). The command uses the container's own database settings, prints one new random password and nothing else, ends all of the local administrator's sessions, turns the account back on if an administrator had disabled it, and forces a change at the next sign-in. Keep the printed password private and do not paste it into a support ticket. If the account does not exist (an upgraded instance with no administrator and no local administrator), the command creates it, prints the same single password and says on the error output that it was created; it does not re-enable a disabled account.
 
 **OIDC set in the environment.** If you set the OIDC override fields (`REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID`, `REQUESTARR_OIDC_CLIENT_SECRET`), Settings, Authentication shows the card as **Set by environment** and read-only. If any one of the three is set, all three are taken from the environment and anything saved in the app is ignored; the card then says **Saved settings are ignored**, lists which saved values differ, and offers **Discard saved settings**. If only some of the three are set, the card says the environment configuration is incomplete and names the missing variables; OIDC stays off until all three are set. To manage OIDC in the app again, remove the three variables and restart the container.
