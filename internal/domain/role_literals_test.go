@@ -19,9 +19,10 @@ var roleNames = map[string]bool{"viewer": true, "requester": true, "admin": true
 // name as a string literal: the role module, and files where the same word
 // means something else.
 var roleLiteralAllowed = map[string]string{
-	"domain/role.go":    "the role module",
-	"domain/request.go": "SubscriptionRequester is a subscription source, not a role",
-	"auth/local.go":     "LocalUsername is the sign-in name of the built-in account",
+	"domain/role.go":          "the role module",
+	"domain/request.go":       "SubscriptionRequester is a subscription source, not a role",
+	"auth/local.go":           "LocalUsername is the sign-in name of the built-in account",
+	"domain/group_mapping.go": "the default group names admin and viewer are names in the identity provider, not roles",
 }
 
 // A role is asked what it may do; nobody compares its name. Everything that

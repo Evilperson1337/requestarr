@@ -2508,6 +2508,9 @@ a.tag-available:hover {
 .authForm h4, .reveal h4 { margin: 0; font-size: 1rem; }
 .authFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 .authFields .wide { grid-column: 1 / -1; }
+.authGroups { display: block; margin: 0; min-width: 0; }
+.authGroups .authFields { margin-top: 12px; }
+.authGroups > .fieldHelp { margin-top: 8px; }
 .authForm .field { display: grid; gap: 6px; align-content: start; margin: 0; }
 .authForm .draftActions, .reveal .draftActions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
 /* These two cards have no brand mark: drop the blank tile so titles start at the card edge. */

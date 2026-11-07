@@ -280,7 +280,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 				listed[i].RoleChoices = domain.Role(user.Role).RoleChoices(domain.Role(person.Role))
 			}
 		}
-		writeJSON(w, 200, map[string]any{"users": listed})
+		writeJSON(w, 200, map[string]any{"users": listed, "rolesFromGroups": d.Authentication.GroupMapping().Enabled})
 	})
 	rt.handle("GET /requests/summary", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		w.Header().Set("Cache-Control", "no-store")

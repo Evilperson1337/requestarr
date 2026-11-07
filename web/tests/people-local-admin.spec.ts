@@ -9,7 +9,7 @@ import { capabilitiesFor } from './capabilities'
 const all = ['viewer', 'requester', 'admin', 'superuser']
 const lower = ['viewer', 'requester']
 
-async function openUsers(page: Page, signedInAs: 'admin' | 'superuser') {
+async function openUsers(page: Page, signedInAs: 'admin' | 'superuser', byGroups = false) {
     const puts: { path: string; body: unknown }[] = []
     const owner = signedInAs === 'superuser'
     await page.route('**/api/v1/**', route => {
@@ -18,10 +18,10 @@ async function openUsers(page: Page, signedInAs: 'admin' | 'superuser') {
         if (path === '/admin/users') return route.fulfill({ json: { users: [
             { id: 'u1', email: '', displayName: 'Administrator', role: 'superuser', builtin: true, createdAt: '2026-10-01T00:00:00Z', roleChoices: [] },
             { id: 'u2', email: 'ann@example.test', displayName: 'Ann', role: signedInAs, builtin: false, createdAt: '2026-10-02T00:00:00Z', roleChoices: [] },
-            { id: 'u3', email: 'bob@example.test', displayName: 'Bob', role: 'viewer', builtin: false, createdAt: '2026-10-03T00:00:00Z', roleChoices: owner ? all : lower },
+            { id: 'u3', email: 'bob@example.test', displayName: 'Bob', role: 'viewer', builtin: false, roleFromGroups: byGroups, createdAt: '2026-10-03T00:00:00Z', roleChoices: owner ? all : lower },
             { id: 'u4', email: 'cy@example.test', displayName: 'Cy', role: 'admin', builtin: false, createdAt: '2026-10-04T00:00:00Z', roleChoices: owner ? all : [] },
             { id: 'u5', email: 'di@example.test', displayName: 'Di', role: 'superuser', builtin: false, createdAt: '2026-10-05T00:00:00Z', roleChoices: owner ? all : [] },
-        ] } })
+        ], rolesFromGroups: byGroups } })
         if (path.startsWith('/admin/users/') && request.method() === 'PUT') { puts.push({ path, body: request.postDataJSON() }); return route.fulfill({ status: 204 }) }
         if (path === '/admin/settings/people') return route.fulfill({ json: { defaultRole: 'viewer' } })
         if (path === '/admin/settings/approvals') return route.fulfill({ json: { autoApproveTypes: [] } })
@@ -81,3 +81,27 @@ for (const [name, size] of [['desktop', { width: 1280, height: 900 }], ['phone',
         })
     }
 }
+
+for (const width of [1440, 390]) for (const role of ['admin', 'superuser'] as const) test(`the Users table shows a role set by groups and says a manual change is overridden (${role}, ${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await openUsers(page, role, true)
+    await expect(page.getByRole('note').filter({ hasText: 'overridden at their next sign-in' })).toBeVisible()
+    await expect(page.getByRole('row').filter({ hasText: 'Bob' }).locator('.badge', { hasText: 'Set by groups' })).toBeVisible()
+    await expect(page.getByRole('row').filter({ hasText: 'Cy' }).locator('.badge', { hasText: 'Set by groups' })).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+})
+
+test('with mapping off the Users table shows no groups note or badge', async ({ page }) => {
+    await openUsers(page, 'superuser')
+    await expect(page.getByRole('note')).toHaveCount(0)
+    await expect(page.getByText('Set by groups')).toHaveCount(0)
+})
+
+test('changing a role by hand removes the Set by groups badge', async ({ page }) => {
+    await openUsers(page, 'superuser', true)
+    const bob = page.getByRole('row').filter({ hasText: 'Bob' })
+    await expect(bob.locator('.badge', { hasText: 'Set by groups' })).toBeVisible()
+    await page.getByLabel('Role for Bob').selectOption('requester')
+    await expect(bob.locator('.badge', { hasText: 'Set by groups' })).toHaveCount(0)
+})
