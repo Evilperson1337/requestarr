@@ -34,6 +34,16 @@ type Settings struct {
 	// Scopes is the space-separated list requested at sign-in; openid is
 	// always first. It is not a secret.
 	Scopes string `json:"scopes"`
+	// AssignRolesFromGroups lets the groups in the ID token decide a person's
+	// role at every sign-in. It is off until an operator turns it on. The group
+	// names are not secrets; blank means the default (groups, owner, admin,
+	// user, viewer). No person's groups are ever stored.
+	AssignRolesFromGroups bool   `json:"assignRolesFromGroups"`
+	GroupsClaim           string `json:"groupsClaim"`
+	OwnerGroup            string `json:"ownerGroup"`
+	AdminGroup            string `json:"adminGroup"`
+	UserGroup             string `json:"userGroup"`
+	ViewerGroup           string `json:"viewerGroup"`
 }
 type Update struct {
 	Settings
@@ -132,7 +142,7 @@ func New(ctx context.Context, repo Repository, sealer secrets.Sealer, env Values
 	s := &Service{repo: repo, sealer: sealer, env: env, redirect: strings.TrimRight(publicURL, "/") + "/api/v1/auth/callback", factory: factory}
 	if factory == nil {
 		s.factory = func(ctx context.Context, v Values, redirect string) (oidc.Provider, error) {
-			return oidc.New(ctx, oidc.Config{Issuer: v.Issuer, ClientID: v.ClientID, ClientSecret: v.ClientSecret, Scopes: ScopeList(v)}, redirect)
+			return oidc.New(ctx, oidc.Config{Issuer: v.Issuer, ClientID: v.ClientID, ClientSecret: v.ClientSecret, Scopes: ScopeList(v), GroupsClaim: v.GroupsClaim}, redirect)
 		}
 	}
 	s.cur.Store(&Snapshot{})
@@ -147,7 +157,7 @@ func New(ctx context.Context, repo Repository, sealer secrets.Sealer, env Values
 		if err != nil {
 			s.problem = err.Error()
 		} else {
-			s.cur.Store(&Snapshot{Provider: p, Issuer: v.Issuer, ProviderName: name})
+			s.cur.Store(&Snapshot{Provider: p, Issuer: v.Issuer, ProviderName: name, Groups: effectiveMapping(s.env != (Values{}), s.record)})
 		}
 	}
 	return s, nil
@@ -165,7 +175,7 @@ func (s *Service) savedValues() (*Values, bool) {
 	if s.record == nil {
 		return nil, false
 	}
-	v := &Values{Issuer: s.record.Settings.Issuer, ClientID: s.record.Settings.ClientID, Scopes: s.record.Settings.Scopes}
+	v := &Values{Issuer: s.record.Settings.Issuer, ClientID: s.record.Settings.ClientID, Scopes: s.record.Settings.Scopes, GroupsClaim: s.record.Settings.GroupsClaim}
 	unreadable := false
 	if s.record.Secret != nil {
 		if s.sealer == nil {
@@ -198,7 +208,8 @@ func (s *Service) Status(context.Context) (Status, error) {
 	saved, unreadable := s.savedValues()
 	r := Resolve(s.env, saved)
 	v, enabled, name := s.effective()
-	st := Status{Resolution: r, Effective: Settings{Enabled: enabled, ProviderName: name, Issuer: v.Issuer, ClientID: v.ClientID, Scopes: effectiveScopes(s.env != (Values{}), s.record, v)}, SecretConfigured: v.ClientSecret != "", SecretUnreadable: unreadable, CanSaveSecret: s.sealer != nil, ReadOnly: s.env != (Values{}), RedirectURI: s.redirect, Working: s.OIDCWorking(), Problem: s.problem}
+	eff := showGroups(Settings{Enabled: enabled, ProviderName: name, Issuer: v.Issuer, ClientID: v.ClientID, Scopes: effectiveScopes(s.env != (Values{}), s.record, v)}, effectiveMapping(s.env != (Values{}), s.record))
+	st := Status{Resolution: r, Effective: eff, SecretConfigured: v.ClientSecret != "", SecretUnreadable: unreadable, CanSaveSecret: s.sealer != nil, ReadOnly: s.env != (Values{}), RedirectURI: s.redirect, Working: s.OIDCWorking(), Problem: s.problem}
 	if s.record != nil {
 		copy := s.record.Settings
 		st.Saved = &copy
@@ -253,8 +264,9 @@ func (s *Service) candidate(u Update) (Values, error) {
 		return Values{}, secrets.ErrUnreadable
 	}
 	scopes, ok := NormalizeScopes(u.Scopes)
-	v := Values{Issuer: u.Issuer, ClientID: u.ClientID, ClientSecret: secret, Scopes: scopes}
-	if !ok || !valid(v, u.ProviderName) {
+	g, gok := withGroupDefaults(u.Settings)
+	v := Values{Issuer: u.Issuer, ClientID: u.ClientID, ClientSecret: secret, Scopes: scopes, GroupsClaim: g.GroupsClaim}
+	if !ok || !gok || !valid(v, u.ProviderName) {
 		return Values{}, ErrInvalid
 	}
 	return v, nil
@@ -316,6 +328,7 @@ func (s *Service) save(ctx context.Context, actor string, u Update) error {
 	}
 	previous, _ := s.savedValues()
 	u.Scopes = v.Scopes
+	u.Settings, _ = withGroupDefaults(u.Settings) // candidate already refused anything unsafe
 	unchanged := s.record != nil && s.record.Settings == u.Settings && previous != nil && *previous == v
 	record := s.record
 	if !unchanged {
@@ -342,7 +355,7 @@ func (s *Service) save(ctx context.Context, actor string, u Update) error {
 	s.stateMu.Unlock()
 	snap := &Snapshot{}
 	if p != nil {
-		snap = &Snapshot{Provider: p, Issuer: v.Issuer, ProviderName: u.ProviderName}
+		snap = &Snapshot{Provider: p, Issuer: v.Issuer, ProviderName: u.ProviderName, Groups: mappingOf(u.Settings)}
 	}
 	s.cur.Store(snap)
 	return nil
