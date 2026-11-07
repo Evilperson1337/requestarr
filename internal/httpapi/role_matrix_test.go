@@ -134,7 +134,7 @@ func (b *matrixBackend) Unsubscribe(_ context.Context, requestID, userID string,
 
 func (b *matrixBackend) Transition(_ context.Context, input requests.TransitionInput) (domain.Request, bool, error) {
 	b.record("request."+string(input.ToStatus), input.Actor.ID)
-	if !domain.Role(input.Actor.Role).CanManageRequests() || input.ExpectedVersion != 3 || input.RequestID != matrixItemID {
+	if (input.Actor.Role != "admin" && input.Actor.Role != "superuser") || input.ExpectedVersion != 3 || input.RequestID != matrixItemID {
 		b.t.Errorf("unexpected transition: %+v", input)
 	}
 	return domain.Request{ID: input.RequestID, Status: input.ToStatus, Version: 4}, true, nil
@@ -266,6 +266,17 @@ func matrixRequest(backend *matrixBackend, tc mutationCase, role, csrf, origin s
 	return w
 }
 
+// allowed says whether a role passes a route policy. The table is written out,
+// not derived from the roles, so it can disagree with the code.
+func allowed(policy, role string) bool {
+	return map[string]map[string]bool{
+		"authenticated": {"viewer": true, "requester": true, "admin": true, "superuser": true},
+		"requester":     {"requester": true, "admin": true, "superuser": true},
+		"admin":         {"admin": true, "superuser": true},
+		"superuser":     {"superuser": true},
+	}[policy][role]
+}
+
 func TestMutatingEndpointRoleMatrix(t *testing.T) {
 	for _, endpoint := range mutationCases() {
 		for _, role := range []string{"unauthenticated", "viewer", "requester", "admin", "superuser"} {
@@ -275,13 +286,13 @@ func TestMutatingEndpointRoleMatrix(t *testing.T) {
 				status, code := endpoint.status, ""
 				if role == "unauthenticated" {
 					status, code = 401, "authentication_required"
-				} else if endpoint.policy == "superuser" && role != "superuser" || endpoint.policy == "admin" && role != "admin" && role != "superuser" || endpoint.policy == "requester" && role == "viewer" {
+				} else if !allowed(endpoint.policy, role) {
 					status, code = 403, "forbidden"
 				}
 				var effects []string
 				if code != "" {
 					assertErrorEnvelope(t, w, status, code)
-					if code == "forbidden" && !strings.Contains(w.Body.String(), "the "+endpoint.policy+" role") && endpoint.policy != "requester" {
+					if code == "forbidden" && !strings.Contains(w.Body.String(), "the "+endpoint.policy+" role") {
 						t.Errorf("refusal does not name the %s role: %s", endpoint.policy, w.Body.String())
 					}
 				} else {

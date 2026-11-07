@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { capabilitiesFor } from './capabilities'
+import { sessionFixture } from './capabilities'
 
 const movie = {
     Item: { ID: '11111111-1111-4111-8111-111111111111', MediaType: 'movie', Provider: 'tmdb', Title: 'Fixture movie', Year: 2026, ArtworkURL: '', ArtworkKind: 'poster', ExternalURL: 'https://www.themoviedb.org/movie/1762506' }, Platforms: [],
@@ -17,7 +17,7 @@ const people = [
 async function openMovie(page: Page, role: string) {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'user-1', role, displayName: 'User' }, capabilities: capabilitiesFor(role), csrfToken: 'csrf-token' } })
+        if (path.endsWith('/auth/me')) return route.fulfill({ json: sessionFixture(role, { id: 'user-1', displayName: 'User' }) })
         if (path.endsWith('/resolve')) return route.fulfill({ json: movie })
         if (path.endsWith('/admin/users')) return route.fulfill({ json: { users: people } })
         return route.fulfill({ json: { items: [], nextCursor: null } })
@@ -88,7 +88,7 @@ for (const [name, size] of [['desktop', { width: 1280, height: 900 }], ['phone',
 test('the request list says when a request was made on the requester behalf', async ({ page }) => {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: alice, role: 'requester', displayName: 'Alice' }, capabilities: capabilitiesFor('requester'), csrfToken: 'csrf-token' } })
+        if (path.endsWith('/auth/me')) return route.fulfill({ json: sessionFixture('requester', { id: alice, displayName: 'Alice' }) })
         if (path.endsWith('/requests')) return route.fulfill({ json: { items: [{ ID: 'r1', CatalogItemID: 'c1', Title: 'Fixture movie', MediaType: 'movie', ArtworkURL: '', ArtworkKind: 'poster', Status: 'requested', Version: 1, RequestedBy: alice, madeOnBehalfBy: 'user-9', madeOnBehalfByName: 'Boss', Note: '', availability: 'unknown', Platforms: { any: true }, CreatedAt: '2026-01-01T00:00:00Z', subscribed: true, subscriptionSource: 'requester' }], nextCursor: null } })
         return route.fulfill({ json: {} })
     })
