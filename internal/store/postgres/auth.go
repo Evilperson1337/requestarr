@@ -187,7 +187,7 @@ func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 }
 
 var ErrAdminSelfRoleChange = errors.New("cannot change your own role")
-var ErrLastSuperuser = errors.New("cannot remove the last superuser who can sign in")
+var ErrLastSuperuser = auth.ErrLastSuperuser
 var ErrAdminUserNotFound = errors.New("user not found")
 
 func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role string, now time.Time) error {

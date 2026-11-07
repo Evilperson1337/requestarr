@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 )
 
@@ -58,6 +59,8 @@ type Factory func(context.Context, Values, string) (oidc.Provider, error)
 type Snapshot struct {
 	Provider             oidc.Provider
 	Issuer, ProviderName string
+	// Groups is how the person's groups decide their role at sign-in.
+	Groups domain.GroupMapping
 }
 type Options struct {
 	OIDCEnabled  bool   `json:"oidcEnabled"`
