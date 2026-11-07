@@ -257,3 +257,20 @@ test('an item shows what its library says about it and opens in its source with 
     await expect(open).toHaveAttribute('href', 'https://plex.example/web#!/x')
     await expect(open).toHaveAttribute('target', '_blank')
 })
+
+test('every library source shows its own logo on Open in, and the image loads', async ({ page }) => {
+    const sources = [['Plex', 'plex'], ['Jellyfin', 'jellyfin'], ['Navidrome', 'navidrome'], ['RomM', 'romm'], ['Audiobookshelf', 'audiobookshelf']] as const
+    for (const [name, slug] of sources) {
+        await mock(page, 'viewer', (path) => {
+            const entry = item('a', 'Arrival', 'movie', { source: name, sourceKind: slug, link: `https://${slug}.example/x` })
+            if (path === '/library/items') return { json: { items: [entry], nextCursor: null } }
+            if (path === '/library/items/a') return { json: { ...entry, details: { synopsis: 'x', genres: [] } } }
+            return undefined
+        })
+        await page.goto('/library')
+        await page.getByRole('button', { name: /Arrival/ }).click()
+        const logo = page.getByRole('dialog').getByRole('link', { name: new RegExp(`Open in ${name}`) }).locator('img.providerLogo')
+        await expect(logo, name).toHaveCount(1)
+        expect(await logo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth), name).toBeGreaterThan(0)
+    }
+})

@@ -1,4 +1,5 @@
 import apprise from '../assets/providers/apprise.svg'
+import audiobookshelf from '../assets/providers/audiobookshelf.svg'
 import igdb from '../assets/providers/igdb.svg'
 import jellyfin from '../assets/providers/jellyfin.svg'
 import musicbrainz from '../assets/providers/musicbrainz.svg'
@@ -7,7 +8,7 @@ import plex from '../assets/providers/plex.svg'
 import romm from '../assets/providers/romm.svg'
 import tmdb from '../assets/providers/themoviedatabase.svg'
 
-const logos: Record<string, string> = { apprise, igdb, jellyfin, musicbrainz, navidrome, plex, romm, tmdb }
+const logos: Record<string, string> = { apprise, audiobookshelf, igdb, jellyfin, musicbrainz, navidrome, plex, romm, tmdb }
 
 export const hasProviderLogo = (slug: string) => slug in logos
 
