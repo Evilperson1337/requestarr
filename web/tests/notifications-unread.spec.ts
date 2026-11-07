@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { capabilitiesFor } from './capabilities'
 
 const entry = (id: string, title: string) => ({ id, title, body: 'Details', link: null, createdAt: '2026-01-01T00:00:00Z' })
 
@@ -7,7 +8,7 @@ async function openApp(page: Page, role: string, unread: number) {
     const state = { unread, summaryCalls: 0, items: [entry('n1', 'Arrival approved'), entry('n2', 'Dune available')].slice(0, unread) as ReturnType<typeof entry>[] & { readAt?: string }[] }
     await page.route('**/api/v1/**', route => {
         const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role, displayName: 'Person' }, csrfToken: 'csrf' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role, displayName: 'Person' }, capabilities: capabilitiesFor(role), csrfToken: 'csrf' } })
         if (path === '/notifications/summary') { state.summaryCalls++; return route.fulfill({ json: { unread: state.unread } }) }
         if (path === '/notifications') return route.fulfill({ json: { items: state.items } })
         if (path.startsWith('/notifications/') && path.endsWith('/read')) { state.unread--; return route.fulfill({ status: 204, body: '' }) }

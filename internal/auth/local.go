@@ -14,6 +14,7 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"github.com/evilperson1337/requestarr/internal/auth/password"
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
 // The built-in local administrator (D040): one account, signed in with a
@@ -343,7 +344,7 @@ func (h *Handler) localLogin(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(struct {
 		User               User `json:"user"`
 		MustChangePassword bool `json:"mustChangePassword"`
-	}{User{ID: cred.UserID, Role: "admin", DisplayName: "Administrator"}, cred.MustChange})
+	}{User{ID: cred.UserID, Role: string(domain.RoleAdmin), DisplayName: "Administrator"}, cred.MustChange})
 }
 
 func jsonContentType(r *http.Request) bool {

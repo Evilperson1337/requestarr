@@ -79,7 +79,7 @@ type Repository interface {
 }
 
 func (s *Service) Transition(ctx context.Context, in TransitionInput) (TransitionResult, error) {
-	if in.Actor.ID == "" || in.Actor.Role != "admin" {
+	if in.Actor.ID == "" || !domain.Role(in.Actor.Role).CanManageRequests() {
 		return TransitionResult{}, ErrTransitionForbidden
 	}
 	if in.RequestID == "" || in.ExpectedVersion < 1 || in.OperationID == "" {
@@ -166,7 +166,7 @@ func (s *Service) autoApproves(ctx context.Context, media domain.MediaType) bool
 // AwaitingApprovalCount is how many Requests still have status requested; only
 // an administrator can act on them, so only an administrator may ask.
 func (s *Service) AwaitingApprovalCount(ctx context.Context, actor Actor) (int, error) {
-	if actor.ID == "" || actor.Role != "admin" {
+	if actor.ID == "" || !domain.Role(actor.Role).CanManageRequests() {
 		return 0, ErrForbidden
 	}
 	return s.repo.AwaitingApprovalCount(ctx)
@@ -177,7 +177,7 @@ type Service struct{ repo Repository }
 func New(repo Repository) *Service { return &Service{repo: repo} }
 
 func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, error) {
-	if in.Actor.Role != "requester" && in.Actor.Role != "admin" {
+	if !domain.Role(in.Actor.Role).CanRequest() {
 		return CreateResult{}, ErrForbidden
 	}
 	if in.Actor.ID == "" || in.CatalogID == "" || len(in.Note) > 2000 {

@@ -1,6 +1,8 @@
 export type User = { id: string; role: string; email: string; displayName: string }
 // localAdministrator: this session is the built-in local administrator, the only account with a local password.
-export type Session = { user: User; csrfToken: string; mustChangePassword?: boolean; localAdministrator?: boolean }
+export type Capabilities = { request: boolean; manageRequests: boolean; manageSystem: boolean }
+// capabilities: what the signed-in role may do, decided by the server. Never compare role names.
+export type Session = { user: User; capabilities: Capabilities; csrfToken: string; mustChangePassword?: boolean; localAdministrator?: boolean }
 export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome' | 'library:audiobookshelf' | 'notifications'
 export type ChecklistItem = { key: 'libraries' | 'metadata' | 'notifications' | 'oidc' | 'people'; title: string; required: boolean; done: boolean; detail?: string }
 export type Checklist = { items: ChecklistItem[]; dismissed: boolean; visible: boolean }

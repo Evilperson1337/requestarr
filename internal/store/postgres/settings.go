@@ -92,10 +92,10 @@ func (s *Store) SetAutoApproveTypes(ctx context.Context, types []domain.MediaTyp
 
 // firstSignInRole turns a stored value into a role; anything but requester is viewer.
 func firstSignInRole(stored string) string {
-	if stored == "requester" {
-		return "requester"
+	if domain.Role(stored) == domain.RoleRequester {
+		return string(domain.RoleRequester)
 	}
-	return "viewer"
+	return string(domain.RoleViewer)
 }
 
 // DefaultFirstSignInRole is the role new people receive; viewer unless set.

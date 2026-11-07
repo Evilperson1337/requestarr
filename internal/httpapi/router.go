@@ -293,7 +293,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil || (input.Role != "admin" && input.Role != "requester" && input.Role != "viewer") {
+		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil || !domain.Role(input.Role).Stored() {
 			apierror.Write(w, r, 400, "invalid_role", "role must be viewer, requester or admin")
 			return
 		}

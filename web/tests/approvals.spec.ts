@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { capabilitiesFor } from './capabilities'
 
 const waiting = (id: string, title: string) => ({
     ID: id, CatalogItemID: 'c-' + id, Title: title, MediaType: 'movie', ArtworkURL: '', ArtworkKind: 'poster', Status: 'requested', Version: 1,
@@ -11,7 +12,7 @@ async function openApp(page: Page, role: string, count = 3) {
     const state = { count, summaryCalls: 0, listQueries: [] as string[], puts: [] as { csrf?: string; body: unknown }[], types: [] as string[] }
     await page.route('**/api/v1/**', route => {
         const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role, displayName: 'Person' }, csrfToken: 'csrf' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role, displayName: 'Person' }, capabilities: capabilitiesFor(role), csrfToken: 'csrf' } })
         if (path === '/requests/summary') { state.summaryCalls++; return route.fulfill({ json: { requested: state.count } }) }
         if (path === '/requests') { state.listQueries.push(url.search); return route.fulfill({ json: { items: [waiting('r1', 'Arrival'), waiting('r2', 'Dune')], nextCursor: null } }) }
         if (path === '/requests/r1/transition') { state.count--; return route.fulfill({ json: { Request: { ...waiting('r1', 'Arrival'), Status: request.postDataJSON().toStatus, Version: 2 }, Changed: true } }) }

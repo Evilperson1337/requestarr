@@ -7,10 +7,8 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
-
-// roleAdmin is the role that may call accessAdmin routes.
-const roleAdmin = "admin"
 
 // access is who may call a route.
 type access int
@@ -31,7 +29,7 @@ func (a access) String() string {
 	case accessSession:
 		return "session"
 	}
-	return "admin"
+	return "manage"
 }
 
 // routePolicy is the access rule of one route. CSRF is required for every
@@ -85,7 +83,7 @@ func (t *routeTable) handle(pattern string, a access, fn func(http.ResponseWrite
 				apierror.Write(w, r, http.StatusForbidden, "password_change_required", "choose a new password before continuing")
 				return
 			}
-			if a == accessAdmin && user.Role != roleAdmin {
+			if a == accessAdmin && !domain.Role(user.Role).CanManageSystem() {
 				apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
 				return
 			}

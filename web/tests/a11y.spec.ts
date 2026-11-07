@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { capabilitiesFor } from './capabilities'
 
 // Automated WCAG 2.x A/AA audit plus a no-horizontal-scroll check of each main
 // page at desktop and phone widths, against a deterministic mocked API.
@@ -14,7 +15,7 @@ async function mockApp(page: Page) {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname.replace('/api/v1', '')
         const json: Record<string, unknown> = {
-            '/auth/me': { user: { id: 'user-1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf' },
+            '/auth/me': { user: { id: 'user-1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, capabilities: capabilitiesFor('admin'), csrfToken: 'csrf' },
             '/requests': { items: [request], nextCursor: null },
             '/notifications': { items: [{ id: 'n1', title: 'Arrival is available', body: 'Now in Jellyfin', createdAt: '2026-10-01T12:00:00Z' }] },
             '/admin/checklist': { dismissed: false, visible: true, items: [

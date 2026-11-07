@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { capabilitiesFor } from './capabilities'
 
 const game = {
     Item: { ID: '22222222-2222-4222-8222-222222222222', MediaType: 'game', Provider: 'igdb', Title: 'Fixture game', Year: 2026, ArtworkURL: '', ArtworkKind: 'poster', ExternalURL: 'https://www.igdb.com/games/fixture-game' },
@@ -11,7 +12,7 @@ const game = {
 async function openGame(page: Page, resolved: unknown = game, role = 'requester', onRequest?: (body: unknown) => void) {
     await page.route('**/api/v1/**', async route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'user-1', role, displayName: 'User' }, csrfToken: 'csrf-token' } })
+        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'user-1', role, displayName: 'User' }, capabilities: capabilitiesFor(role), csrfToken: 'csrf-token' } })
         if (path.endsWith('/resolve')) return route.fulfill({ json: resolved })
         if (path.endsWith('/requests') && route.request().method() === 'POST') {
             onRequest?.(route.request().postDataJSON())

@@ -240,9 +240,18 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [user, csrfToken, mustChangePassword, localAdministrator]
+                required: [user, csrfToken, mustChangePassword, localAdministrator, capabilities]
                 properties:
-                  user: { type: object }
+                  user: { type: object, description: 'id, role (viewer, requester or admin), email and displayName' }
+                  capabilities:
+                    type: object
+                    additionalProperties: false
+                    required: [request, manageRequests, manageSystem]
+                    description: What the role may do, derived on the server. The web app decides what to show from these and never compares role names.
+                    properties:
+                      request: { type: boolean, description: May create and extend requests }
+                      manageRequests: { type: boolean, description: May approve, deny and cancel requests and handle issues }
+                      manageSystem: { type: boolean, description: May use Settings and the administrative surface }
                   csrfToken: { type: string }
                   mustChangePassword:
                     type: boolean

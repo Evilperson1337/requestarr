@@ -15,7 +15,7 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
     const [backdropFailed, setBackdropFailed] = useState(false)
     const [note, setNote] = useState('')
     const [noteOpen, setNoteOpen] = useState(false)
-    const [preview, setPreview] = useState<MoviePreviewState>(resolved.Preview || { availability: 'unknown', canRequest: session.user.role !== 'viewer', canSubscribe: false })
+    const [preview, setPreview] = useState<MoviePreviewState>(resolved.Preview || { availability: 'unknown', canRequest: session.capabilities.request, canSubscribe: false })
     const [success, setSuccess] = useState('')
     const [authLost, setAuthLost] = useState(false)
     const pending = useRef<AbortController | null>(null)
@@ -76,11 +76,11 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
         } catch (e) { if (!controller.signal.aborted) actionError(e, 'Could not enable notifications') }
         finally { if (!controller.signal.aborted) { pending.current = null; setBusy(false) } }
     }
-    const canCreate = !authLost && !success && preview.canRequest && !preview.request && preview.availability !== 'available' && session.user.role !== 'viewer'
+    const canCreate = !authLost && !success && preview.canRequest && !preview.request && preview.availability !== 'available' && session.capabilities.request
     const hasActions = canCreate || (!authLost && (!!preview.request || preview.canSubscribe))
     const tmdb = item.ExternalURL ? <a href={item.ExternalURL} target="_blank" rel="noreferrer" aria-label="TMDB (opens in a new tab)">TMDB</a> : 'TMDB'
     const seasonList = isTV ? tv?.seasonList ?? [] : []
-    const canExtend = !authLost && !success && !!preview.canExtend && seasonList.length > 0 && session.user.role !== 'viewer'
+    const canExtend = !authLost && !success && !!preview.canExtend && seasonList.length > 0 && session.capabilities.request
     const canSubmit = canCreate || canExtend
     const overview = movie?.overview || ''
     // Parse date-only values at local noon so locale formatting never shifts a day.
@@ -115,7 +115,7 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
                 {!authLost && <section className="movieState" aria-label="Request and availability">
                     {success && <p ref={successMessage} tabIndex={-1} role="status"><strong>{success}</strong></p>}
                     {preview.request && <><p>Shared Request: {preview.request.status}</p><p role="status">{preview.request.subscribed ? 'Notifications On' : 'You are not subscribed to this Request.'}</p></>}
-                    {session.user.role === 'viewer' && !preview.request && <p>Your viewer role cannot create Requests. Ask an administrator to make you a requester.</p>}
+                    {!session.capabilities.request && !preview.request && <p>Your viewer role cannot create Requests. Ask an administrator to make you a requester.</p>}
                 </section>}
                 {canSubmit && seasonList.length > 0 && <SeasonPicker items={seasonList} existing={preview.request?.selection} noun="series" onChange={(next, valid) => { setSelection(next); setSelectionValid(valid) }} />}
                 {canCreate && <><button className="button secondary" aria-expanded={noteOpen} aria-controls="movie-note" onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? 'Hide note' : 'Add a note'}</button>{noteOpen && <label className="field" id="movie-note">Note (optional)<textarea maxLength={2000} value={note} disabled={busy} onChange={event => setNote(event.target.value)} /></label>}</>}
