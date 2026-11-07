@@ -111,6 +111,18 @@ func (r Role) ValidDefault() bool { return r == RoleViewer || r == RoleRequester
 // StoredRoles lists the roles that can be stored, weakest first.
 func StoredRoles() []Role { return []Role{RoleViewer, RoleRequester, RoleAdmin, RoleSuperuser} }
 
+// RoleChoices lists the roles a person holding r may give someone who now has
+// the role from, weakest first. Empty means r may not change that person.
+func (r Role) RoleChoices(from Role) []Role {
+	choices := []Role{}
+	for _, to := range StoredRoles() {
+		if r.CheckRoleChange(from, to) == nil {
+			choices = append(choices, to)
+		}
+	}
+	return choices
+}
+
 // RolesThatManageRequests lists the stored roles for which CanManageRequests
 // holds, as strings for SQLRoleList.
 func RolesThatManageRequests() []string { return rolesWhere(Role.CanManageRequests) }

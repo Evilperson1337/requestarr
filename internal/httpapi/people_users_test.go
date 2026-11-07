@@ -83,3 +83,50 @@ func TestRoleOfTheLocalAdministratorIsRefusedWithAClearCode(t *testing.T) {
 	assertErrorEnvelope(t, peopleCall("requester", ready, "PUT", path, `{"role":"viewer"}`), 403, "forbidden")
 	assertErrorEnvelope(t, peopleCall("", ready, "PUT", path, `{"role":"viewer"}`), 401, "authentication_required")
 }
+
+// The list tells the page which roles the signed-in role may give each person,
+// so the page offers only those and never compares role names.
+func TestUsersListOffersOnlyTheRoleChoicesTheSignedInRoleMayMake(t *testing.T) {
+	ready := userListReadiness{users: []postgres.AdminUser{
+		{ID: matrixUserID, DisplayName: "Administrator", Role: "superuser", Builtin: true},
+		{ID: "admin-1", DisplayName: "Me", Role: "admin"},
+		{ID: "u-admin", DisplayName: "Other admin", Role: "admin"},
+		{ID: "u-owner", DisplayName: "Owner", Role: "superuser"},
+		{ID: "u-viewer", DisplayName: "Vic", Role: "viewer"},
+	}}
+	choices := func(role string) map[string]string {
+		w := peopleCall(role, ready, "GET", "/admin/users", "")
+		if w.Code != 200 {
+			t.Fatalf("%s: status %d", role, w.Code)
+		}
+		var body struct {
+			Users []struct {
+				ID          string   `json:"id"`
+				RoleChoices []string `json:"roleChoices"`
+			} `json:"users"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for _, u := range body.Users {
+			if u.RoleChoices == nil {
+				t.Fatalf("%s: roleChoices missing for %s (an array, empty when none)", role, u.ID)
+			}
+			out[u.ID] = strings.Join(u.RoleChoices, ",")
+		}
+		return out
+	}
+	// The signed-in person is always "admin-1", so nobody is offered a change to their own role.
+	for role, want := range map[string]map[string]string{
+		"admin":     {matrixUserID: "", "admin-1": "", "u-admin": "", "u-owner": "", "u-viewer": "viewer,requester"},
+		"superuser": {matrixUserID: "", "admin-1": "", "u-admin": "viewer,requester,admin,superuser", "u-owner": "viewer,requester,admin,superuser", "u-viewer": "viewer,requester,admin,superuser"},
+	} {
+		got := choices(role)
+		for id, w := range want {
+			if got[id] != w {
+				t.Errorf("%s sees choices %q for %s, want %q", role, got[id], id, w)
+			}
+		}
+	}
+}

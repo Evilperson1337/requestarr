@@ -270,7 +270,17 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			apierror.Write(w, r, 500, "users_failed", "could not load users")
 			return
 		}
-		writeJSON(w, 200, map[string]any{"users": users})
+		// The roles each person may be given by the signed-in role, decided here so the page
+		// never compares role names. Nobody is offered a change to their own role, and the
+		// built-in account's role is fixed.
+		listed := make([]listedUser, len(users))
+		for i, person := range users {
+			listed[i] = listedUser{AdminUser: person, RoleChoices: []domain.Role{}}
+			if !person.Builtin && person.ID != user.ID {
+				listed[i].RoleChoices = domain.Role(user.Role).RoleChoices(domain.Role(person.Role))
+			}
+		}
+		writeJSON(w, 200, map[string]any{"users": listed})
 	})
 	rt.handle("GET /requests/summary", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -626,4 +636,11 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "same-origin")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// listedUser is a row of the Users list: the stored person and the roles the
+// signed-in role may give them.
+type listedUser struct {
+	postgres.AdminUser
+	RoleChoices []domain.Role `json:"roleChoices"`
 }

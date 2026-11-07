@@ -134,7 +134,7 @@ func (b *matrixBackend) Unsubscribe(_ context.Context, requestID, userID string,
 
 func (b *matrixBackend) Transition(_ context.Context, input requests.TransitionInput) (domain.Request, bool, error) {
 	b.record("request."+string(input.ToStatus), input.Actor.ID)
-	if input.Actor.Role != "admin" || input.ExpectedVersion != 3 || input.RequestID != matrixItemID {
+	if !domain.Role(input.Actor.Role).CanManageRequests() || input.ExpectedVersion != 3 || input.RequestID != matrixItemID {
 		b.t.Errorf("unexpected transition: %+v", input)
 	}
 	return domain.Request{ID: input.RequestID, Status: input.ToStatus, Version: 4}, true, nil
@@ -268,14 +268,14 @@ func matrixRequest(backend *matrixBackend, tc mutationCase, role, csrf, origin s
 
 func TestMutatingEndpointRoleMatrix(t *testing.T) {
 	for _, endpoint := range mutationCases() {
-		for _, role := range []string{"unauthenticated", "viewer", "requester", "admin"} {
+		for _, role := range []string{"unauthenticated", "viewer", "requester", "admin", "superuser"} {
 			t.Run(endpoint.name+"/"+role, func(t *testing.T) {
 				backend := &matrixBackend{t: t}
 				w := matrixRequest(backend, endpoint, role, "csrf-token", "http://example.test")
 				status, code := endpoint.status, ""
 				if role == "unauthenticated" {
 					status, code = 401, "authentication_required"
-				} else if endpoint.policy == "admin" && role != "admin" || endpoint.policy == "requester" && role == "viewer" {
+				} else if endpoint.policy == "admin" && role != "admin" && role != "superuser" || endpoint.policy == "requester" && role == "viewer" {
 					status, code = 403, "forbidden"
 				}
 				var effects []string
@@ -297,7 +297,7 @@ func TestMutatingEndpointRoleMatrix(t *testing.T) {
 
 func TestMutatingEndpointsRequireCSRFAndOriginAcrossAuthenticatedRoles(t *testing.T) {
 	for _, endpoint := range mutationCases() {
-		for _, role := range []string{"viewer", "requester", "admin"} {
+		for _, role := range []string{"viewer", "requester", "admin", "superuser"} {
 			for _, protection := range []struct {
 				name, csrf, origin, code string
 			}{

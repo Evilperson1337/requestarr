@@ -818,6 +818,10 @@ func TestFirstSignInRoleSettingAndAdminNotice(t *testing.T) {
 		t.Fatal(err)
 	}
 	bystander := integrationUser(t, ctx, s) // a requester: must not be told
+	owner := integrationUser(t, ctx, s)
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id=$1`, owner); err != nil {
+		t.Fatal(err)
+	}
 	type person struct{ ID, Role, Subject string }
 	loginAs := func(name, subject string) person {
 		if subject == "" {
@@ -844,6 +848,9 @@ func TestFirstSignInRoleSettingAndAdminNotice(t *testing.T) {
 	first := loginAs("Ann", "")
 	if first.Role != "viewer" {
 		t.Fatalf("new user role = %q, want viewer by default", first.Role)
+	}
+	if notices(owner, first.ID) != 1 {
+		t.Fatal("first sign-in must notify a superuser as well as an admin")
 	}
 	if notices(admin, first.ID) != 1 || notices(bystander, first.ID) != 0 || notices(first.ID, first.ID) != 0 {
 		t.Fatal("first sign-in must notify the admin once, and neither a requester nor the person themselves")
