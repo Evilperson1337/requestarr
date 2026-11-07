@@ -38,6 +38,8 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
     const [issuer, setIssuer] = useState('')
     const [clientId, setClientId] = useState('')
     const [secret, setSecret] = useState('')
+    // Before anything is saved the switch is a request: save the settings and turn OIDC on together.
+    const [turnOn, setTurnOn] = useState(false)
     const { busy, error, setError, notice, setNotice, run: runBusy } = useBusy<Busy>(onRequestError)
     const [copied, setCopied] = useState('')
     const line = useRef<HTMLParagraphElement>(null)
@@ -57,7 +59,7 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
     const previous = state.saved || locked ? 'Nothing was changed. The previous configuration is still in use.' : 'Nothing was saved.'
 
     function draft() {
-        const body = { enabled: state!.effective.enabled, providerName: providerName.trim(), issuer: issuer.trim(), clientId: clientId.trim(), ...(typedSecret ? { clientSecret: secret } : {}) }
+        const body = { enabled: state!.saved ? state!.effective.enabled : turnOn, providerName: providerName.trim(), issuer: issuer.trim(), clientId: clientId.trim(), ...(typedSecret ? { clientSecret: secret } : {}) }
         if (locked) return body
         if (!body.providerName || !body.issuer || !body.clientId) { setError('Enter a provider name, an issuer and a client ID.'); return null }
         if (!typedSecret && !state!.secretConfigured) { setError('Enter the client secret from your provider.'); return null }
@@ -83,7 +85,7 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
         clearSecret()
         void run('save', async () => {
             adopt(await api<AuthenticationState>(endpoint, { method: 'PUT', body: JSON.stringify(body), cache: 'no-store' }, csrfToken))
-            setNotice('OIDC settings saved.')
+            setNotice(body.enabled && !state!.saved ? 'OIDC settings saved and OIDC turned on.' : 'OIDC settings saved.')
         })
     }
     function toggle(enabled: boolean) {
@@ -109,7 +111,7 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
     const missingKey = !state.canSaveSecret && !locked
 
     return <IntegrationCard slug="oidc" name="OpenID Connect" status={label} tone={tone} meta={<span ref={line} tabIndex={-1}>{stateLine}</span>} defaultOpen
-        actions={<label className="switch"><input type="checkbox" role="switch" checked={state.effective.enabled} disabled={locked || !state.saved} onChange={event => toggle(event.target.checked)} /><span>Enable OIDC</span></label>}>
+        actions={<label className="switch"><input type="checkbox" role="switch" checked={state.saved ? state.effective.enabled : turnOn} disabled={locked} onChange={event => (state.saved ? toggle(event.target.checked) : setTurnOn(event.target.checked))} /><span>Enable OIDC</span></label>}>
         <div aria-live="polite" className="authMessages">
             {locked && <p className="authNotice"><strong>Set by environment.</strong> These values come from REQUESTARR_OIDC_* variables and cannot be changed here. Change them in your deployment and restart Requestarr.</p>}
             {state.ignored.length > 0 && <div className="authNotice warn">
@@ -137,9 +139,9 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
                 <p id={`${id}-redirect-help`} className="fieldHelp">Add this to your provider as a valid redirect URI.</p>
                 <p role="status" className="authOk">{copied}</p></div>
             <div className="draftActions">
-                {!locked && <button className="button" type="submit" disabled={!dirty || !!busy || !state.canSaveSecret}>{busy === 'save' ? 'Saving…' : 'Save OIDC settings'}</button>}
+                {!locked && <button className="button" type="submit" disabled={!dirty || !!busy || !state.canSaveSecret}>{busy === 'save' ? 'Saving…' : !state.saved && turnOn ? 'Save and turn on OIDC' : 'Save OIDC settings'}</button>}
                 <button className="button secondary" type="button" disabled={!!busy} onClick={test}>{busy === 'test' ? 'Testing…' : 'Test OIDC connection'}</button>
-                {!state.saved && !locked && <span className="fieldHelp">Save the settings, then switch OIDC on.</span>}
+                {!state.saved && !locked && turnOn && <span className="fieldHelp">The provider is checked first. If the check fails, nothing is saved and OIDC stays off.</span>}
             </div>
         </form>
     </IntegrationCard>

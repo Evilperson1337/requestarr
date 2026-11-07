@@ -151,7 +151,7 @@ for (const width of [1440, 390]) test(`Test names what failed and changes nothin
 test('saving, enabling and disabling work from the keyboard and the secret never reaches browser storage', async ({ page }) => {
     const { calls, world } = await setup(page)
     const card = oidc(page)
-    await expect(card.getByRole('switch', { name: 'Enable OIDC' })).toBeDisabled()
+    await expect(card.getByRole('switch', { name: 'Enable OIDC' })).toBeEnabled()
     await expect(card.getByRole('button', { name: 'Save OIDC settings' })).toBeDisabled()
     await card.getByLabel('Provider name', { exact: true }).fill('Keycloak')
     await card.getByLabel('Issuer', { exact: true }).fill(saved.issuer)
@@ -347,4 +347,44 @@ test.describe('change password', () => {
         await noOverflow(page)
         await axe(page)
     })
+})
+
+test('on a first setup the switch can be ticked first and Save turns OIDC on in one step', async ({ page }) => {
+    const { calls, world } = await setup(page)
+    const card = oidc(page)
+    const toggle = card.getByRole('switch', { name: 'Enable OIDC' })
+    await toggle.check()
+    await expect(toggle).toBeChecked()
+    expect(calls.filter(c => c.path.endsWith('/enabled'))).toHaveLength(0)
+    await card.getByLabel('Provider name', { exact: true }).fill('Keycloak')
+    await card.getByLabel('Issuer', { exact: true }).fill(saved.issuer)
+    await card.getByLabel('Client ID', { exact: true }).fill('requestarr')
+    await card.getByLabel('Client secret', { exact: true }).fill(SECRET)
+    await expect(card.getByText('nothing is saved and OIDC stays off', { exact: false })).toBeVisible()
+    await page.route('**/api/v1/admin/settings/authentication', route => {
+        if (route.request().method() !== 'PUT') return route.fallback()
+        world.auth = { ...base, ...savedState({ enabled: true }), working: true } as State
+        return route.fulfill({ json: world.auth })
+    })
+    await card.getByRole('button', { name: 'Save and turn on OIDC' }).click()
+    await expect(card.getByRole('status').filter({ hasText: 'OIDC settings saved and OIDC turned on' })).toBeVisible()
+    await expect(toggle).toBeChecked()
+    expect(calls.find(c => c.method === 'PUT')!.body).toMatchObject({ enabled: true, clientSecret: SECRET })
+})
+
+test('a first setup that fails the provider check saves nothing and says so', async ({ page }) => {
+    await setup(page)
+    await page.route('**/api/v1/admin/settings/authentication', route => {
+        if (route.request().method() !== 'PUT') return route.fallback()
+        return route.fulfill({ status: 422, json: { error: { code: 'oidc_discovery_failed', message: 'OIDC discovery failed: issuer could not be reached', requestId: 'req-9' } } })
+    })
+    const card = oidc(page)
+    await card.getByRole('switch', { name: 'Enable OIDC' }).check()
+    await card.getByLabel('Provider name', { exact: true }).fill('Keycloak')
+    await card.getByLabel('Issuer', { exact: true }).fill(saved.issuer)
+    await card.getByLabel('Client ID', { exact: true }).fill('requestarr')
+    await card.getByLabel('Client secret', { exact: true }).fill(SECRET)
+    await card.getByRole('button', { name: 'Save and turn on OIDC' }).click()
+    await expect(card.getByRole('alert').filter({ hasText: 'issuer could not be reached' })).toContainText('Nothing was saved.')
+    await expect(card.getByText('OIDC is not configured', { exact: false }).first()).toBeVisible()
 })
