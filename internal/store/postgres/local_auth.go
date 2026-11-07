@@ -46,6 +46,13 @@ func (s *Store) LocalCredentialByUserID(ctx context.Context, userID string) (aut
 // CreateLocalAdmin creates the built-in administrator with must-change set,
 // but only while there are no users at all. The advisory lock serializes
 // concurrent starts, so exactly one creates it.
+// LocalAdminExists reports whether the local administrator's credential is stored.
+func (s *Store) LocalAdminExists(ctx context.Context) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM local_credentials)`).Scan(&exists)
+	return exists, err
+}
+
 func (s *Store) CreateLocalAdmin(ctx context.Context, hash string, now time.Time) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

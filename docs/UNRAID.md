@@ -227,7 +227,7 @@ Anything else, such as `plex.example.com`, must use `https://`, so that a librar
 | Container restarts; log names a `REQUESTARR_` variable | That value is missing or invalid; the log says which. |
 | Container never becomes healthy | It cannot reach PostgreSQL. Check the database host, port, user and password, and that container names resolve (step 2). |
 | The provider reports an invalid redirect | The redirect URI registered there is not exactly the Redirect address shown in Settings, Authentication (`<public URL>/api/v1/auth/callback`). |
-| I cannot find the one-time password | It is logged once, when the account is created on a fresh database. Run `reset-admin-password` (step 6). |
+| I cannot find the one-time password | It is logged once, when the account is created on a fresh database. A database that already has people (an upgrade, or an earlier test run) gets no local administrator, and the log says so in one line. Run `reset-admin-password` (step 6) to create it and print a one-time password. |
 | Signing in at `/login` does not stick | The public address is not https, so the browser drops the Secure cookie. |
 | A saved credential reports "stored secret unreadable" | The master key changed. Restore the original key or enter the credential again. |
 | A library address is rejected | The message says whether to use https or to add the network (step 7). |

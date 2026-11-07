@@ -98,15 +98,29 @@ func TestEachFreshInstallGetsADifferentPassword(t *testing.T) {
 	}
 }
 
-func TestExistingUsersMeanNothingIsCreatedOrLogged(t *testing.T) {
+// An upgraded instance already has people, so nothing is created. The operator
+// who expected a password must be told why there is none and how to get one.
+func TestExistingUsersMeanNothingIsCreatedAndTheLogSaysHowToGetOne(t *testing.T) {
 	for _, initial := range []string{"", "an operator chosen password"} {
 		b := newBootFixture(initial)
 		b.store.addUser("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "viewer")
 		if err := BootstrapLocalAdmin(context.Background(), b.store, b.opts); err != nil {
 			t.Fatalf("operation failed (%T)", err)
 		}
-		if len(b.store.creds) != 0 || b.logs.Len() != 0 {
-			t.Fatalf("creds=%d logBytes=%d", len(b.store.creds), b.logs.Len())
+		if len(b.store.creds) != 0 {
+			t.Fatalf("creds=%d: nothing may be created on an instance with users", len(b.store.creds))
+		}
+		lines := strings.Split(strings.TrimSpace(b.logs.String()), "\n")
+		if len(lines) != 1 || !strings.Contains(lines[0], "level=INFO") {
+			t.Fatalf("want exactly one Info line, got %q", b.logs.String())
+		}
+		for _, want := range []string{"no local administrator", "reset-admin-password"} {
+			if !strings.Contains(lines[0], want) {
+				t.Errorf("log line missing %q", want)
+			}
+		}
+		if strings.Contains(b.logs.String(), initial) && initial != "" {
+			t.Fatal("the supplied password reached the log")
 		}
 	}
 }

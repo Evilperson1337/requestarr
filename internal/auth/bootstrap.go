@@ -16,6 +16,8 @@ const AdminPasswordEnv = "REQUESTARR_ADMIN_PASSWORD"
 // BootstrapStore is what first-run creation needs.
 type BootstrapStore interface {
 	CreateLocalAdmin(ctx context.Context, hash string, now time.Time) (bool, error)
+	// LocalAdminExists tells "already there" from "not created because people exist".
+	LocalAdminExists(ctx context.Context) (bool, error)
 }
 
 // BootstrapOptions configures BootstrapLocalAdmin.
@@ -74,7 +76,16 @@ func BootstrapLocalAdmin(ctx context.Context, store BootstrapStore, o BootstrapO
 	if err != nil {
 		return fmt.Errorf("create the local administrator: %w", err)
 	}
-	if !created || o.Logger == nil {
+	if o.Logger == nil {
+		return nil
+	}
+	if !created {
+		// Nothing was created: either the account is already there (say nothing) or
+		// the instance had users first, as an upgrade does, and the operator who
+		// expected a one-time password needs to hear why there is none.
+		if exists, err := store.LocalAdminExists(ctx); err == nil && !exists {
+			o.Logger.Info("Requestarr has no local administrator, and did not create one because this database already has users. To create one and get a one-time password, run: docker exec <container-name> /requestarr reset-admin-password")
+		}
 		return nil
 	}
 	loginURL := strings.TrimRight(o.PublicURL, "/") + "/login"

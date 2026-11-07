@@ -94,6 +94,9 @@ func TestFreshInstallCreatesOneBuiltInAdministratorIntegration(t *testing.T) {
 	if n := count(t, ctx, s, `SELECT count(*) FROM users`); n != 1 {
 		t.Fatalf("users=%d", n)
 	}
+	if exists, err := s.LocalAdminExists(ctx); err != nil || !exists {
+		t.Fatalf("exists=%v errorType=%T", exists, err)
+	}
 }
 
 func TestNoLocalAdministratorIsCreatedWhenUsersExistIntegration(t *testing.T) {
@@ -109,6 +112,9 @@ func TestNoLocalAdministratorIsCreatedWhenUsersExistIntegration(t *testing.T) {
 			}
 			if count(t, ctx, s, `SELECT count(*) FROM local_credentials`) != 0 || count(t, ctx, s, `SELECT count(*) FROM users`) != 1 {
 				t.Fatal("an upgrade added a credential")
+			}
+			if exists, err := s.LocalAdminExists(ctx); err != nil || exists {
+				t.Fatalf("exists=%v errorType=%T", exists, err)
 			}
 		})
 	}

@@ -187,6 +187,10 @@ func (f *fakeLocalStore) PruneAuthEvents(_ context.Context, before time.Time) (i
 	f.prunedBefore = before
 	return 0, nil
 }
+func (f *fakeLocalStore) LocalAdminExists(context.Context) (bool, error) {
+	return len(f.creds) > 0, nil
+}
+
 func (f *fakeLocalStore) CreateLocalAdmin(_ context.Context, hash string, _ time.Time) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
