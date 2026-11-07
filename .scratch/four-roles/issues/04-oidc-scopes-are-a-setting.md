@@ -27,3 +27,4 @@
 - Criterion 7: Playwright with axe at 1440 and 390 for the field, the warning and the read-only state.
 - Criterion 8: `api/openapi.yaml` updated (`scopes` on the settings and update schemas, `warnings` on the test response); `scripts/check.sh` result is recorded below.
 - Note for later tickets: `authsettings.Test` now returns `([]string, error)`; `Values` gained `Scopes`. Environment configuration keeps `openid profile email` (no env variable for scopes was asked for).
+- scripts/check.sh passed (fmt, test, vet, PostgreSQL integration on requestarr_t04, tsc, 325 Playwright tests).
