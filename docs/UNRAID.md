@@ -52,7 +52,7 @@ Two details:
 
 ## 3. Install Requestarr
 
-Pick one of two paths. Both pull the published image `ghcr.io/evilperson1337/requestarr`. While only pre-releases exist, both are pinned to an exact pre-release tag (such as `v0.1.0-rc.4`) instead of `latest`, so that you run the build that was tested.
+Pick one of two paths. Both pull the published image `ghcr.io/evilperson1337/requestarr`. While only pre-releases exist, both are pinned to an exact pre-release tag (such as `v0.1.0-rc.5`) instead of `latest`, so that you run the build that was tested.
 
 ### First, generate the two required secrets
 
@@ -196,7 +196,7 @@ If `docker exec` fails with `OCI runtime exec failed: open /run/user/0/runc-proc
 mkdir -p /run/user/0
 ```
 
-If exec still will not work, run the same command in a one-off container on the same network, with the database settings of your Requestarr container (the template's `REQUESTARR_DB_*` fields), and substitute the image tag you run:
+If exec still will not work, run the same command in a one-off container on the same network, with the database settings of your Requestarr container (the template's database fields: `REQUESTARR_DB_HOST`, `REQUESTARR_DB_PORT`, `REQUESTARR_DB_NAME`, `REQUESTARR_DB_USER`, `REQUESTARR_DB_PASSWORD`), and substitute the image tag you run:
 
 ```sh
 docker run --rm --network <your-network> \
