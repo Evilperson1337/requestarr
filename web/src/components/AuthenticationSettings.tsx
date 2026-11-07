@@ -37,6 +37,8 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
     const [providerName, setProviderName] = useState('')
     const [issuer, setIssuer] = useState('')
     const [clientId, setClientId] = useState('')
+    const [scopes, setScopes] = useState('')
+    const [warnings, setWarnings] = useState<string[]>([])
     const [secret, setSecret] = useState('')
     // Before anything is saved the switch is a request: save the settings and turn OIDC on together.
     const [turnOn, setTurnOn] = useState(false)
@@ -45,7 +47,7 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
     const line = useRef<HTMLParagraphElement>(null)
 
     const fillFields = useCallback((next: AuthenticationState) => {
-        setProviderName(next.effective.providerName); setIssuer(next.effective.issuer); setClientId(next.effective.clientId)
+        setProviderName(next.effective.providerName); setIssuer(next.effective.issuer); setClientId(next.effective.clientId); setScopes(next.effective.scopes)
     }, [])
     const { value: state, setValue: setState, loadError, retry } = useLoadedResource(loadOidc, onRequestError, 'Could not load the OpenID Connect settings.', fillFields)
     const adopt = (next: AuthenticationState) => { setState(next); fillFields(next) }
@@ -55,25 +57,27 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
     const locked = state.readOnly
     const { label, line: stateLine, tone } = describe(state)
     const typedSecret = secret !== ''
-    const dirty = providerName !== state.effective.providerName || issuer !== state.effective.issuer || clientId !== state.effective.clientId || typedSecret
+    const dirty = providerName !== state.effective.providerName || issuer !== state.effective.issuer || clientId !== state.effective.clientId || scopes.trim() !== state.effective.scopes || typedSecret
     const previous = state.saved || locked ? 'Nothing was changed. The previous configuration is still in use.' : 'Nothing was saved.'
 
     function draft() {
-        const body = { enabled: state!.saved ? state!.effective.enabled : turnOn, providerName: providerName.trim(), issuer: issuer.trim(), clientId: clientId.trim(), ...(typedSecret ? { clientSecret: secret } : {}) }
+        const body = { enabled: state!.saved ? state!.effective.enabled : turnOn, providerName: providerName.trim(), issuer: issuer.trim(), clientId: clientId.trim(), scopes: scopes.trim(), ...(typedSecret ? { clientSecret: secret } : {}) }
         if (locked) return body
         if (!body.providerName || !body.issuer || !body.clientId) { setError('Enter a provider name, an issuer and a client ID.'); return null }
         if (!typedSecret && !state!.secretConfigured) { setError('Enter the client secret from your provider.'); return null }
         return body
     }
-    const run = (kind: Busy, work: () => Promise<void>) => runBusy(kind, work, message => `${message} ${kind === 'enable' ? 'The setting was not changed.' : previous}`)
+    const run = (kind: Busy, work: () => Promise<void>) => { setWarnings([]); return runBusy(kind, work, message => `${message} ${kind === 'enable' ? 'The setting was not changed.' : previous}`) }
     function clearSecret() { setSecret('') } // never keep a secret in the page after submit
     function test() {
         const body = draft()
         if (!body) return
         const hadSecret = typedSecret
         clearSecret()
+        setWarnings([])
         void run('test', async () => {
-            await api<{ ok: true }>(`${endpoint}/test`, { method: 'POST', body: JSON.stringify(body), cache: 'no-store' }, csrfToken)
+            const result = await api<{ ok: true; warnings?: string[] }>(`${endpoint}/test`, { method: 'POST', body: JSON.stringify(body), cache: 'no-store' }, csrfToken)
+            setWarnings(result.warnings ?? [])
             setNotice(`Discovery passed. The provider's metadata could be read. This does not check the client secret or a full sign-in.${hadSecret ? ' The client secret field was cleared; enter it again before saving.' : ''}`)
         })
     }
@@ -126,12 +130,14 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
             {state.problem && <p role="alert" className="errorBox">{state.problem}</p>}
             {error && <p role="alert" className="errorBox">{error}</p>}
             {notice && <p role="status" className="authOk">{notice}</p>}
+            {warnings.map(text => <p key={text} role="status" className="authNotice warn"><strong>Warning.</strong> {text}</p>)}
         </div>
         <form className="authForm" onSubmit={save} noValidate>
             <div className="authFields">
                 <div className="field"><label htmlFor={`${id}-name`}>Provider name</label><input id={`${id}-name`} value={providerName} readOnly={locked} maxLength={100} autoComplete="off" onChange={e => setProviderName(e.target.value)} /><p className="fieldHelp">Shown on the sign-in button.</p></div>
                 <div className="field"><label htmlFor={`${id}-client`}>Client ID</label><input id={`${id}-client`} value={clientId} readOnly={locked} maxLength={512} autoComplete="off" spellCheck={false} onChange={e => setClientId(e.target.value)} /></div>
                 <div className="field wide"><label htmlFor={`${id}-issuer`}>Issuer</label><input id={`${id}-issuer`} type="url" inputMode="url" placeholder="https://" value={issuer} readOnly={locked} maxLength={2048} autoComplete="off" spellCheck={false} onChange={e => setIssuer(e.target.value)} /><p className="fieldHelp">The address of your provider, such as a Keycloak realm.</p></div>
+                <div className="field wide"><label htmlFor={`${id}-scopes`}>Scopes</label><input id={`${id}-scopes`} value={scopes} readOnly={locked} maxLength={1024} autoComplete="off" spellCheck={false} aria-describedby={`${id}-scopes-help`} onChange={e => setScopes(e.target.value)} /><p id={`${id}-scopes-help`} className="fieldHelp">{locked ? 'Set by environment.' : 'Separate with spaces. openid is always requested. Add groups so the provider can send the groups a person belongs to.'}</p></div>
                 <div className="field wide"><label htmlFor={`${id}-secret`}>Client secret</label><input id={`${id}-secret`} type="password" value={secret} disabled={locked || !state.canSaveSecret} maxLength={4096} autoComplete="new-password" aria-describedby={`${secretHelp}${missingKey ? ` ${keyHelp}` : ''}`} onChange={e => setSecret(e.target.value)} /><p id={secretHelp} className="fieldHelp">{secretText}</p></div>
             </div>
             <div className="field"><label htmlFor={`${id}-redirect`}>Redirect address</label>
