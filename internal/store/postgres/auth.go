@@ -161,12 +161,14 @@ type AdminUser struct {
 	Builtin     bool   `json:"builtin"`
 	// CanRequest is what the role may do, so the request modal can offer only
 	// people a request can be made for without the web app comparing role names.
-	CanRequest bool      `json:"canRequest"`
-	CreatedAt  time.Time `json:"createdAt"`
+	CanRequest bool `json:"canRequest"`
+	// RoleFromGroups: the person's last role change came from their groups.
+	RoleFromGroups bool      `json:"roleFromGroups"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
-	rows, err := s.pool.Query(ctx, `SELECT u.id::text, COALESCE(i.email,''), COALESCE(i.display_name,u.display_name,''), u.role, u.builtin, u.created_at FROM users u LEFT JOIN LATERAL (SELECT email,display_name FROM oidc_identities WHERE user_id=u.id ORDER BY issuer,subject LIMIT 1) i ON true ORDER BY u.builtin DESC, lower(COALESCE(i.display_name,'')), lower(COALESCE(i.email,'')), u.id`)
+	rows, err := s.pool.Query(ctx, `SELECT u.id::text, COALESCE(i.email,''), COALESCE(i.display_name,u.display_name,''), u.role, u.builtin, COALESCE((SELECT e.source='group_mapping' FROM admin_user_audit_events e WHERE e.target_user_id=u.id ORDER BY e.created_at DESC, e.id DESC LIMIT 1),false), u.created_at FROM users u LEFT JOIN LATERAL (SELECT email,display_name FROM oidc_identities WHERE user_id=u.id ORDER BY issuer,subject LIMIT 1) i ON true ORDER BY u.builtin DESC, lower(COALESCE(i.display_name,'')), lower(COALESCE(i.email,'')), u.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list admin users: %w", err)
 	}
@@ -174,7 +176,7 @@ func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 	users := make([]AdminUser, 0)
 	for rows.Next() {
 		var user AdminUser
-		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.Role, &user.Builtin, &user.CreatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.Role, &user.Builtin, &user.RoleFromGroups, &user.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan admin user: %w", err)
 		}
 		user.CanRequest = domain.Role(user.Role).CanRequest()

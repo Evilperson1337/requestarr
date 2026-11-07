@@ -130,3 +130,30 @@ func TestUsersListOffersOnlyTheRoleChoicesTheSignedInRoleMayMake(t *testing.T) {
 		}
 	}
 }
+
+// The list says when a person's role is set by their groups, and whether group
+// mapping is on, so the page can warn that a manual change is overridden at
+// the person's next sign-in. It carries no group names and no group lists.
+func TestUsersListSaysWhenRolesComeFromGroups(t *testing.T) {
+	ready := userListReadiness{users: []postgres.AdminUser{
+		{ID: "u-group", DisplayName: "Grace", Role: "admin", RoleFromGroups: true},
+		{ID: "u-manual", DisplayName: "Manny", Role: "viewer"},
+	}}
+	w := peopleCall("superuser", ready, "GET", "/admin/users", "")
+	if w.Code != 200 {
+		t.Fatalf("status %d", w.Code)
+	}
+	var body struct {
+		RolesFromGroups bool `json:"rolesFromGroups"`
+		Users           []struct {
+			ID             string `json:"id"`
+			RoleFromGroups bool   `json:"roleFromGroups"`
+		} `json:"users"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.RolesFromGroups || len(body.Users) != 2 || !body.Users[0].RoleFromGroups || body.Users[1].RoleFromGroups {
+		t.Fatalf("body = %s", w.Body.String())
+	}
+}

@@ -151,3 +151,42 @@ func TestGroupNamesNeverReachTheDatabaseOrTheLogIntegration(t *testing.T) {
 		t.Fatalf("the log holds the canary group name: %s", logs.String())
 	}
 }
+
+// The Users list says whose role was last set by their groups; a later manual
+// change takes the mark away.
+func TestUsersListMarksRolesSetByGroupsIntegration(t *testing.T) {
+	ctx, s := freshStore(t)
+	boss := integrationUser(t, ctx, s)
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id=$1`, boss); err != nil {
+		t.Fatal(err)
+	}
+	person := integrationUser(t, ctx, s)
+	marked := func() bool {
+		list, err := s.ListAdminUsers(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, u := range list {
+			if u.ID == person {
+				return u.RoleFromGroups
+			}
+		}
+		t.Fatal("person not listed")
+		return false
+	}
+	if marked() {
+		t.Fatal("a person with no role change is not marked")
+	}
+	if err := s.ApplyGroupRole(ctx, person, domain.RoleAdmin, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if !marked() {
+		t.Fatal("a role set by groups is not marked")
+	}
+	if err := s.ChangeUserRole(ctx, boss, person, "viewer", time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if marked() {
+		t.Fatal("a later manual change must clear the mark")
+	}
+}

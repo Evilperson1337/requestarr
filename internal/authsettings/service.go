@@ -163,6 +163,9 @@ func New(ctx context.Context, repo Repository, sealer secrets.Sealer, env Values
 	return s, nil
 }
 func (s *Service) Snapshot() *Snapshot { return s.cur.Load() }
+
+// GroupMapping is how groups decide roles at sign-in right now.
+func (s *Service) GroupMapping() domain.GroupMapping { return s.Snapshot().Groups }
 func (s *Service) Options() Options {
 	return Options{OIDCEnabled: s.OIDCWorking(), ProviderName: s.Snapshot().ProviderName}
 }
