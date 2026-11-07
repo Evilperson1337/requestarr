@@ -24,7 +24,7 @@ func NewAuthentication(ctx context.Context, cfg config.Config, repo authsettings
 	}
 	if factory == nil {
 		factory = func(ctx context.Context, v authsettings.Values, redirect string) (oidc.Provider, error) {
-			return oidc.New(ctx, oidc.Config{Issuer: v.Issuer, ClientID: v.ClientID, ClientSecret: v.ClientSecret, Scopes: authsettings.ScopeList(v), AllowHTTP: cfg.Environment == "development"}, redirect)
+			return oidc.New(ctx, oidc.Config{Issuer: v.Issuer, ClientID: v.ClientID, ClientSecret: v.ClientSecret, Scopes: authsettings.ScopeList(v), GroupsClaim: v.GroupsClaim, AllowHTTP: cfg.Environment == "development"}, redirect)
 		}
 	}
 	return authsettings.New(ctx, repo, sealer, authsettings.Values{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret}, cfg.PublicURL, factory)

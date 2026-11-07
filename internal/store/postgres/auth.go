@@ -161,12 +161,14 @@ type AdminUser struct {
 	Builtin     bool   `json:"builtin"`
 	// CanRequest is what the role may do, so the request modal can offer only
 	// people a request can be made for without the web app comparing role names.
-	CanRequest bool      `json:"canRequest"`
-	CreatedAt  time.Time `json:"createdAt"`
+	CanRequest bool `json:"canRequest"`
+	// RoleFromGroups: the person's last role change came from their groups.
+	RoleFromGroups bool      `json:"roleFromGroups"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
-	rows, err := s.pool.Query(ctx, `SELECT u.id::text, COALESCE(i.email,''), COALESCE(i.display_name,u.display_name,''), u.role, u.builtin, u.created_at FROM users u LEFT JOIN LATERAL (SELECT email,display_name FROM oidc_identities WHERE user_id=u.id ORDER BY issuer,subject LIMIT 1) i ON true ORDER BY u.builtin DESC, lower(COALESCE(i.display_name,'')), lower(COALESCE(i.email,'')), u.id`)
+	rows, err := s.pool.Query(ctx, `SELECT u.id::text, COALESCE(i.email,''), COALESCE(i.display_name,u.display_name,''), u.role, u.builtin, COALESCE((SELECT e.source='group_mapping' FROM admin_user_audit_events e WHERE e.target_user_id=u.id ORDER BY e.created_at DESC, e.id DESC LIMIT 1),false), u.created_at FROM users u LEFT JOIN LATERAL (SELECT email,display_name FROM oidc_identities WHERE user_id=u.id ORDER BY issuer,subject LIMIT 1) i ON true ORDER BY u.builtin DESC, lower(COALESCE(i.display_name,'')), lower(COALESCE(i.email,'')), u.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list admin users: %w", err)
 	}
@@ -174,7 +176,7 @@ func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 	users := make([]AdminUser, 0)
 	for rows.Next() {
 		var user AdminUser
-		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.Role, &user.Builtin, &user.CreatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.Role, &user.Builtin, &user.RoleFromGroups, &user.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan admin user: %w", err)
 		}
 		user.CanRequest = domain.Role(user.Role).CanRequest()
@@ -187,7 +189,7 @@ func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 }
 
 var ErrAdminSelfRoleChange = errors.New("cannot change your own role")
-var ErrLastSuperuser = errors.New("cannot remove the last superuser who can sign in")
+var ErrLastSuperuser = auth.ErrLastSuperuser
 var ErrAdminUserNotFound = errors.New("user not found")
 
 func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role string, now time.Time) error {
@@ -254,4 +256,57 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 		return fmt.Errorf("commit role change: %w", err)
 	}
 	return nil
+}
+
+var _ auth.GroupRoleStore = (*Store)(nil)
+
+// ApplyGroupRole sets a person's role because their groups map to it. It is
+// the group-mapping path of ChangeUserRole: the person is their own actor, no
+// actor-role rule applies, and the audit says why. It ends all the person's
+// sessions and refuses, with auth.ErrLastSuperuser, a change that would leave
+// no superuser who can sign in. The built-in account is never changed. The
+// groups themselves never reach this method.
+func (s *Store) ApplyGroupRole(ctx context.Context, userID string, role domain.Role, now time.Time) error {
+	if !role.Stored() {
+		return fmt.Errorf("invalid role")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin group role change: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, adminRoleAdvisoryLockID); err != nil {
+		return fmt.Errorf("lock role changes: %w", err)
+	}
+	var previous string
+	var builtin bool
+	err = tx.QueryRow(ctx, `SELECT role,builtin FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&previous, &builtin)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrAdminUserNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("read role: %w", err)
+	}
+	if builtin || previous == string(role) {
+		return tx.Commit(ctx)
+	}
+	if domain.Role(previous).CanManageAccess() && !role.CanManageAccess() {
+		var count int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users u WHERE role IN (`+domain.SQLRoleList(domain.RolesThatManageAccess())+`) AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`).Scan(&count); err != nil {
+			return fmt.Errorf("count superusers: %w", err)
+		}
+		if count <= 1 {
+			return ErrLastSuperuser
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE users SET role=$2,updated_at=$3 WHERE id=$1`, userID, string(role), now); err != nil {
+		return fmt.Errorf("update user role: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at=$2 WHERE user_id=$1 AND revoked_at IS NULL`, userID, now); err != nil {
+		return fmt.Errorf("revoke sessions: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO admin_user_audit_events(actor_user_id,target_user_id,previous_role,new_role,source,created_at) VALUES($1,$1,$2,$3,'group_mapping',$4)`, userID, previous, string(role), now); err != nil {
+		return fmt.Errorf("audit group role change: %w", err)
+	}
+	return tx.Commit(ctx)
 }

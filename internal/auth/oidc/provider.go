@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -48,10 +49,11 @@ type Provider interface {
 
 // Client performs standards-compliant OIDC discovery and ID-token verification.
 type Client struct {
-	config     *oauth2.Config
-	verifier   *coreoidc.IDTokenVerifier
-	httpClient *http.Client
-	advertised []string
+	config      *oauth2.Config
+	verifier    *coreoidc.IDTokenVerifier
+	httpClient  *http.Client
+	advertised  []string
+	groupsClaim string
 }
 
 // RequestScopes returns the scopes to request: the configured ones with
@@ -98,7 +100,7 @@ func New(ctx context.Context, cfg Config, redirectURL string) (*Client, error) {
 	if p.Claims(&metadata) != nil || !safeURL(p.Endpoint().AuthURL, cfg.AllowHTTP) || !safeURL(p.Endpoint().TokenURL, cfg.AllowHTTP) || !safeURL(metadata.JWKS, cfg.AllowHTTP) {
 		return nil, ErrDiscoveryMetadata
 	}
-	return &Client{httpClient: client, config: &oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Endpoint: p.Endpoint(), RedirectURL: redirectURL, Scopes: RequestScopes(cfg.Scopes)}, verifier: p.Verifier(&coreoidc.Config{ClientID: cfg.ClientID}), advertised: metadata.Scopes}, nil
+	return &Client{httpClient: client, config: &oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Endpoint: p.Endpoint(), RedirectURL: redirectURL, Scopes: RequestScopes(cfg.Scopes)}, verifier: p.Verifier(&coreoidc.Config{ClientID: cfg.ClientID}), advertised: metadata.Scopes, groupsClaim: claimName(cfg.GroupsClaim)}, nil
 }
 
 func (c *Client) Validate(context.Context, Config) error { return nil }
@@ -130,10 +132,14 @@ func (c *Client) Exchange(ctx context.Context, code, verifier, nonce string) (*I
 	if err := id.Claims(&claims); err != nil {
 		return nil, errors.New("OIDC claims could not be decoded")
 	}
+	var all map[string]json.RawMessage
+	if err := id.Claims(&all); err != nil {
+		return nil, errors.New("OIDC claims could not be decoded")
+	}
 	if claims.Subject == "" || claims.Nonce != nonce {
 		return nil, fmt.Errorf("OIDC subject or nonce is invalid")
 	}
-	return &Identity{Subject: claims.Subject, Email: claims.Email, DisplayName: claims.Name}, nil
+	return &Identity{Subject: claims.Subject, Email: claims.Email, DisplayName: claims.Name, Groups: groupsFrom(all[c.groupsClaim])}, nil
 }
 
 func RandomValue() (string, error) {
@@ -159,4 +165,39 @@ func RandomUUID() (string, error) {
 func PKCEChallenge(verifier string) string {
 	h := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(h[:])
+}
+
+// DefaultGroupsClaim is the ID-token claim groups are read from unless the
+// operator names another.
+const DefaultGroupsClaim = "groups"
+
+func claimName(configured string) string {
+	if configured == "" {
+		return DefaultGroupsClaim
+	}
+	return configured
+}
+
+// groupsFrom reads a groups claim that is a list of text values or a single
+// text value. Anything else, and non-text list items, give no groups. The
+// result is used for the sign-in decision only.
+func groupsFrom(raw json.RawMessage) []string {
+	var one string
+	if json.Unmarshal(raw, &one) == nil {
+		if one == "" {
+			return nil
+		}
+		return []string{one}
+	}
+	var list []any
+	if json.Unmarshal(raw, &list) != nil {
+		return nil
+	}
+	var out []string
+	for _, v := range list {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }

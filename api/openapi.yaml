@@ -767,11 +767,12 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [users]
+                required: [users, rolesFromGroups]
                 properties:
                   users:
                     type: array
                     items: { $ref: '#/components/schemas/AdminUser' }
+                  rolesFromGroups: { type: boolean, description: 'True while Assign roles from groups is on and OIDC is working, so a manual role change is overridden at the person''s next sign-in if their groups map to a role' }
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
   /admin/settings/people:
@@ -1624,7 +1625,7 @@ components:
     AdminUser:
       type: object
       additionalProperties: false
-      required: [id, email, displayName, role, builtin, canRequest, createdAt, roleChoices]
+      required: [id, email, displayName, role, builtin, canRequest, roleFromGroups, createdAt, roleChoices]
       properties:
         id: { type: string, format: uuid }
         email: { type: string }
@@ -1632,6 +1633,7 @@ components:
         role: { type: string, enum: [viewer, requester, admin, superuser] }
         builtin: { type: boolean, description: True only for the local administrator, whose role is locked to superuser }
         canRequest: { type: boolean, description: Whether a request can be made for this person (the request modal person picker offers only these) }
+        roleFromGroups: { type: boolean, description: 'True when the last change to this person''s role was made by their groups at sign-in (audit source group_mapping); a later manual change clears it. No group names are ever returned' }
         createdAt: { type: string, format: date-time }
         roleChoices:
           type: array
@@ -1647,13 +1649,19 @@ components:
     OIDCSettings:
       type: object
       additionalProperties: false
-      required: [enabled, providerName, issuer, clientId, scopes]
+      required: [enabled, providerName, issuer, clientId, scopes, assignRolesFromGroups, groupsClaim, ownerGroup, adminGroup, userGroup, viewerGroup]
       properties:
         enabled: { type: boolean }
         providerName: { type: string, maxLength: 100 }
         issuer: { type: string, maxLength: 2048 }
         clientId: { type: string, maxLength: 512 }
         scopes: { type: string, maxLength: 1024, description: 'Space-separated OIDC scopes requested at sign-in; openid is always first. A new setup defaults to "openid profile email groups"; a configuration saved before this setting, and an environment configuration, request "openid profile email"' }
+        assignRolesFromGroups: { type: boolean, description: 'Let the groups in the ID token decide the person''s role at every sign-in. Off by default and for configurations saved before this setting, because turning it on can change roles' }
+        groupsClaim: { type: string, maxLength: 200, description: 'ID-token claim that holds the groups (a list of text values or one text value). Blank saves as groups' }
+        ownerGroup: { type: string, maxLength: 200, description: 'Group that makes a person a superuser. Blank saves as owner' }
+        adminGroup: { type: string, maxLength: 200, description: 'Group that makes a person an admin. Blank saves as admin' }
+        userGroup: { type: string, maxLength: 200, description: 'Group that makes a person a requester. Blank saves as user' }
+        viewerGroup: { type: string, maxLength: 200, description: 'Group that makes a person a viewer. Blank saves as viewer. The most powerful matching group wins; matching ignores letter case and one leading slash' }
     AuthenticationSettingsUpdate:
       type: object
       additionalProperties: false
@@ -1664,6 +1672,12 @@ components:
         issuer: { type: string, format: uri, maxLength: 2048 }
         clientId: { type: string, minLength: 1, maxLength: 512 }
         scopes: { type: string, maxLength: 1024, description: 'Space-separated scope tokens (printable ASCII, no quotes or backslashes). Normalised on save: duplicates removed, openid always first, so an empty value saves as "openid"' }
+        assignRolesFromGroups: { type: boolean, description: 'Let the groups in the ID token decide the person''s role at every sign-in. Off by default and for configurations saved before this setting, because turning it on can change roles' }
+        groupsClaim: { type: string, maxLength: 200, description: 'ID-token claim that holds the groups (a list of text values or one text value). Blank saves as groups' }
+        ownerGroup: { type: string, maxLength: 200, description: 'Group that makes a person a superuser. Blank saves as owner' }
+        adminGroup: { type: string, maxLength: 200, description: 'Group that makes a person an admin. Blank saves as admin' }
+        userGroup: { type: string, maxLength: 200, description: 'Group that makes a person a requester. Blank saves as user' }
+        viewerGroup: { type: string, maxLength: 200, description: 'Group that makes a person a viewer. Blank saves as viewer. The most powerful matching group wins; matching ignores letter case and one leading slash' }
         clientSecret: { type: string, maxLength: 4096, writeOnly: true, description: Empty or omitted retains the saved secret; never returned }
     AuthenticationSettings:
       type: object

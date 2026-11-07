@@ -6,6 +6,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/authsettings"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"net/http"
 )
@@ -16,6 +17,9 @@ import (
 type AuthenticationService interface {
 	Status(context.Context) (authsettings.Status, error)
 	Options() authsettings.Options
+	// GroupMapping is how groups decide roles at sign-in right now; it is off
+	// whenever OIDC is not working.
+	GroupMapping() domain.GroupMapping
 	Save(context.Context, string, authsettings.Update) error
 	Test(context.Context, authsettings.Update) (warnings []string, err error)
 	SetEnabled(context.Context, string, bool) error

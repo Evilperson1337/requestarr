@@ -9,6 +9,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
 	"github.com/evilperson1337/requestarr/internal/authsettings"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"net/http/httptest"
 	"reflect"
@@ -24,6 +25,11 @@ func (authenticationFake) Status(context.Context) (authsettings.Status, error) {
 }
 func (authenticationFake) Options() authsettings.Options {
 	return authsettings.Options{OIDCEnabled: true, ProviderName: "Keycloak"}
+}
+func (authenticationFake) GroupMapping() domain.GroupMapping {
+	m := domain.DefaultGroupMapping()
+	m.Enabled = true
+	return m
 }
 func (authenticationFake) Save(context.Context, string, authsettings.Update) error { return nil }
 func (authenticationFake) Test(context.Context, authsettings.Update) ([]string, error) {
@@ -48,7 +54,8 @@ func TestPublicSignInOptionsAreMinimal(t *testing.T) {
 
 type matrixAuthentication struct{ b *matrixBackend }
 
-func (m matrixAuthentication) Options() authsettings.Options { return authsettings.Options{} }
+func (m matrixAuthentication) GroupMapping() domain.GroupMapping { return domain.GroupMapping{} }
+func (m matrixAuthentication) Options() authsettings.Options     { return authsettings.Options{} }
 func (m matrixAuthentication) Status(context.Context) (authsettings.Status, error) {
 	return authsettings.Status{}, nil
 }
@@ -140,8 +147,8 @@ func TestAuthenticationSettingsReadRoleMatrix(t *testing.T) {
 func TestAuthenticationResponseSchemasMatchContract(t *testing.T) {
 	for schema, want := range map[string][]string{
 		"SignInOptions":                {"oidcEnabled", "providerName"},
-		"OIDCSettings":                 {"enabled", "providerName", "issuer", "clientId", "scopes"},
-		"AuthenticationSettingsUpdate": {"enabled", "providerName", "issuer", "clientId", "scopes", "clientSecret"},
+		"OIDCSettings":                 {"enabled", "providerName", "issuer", "clientId", "scopes", "assignRolesFromGroups", "groupsClaim", "ownerGroup", "adminGroup", "userGroup", "viewerGroup"},
+		"AuthenticationSettingsUpdate": {"enabled", "providerName", "issuer", "clientId", "scopes", "assignRolesFromGroups", "groupsClaim", "ownerGroup", "adminGroup", "userGroup", "viewerGroup", "clientSecret"},
 		"AuthenticationSettings":       {"state", "missing", "ignored", "differing", "saved", "effective", "secretConfigured", "secretUnreadable", "canSaveSecret", "readOnly", "redirectUri", "working", "problem"},
 		"LocalAdministratorStatus":     {"exists", "disabled", "canDisable", "otherAdminExists", "oidcWorking"},
 	} {
