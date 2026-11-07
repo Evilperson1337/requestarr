@@ -31,7 +31,7 @@ func TestLocalAdministratorAmongPeopleIntegration(t *testing.T) {
 	for _, u := range users {
 		switch u.ID {
 		case local:
-			if !u.Builtin || u.Role != "admin" || u.DisplayName == "" {
+			if !u.Builtin || u.Role != "superuser" || u.DisplayName == "" {
 				t.Fatalf("local administrator row: builtin=%v role=%s nameSet=%v", u.Builtin, u.Role, u.DisplayName != "")
 			}
 		case person:
@@ -59,7 +59,7 @@ func TestLocalAdministratorAmongPeopleIntegration(t *testing.T) {
 		}
 	}
 	var got string
-	if err := s.pool.QueryRow(ctx, `SELECT role FROM users WHERE id=$1`, local).Scan(&got); err != nil || got != "admin" {
+	if err := s.pool.QueryRow(ctx, `SELECT role FROM users WHERE id=$1`, local).Scan(&got); err != nil || got != "superuser" {
 		t.Fatalf("role changed to %q", got)
 	}
 }

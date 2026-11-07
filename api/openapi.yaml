@@ -242,7 +242,7 @@ paths:
                 type: object
                 required: [user, csrfToken, mustChangePassword, localAdministrator, capabilities]
                 properties:
-                  user: { type: object, description: 'id, role (viewer, requester or admin), email and displayName' }
+                  user: { type: object, description: 'id, role (viewer, requester, admin or superuser), email and displayName' }
                   capabilities:
                     type: object
                     additionalProperties: false
@@ -749,7 +749,7 @@ paths:
       summary: List users and their roles (administrator only)
       responses:
         '200':
-          description: Users with id, email, displayName, role (viewer, requester or admin), builtin and createdAt; the local administrator is listed first with builtin true
+          description: Users with id, email, displayName, role (viewer, requester, admin or superuser), builtin and createdAt; the local administrator is listed first with builtin true
           content:
             application/json:
               schema:
@@ -845,14 +845,14 @@ paths:
               additionalProperties: false
               required: [role]
               properties:
-                role: { type: string, enum: [viewer, requester, admin] }
+                role: { type: string, enum: [viewer, requester, admin, superuser] }
       responses:
         '204': { description: Role changed, or already set }
         '400': { description: Invalid user ID or role }
         '401': { description: Authentication required }
-        '403': { description: Administrator role required }
+        '403': { description: "Role too low (code role_needed, the message names the role needed): a superuser may set anyone to any of the four roles; an admin may move a person only between requester and viewer and may not change an admin or a superuser; a requester or viewer may change nobody. CSRF failures also answer 403." }
         '404': { description: User not found }
-        '409': { description: "Cannot change your own role (self_role_change), cannot demote the last administrator (last_admin), or the target is the local administrator, whose role is always admin and is refused even for admin (builtin_admin_role); nothing is changed" }
+        '409': { description: "Cannot change your own role (self_role_change), cannot demote the last superuser who can sign in (last_superuser; the local administrator counts only while enabled), or the target is the local administrator, whose role is fixed at superuser and is refused even for a superuser (builtin_admin_role); nothing is changed" }
   /library/recent:
     get:
       operationId: listRecentlyAddedToLibraries
@@ -1600,15 +1600,19 @@ components:
     AdminUser:
       type: object
       additionalProperties: false
-      required: [id, email, displayName, role, builtin, canRequest, createdAt]
+      required: [id, email, displayName, role, builtin, canRequest, createdAt, roleChoices]
       properties:
         id: { type: string, format: uuid }
         email: { type: string }
         displayName: { type: string }
-        role: { type: string, enum: [viewer, requester, admin] }
-        builtin: { type: boolean, description: True only for the local administrator, whose role is locked to admin }
+        role: { type: string, enum: [viewer, requester, admin, superuser] }
+        builtin: { type: boolean, description: True only for the local administrator, whose role is locked to superuser }
         canRequest: { type: boolean, description: Whether a request can be made for this person (the request modal person picker offers only these) }
         createdAt: { type: string, format: date-time }
+        roleChoices:
+          type: array
+          description: The roles the signed-in role may give this person, weakest first. Empty for the signed-in person, the local administrator, and anyone the signed-in role may not change (an admin cannot change an admin or a superuser). The page offers exactly these.
+          items: { type: string, enum: [viewer, requester, admin, superuser] }
     SignInOptions:
       type: object
       additionalProperties: false

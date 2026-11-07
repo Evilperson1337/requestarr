@@ -16,6 +16,14 @@ _Avoid_: Owner
 A user who gets notified about a Request, either as its Requester or by choosing Notify Me.
 _Avoid_: Follower, voter
 
+**Superuser**:
+The owner role, ranked above Admin, with nothing withheld. Only a Superuser can give or take the Admin and Superuser roles. Every admin became a Superuser when the role was introduced, and the instance always keeps at least one Superuser who can sign in (the Local administrator counts only while enabled).
+_Avoid_: Owner, root, super admin
+
+**Admin**:
+The role that runs Requestarr day to day: approves, denies and cancels Requests, handles Issues and matches, and moves people between Requester and Viewer. An Admin cannot change an Admin or a Superuser, and cannot give either role.
+_Avoid_: Administrator (as a role; the Local administrator is an account), moderator
+
 **Viewer**:
 A signed-in user who can browse but cannot create Requests. The default role for a new user.
 _Avoid_: Guest, read-only user
@@ -89,5 +97,5 @@ A Source address that is, by its form alone, on a local or private network: a pr
 _Avoid_: Local server, LAN address
 
 **Local administrator**:
-The single built-in account that signs in with a password instead of through OIDC. It exists so a new instance can be set up, and recovered when OIDC is misconfigured, without an identity provider. It is the only account with a local password and always has the admin role.
-_Avoid_: Root, superuser, default user, local user
+The single built-in account that signs in with a password instead of through OIDC. It exists so a new instance can be set up, and recovered when OIDC is misconfigured, without an identity provider. It is the only account with a local password and always has the Superuser role, which cannot be changed.
+_Avoid_: Root, default user, local user

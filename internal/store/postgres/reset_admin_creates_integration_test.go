@@ -65,7 +65,7 @@ func TestResetAdminPasswordCreatesTheLocalAdministratorWhenMissingIntegration(t 
 	if err != nil || !cred.MustChange || cred.Disabled || strings.Contains(cred.PasswordHash, pw) {
 		t.Fatal("the created credential must force a change and hold only a hash")
 	}
-	if n := count(t, ctx, store, `SELECT count(*) FROM users WHERE builtin AND role='admin' AND id=$1::uuid`, cred.UserID); n != 1 {
+	if n := count(t, ctx, store, `SELECT count(*) FROM users WHERE builtin AND role='superuser' AND id=$1::uuid`, cred.UserID); n != 1 {
 		t.Fatal("the account must be the built-in admin user")
 	}
 	if n := count(t, ctx, store, `SELECT count(*) FROM auth_audit_events WHERE event_type='admin_created' AND user_id=$1::uuid`, cred.UserID); n != 1 {

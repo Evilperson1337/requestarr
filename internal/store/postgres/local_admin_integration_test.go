@@ -76,7 +76,7 @@ func TestFreshInstallCreatesOneBuiltInAdministratorIntegration(t *testing.T) {
 	if err := s.pool.QueryRow(ctx, `SELECT role,oidc_subject,builtin FROM users`).Scan(&role, &subject, &builtin); err != nil {
 		t.Fatalf("operation failed (%T)", err)
 	}
-	if role != "admin" || subject != "local:admin" || !builtin {
+	if role != "superuser" || subject != "local:admin" || !builtin {
 		t.Fatalf("role=%s subject=%s builtin=%v", role, subject, builtin)
 	}
 	cred, err := s.LocalCredentialByUsername(ctx, "admin")
@@ -153,7 +153,7 @@ func TestOnlyOneBuiltInAccountAndUniqueUsernamesIntegration(t *testing.T) {
 	if _, err := s.CreateLocalAdmin(ctx, "pbkdf2-sha256$1$AAAA$AAAA", time.Now()); err != nil {
 		t.Fatalf("operation failed (%T)", err)
 	}
-	if _, err := s.pool.Exec(ctx, `INSERT INTO users(id,oidc_subject,display_name,role,created_at,updated_at,builtin) VALUES($1,'local:other','x','admin',now(),now(),true)`, newUUID()); err == nil {
+	if _, err := s.pool.Exec(ctx, `INSERT INTO users(id,oidc_subject,display_name,role,created_at,updated_at,builtin) VALUES($1,'local:other','x','superuser',now(),now(),true)`, newUUID()); err == nil {
 		t.Fatal("a second built-in account was accepted")
 	}
 	if _, err := s.pool.Exec(ctx, `INSERT INTO auth_audit_events(event_type) VALUES('made_up')`); err == nil {
@@ -172,7 +172,7 @@ func TestBuiltInAdministratorSessionsWorkWithoutAnOIDCIdentityIntegration(t *tes
 		t.Fatalf("operation failed (%T)", err)
 	}
 	u, _, _, err := s.GetSession(ctx, []byte("tok"), now)
-	if err != nil || u.Role != "admin" || !u.MustChange || u.ID != cred.UserID {
+	if err != nil || u.Role != "superuser" || !u.MustChange || u.ID != cred.UserID {
 		t.Fatalf("session user matches=%v must-change=%v errorType=%T", u.ID == cred.UserID, u.MustChange, err)
 	}
 	// Disabling the credential ends the session's usefulness at once.

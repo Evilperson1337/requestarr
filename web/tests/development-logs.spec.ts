@@ -57,7 +57,7 @@ for (const status of [401, 403]) {
                 const path = new URL(route.request().url()).pathname.replace('/api/v1/admin/', '')
                 const denied = () => route.fulfill({ status, json: { error: { code: 'unauthorized', message: 'Authorization lost' } } })
                 if (path === 'sources/jellyfin/sync' || path === 'users/other/role') return denied()
-                if (path === 'users') return route.fulfill({ json: { users: [{ id: 'other', displayName: 'Other user', role: 'viewer' }] } })
+                if (path === 'users') return route.fulfill({ json: { users: [{ id: 'other', displayName: 'Other user', role: 'viewer', roleChoices: ['viewer', 'requester'] }] } })
                 if (path === 'match-suggestions' && fail) return denied()
                 if (path === 'match-suggestions') return route.fulfill({ json: { items: [{ id: 'candidate', catalogTitle: 'Test movie', sourceName: 'Test library', confidence: 'title_year' }] } })
                 if (path === 'match-suggestions/candidate/accept') return denied()

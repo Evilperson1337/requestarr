@@ -14,7 +14,7 @@ import (
 func TestAdministratorCanCreateAndSafelyDisableRecoveryAccountIntegration(t *testing.T) {
 	ctx, s := freshStore(t)
 	actor := integrationUser(t, ctx, s)
-	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, actor); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id=$1`, actor); err != nil {
 		t.Fatal("promote actor failed")
 	}
 	service := auth.AdminManagement{Repo: s, Hasher: fastHasher, OIDCWorking: func() bool { return true }}
@@ -48,8 +48,7 @@ func TestAdministratorCanCreateAndSafelyDisableRecoveryAccountIntegration(t *tes
 		t.Fatal("local status wrong")
 	}
 	// A disabled recovery account does not count as a surviving administrator.
-	other := integrationUser(t, ctx, s)
-	if err := s.ChangeUserRole(ctx, other, actor, "viewer", time.Now()); !errors.Is(err, ErrLastAdmin) {
+	if err := s.ChangeUserRole(ctx, cred.UserID, actor, "viewer", time.Now()); !errors.Is(err, ErrLastSuperuser) {
 		t.Fatal("disabled account must not satisfy last-admin protection")
 	}
 	if err := service.SetDisabled(ctx, actor, false); err != nil {
@@ -61,7 +60,7 @@ func TestAdministratorCanCreateAndSafelyDisableRecoveryAccountIntegration(t *tes
 	if err := service.SetDisabled(ctx, cred.UserID, true); !errors.Is(err, auth.ErrLastLocalAdmin) {
 		t.Fatal("last enabled admin must not be disabled")
 	}
-	if err := s.ChangeUserRole(ctx, other, cred.UserID, "viewer", time.Now()); !errors.Is(err, auth.ErrBuiltinRole) {
+	if err := s.ChangeUserRole(ctx, actor, cred.UserID, "viewer", time.Now()); !errors.Is(err, auth.ErrBuiltinRole) {
 		t.Fatal("built-in admin role must be locked")
 	}
 	// A failed actor audit cannot change the credential state.
@@ -74,7 +73,7 @@ func newManagedInstance(t *testing.T) (context.Context, *Store, string, string) 
 	t.Helper()
 	ctx, s := freshStore(t)
 	other := integrationUser(t, ctx, s)
-	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, other); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id=$1`, other); err != nil {
 		t.Fatal("promote failed")
 	}
 	hash, err := fastHasher.Hash("a password for the local account")
@@ -137,7 +136,7 @@ func TestTheOIDCGuardRunsWhileTheAdminLockIsHeldIntegration(t *testing.T) {
 func TestConcurrentDisablesCannotRemoveTheLastWayInIntegration(t *testing.T) {
 	ctx, s, other, _ := newManagedInstance(t)
 	second := integrationUser(t, ctx, s)
-	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, second); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id=$1`, second); err != nil {
 		t.Fatal("promote failed")
 	}
 	var wg sync.WaitGroup
@@ -149,7 +148,7 @@ func TestConcurrentDisablesCannotRemoveTheLastWayInIntegration(t *testing.T) {
 	go func() { defer wg.Done(); _ = s.ChangeUserRole(ctx, second, other, "viewer", time.Now()) }()
 	go func() { defer wg.Done(); _ = s.ChangeUserRole(ctx, other, second, "viewer", time.Now()) }()
 	wg.Wait()
-	if n := count(t, ctx, s, `SELECT count(*) FROM users u WHERE role='admin' AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`); n < 1 {
+	if n := count(t, ctx, s, `SELECT count(*) FROM users u WHERE role='superuser' AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`); n < 1 {
 		t.Fatal("no enabled administrator left")
 	}
 }

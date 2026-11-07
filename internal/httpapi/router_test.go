@@ -247,8 +247,9 @@ func TestRoleChangeEndpointAcceptsViewerAndReportsGuards(t *testing.T) {
 		{"viewer", `{"role":"viewer"}`, nil, http.StatusNoContent, 1},
 		{"requester", `{"role":"requester"}`, nil, http.StatusNoContent, 1},
 		{"admin", `{"role":"admin"}`, nil, http.StatusNoContent, 1},
+		{"superuser", `{"role":"superuser"}`, nil, http.StatusNoContent, 1},
 		{"unknown role", `{"role":"owner"}`, nil, http.StatusBadRequest, 0},
-		{"last admin", `{"role":"viewer"}`, postgres.ErrLastAdmin, http.StatusConflict, 1},
+		{"last superuser", `{"role":"viewer"}`, postgres.ErrLastSuperuser, http.StatusConflict, 1},
 		{"self", `{"role":"viewer"}`, postgres.ErrAdminSelfRoleChange, http.StatusConflict, 1},
 		{"missing user", `{"role":"viewer"}`, postgres.ErrAdminUserNotFound, http.StatusNotFound, 1},
 	} {

@@ -270,7 +270,17 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			apierror.Write(w, r, 500, "users_failed", "could not load users")
 			return
 		}
-		writeJSON(w, 200, map[string]any{"users": users})
+		// The roles each person may be given by the signed-in role, decided here so the page
+		// never compares role names. Nobody is offered a change to their own role, and the
+		// built-in account's role is fixed.
+		listed := make([]listedUser, len(users))
+		for i, person := range users {
+			listed[i] = listedUser{AdminUser: person, RoleChoices: []domain.Role{}}
+			if !person.Builtin && person.ID != user.ID {
+				listed[i].RoleChoices = domain.Role(user.Role).RoleChoices(domain.Role(person.Role))
+			}
+		}
+		writeJSON(w, 200, map[string]any{"users": listed})
 	})
 	rt.handle("GET /requests/summary", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -294,17 +304,20 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil || !domain.Role(input.Role).Stored() {
-			apierror.Write(w, r, 400, "invalid_role", "role must be viewer, requester or admin")
+			apierror.Write(w, r, 400, "invalid_role", "role must be viewer, requester, admin or superuser")
 			return
 		}
 		err := d.Users.ChangeUserRole(r.Context(), user.ID, id, input.Role, time.Now().UTC())
+		var refused *domain.RoleChangeRefused
 		switch {
 		case errors.Is(err, auth.ErrBuiltinRole):
 			apierror.Write(w, r, 409, "builtin_admin_role", auth.ErrBuiltinRole.Error())
 		case errors.Is(err, postgres.ErrAdminSelfRoleChange):
 			apierror.Write(w, r, 409, "self_role_change", "cannot change your own role")
-		case errors.Is(err, postgres.ErrLastAdmin):
-			apierror.Write(w, r, 409, "last_admin", "cannot remove the last administrator")
+		case errors.Is(err, postgres.ErrLastSuperuser):
+			apierror.Write(w, r, 409, "last_superuser", postgres.ErrLastSuperuser.Error())
+		case errors.As(err, &refused):
+			apierror.Write(w, r, 403, "role_needed", refused.Error())
 		case errors.Is(err, postgres.ErrAdminUserNotFound):
 			apierror.Write(w, r, 404, "user_not_found", "user not found")
 		case err != nil:
@@ -624,4 +637,11 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "same-origin")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// listedUser is a row of the Users list: the stored person and the roles the
+// signed-in role may give them.
+type listedUser struct {
+	postgres.AdminUser
+	RoleChoices []domain.Role `json:"roleChoices"`
 }
