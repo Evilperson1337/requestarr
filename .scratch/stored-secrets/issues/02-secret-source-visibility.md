@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Source badge shown for every secret field
 - [x] Shadowed warning appears on Review and clears when the stored value is cleared

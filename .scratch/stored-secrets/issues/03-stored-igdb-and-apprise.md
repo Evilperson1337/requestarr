@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Both secrets can be set, replaced, cleared and checked (registry, checks, Playwright; no live check against Twitch/Apprise)
 - [x] Validate accepts env URL plus stored Apprise key (unit test of resolution then Validate)

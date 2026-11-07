@@ -21,7 +21,7 @@ Use PostgreSQL plus dev-compose Keycloak. Add mock HTTP servers for TMDB/IGDB/Mu
 make test-integration
 ```
 
-This starts the dev-compose `postgres` service, creates a dedicated `requestarr_test` database (never the application's `requestarr` database), and runs `go test -tags integration ./internal/store/postgres/...`. Without the `integration` tag, or without `REQUESTARR_TEST_DATABASE_URL`, these tests are skipped.
+This starts the dev-compose `postgres` service, creates a database for the run alone, named `requestarr_test_<pid>` (never the application's `requestarr` database), and drops it when the run ends, and runs `go test -tags integration ./internal/store/postgres/...`. Without the `integration` tag, or without `REQUESTARR_TEST_DATABASE_URL`, these tests are skipped.
 
 - If host port 5432 is taken, use `make test-integration REQUESTARR_POSTGRES_PORT=5433`.
 - To use your own disposable database, set `REQUESTARR_TEST_DATABASE_URL`; the target then skips compose and runs against it.
@@ -155,8 +155,8 @@ The Get started checklist (D038) has tests at these seams:
   items, links to Settings, dismissal, no fields on the page, non-superusers never
   seeing it) and the IGDB client ID field.
 
-`make test-integration` drops and recreates the dedicated `requestarr_test`
-database on every run, so fixtures from an earlier run (open music requests that
+`make test-integration` makes a new database (`requestarr_test_<pid>`) for every run
+and drops it afterwards, so two runs at once do not collide and fixtures from an earlier run (open music requests that
 starve the globally limited alias lookup, fixed IDs from earlier tests) cannot
 leak in. A database you name through `REQUESTARR_TEST_DATABASE_URL` is never
 dropped for you; use a fresh disposable one for repeated runs. Never point it at

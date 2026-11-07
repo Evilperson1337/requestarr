@@ -52,15 +52,15 @@ fmt:
 test:
 	go test ./...
 
-# Integration tests use a dedicated requestarr_test database on the dev compose
-# Postgres so they never touch the application's own database. It is dropped and
-# recreated on every run, so fixtures from an earlier run cannot leak into this
-# one. Override REQUESTARR_TEST_DATABASE_URL to target another disposable
-# database instead; that database is never dropped for you.
+# Integration tests run in a database made for the run alone (requestarr_test_<pid>) on
+# the dev compose Postgres, so they never touch the application's own database, fixtures
+# from an earlier run cannot leak in, and two runs at once (two worktrees, two agents) do
+# not collide. It is dropped when the run ends. Override REQUESTARR_TEST_DATABASE_URL to
+# target another disposable database instead; that database is never dropped for you.
 # Set REQUESTARR_POSTGRES_PORT when host port 5432 is already taken.
 REQUESTARR_POSTGRES_PORT ?= 5432
 export REQUESTARR_POSTGRES_PORT
-TEST_DB_URL ?= postgres://requestarr:requestarr@localhost:$(REQUESTARR_POSTGRES_PORT)/requestarr_test?sslmode=disable
+TEST_DB_BASE ?= postgres://requestarr:requestarr@localhost:$(REQUESTARR_POSTGRES_PORT)
 
 test-integration:
 	@set -e; \
@@ -73,10 +73,13 @@ test-integration:
 	    exit 1; \
 	  fi; \
 	  docker compose -f compose.dev.yaml up -d --wait postgres; \
-	  docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -v ON_ERROR_STOP=1 \
-	    -c 'drop database if exists requestarr_test with (force)' -c 'create database requestarr_test'; \
+	  db="requestarr_test_$$$$"; \
+	  psql() { docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -v ON_ERROR_STOP=1 "$$@"; }; \
+	  psql -c "create database $$db"; \
+	  trap 'psql -c "drop database if exists '"$$db"' with (force)" >/dev/null' EXIT; \
+	  REQUESTARR_TEST_DATABASE_URL="$(TEST_DB_BASE)/$$db?sslmode=disable"; export REQUESTARR_TEST_DATABASE_URL; \
 	fi; \
-	REQUESTARR_TEST_DATABASE_URL="$${REQUESTARR_TEST_DATABASE_URL:-$(TEST_DB_URL)}" go test -tags integration -count=1 ./internal/store/postgres/...
+	go test -tags integration -count=1 ./internal/store/postgres/...
 
 check-container:
 	scripts/check-container.sh

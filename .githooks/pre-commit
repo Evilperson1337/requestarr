@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fast local guardrail, installed by `make hooks`. Mirrors the CI Go job without
 # the database: formatting, vet, unit tests, and the web typecheck when web
-# files are staged. Skip once with `git commit --no-verify`.
+# files are staged, the deployment-file check when deploy files or their guides are
+# staged, and the ticket status check when tickets are staged. Skip once with `git commit --no-verify`.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 staged="$(git diff --cached --name-only --diff-filter=ACMR)"
@@ -21,4 +22,10 @@ if grep -qE '\.go$|^api/openapi\.yaml$|^go\.(mod|sum)$' <<<"$staged"; then
 fi
 if grep -q '^web/' <<<"$staged" && [[ -d web/node_modules ]]; then
 	make web-check
+fi
+if grep -qE '^(deploy/|docs/UNRAID\.md$|docs/FIRST_RUN\.md$|scripts/deploy-files-test\.sh$|compose.*\.ya?ml$)' <<<"$staged"; then
+	if docker info >/dev/null 2>&1; then scripts/deploy-files-test.sh; else echo 'pre-commit: no Docker; skipping the deployment-file check (scripts/check.sh runs it)'; fi
+fi
+if grep -q '^\.scratch/.*/issues/' <<<"$staged"; then
+	scripts/check-tickets.sh
 fi

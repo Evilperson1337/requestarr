@@ -719,6 +719,7 @@ p {
     display: flex;
     align-items: center;
     gap: 9px;
+    min-height: 44px;
     color: var(--text)
 }
 

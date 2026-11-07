@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { capabilitiesFor } from './capabilities'
+import { expectTouchTargets } from './touchTargets'
 
 // Automated WCAG 2.x A/AA audit plus a no-horizontal-scroll check of each main
 // page at desktop and phone widths, against a deterministic mocked API.
@@ -39,6 +40,7 @@ async function audit(page: Page) {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     const culprits = overflow > 0 ? await page.evaluate(() => [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().right > document.documentElement.clientWidth + 1).slice(0, 5).map(el => el.tagName.toLowerCase() + '.' + el.className)) : []
     expect(overflow, `horizontal scroll caused by ${culprits.join(', ')}`).toBeLessThanOrEqual(0)
+    if (page.viewportSize()!.width <= 400) await expectTouchTargets(page, 24)
 }
 
 const pages: { name: string; open: (page: Page) => Promise<void> }[] = [

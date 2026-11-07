@@ -7,6 +7,7 @@ Read during review. These are judgement calls; anything a test, `go vet`, gofmt 
 - A fact about a Source kind (its media types, credential fields, env var names, ID, display name) belongs in `internal/sources`, and callers loop over the registry. A test lists the few files allowed to spell a kind's slug; widening that list needs a reason in the diff.
 - A fact about a stored secret (env var, label, noun) belongs in `internal/secrets/registry.go` or the Source kind registry, not in a caller or the web app. The web app renders labels it gets from the API.
 
+- A new caller of an existing guarded operation (a role change, a settings save) extends that operation with a parameter. It does not copy the lock, the guard and the audit write into a second path.
 - A question other modules ask about a service ("is OIDC working?") is one method on the service that owns the state. A caller does not re-derive it from the service's snapshot or fields.
 
 ## HTTP

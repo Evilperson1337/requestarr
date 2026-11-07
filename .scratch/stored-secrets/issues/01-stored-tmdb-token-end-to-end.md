@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Malformed master key fails startup; an absent key is allowed and the UI refuses secret values (config tests; Playwright disabled-field test; startup wiring verified by build, not by a live boot)
 - [x] Round-trip, wrong-key, tampered-ciphertext and key-id tests pass; environment value wins over stored

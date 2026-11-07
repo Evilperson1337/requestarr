@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** done
+**Status:** needs-review
 
 - [ ] One definition of each Source id; a first failed sync then a success keeps the real base_url
 - [ ] Settings shows sync health for Jellyfin, Plex, RomM and Navidrome from one read model

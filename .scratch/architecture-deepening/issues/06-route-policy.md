@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (strict decoding relies on the registry-driven draft types)
 
-**Status:** done
+**Status:** needs-review
 
 - [ ] Missing capability fails at startup, not as an absent route or 503
 - [ ] One test enumerates the table for role and CSRF policy

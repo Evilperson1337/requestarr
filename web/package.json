@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "check": "tsc -b --pretty false && tsc -p tsconfig.tests.json --pretty false",
+    "check": "tsc -b --pretty false && tsc -p tsconfig.tests.json --pretty false && node scripts/check-classnames.mjs",
     "test": "playwright test",
     "preview": "vite preview"
   },

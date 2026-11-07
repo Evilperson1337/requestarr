@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 AGPL-3.0 license and real module path
 
-**Status:** done
+**Status:** needs-review
 
 - [ ] All handlers return the same error shape; none use plain-text errors
 - [ ] Each response includes a request ID that also appears in logs

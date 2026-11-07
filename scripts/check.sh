@@ -4,6 +4,7 @@ scripts/check-node-version.sh
 make fmt
 make test
 make vet
+scripts/check-tickets.sh
 if docker info >/dev/null 2>&1; then scripts/deploy-files-test.sh; else echo 'no Docker; skipping deployment-file check'; fi
 scripts/export-public-test.sh
 # make test-integration starts the dev compose Postgres itself, so Docker is enough.
