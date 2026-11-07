@@ -89,7 +89,7 @@ export type DevelopmentLogEntry = {
 }
 export type DevelopmentLogs = { entries: DevelopmentLogEntry[]; capacity: number }
 
-export type OIDCSettings = { enabled: boolean; providerName: string; issuer: string; clientId: string }
+export type OIDCSettings = { enabled: boolean; providerName: string; issuer: string; clientId: string; scopes: string }
 export type AuthenticationState = {
     state: 'not_configured' | 'saved_only' | 'environment_only' | 'environment_overriding_saved' | 'environment_incomplete'
     missing: string[]; ignored: string[]; differing: string[]; saved: OIDCSettings | null; effective: OIDCSettings

@@ -61,7 +61,8 @@ func TestStatusAndSnapshotDoNotWaitForADiscoveryInFlight(t *testing.T) {
 			done := make(chan error, 1)
 			go func() {
 				if op == "Test" {
-					done <- svc.Test(ctx, update("first"))
+					_, err := svc.Test(ctx, update("first"))
+					done <- err
 				} else {
 					done <- svc.Save(ctx, "admin", update("first"))
 				}
