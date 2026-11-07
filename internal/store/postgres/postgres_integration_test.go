@@ -110,14 +110,14 @@ func TestAdminRoleChangeProtectsLastAdminAndRevokesSessions(t *testing.T) {
 	}
 	admin := integrationUser(t, ctx, s)
 	requester := integrationUser(t, ctx, s)
-	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, admin); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id=$1`, admin); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.ChangeUserRole(ctx, admin, admin, "requester", time.Now().UTC()); !errors.Is(err, ErrAdminSelfRoleChange) {
 		t.Fatalf("self role change error = %v", err)
 	}
 	// Add another administrator and verify session revocation plus atomic audit.
-	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, requester); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id=$1`, requester); err != nil {
 		t.Fatal(err)
 	}
 	csrf := sha256.Sum256([]byte(fmt.Sprintf("csrf-%s", requester)))
@@ -133,14 +133,14 @@ func TestAdminRoleChangeProtectsLastAdminAndRevokesSessions(t *testing.T) {
 		t.Fatal("target session remains valid after role change")
 	}
 	var count int
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM admin_user_audit_events WHERE actor_user_id=$1 AND target_user_id=$2 AND previous_role='admin' AND new_role='requester'`, admin, requester).Scan(&count); err != nil || count != 1 {
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM admin_user_audit_events WHERE actor_user_id=$1 AND target_user_id=$2 AND previous_role='superuser' AND new_role='requester'`, admin, requester).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("audit count=%d err=%v", count, err)
 	}
 	if err := s.ChangeUserRole(ctx, admin, admin, "requester", now); !errors.Is(err, ErrAdminSelfRoleChange) {
 		t.Fatalf("self role change error = %v", err)
 	}
 	otherAdmin := integrationUser(t, ctx, s)
-	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, otherAdmin); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id=$1`, otherAdmin); err != nil {
 		t.Fatal(err)
 	}
 	// Keep another admin in place so demoting the original admin exercises the last-admin guard.
@@ -150,7 +150,7 @@ func TestAdminRoleChangeProtectsLastAdminAndRevokesSessions(t *testing.T) {
 	if err := s.ChangeUserRole(ctx, otherAdmin, admin, "requester", now); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ChangeUserRole(ctx, requester, otherAdmin, "requester", now); !errors.Is(err, ErrLastAdmin) {
+	if err := s.ChangeUserRole(ctx, staleSuperuser(t, ctx, s), otherAdmin, "requester", now); !errors.Is(err, ErrLastSuperuser) {
 		t.Fatalf("last admin error = %v", err)
 	}
 }
@@ -568,7 +568,7 @@ func TestAdminCanDemoteToViewerButNotTheLastAdmin(t *testing.T) {
 	}
 	adminOne := integrationUser(t, ctx, s)
 	adminTwo := integrationUser(t, ctx, s)
-	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id IN ($1,$2)`, adminOne, adminTwo); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id IN ($1,$2)`, adminOne, adminTwo); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
@@ -580,7 +580,7 @@ func TestAdminCanDemoteToViewerButNotTheLastAdmin(t *testing.T) {
 		t.Fatalf("role=%q err=%v", role, err)
 	}
 	var audits int
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM admin_user_audit_events WHERE target_user_id=$1 AND previous_role='admin' AND new_role='viewer'`, adminTwo).Scan(&audits); err != nil || audits != 1 {
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM admin_user_audit_events WHERE target_user_id=$1 AND previous_role='superuser' AND new_role='viewer'`, adminTwo).Scan(&audits); err != nil || audits != 1 {
 		t.Fatalf("audit count=%d err=%v", audits, err)
 	}
 	// adminOne is now the only administrator; another actor cannot demote them to viewer.
@@ -589,10 +589,10 @@ func TestAdminCanDemoteToViewerButNotTheLastAdmin(t *testing.T) {
 	if err := s.CreateSession(ctx, adminOne, token[:], csrf[:], now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ChangeUserRole(ctx, adminTwo, adminOne, "viewer", now); !errors.Is(err, ErrLastAdmin) {
+	if err := s.ChangeUserRole(ctx, staleSuperuser(t, ctx, s), adminOne, "viewer", now); !errors.Is(err, ErrLastSuperuser) {
 		t.Fatalf("last admin demotion error = %v", err)
 	}
-	if err := s.pool.QueryRow(ctx, `SELECT role FROM users WHERE id=$1`, adminOne).Scan(&role); err != nil || role != "admin" {
+	if err := s.pool.QueryRow(ctx, `SELECT role FROM users WHERE id=$1`, adminOne).Scan(&role); err != nil || role != "superuser" {
 		t.Fatalf("last admin role=%q err=%v, want unchanged", role, err)
 	}
 	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM admin_user_audit_events WHERE target_user_id=$1`, adminOne).Scan(&audits); err != nil || audits != 0 {

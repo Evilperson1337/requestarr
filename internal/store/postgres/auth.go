@@ -183,7 +183,7 @@ func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 }
 
 var ErrAdminSelfRoleChange = errors.New("cannot change your own role")
-var ErrLastAdmin = errors.New("cannot remove the last administrator")
+var ErrLastSuperuser = errors.New("cannot remove the last superuser who can sign in")
 var ErrAdminUserNotFound = errors.New("user not found")
 
 func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role string, now time.Time) error {
@@ -201,6 +201,15 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 	if actorID == targetID {
 		return ErrAdminSelfRoleChange
 	}
+	// The actor's role is read here, under the lock, so a refusal never rests on a stale session.
+	var actorRole string
+	err = tx.QueryRow(ctx, `SELECT role FROM users WHERE id=$1`, actorID).Scan(&actorRole)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return &domain.RoleChangeRefused{Needs: domain.RoleAdmin, Reason: "changing a person's role is for administrators"}
+	}
+	if err != nil {
+		return fmt.Errorf("read actor role: %w", err)
+	}
 	var previous string
 	var builtin bool
 	err = tx.QueryRow(ctx, `SELECT role,builtin FROM users WHERE id=$1 FOR UPDATE`, targetID).Scan(&previous, &builtin)
@@ -210,19 +219,22 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 	if err != nil {
 		return fmt.Errorf("read target role: %w", err)
 	}
-	if builtin && !domain.Role(role).CanManageSystem() {
+	if builtin && role != string(domain.RoleSuperuser) {
 		return auth.ErrBuiltinRole
+	}
+	if err = domain.Role(actorRole).CheckRoleChange(domain.Role(previous), domain.Role(role)); err != nil {
+		return err
 	}
 	if previous == role {
 		return tx.Commit(ctx)
 	}
-	if domain.Role(previous).CanManageSystem() && !domain.Role(role).CanManageSystem() {
+	if domain.Role(previous).CanManageAccess() && !domain.Role(role).CanManageAccess() {
 		var count int
-		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users u WHERE role IN (`+domain.SQLRoleList(domain.RolesThatManageSystem())+`) AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`).Scan(&count); err != nil {
-			return fmt.Errorf("count administrators: %w", err)
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users u WHERE role IN (`+domain.SQLRoleList(domain.RolesThatManageAccess())+`) AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`).Scan(&count); err != nil {
+			return fmt.Errorf("count superusers: %w", err)
 		}
 		if count <= 1 {
-			return ErrLastAdmin
+			return ErrLastSuperuser
 		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE users SET role=$2,updated_at=$3 WHERE id=$1`, targetID, role, now); err != nil {
@@ -231,7 +243,7 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 	if _, err = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at=$2 WHERE user_id=$1 AND revoked_at IS NULL`, targetID, now); err != nil {
 		return fmt.Errorf("revoke target sessions: %w", err)
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO admin_user_audit_events(actor_user_id,target_user_id,previous_role,new_role,created_at) VALUES($1,$2,$3,$4,$5)`, actorID, targetID, previous, role, now); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO admin_user_audit_events(actor_user_id,target_user_id,previous_role,new_role,source,created_at) VALUES($1,$2,$3,$4,'manual',$5)`, actorID, targetID, previous, role, now); err != nil {
 		return fmt.Errorf("audit role change: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
