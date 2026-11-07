@@ -255,3 +255,56 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 	}
 	return nil
 }
+
+var _ auth.GroupRoleStore = (*Store)(nil)
+
+// ApplyGroupRole sets a person's role because their groups map to it. It is
+// the group-mapping path of ChangeUserRole: the person is their own actor, no
+// actor-role rule applies, and the audit says why. It ends all the person's
+// sessions and refuses, with auth.ErrLastSuperuser, a change that would leave
+// no superuser who can sign in. The built-in account is never changed. The
+// groups themselves never reach this method.
+func (s *Store) ApplyGroupRole(ctx context.Context, userID string, role domain.Role, now time.Time) error {
+	if !role.Stored() {
+		return fmt.Errorf("invalid role")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin group role change: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, adminRoleAdvisoryLockID); err != nil {
+		return fmt.Errorf("lock role changes: %w", err)
+	}
+	var previous string
+	var builtin bool
+	err = tx.QueryRow(ctx, `SELECT role,builtin FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&previous, &builtin)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrAdminUserNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("read role: %w", err)
+	}
+	if builtin || previous == string(role) {
+		return tx.Commit(ctx)
+	}
+	if domain.Role(previous).CanManageAccess() && !role.CanManageAccess() {
+		var count int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users u WHERE role IN (`+domain.SQLRoleList(domain.RolesThatManageAccess())+`) AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`).Scan(&count); err != nil {
+			return fmt.Errorf("count superusers: %w", err)
+		}
+		if count <= 1 {
+			return ErrLastSuperuser
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE users SET role=$2,updated_at=$3 WHERE id=$1`, userID, string(role), now); err != nil {
+		return fmt.Errorf("update user role: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at=$2 WHERE user_id=$1 AND revoked_at IS NULL`, userID, now); err != nil {
+		return fmt.Errorf("revoke sessions: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO admin_user_audit_events(actor_user_id,target_user_id,previous_role,new_role,source,created_at) VALUES($1,$1,$2,$3,'group_mapping',$4)`, userID, previous, string(role), now); err != nil {
+		return fmt.Errorf("audit group role change: %w", err)
+	}
+	return tx.Commit(ctx)
+}
