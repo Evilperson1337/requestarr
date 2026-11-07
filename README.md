@@ -2,7 +2,7 @@
 
 > **Working title.** Requestarr is a self-hosted shared request and notification portal for movies, TV, music, and games.
 
-Requestarr deliberately stops at **request management, availability reconciliation, and notification**. It does **not** download, acquire, import, rename, or manage media. Users submit a supported metadata URL, Requestarr resolves the item, records one shared request, administrators approve or deny it, connected libraries are periodically reconciled, and subscribed users are notified when the item becomes available.
+Requestarr deliberately stops at **request management, availability reconciliation, and notification**. It does **not** download, acquire, import, rename, or manage media. Users submit a supported metadata URL, Requestarr resolves the item, records one shared request, admins approve or deny it, connected libraries are periodically reconciled, and subscribed users are notified when the item becomes available.
 
 ## V1 at a glance
 
@@ -12,7 +12,7 @@ Requestarr deliberately stops at **request management, availability reconciliati
 - Games dynamically expose the platforms reported by IGDB. Users may choose **Any** or multiple acceptable platforms; any selected platform satisfies the request.
 - Shared **Requests** screen. `My Requests` is only a filter, never a private section.
 - **OIDC** sign-in for everyone, configured in Settings, Authentication, with **Keycloak** as the primary tested/documented provider. One built-in **local administrator** (`admin`) is created on a fresh install so you can set everything up, and recover access, without an identity provider.
-- New OIDC users start as viewers: they can browse and use **Notify Me**; an administrator must promote them to requester to allow request creation. Existing roles are preserved on later logins.
+- Four roles: **superuser** (the owner, everything), **admin** (runs requests day to day, cannot change sign-in, credentials or the admin roles), **requester** and **viewer**. New OIDC users start as viewers: they can browse and use **Notify Me**; an admin promotes them to requester to allow request creation. Optionally, **Assign roles from groups** (off by default) sets roles from the groups in the OIDC ID token. See [`docs/OIDC_AUTH.md`](docs/OIDC_AUTH.md).
 - In-app notifications plus **Apprise API** integration.
 - Sources of truth for availability:
   - Movies/TV: Plex and/or Jellyfin
@@ -83,7 +83,7 @@ To run Requestarr on an Unraid server (template or compose), follow the [Unraid 
 
 For first sign-in and recovery, see [`docs/FIRST_RUN.md`](docs/FIRST_RUN.md): read the one-time password of the built-in local administrator (`admin`) in the container log, sign in at `/login`, choose your own password, set up OIDC in Settings, Authentication, and use `requestarr reset-admin-password` from the server if it is forgotten.
 
-After local administrator sign-in, open **Get started**, a checklist computed from the live state that links to
+After local administrator (superuser) sign-in, open **Get started**, a checklist computed from the live state that links to
 the part of Settings that applies each item; everything there applies live (provider credentials after a
 restart). See the [setup guide](docs/FIRST_RUN.md), [upgrade and backup notes](docs/UPGRADE_AND_BACKUP.md) and [project status](docs/research/PROJECT_STATUS.md).
 

@@ -71,7 +71,7 @@ history exist only in your backup.
 3. Replace the binary or image tag and restart. Watch the log for
    `database ready`; a migration failure is reported before the listener starts.
 4. Check `GET /readyz` and sign in. `GET /api/v1/version` shows the running build.
-5. As an administrator, open **Settings** (operational status) and confirm Sources
+5. As an admin or superuser, open **Settings** (operational status) and confirm Sources
    show a recent successful sync; trigger **Sync now** if you do not want to wait.
    A failed sync never marks previously available items missing.
 
@@ -98,6 +98,6 @@ backup, keep the previous version running, and report the migration error.
 - Job-run history is pruned per Source (newest 200 kept); notifications and audit
   events are retained until you remove them.
 - On a fresh database the local administrator is created at startup; sign in at `/login` with the one-time password from the container log and choose a password. Restoring a backup into an empty database counts as a restore, not a fresh install: the restored users, including the local administrator and its password, come back, and no new account or log line is created.
-- An upgraded instance keeps its users and roles, gets no local administrator automatically and keeps an environment-configured OIDC unchanged. An administrator can create the local administrator in Settings, Authentication. If the instance has no administrator at all, `requestarr reset-admin-password` run from the shell creates it (see below).
+- An upgraded instance keeps its users and roles, gets no local administrator automatically and keeps an environment-configured OIDC unchanged. A superuser can create the local administrator in Settings, Authentication. Every existing admin becomes a superuser when the four-role migration runs (D041), so nobody loses access; requesters and viewers keep their roles, and the OIDC scopes saved for an existing configuration stay `openid profile email`. Mapping roles from groups stays off until a superuser turns it on. If the instance has no superuser at all, `requestarr reset-admin-password` run from the shell creates it (see below).
 - OIDC settings saved in the app (issuer, client ID, provider name, enabled flag and the encrypted client secret) are in the database backup; the secret needs the master key to be read. If it cannot be read, Settings, Authentication says so and the local administrator can still sign in to enter it again.
 - Shell recovery of the local administrator password is `docker exec <container> /requestarr reset-admin-password`; see [First run](FIRST_RUN.md). It also creates the local administrator when it does not exist, which is the way in for an upgraded instance that has users but no administrator (nothing is created automatically on upgrade).

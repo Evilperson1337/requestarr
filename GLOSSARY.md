@@ -9,7 +9,7 @@ The single shared ask for one canonical catalog item. Every user who wants the i
 _Avoid_: Ticket, vote, order
 
 **Requester**:
-The user who first created a Request; subscribed to it automatically.
+The user who first created a Request; subscribed to it automatically. Also a role (shown as the user group in group mapping): browses and makes Requests, and sees no Settings. An Admin or Superuser may make a Request on a Requester's behalf, and the person is then its Requester.
 _Avoid_: Owner
 
 **Subscriber**:
@@ -24,8 +24,15 @@ _Avoid_: Owner, root, super admin
 The role that runs Requestarr day to day: approves, denies and cancels Requests, handles Issues and matches, and moves people between Requester and Viewer. An Admin cannot change an Admin or a Superuser, and cannot give either role.
 _Avoid_: Administrator (as a role; the Local administrator is an account), moderator
 
+**Superuser-only**:
+An action only a Superuser may take: changing how people sign in, the Local administrator, Stored secrets and Source connections, the Get started checklist, and giving or taking the Admin and Superuser roles.
+
+**Group mapping**:
+The optional setting (off by default) that sets a person's role at every sign-in from the groups in their OIDC ID token. The most powerful matching group wins; no match keeps the role. Groups are never stored.
+_Avoid_: Role sync
+
 **Viewer**:
-A signed-in user who can browse but cannot create Requests. The default role for a new user.
+A role: a signed-in user who can browse Libraries, Requests and Issues, use Notify Me and report an Issue but cannot create Requests. The default role for a new user.
 _Avoid_: Guest, read-only user
 
 **Catalog item**:
@@ -97,5 +104,5 @@ A Source address that is, by its form alone, on a local or private network: a pr
 _Avoid_: Local server, LAN address
 
 **Local administrator**:
-The single built-in account that signs in with a password instead of through OIDC. It exists so a new instance can be set up, and recovered when OIDC is misconfigured, without an identity provider. It is the only account with a local password and always has the Superuser role, which cannot be changed.
+The single built-in account that signs in with a password instead of through OIDC. It exists so a new instance can be set up, and recovered when OIDC is misconfigured, without an identity provider. It is the only account with a local password and always has the Superuser role (not Admin), which cannot be changed.
 _Avoid_: Root, default user, local user

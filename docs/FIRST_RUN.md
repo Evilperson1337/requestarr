@@ -22,12 +22,13 @@ the sign-in, and the password would cross the network in clear. Put a TLS
 reverse proxy in front first ([Unraid guide](UNRAID.md)).
 
 An upgrade with existing users creates no local account and preserves their
-roles. Existing administrators retain access, and an OIDC configuration in the
-environment keeps working unchanged. An existing administrator can create the
+roles. Existing administrators become superusers (D041) and retain all access, and an OIDC configuration in the
+environment keeps working unchanged. A superuser can create the
 local administrator later in **Settings, Authentication** with **Create local
 administrator** (the password is shown once and must be changed at first
-sign-in). Other people sign in through OIDC and become administrators only when
-an existing administrator promotes them in **Settings, Users**. There is no
+sign-in). Other people sign in through OIDC and become admins or superusers only when
+a superuser promotes them in **Settings, Users** or an OIDC group mapping you
+switched on says so. There is no
 public administrator-enrollment flow.
 
 ## Recovering a forgotten password
@@ -60,7 +61,7 @@ are no longer read or written by administrator enrollment.
 
 ## The Get started checklist (D038)
 
-After signing in and changing the initial password, an administrator can open **Get started** (`/get-started`). It
+After signing in and changing the initial password, a superuser can open **Get started** (`/get-started`). It
 replaces the seven-step inactive draft wizard that saved values and applied
 nothing. The checklist has no fields of its own: every item is computed from the
 instance's live state and links to the part of Settings that applies it, so no
@@ -71,16 +72,16 @@ value is ever entered twice.
 | Connect a media library | yes | a library is connected and has completed a sync (Settings, Integrations, Media libraries) |
 | Add a metadata provider | yes | a TMDB token (Movies and TV search) or IGDB (Games) is configured; MusicBrainz is always on and does not count (Settings, Integrations, Metadata) |
 | Set up notifications | no | Apprise is configured (Settings, Integrations, Notifications) |
-| Review who can do what | no | an administrator has saved the default role for new people or the approval policy (Settings, Users) |
+| Review who can do what | no | an admin or superuser has saved the default role for new people or the approval policy (Settings, Users) |
 
 - Required and optional items are listed apart, each with a text status ("Done"
   or "To do"), not only a colour.
 - **Dismiss checklist** hides it for the whole instance and is remembered (stored
   in the settings store, `setup.checklist_dismissed`). The nav item **Get started**
-  shows for administrators only, until every required item is done or the
+  shows for superusers only, until every required item is done or the
   checklist is dismissed; the page stays reachable by its address.
 - The API is `GET /api/v1/admin/checklist` and `POST /api/v1/admin/checklist/dismiss`,
-  both administrator-only (the second needs CSRF), documented in `api/openapi.yaml`.
+  both superuser-only (the second needs CSRF), documented in `api/openapi.yaml`.
 - The **IGDB client ID** is a live field in Settings, Integrations, Metadata,
   beside the IGDB secret (`GET`/`PUT /api/v1/admin/settings/igdb`). It applies
   at once, like the secrets (D039). `REQUESTARR_IGDB_CLIENT_ID` still wins; the
@@ -100,7 +101,7 @@ nothing else is carried over. There is no public setup-status endpoint.
 2. On a fresh database, obtain the one-time local administrator password from the startup log (or use your `REQUESTARR_ADMIN_PASSWORD`).
 3. Open `/login`, sign in as `admin`, and choose a new password (**Choose a new password**). Open **Get started** (`/get-started`); each item links to the Settings that applies it.
 4. In **Settings, Authentication**, fill the **OpenID Connect** card (Provider name, Client ID, Issuer, Client secret), register the shown **Redirect address** with your provider, press **Save OIDC settings**, **Test OIDC connection**, then switch on **Enable OIDC**. It applies at once. Never expose the client secret in the browser or commit it; see [OIDC authentication](OIDC_AUTH.md) and the Keycloak example in the [Unraid guide](UNRAID.md).
-5. Sign in once through OIDC with the person who should administer, then in **Settings, Users** promote them. New OIDC sign-ins default to viewer unless **New people** (the default role: viewer or requester) says otherwise; a login never grants admin automatically.
+5. Sign in once through OIDC with the person who should be an owner, then in **Settings, Users** make them a superuser (or an admin for day-to-day running). Or switch on **Assign roles from groups** in the same card so your provider decides (see [OIDC authentication](OIDC_AUTH.md) and the Keycloak steps in the [Unraid guide](UNRAID.md)). New OIDC sign-ins default to viewer unless **New people** (the default role: viewer or requester) says otherwise; a login never grants admin or superuser by default.
 6. For a forgotten local administrator password, use the recovery command above.
 
 If you set `REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID` and
@@ -177,6 +178,6 @@ availability.
 Keep initial and recovery passwords private, including logs, terminal capture
 and CI output. Passwords are hashed at rest. Use HTTPS outside development;
 cookies remain Secure. The local administrator is the sole password account:
-everyone else signs in through OIDC. Roles are granted by an existing admin in
-Settings, Users. OIDC runtime Settings and startup without OIDC are separate
+everyone else signs in through OIDC. Roles are granted by a superuser (an admin may move people between requester and viewer) in
+Settings, Users, or by an explicit group mapping. OIDC runtime Settings and startup without OIDC are separate
 parts of D040; password recovery does not depend on either.
