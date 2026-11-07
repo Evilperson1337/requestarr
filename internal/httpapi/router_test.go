@@ -122,9 +122,9 @@ func TestRouteTablePolicy(t *testing.T) {
 		"POST /requests/{requestID}/transition":  {Access: accessSession, CSRF: true},
 		"POST /admin/sources/{source}/sync":      {Access: accessAdmin, CSRF: true},
 		"PUT /admin/users/{userID}/role":         {Access: accessAdmin, CSRF: true},
-		"POST /admin/checklist/dismiss":          {Access: accessAdmin, CSRF: true},
-		"GET /admin/checklist":                   {Access: accessAdmin},
-		"PUT /admin/settings/igdb":               {Access: accessAdmin, CSRF: true},
+		"POST /admin/checklist/dismiss":          {Access: accessSuperuser, CSRF: true},
+		"GET /admin/checklist":                   {Access: accessSuperuser},
+		"PUT /admin/settings/igdb":               {Access: accessSuperuser, CSRF: true},
 		"POST /auth/logout":                      {Access: accessSession},
 		"GET /auth/login":                        {Access: accessPublic},
 		"GET /version":                           {Access: accessPublic},
@@ -134,7 +134,7 @@ func TestRouteTablePolicy(t *testing.T) {
 	byPattern := map[string]routePolicy{}
 	for _, p := range policies {
 		byPattern[p.Pattern] = p
-		if strings.HasPrefix(p.Pattern, "GET /admin/") && p.Access != accessAdmin || strings.Contains(p.Pattern, " /admin/") && p.Access != accessAdmin {
+		if strings.HasPrefix(p.Pattern, "GET /admin/") && p.Access < accessAdmin || strings.Contains(p.Pattern, " /admin/") && p.Access < accessAdmin {
 			t.Errorf("%s is not administrator-only", p.Pattern)
 		}
 		if mutating(p.Pattern) && p.Access != accessPublic && !p.CSRF && p.Pattern != "POST /auth/logout" {
@@ -247,8 +247,9 @@ func TestRoleChangeEndpointAcceptsViewerAndReportsGuards(t *testing.T) {
 		{"viewer", `{"role":"viewer"}`, nil, http.StatusNoContent, 1},
 		{"requester", `{"role":"requester"}`, nil, http.StatusNoContent, 1},
 		{"admin", `{"role":"admin"}`, nil, http.StatusNoContent, 1},
+		{"superuser", `{"role":"superuser"}`, nil, http.StatusNoContent, 1},
 		{"unknown role", `{"role":"owner"}`, nil, http.StatusBadRequest, 0},
-		{"last admin", `{"role":"viewer"}`, postgres.ErrLastAdmin, http.StatusConflict, 1},
+		{"last superuser", `{"role":"viewer"}`, postgres.ErrLastSuperuser, http.StatusConflict, 1},
 		{"self", `{"role":"viewer"}`, postgres.ErrAdminSelfRoleChange, http.StatusConflict, 1},
 		{"missing user", `{"role":"viewer"}`, postgres.ErrAdminUserNotFound, http.StatusNotFound, 1},
 	} {

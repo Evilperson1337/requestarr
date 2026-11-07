@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
 	"log/slog"
 	"net/http"
@@ -103,7 +104,8 @@ func TestCommonFailureStatusesUseErrorEnvelope(t *testing.T) {
 		{"bad csrf", admin, &roleChangeReadiness{}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "wrong", "http://example.test", 403, "csrf_invalid"},
 		{"bad origin", admin, &roleChangeReadiness{}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "csrf-token", "http://evil.test", 403, "origin_rejected"},
 		{"missing user", admin, &roleChangeReadiness{err: postgres.ErrAdminUserNotFound}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "csrf-token", "http://example.test", 404, "user_not_found"},
-		{"last admin", admin, &roleChangeReadiness{err: postgres.ErrLastAdmin}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "csrf-token", "http://example.test", 409, "last_admin"},
+		{"last superuser", admin, &roleChangeReadiness{err: postgres.ErrLastSuperuser}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "csrf-token", "http://example.test", 409, "last_superuser"},
+		{"role needed", admin, &roleChangeReadiness{err: &domain.RoleChangeRefused{Needs: domain.RoleSuperuser, Reason: "only a superuser can change an admin or a superuser"}}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "csrf-token", "http://example.test", 403, "role_needed"},
 		{"unexpected failure", admin, &roleChangeReadiness{err: errors.New("boom")}, "PUT", "/admin/users/" + target + "/role", `{"role":"viewer"}`, "csrf-token", "http://example.test", 500, "role_change_failed"},
 		{"unknown route", admin, fakeReadiness{}, "GET", "/no-such-route", "", "", "", 404, "not_found"},
 		{"wrong method", admin, fakeReadiness{}, "DELETE", "/version", "", "csrf-token", "http://example.test", 405, "method_not_allowed"},

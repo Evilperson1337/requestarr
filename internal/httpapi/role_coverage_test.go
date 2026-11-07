@@ -39,7 +39,7 @@ func TestEveryMutatingEndpointHasARoleMatrixRow(t *testing.T) {
 		// A route the table makes administrator-only must be an admin row. The
 		// reverse need not hold: a request transition is checked in the
 		// requests service, not at the route.
-		if policy.Access == accessPublic || policy.Access == accessAdmin && row.policy != "admin" {
+		if policy.Access == accessPublic || policy.Access == accessAdmin && row.policy != "admin" || policy.Access == accessSuperuser && row.policy != "superuser" {
 			t.Errorf("%s: matrix policy %q but route access is %v", policy.Pattern, row.policy, policy.Access)
 		}
 	}
@@ -48,4 +48,21 @@ func TestEveryMutatingEndpointHasARoleMatrixRow(t *testing.T) {
 			t.Errorf("matrix row %q no longer matches a registered route", pattern)
 		}
 	}
+}
+
+// The request-on-behalf picker reads the person list as an admin, so that list
+// must stay open to an admin and not move to the superuser-only routes.
+func TestThePersonListThePickerUsesIsOpenToAnAdmin(t *testing.T) {
+	backend := &matrixBackend{t: t}
+	repo := matrixAuthRepo{csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "admin"}}}, backend}
+	_, rt := newRouter(testLogger(), buildinfo.Info{}, backend, backend, backend, backend, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
+	for _, policy := range rt.Policies() {
+		if policy.Pattern == "GET /admin/users" {
+			if policy.Access != accessAdmin {
+				t.Fatalf("GET /admin/users access = %v, want %v", policy.Access, accessAdmin)
+			}
+			return
+		}
+	}
+	t.Fatal("GET /admin/users is not registered")
 }

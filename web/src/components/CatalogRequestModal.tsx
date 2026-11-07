@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { RequesterPicker } from './RequesterPicker'
 import { api, ApiError, type MoviePreviewState, type Selection, type ResolvedItem, type Session } from '../api'
 import { followLink } from '../navigation'
 import { LibraryTags } from './LibraryTags'
@@ -88,7 +89,7 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
     const [noteOpen, setNoteOpen] = useState(false)
     const [any, setAny] = useState(true)
     const [platforms, setPlatforms] = useState<string[]>([])
-    const [preview, setPreview] = useState<MoviePreviewState>(resolved.Preview || { availability: 'unknown', canRequest: session.user.role !== 'viewer', canSubscribe: false })
+    const [preview, setPreview] = useState<MoviePreviewState>(resolved.Preview || { availability: 'unknown', canRequest: session.capabilities.request, canSubscribe: false })
     const [success, setSuccess] = useState('')
     const [authLost, setAuthLost] = useState(false)
     const pending = useRef<AbortController | null>(null)
@@ -121,16 +122,17 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
     }
     function toggle(key: string) { setAny(false); setPlatforms(current => current.includes(key) ? current.filter(x => x !== key) : [...current, key]) }
     const platformsValid = !facts.needsPlatforms || any || platforms.length > 0
-    const canCreate = !authLost && !success && preview.canRequest && !preview.request && preview.availability !== 'available' && session.user.role !== 'viewer'
+    const canCreate = !authLost && !success && preview.canRequest && !preview.request && preview.availability !== 'available' && session.capabilities.request
     const tracks = item.MediaType === 'album' ? resolved.Music?.tracks ?? [] : []
-    const canExtend = !authLost && !success && !!preview.canExtend && tracks.length > 0 && session.user.role !== 'viewer'
+    const canExtend = !authLost && !success && !!preview.canExtend && tracks.length > 0 && session.capabilities.request
     const canSubmit = canCreate || canExtend
+    const [onBehalfOf, setOnBehalfOf] = useState('')
     async function create() {
         if (pending.current || !canSubmit || !platformsValid || !selectionValid) return
         const controller = new AbortController(); pending.current = controller
         setBusy(true); setError('')
         try {
-            const result = await api<{ Created: boolean; Merged?: boolean; Request: { ID: string; Status: string } }>('/requests', { method: 'POST', signal: controller.signal, body: JSON.stringify({ catalogId: item.ID, note, platforms: facts.needsPlatforms ? { any, platformKeys: any ? [] : platforms } : { any: true }, selection: isWhole(selection) ? undefined : selection }) }, session.csrfToken)
+            const result = await api<{ Created: boolean; Merged?: boolean; Request: { ID: string; Status: string } }>('/requests', { method: 'POST', signal: controller.signal, body: JSON.stringify({ catalogId: item.ID, onBehalfOf: onBehalfOf || undefined, note, platforms: facts.needsPlatforms ? { any, platformKeys: any ? [] : platforms } : { any: true }, selection: isWhole(selection) ? undefined : selection }) }, session.csrfToken)
             if (controller.signal.aborted) return
             if (!result?.Request?.ID) throw new Error('The request result could not be confirmed. Retry safely to check the shared Request.')
             setPreview({ availability: preview.availability, canRequest: false, canExtend: false, canSubscribe: !result.Created && !result.Merged && ['requested', 'approved'].includes(result.Request.Status), request: { id: result.Request.ID, status: result.Request.Status, subscribed: result.Created || !!result.Merged } })
@@ -192,8 +194,9 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
                 {!authLost && <section className="movieState" aria-label="Request and availability">
                     {success && <p ref={successMessage} tabIndex={-1} role="status"><strong>{success}</strong></p>}
                     {preview.request && <><p>Shared Request: {preview.request.status}</p><p role="status">{preview.request.subscribed ? 'Notifications On' : 'You are not subscribed to this Request.'}</p></>}
-                    {session.user.role === 'viewer' && !preview.request && <p>Your viewer role cannot create Requests. Ask an administrator to make you a requester.</p>}
+                    {!session.capabilities.request && !preview.request && <p>Your viewer role cannot create Requests. Ask an administrator to make you a requester.</p>}
                 </section>}
+                {canSubmit && <RequesterPicker session={session} value={onBehalfOf} onChange={setOnBehalfOf} disabled={busy} />}
                 {canCreate && <><button className="button secondary" aria-expanded={noteOpen} aria-controls="catalog-note" onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? 'Hide note' : 'Add a note'}</button>{noteOpen && <label className="field" id="catalog-note">Note (optional)<textarea maxLength={2000} value={note} disabled={busy} onChange={event => setNote(event.target.value)} /></label>}</>}
                 {error && <p role="alert" className="error">{error}</p>}
             </div>

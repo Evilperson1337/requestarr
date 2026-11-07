@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { capabilitiesFor } from './capabilities'
 
 const movie = {
     Item: { ID: '11111111-1111-4111-8111-111111111111', MediaType: 'movie', Provider: 'tmdb', Title: 'Fixture movie', Year: 2026, ArtworkURL: '', ArtworkKind: 'poster', ExternalURL: 'https://www.themoviedb.org/movie/1762506' }, Platforms: [],
@@ -10,7 +11,7 @@ const movie = {
 async function openMovie(page: Page, resolved: unknown = movie, role = 'requester') {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'user-1', role, displayName: 'User' }, csrfToken: 'csrf-token' } })
+        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'user-1', role, displayName: 'User' }, capabilities: capabilitiesFor(role), csrfToken: 'csrf-token' } })
         if (path.endsWith('/resolve')) return route.fulfill({ json: resolved })
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })

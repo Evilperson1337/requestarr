@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { capabilitiesFor } from './capabilities'
 
 const box = 'Search or paste a link…'
 const ID = '77777777-7777-4777-8777-777777777777'
@@ -24,7 +25,7 @@ async function open(page: Page, c: (typeof cases)[number], searches: URL[] = [])
     await page.route('**/api/v1/**', async route => {
         const url = new URL(route.request().url())
         const path = url.pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, capabilities: capabilitiesFor('requester'), csrfToken: 'csrf-token' } })
         if (path === '/search/types') return route.fulfill({ json: { types: ['movie_tv', 'game', 'album', 'song', 'audiobook'] } })
         if (path === '/search') { searches.push(url); return route.fulfill({ json: { results: [c.row], hasMore: false } }) }
         if (path === '/resolve') return route.fulfill({ json: c.resolved })
@@ -61,7 +62,7 @@ test('the hero text names the search types offered and the paste path', async ({
 test('the hero text only offers search for the types the server has', async ({ page }) => {
     await page.route('**/api/v1/**', async route => {
         const path = new URL(route.request().url()).pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, capabilities: capabilitiesFor('requester'), csrfToken: 'csrf-token' } })
         if (path === '/search/types') return route.fulfill({ json: { types: ['game'] } })
         return route.fulfill({ json: { items: [], nextCursor: null } })
     })

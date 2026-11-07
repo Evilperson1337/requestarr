@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { capabilitiesFor } from './capabilities'
 
 const kinds = {
     movie: [['video', 'Video'], ['audio', 'Audio'], ['subtitles', 'Subtitles'], ['wrong_item', 'Wrong item'], ['other', 'Other']],
@@ -23,7 +24,7 @@ async function mock(page: Page, role: string, handlers: (path: string, url: URL,
     await page.route('**/api/v1/**', route => {
         const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/api/v1', '')
         const body = request.method() === 'GET' ? undefined : request.postDataJSON?.() ?? undefined
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role, displayName: 'User' }, csrfToken: 'csrf' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role, displayName: 'User' }, capabilities: capabilitiesFor(role), csrfToken: 'csrf' } })
         calls.push({ method: request.method(), path, search: url.search, body })
         const custom = handlers(path, url, request.method(), body)
         if (custom !== undefined) return route.fulfill(custom as any)

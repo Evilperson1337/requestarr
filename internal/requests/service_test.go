@@ -24,6 +24,10 @@ type fakeRepository struct {
 	autoTypes    []domain.MediaType
 	autoErr      error
 	awaiting     int
+
+	userRoles         map[string]string
+	subscribedUser    string
+	subscribedRequest string
 }
 
 func (f *fakeRepository) AutoApproveTypes(context.Context) ([]domain.MediaType, error) {
@@ -63,7 +67,12 @@ func (f *fakeRepository) CatalogPlatforms(context.Context, string) ([]domain.Pla
 func (f *fakeRepository) Transition(_ context.Context, in TransitionInput) (domain.Request, bool, error) {
 	return domain.Request{ID: in.RequestID, Status: in.ToStatus, Version: in.ExpectedVersion + 1}, true, nil
 }
-func (f *fakeRepository) Subscribe(context.Context, string, string) (bool, error) {
+func (f *fakeRepository) UserRole(_ context.Context, id string) (string, bool, error) {
+	role, ok := f.userRoles[id]
+	return role, ok, nil
+}
+func (f *fakeRepository) Subscribe(_ context.Context, requestID, userID string) (bool, error) {
+	f.subscribedRequest, f.subscribedUser = requestID, userID
 	if f.subscribeErr != nil {
 		return false, f.subscribeErr
 	}

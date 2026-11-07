@@ -118,7 +118,7 @@ for snapshot limits and error codes.
 - If leaving would cancel an open request because you are its last subscriber,
   the server asks for explicit confirmation. Declining leaves it unchanged.
   With other subscribers, leaving only removes your subscription.
-- Only admins see **Approve**, **Deny**, and **Cancel request** where permitted
+- Only admins and superusers see **Approve**, **Deny**, and **Cancel request** where permitted
   by the lifecycle. Admin cancellation explicitly confirms that it affects
   everyone. Closed requests cannot be cancelled again.
 

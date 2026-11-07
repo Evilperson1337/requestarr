@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 )
 
@@ -30,6 +31,19 @@ type Settings struct {
 	ProviderName string `json:"providerName"`
 	Issuer       string `json:"issuer"`
 	ClientID     string `json:"clientId"`
+	// Scopes is the space-separated list requested at sign-in; openid is
+	// always first. It is not a secret.
+	Scopes string `json:"scopes"`
+	// AssignRolesFromGroups lets the groups in the ID token decide a person's
+	// role at every sign-in. It is off until an operator turns it on. The group
+	// names are not secrets; blank means the default (groups, owner, admin,
+	// user, viewer). No person's groups are ever stored.
+	AssignRolesFromGroups bool   `json:"assignRolesFromGroups"`
+	GroupsClaim           string `json:"groupsClaim"`
+	OwnerGroup            string `json:"ownerGroup"`
+	AdminGroup            string `json:"adminGroup"`
+	UserGroup             string `json:"userGroup"`
+	ViewerGroup           string `json:"viewerGroup"`
 }
 type Update struct {
 	Settings
@@ -55,6 +69,8 @@ type Factory func(context.Context, Values, string) (oidc.Provider, error)
 type Snapshot struct {
 	Provider             oidc.Provider
 	Issuer, ProviderName string
+	// Groups is how the person's groups decide their role at sign-in.
+	Groups domain.GroupMapping
 }
 type Options struct {
 	OIDCEnabled  bool   `json:"oidcEnabled"`
@@ -126,7 +142,7 @@ func New(ctx context.Context, repo Repository, sealer secrets.Sealer, env Values
 	s := &Service{repo: repo, sealer: sealer, env: env, redirect: strings.TrimRight(publicURL, "/") + "/api/v1/auth/callback", factory: factory}
 	if factory == nil {
 		s.factory = func(ctx context.Context, v Values, redirect string) (oidc.Provider, error) {
-			return oidc.New(ctx, oidc.Config{Issuer: v.Issuer, ClientID: v.ClientID, ClientSecret: v.ClientSecret}, redirect)
+			return oidc.New(ctx, oidc.Config{Issuer: v.Issuer, ClientID: v.ClientID, ClientSecret: v.ClientSecret, Scopes: ScopeList(v), GroupsClaim: v.GroupsClaim}, redirect)
 		}
 	}
 	s.cur.Store(&Snapshot{})
@@ -141,12 +157,15 @@ func New(ctx context.Context, repo Repository, sealer secrets.Sealer, env Values
 		if err != nil {
 			s.problem = err.Error()
 		} else {
-			s.cur.Store(&Snapshot{Provider: p, Issuer: v.Issuer, ProviderName: name})
+			s.cur.Store(&Snapshot{Provider: p, Issuer: v.Issuer, ProviderName: name, Groups: effectiveMapping(s.env != (Values{}), s.record)})
 		}
 	}
 	return s, nil
 }
 func (s *Service) Snapshot() *Snapshot { return s.cur.Load() }
+
+// GroupMapping is how groups decide roles at sign-in right now.
+func (s *Service) GroupMapping() domain.GroupMapping { return s.Snapshot().Groups }
 func (s *Service) Options() Options {
 	return Options{OIDCEnabled: s.OIDCWorking(), ProviderName: s.Snapshot().ProviderName}
 }
@@ -159,7 +178,7 @@ func (s *Service) savedValues() (*Values, bool) {
 	if s.record == nil {
 		return nil, false
 	}
-	v := &Values{Issuer: s.record.Settings.Issuer, ClientID: s.record.Settings.ClientID}
+	v := &Values{Issuer: s.record.Settings.Issuer, ClientID: s.record.Settings.ClientID, Scopes: s.record.Settings.Scopes, GroupsClaim: s.record.Settings.GroupsClaim}
 	unreadable := false
 	if s.record.Secret != nil {
 		if s.sealer == nil {
@@ -192,12 +211,27 @@ func (s *Service) Status(context.Context) (Status, error) {
 	saved, unreadable := s.savedValues()
 	r := Resolve(s.env, saved)
 	v, enabled, name := s.effective()
-	st := Status{Resolution: r, Effective: Settings{Enabled: enabled, ProviderName: name, Issuer: v.Issuer, ClientID: v.ClientID}, SecretConfigured: v.ClientSecret != "", SecretUnreadable: unreadable, CanSaveSecret: s.sealer != nil, ReadOnly: s.env != (Values{}), RedirectURI: s.redirect, Working: s.OIDCWorking(), Problem: s.problem}
+	eff := showGroups(Settings{Enabled: enabled, ProviderName: name, Issuer: v.Issuer, ClientID: v.ClientID, Scopes: effectiveScopes(s.env != (Values{}), s.record, v)}, effectiveMapping(s.env != (Values{}), s.record))
+	st := Status{Resolution: r, Effective: eff, SecretConfigured: v.ClientSecret != "", SecretUnreadable: unreadable, CanSaveSecret: s.sealer != nil, ReadOnly: s.env != (Values{}), RedirectURI: s.redirect, Working: s.OIDCWorking(), Problem: s.problem}
 	if s.record != nil {
 		copy := s.record.Settings
 		st.Saved = &copy
 	}
 	return st, nil
+}
+
+// effectiveScopes is what the page shows: the environment and a configuration
+// saved before scopes existed request the legacy list, a new setup the default.
+func effectiveScopes(fromEnv bool, record *Record, v Values) string {
+	switch {
+	case fromEnv:
+		return LegacyScopes
+	case record == nil:
+		return DefaultScopes
+	case v.Scopes == "":
+		return LegacyScopes
+	}
+	return v.Scopes
 }
 func validText(v string, max int) bool {
 	return utf8.ValidString(v) && len(v) <= max && strings.TrimSpace(v) == v && !strings.ContainsFunc(v, unicode.IsControl)
@@ -232,8 +266,10 @@ func (s *Service) candidate(u Update) (Values, error) {
 	if secret == "" && unreadable {
 		return Values{}, secrets.ErrUnreadable
 	}
-	v := Values{Issuer: u.Issuer, ClientID: u.ClientID, ClientSecret: secret}
-	if !valid(v, u.ProviderName) {
+	scopes, ok := NormalizeScopes(u.Scopes)
+	g, gok := withGroupDefaults(u.Settings)
+	v := Values{Issuer: u.Issuer, ClientID: u.ClientID, ClientSecret: secret, Scopes: scopes, GroupsClaim: g.GroupsClaim}
+	if !ok || !gok || !valid(v, u.ProviderName) {
 		return Values{}, ErrInvalid
 	}
 	return v, nil
@@ -243,7 +279,10 @@ func (s *Service) candidate(u Update) (Values, error) {
 //
 // It changes nothing, so it takes no writer lock, and it reads the saved state
 // only briefly: the discovery itself runs with no lock held.
-func (s *Service) Test(ctx context.Context, u Update) error {
+//
+// A passing test may still return warnings: things the discovery document
+// suggests will not work, which do not stop OIDC from being used.
+func (s *Service) Test(ctx context.Context, u Update) ([]string, error) {
 	var v Values
 	var err error
 	if s.env != (Values{}) {
@@ -253,11 +292,14 @@ func (s *Service) Test(ctx context.Context, u Update) error {
 		v, err = s.candidate(u)
 		s.stateMu.RUnlock()
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-	_, err = s.discover(ctx, v)
-	return err
+	p, err := s.discover(ctx, v)
+	if err != nil {
+		return nil, err
+	}
+	return scopeWarnings(p, v), nil
 }
 func (s *Service) Save(ctx context.Context, actor string, u Update) error {
 	s.writeMu.Lock()
@@ -288,6 +330,8 @@ func (s *Service) save(ctx context.Context, actor string, u Update) error {
 		}
 	}
 	previous, _ := s.savedValues()
+	u.Scopes = v.Scopes
+	u.Settings, _ = withGroupDefaults(u.Settings) // candidate already refused anything unsafe
 	unchanged := s.record != nil && s.record.Settings == u.Settings && previous != nil && *previous == v
 	record := s.record
 	if !unchanged {
@@ -314,7 +358,7 @@ func (s *Service) save(ctx context.Context, actor string, u Update) error {
 	s.stateMu.Unlock()
 	snap := &Snapshot{}
 	if p != nil {
-		snap = &Snapshot{Provider: p, Issuer: v.Issuer, ProviderName: u.ProviderName}
+		snap = &Snapshot{Provider: p, Issuer: v.Issuer, ProviderName: u.ProviderName, Groups: mappingOf(u.Settings)}
 	}
 	s.cur.Store(snap)
 	return nil
@@ -349,6 +393,9 @@ func (s *Service) SetEnabled(ctx context.Context, actor string, enabled bool) er
 	}
 	u := Update{Settings: s.record.Settings}
 	u.Enabled = enabled
+	if u.Scopes == "" {
+		u.Scopes = LegacyScopes // saved before scopes existed: enabling changes nothing else
+	}
 	return s.save(ctx, actor, u)
 }
 func (s *Service) Discard(ctx context.Context, actor string) error {

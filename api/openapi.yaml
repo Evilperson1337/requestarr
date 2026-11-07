@@ -9,6 +9,10 @@ info:
     A session of the local administrator who has not yet chosen their own password (mustChangePassword
     on /auth/me) gets 403 password_change_required from every route except /auth/me, /auth/logout and
     /auth/local/password (D040).
+    Access levels: public, any signed-in session, administrator (admin or superuser), and
+    superuser only. An operation marked x-required-role: superuser answers 403 forbidden with the
+    message "the superuser role is required" to everyone else, an administrator included; an
+    administrator route answers "the admin role is required" below that.
     Initial contract scaffold. Keep this synchronized with implemented handlers and
     generate clients/types only after endpoint semantics are reviewed.
 servers:
@@ -16,8 +20,9 @@ servers:
 paths:
   /admin/settings/authentication/local-administrator:
     get:
+      x-required-role: superuser
       operationId: getLocalAdministratorStatus
-      summary: Admin-only recovery-account presence, disabled state and disable eligibility
+      summary: Superuser-only recovery-account presence, disabled state and disable eligibility
       responses:
         '200':
           description: Local administrator status; Cache-Control no-store
@@ -25,8 +30,9 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LocalAdministratorStatus' }
         '401': { description: Authentication required }
-        '403': { description: Administrator required }
+        '403': { description: The superuser role is required }
     post:
+      x-required-role: superuser
       operationId: createLocalAdministrator
       summary: Explicitly create the single recovery account on an upgraded instance
       description: Requires same-origin and session CSRF. Returns the generated password exactly once; the account must change it on first sign-in. Never resets an existing credential and never logs the password.
@@ -54,6 +60,7 @@ paths:
         '500': { description: Creation or audit failed; no credential returned }
   /admin/settings/authentication/local-administrator/disabled:
     put:
+      x-required-role: superuser
       operationId: setLocalAdministratorDisabled
       summary: Enable or disable the recovery account without changing its password
       description: Requires same-origin and session CSRF. Disabling requires another enabled administrator AND a working OIDC sign-in, and revokes all local sessions atomically with the audit event. A disabled account never satisfies last-admin protection.
@@ -97,8 +104,9 @@ paths:
               schema: { $ref: '#/components/schemas/SignInOptions' }
   /admin/settings/authentication:
     get:
+      x-required-role: superuser
       operationId: getAuthenticationSettings
-      summary: Admin-only OIDC state, source conflicts, saved metadata and redirect URI
+      summary: Superuser-only OIDC state, source conflicts, saved metadata and redirect URI
       responses:
         '200':
           description: Local runtime state; no provider network request; Cache-Control no-store
@@ -106,10 +114,11 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AuthenticationSettings' }
         '401': { description: Authentication required }
-        '403': { description: Administrator required }
+        '403': { description: The superuser role is required }
     put:
+      x-required-role: superuser
       operationId: saveAuthenticationSettings
-      summary: Admin-only atomic save and runtime apply
+      summary: Superuser-only atomic save and runtime apply
       description: >-
         Requires same-origin and session CSRF. A non-empty clientSecret replaces the encrypted secret;
         omitted or empty retains it. REQUESTARR_SECRETS_KEY is required for replacement. Enabled
@@ -139,8 +148,9 @@ paths:
         '422': { description: Invalid settings, unreadable secret or discovery failed }
         '500': { description: Persistence failed; previous configuration retained }
     delete:
+      x-required-role: superuser
       operationId: discardAuthenticationSettings
-      summary: Admin-only discard of saved settings and encrypted secret
+      summary: Superuser-only discard of saved settings and encrypted secret
       description: Requires same-origin and session CSRF. Does not change an environment-controlled provider.
       parameters:
         - in: header
@@ -158,8 +168,9 @@ paths:
         '500': { description: Persistence failed; previous configuration retained }
   /admin/settings/authentication/test:
     post:
+      x-required-role: superuser
       operationId: testAuthenticationSettings
-      summary: Admin-only bounded OIDC discovery; does not save or publish
+      summary: Superuser-only bounded OIDC discovery; does not save or publish
       description: Requires same-origin and session CSRF. Environment values are tested as a unit when present. Discovery checks metadata, not client credentials or a complete login.
       parameters:
         - in: header
@@ -176,15 +187,22 @@ paths:
           description: Discovery passed
           content:
             application/json:
-              schema: { type: object, additionalProperties: false, required: [ok], properties: { ok: { type: boolean, const: true } } }
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ok, warnings]
+                properties:
+                  ok: { type: boolean, const: true }
+                  warnings: { type: array, items: { type: string }, description: 'Things discovery suggests will not work that do not stop OIDC being used, such as the groups scope being requested but not listed by the provider' }
         '400': { description: Invalid JSON or body exceeds 8192 bytes }
         '401': { description: Authentication required }
         '403': { description: Administrator, Origin and CSRF required }
         '422': { description: Invalid settings, unreadable secret or discovery failed }
   /admin/settings/authentication/enabled:
     put:
+      x-required-role: superuser
       operationId: setAuthenticationEnabled
-      summary: Admin-only enable or disable without losing saved settings
+      summary: Superuser-only enable or disable without losing saved settings
       description: Requires same-origin and session CSRF. Enabling re-runs discovery before publishing. Environment-controlled settings are read-only. Turning OIDC off is refused with 409 oidc_is_only_sign_in while the local administrator is disabled.
       parameters:
         - in: header
@@ -234,9 +252,19 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [user, csrfToken, mustChangePassword, localAdministrator]
+                required: [user, csrfToken, mustChangePassword, localAdministrator, capabilities]
                 properties:
-                  user: { type: object }
+                  user: { type: object, description: 'id, role (viewer, requester, admin or superuser), email and displayName' }
+                  capabilities:
+                    type: object
+                    additionalProperties: false
+                    required: [request, manageRequests, manageSystem, manageAccess]
+                    description: What the role may do, derived on the server. The web app decides what to show from these and never compares role names.
+                    properties:
+                      request: { type: boolean, description: May create and extend requests }
+                      manageRequests: { type: boolean, description: May approve, deny and cancel requests and handle issues }
+                      manageSystem: { type: boolean, description: May use Settings and the administrative surface (admin and superuser) }
+                      manageAccess: { type: boolean, description: 'May do what only the owner may: sign-in, credentials, connections, the Get started checklist, and giving or taking the admin and superuser roles (superuser only)' }
                   csrfToken: { type: string }
                   mustChangePassword:
                     type: boolean
@@ -532,7 +560,7 @@ paths:
                   items:
                     type: array
                     maxItems: 100
-                    description: Existing request objects, including availability, subscription state, and CatalogPlatforms
+                    description: Existing request objects, including availability, subscription state, and CatalogPlatforms. A request made by an administrator for the requester also carries madeOnBehalfBy (that administrator's user ID) and madeOnBehalfByName.
                     items: { type: object }
                   nextCursor: { type: [string, 'null'] }
         '400': { description: invalid_query for unknown, repeated, malformed, or out-of-range parameters; invalid_cursor for malformed, tampered, cross-user, or query-mismatched cursors }
@@ -555,6 +583,7 @@ paths:
                 catalogId: { type: string, format: uuid }
                 url: { type: string, maxLength: 2048, description: Supported TMDB, MusicBrainz, IGDB or Audible metadata URL, or a bare audiobook ASIN. Mutually exclusive with catalogId. }
                 note: { type: string, maxLength: 2000 }
+                onBehalfOf: { type: string, format: uuid, description: Make the request for this person (administrator or superuser only; any other role gets 403). The person becomes the requester with subscription source requester, is notified, and the approval policy applies as if they asked; the request records who acted. If the item already has a request the person is subscribed to it instead. The person must exist and be able to make requests (400 invalid_request otherwise). }
                 platforms:
                   type: object
                   required: [any]
@@ -567,7 +596,7 @@ paths:
         '200': { description: Existing shared request returned. When it was open and the selection added to it, Merged is true, the selection was widened (never narrowed) and the caller now follows it. }
         '400': { description: Invalid request }
         '409': { description: already_available; a library already has the item and no Request exists, so none is created }
-        '403': { description: User role cannot create requests }
+        '403': { description: 'The requester role or higher is required to create a request, and the admin role to make one on behalf of someone else; the message names the role' }
         '401': { description: Authentication required }
   /admin/sources/{source}/sync:
     post:
@@ -733,16 +762,17 @@ paths:
       summary: List users and their roles (administrator only)
       responses:
         '200':
-          description: Users with id, email, displayName, role (viewer, requester or admin), builtin and createdAt; the local administrator is listed first with builtin true
+          description: Users with id, email, displayName, role (viewer, requester, admin or superuser), builtin and createdAt; the local administrator is listed first with builtin true
           content:
             application/json:
               schema:
                 type: object
-                required: [users]
+                required: [users, rolesFromGroups]
                 properties:
                   users:
                     type: array
                     items: { $ref: '#/components/schemas/AdminUser' }
+                  rolesFromGroups: { type: boolean, description: 'True while Assign roles from groups is on and OIDC is working, so a manual role change is overridden at the person''s next sign-in if their groups map to a role' }
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
   /admin/settings/people:
@@ -829,14 +859,14 @@ paths:
               additionalProperties: false
               required: [role]
               properties:
-                role: { type: string, enum: [viewer, requester, admin] }
+                role: { type: string, enum: [viewer, requester, admin, superuser] }
       responses:
         '204': { description: Role changed, or already set }
         '400': { description: Invalid user ID or role }
         '401': { description: Authentication required }
-        '403': { description: Administrator role required }
+        '403': { description: "Role too low (code role_needed, the message names the role needed): a superuser may set anyone to any of the four roles; an admin may move a person only between requester and viewer and may not change an admin or a superuser; a requester or viewer may change nobody. CSRF failures also answer 403." }
         '404': { description: User not found }
-        '409': { description: "Cannot change your own role (self_role_change), cannot demote the last administrator (last_admin), or the target is the local administrator, whose role is always admin and is refused even for admin (builtin_admin_role); nothing is changed" }
+        '409': { description: "Cannot change your own role (self_role_change), cannot demote the last superuser who can sign in (last_superuser; the local administrator counts only while enabled), or the target is the local administrator, whose role is fixed at superuser and is refused even for a superuser (builtin_admin_role); nothing is changed" }
   /library/recent:
     get:
       operationId: listRecentlyAddedToLibraries
@@ -1090,8 +1120,9 @@ paths:
         '502': { description: artwork_unavailable }
   /admin/library-connections:
     get:
+      x-required-role: superuser
       operationId: listLibraryConnections
-      summary: Where each library Source lives, with its credential status (administrator only)
+      summary: Where each library Source lives, with its credential status (superuser only)
       description: >-
         D028. Lists Jellyfin, Plex, RomM, Navidrome and Audiobookshelf with their saved address, whether the
         address comes from an environment variable (which wins and cannot be changed here),
@@ -1119,8 +1150,9 @@ paths:
         required: true
         schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
     put:
+      x-required-role: superuser
       operationId: saveLibraryConnection
-      summary: Save a Source's address, username and credential in one request and apply it (administrator only)
+      summary: Save a Source's address, username and credential in one request and apply it (superuser only)
       description: >-
         Stores the address (and username) and any credentials in one database transaction, then
         rebuilds the Source's sync once from the environment, the saved address and the stored
@@ -1156,8 +1188,9 @@ paths:
         '409': { description: set_by_environment or secrets_disabled }
         '422': { description: invalid_connection, invalid_secret_value or invalid_credential }
     delete:
+      x-required-role: superuser
       operationId: removeLibraryConnection
-      summary: Remove a saved address and stop the Source's sync (administrator only)
+      summary: Remove a saved address and stop the Source's sync (superuser only)
       description: >-
         Deletes the saved address; the Source stops syncing unless an environment address
         remains. Inventory already observed is kept. Requires CSRF and a same-origin Origin header.
@@ -1182,8 +1215,9 @@ paths:
         required: true
         schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
     post:
+      x-required-role: superuser
       operationId: testLibraryConnection
-      summary: Probe a Source with its current address and credentials (administrator only)
+      summary: Probe a Source with its current address and credentials (superuser only)
       description: >-
         An explicit check of this exact Source: one short read-only request, the same probe the
         library checks use. The message never contains a credential. Requires CSRF and a
@@ -1210,8 +1244,9 @@ paths:
         '404': { description: unknown_source }
   /admin/secrets:
     get:
+      x-required-role: superuser
       operationId: listStoredSecrets
-      summary: Stored integration secrets, write-only status (administrator only)
+      summary: Stored integration secrets, write-only status (superuser only)
       description: >-
         D024. Lists each registered secret with whether it is configured, where its effective
         value comes from, and whether a change waits for a restart. The TMDB token, IGDB client secret and Apprise key, like library credentials, apply when saved and so never wait. Values and ciphertext are
@@ -1240,8 +1275,9 @@ paths:
         required: true
         schema: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token, audiobookshelf_api_key] }
     put:
+      x-required-role: superuser
       operationId: setStoredSecret
-      summary: Save or replace a stored secret (administrator only)
+      summary: Save or replace a stored secret (superuser only)
       description: >-
         Encrypts the value with the master key (AES-256-GCM) and stores it with the key id.
         Available before and after setup Finish. The value is never returned, logged, audited or
@@ -1273,8 +1309,9 @@ paths:
         '422': { description: "invalid_secret_value" }
         '500': { description: "secret_update_failed (safe generic message), or settings_not_applied (saved, but the previous configuration is still in use)" }
     delete:
+      x-required-role: superuser
       operationId: clearStoredSecret
-      summary: Clear a stored secret (administrator only)
+      summary: Clear a stored secret (superuser only)
       description: >-
         Deletes the stored value (also when the master key is missing or wrong). Records a
         value-free audit event in the same transaction. Clearing an absent secret is a no-op.
@@ -1292,8 +1329,9 @@ paths:
         '500': { description: "secret_update_failed (safe generic message), or settings_not_applied (cleared, but the previous configuration is still in use)" }
   /admin/checklist:
     get:
+      x-required-role: superuser
       operationId: getChecklist
-      summary: The Get started checklist, computed from live state (administrator only, D038)
+      summary: The Get started checklist, computed from live state (superuser only, D038)
       description: >-
         Takes no input. Each item is derived from what the instance is configured with:
         a library connected and synced, a metadata provider (TMDB or IGDB; MusicBrainz
@@ -1327,8 +1365,9 @@ paths:
         '500': { description: "checklist_failed" }
   /admin/checklist/dismiss:
     post:
+      x-required-role: superuser
       operationId: dismissChecklist
-      summary: Dismiss the Get started checklist for the whole instance (administrator only)
+      summary: Dismiss the Get started checklist for the whole instance (superuser only)
       parameters:
         - in: header
           name: X-CSRF-Token
@@ -1341,8 +1380,9 @@ paths:
         '500': { description: "checklist_failed" }
   /admin/settings/igdb:
     get:
+      x-required-role: superuser
       operationId: getIgdbSettings
-      summary: The non-secret IGDB client ID (administrator only)
+      summary: The non-secret IGDB client ID (superuser only)
       description: >-
         Responses use Cache-Control no-store. The client secret is a stored secret
         (see /admin/secrets/{name}); only the client ID is a plain setting.
@@ -1356,8 +1396,9 @@ paths:
         '403': { description: Administrator role required }
         '500': { description: "igdb_settings_failed" }
     put:
+      x-required-role: superuser
       operationId: setIgdbSettings
-      summary: Save the IGDB client ID (administrator only)
+      summary: Save the IGDB client ID (superuser only)
       description: >-
         Applies at once, like the TMDB token and IGDB secret (D039). An empty value clears it.
         An installation upgraded from the retired setup draft keeps the client ID it saved
@@ -1584,14 +1625,20 @@ components:
     AdminUser:
       type: object
       additionalProperties: false
-      required: [id, email, displayName, role, builtin, createdAt]
+      required: [id, email, displayName, role, builtin, canRequest, roleFromGroups, createdAt, roleChoices]
       properties:
         id: { type: string, format: uuid }
         email: { type: string }
         displayName: { type: string }
-        role: { type: string, enum: [viewer, requester, admin] }
-        builtin: { type: boolean, description: True only for the local administrator, whose role is locked to admin }
+        role: { type: string, enum: [viewer, requester, admin, superuser] }
+        builtin: { type: boolean, description: True only for the local administrator, whose role is locked to superuser }
+        canRequest: { type: boolean, description: Whether a request can be made for this person (the request modal person picker offers only these) }
+        roleFromGroups: { type: boolean, description: 'True when the last change to this person''s role was made by their groups at sign-in (audit source group_mapping); a later manual change clears it. No group names are ever returned' }
         createdAt: { type: string, format: date-time }
+        roleChoices:
+          type: array
+          description: The roles the signed-in role may give this person, weakest first. Empty for the signed-in person, the local administrator, and anyone the signed-in role may not change (an admin cannot change an admin or a superuser). The page offers exactly these.
+          items: { type: string, enum: [viewer, requester, admin, superuser] }
     SignInOptions:
       type: object
       additionalProperties: false
@@ -1602,21 +1649,35 @@ components:
     OIDCSettings:
       type: object
       additionalProperties: false
-      required: [enabled, providerName, issuer, clientId]
+      required: [enabled, providerName, issuer, clientId, scopes, assignRolesFromGroups, groupsClaim, ownerGroup, adminGroup, userGroup, viewerGroup]
       properties:
         enabled: { type: boolean }
         providerName: { type: string, maxLength: 100 }
         issuer: { type: string, maxLength: 2048 }
         clientId: { type: string, maxLength: 512 }
+        scopes: { type: string, maxLength: 1024, description: 'Space-separated OIDC scopes requested at sign-in; openid is always first. A new setup defaults to "openid profile email groups"; a configuration saved before this setting, and an environment configuration, request "openid profile email"' }
+        assignRolesFromGroups: { type: boolean, description: 'Let the groups in the ID token decide the person''s role at every sign-in. Off by default and for configurations saved before this setting, because turning it on can change roles' }
+        groupsClaim: { type: string, maxLength: 200, description: 'ID-token claim that holds the groups (a list of text values or one text value). Blank saves as groups' }
+        ownerGroup: { type: string, maxLength: 200, description: 'Group that makes a person a superuser. Blank saves as owner' }
+        adminGroup: { type: string, maxLength: 200, description: 'Group that makes a person an admin. Blank saves as admin' }
+        userGroup: { type: string, maxLength: 200, description: 'Group that makes a person a requester. Blank saves as user' }
+        viewerGroup: { type: string, maxLength: 200, description: 'Group that makes a person a viewer. Blank saves as viewer. The most powerful matching group wins; matching ignores letter case and one leading slash' }
     AuthenticationSettingsUpdate:
       type: object
       additionalProperties: false
-      required: [enabled, providerName, issuer, clientId]
+      required: [enabled, providerName, issuer, clientId, scopes]
       properties:
         enabled: { type: boolean }
         providerName: { type: string, minLength: 1, maxLength: 100 }
         issuer: { type: string, format: uri, maxLength: 2048 }
         clientId: { type: string, minLength: 1, maxLength: 512 }
+        scopes: { type: string, maxLength: 1024, description: 'Space-separated scope tokens (printable ASCII, no quotes or backslashes). Normalised on save: duplicates removed, openid always first, so an empty value saves as "openid"' }
+        assignRolesFromGroups: { type: boolean, description: 'Let the groups in the ID token decide the person''s role at every sign-in. Off by default and for configurations saved before this setting, because turning it on can change roles' }
+        groupsClaim: { type: string, maxLength: 200, description: 'ID-token claim that holds the groups (a list of text values or one text value). Blank saves as groups' }
+        ownerGroup: { type: string, maxLength: 200, description: 'Group that makes a person a superuser. Blank saves as owner' }
+        adminGroup: { type: string, maxLength: 200, description: 'Group that makes a person an admin. Blank saves as admin' }
+        userGroup: { type: string, maxLength: 200, description: 'Group that makes a person a requester. Blank saves as user' }
+        viewerGroup: { type: string, maxLength: 200, description: 'Group that makes a person a viewer. Blank saves as viewer. The most powerful matching group wins; matching ignores letter case and one leading slash' }
         clientSecret: { type: string, maxLength: 4096, writeOnly: true, description: Empty or omitted retains the saved secret; never returned }
     AuthenticationSettings:
       type: object

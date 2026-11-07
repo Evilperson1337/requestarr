@@ -9,6 +9,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth/oidc"
 	"github.com/evilperson1337/requestarr/internal/authsettings"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"net/http/httptest"
 	"reflect"
@@ -25,10 +26,17 @@ func (authenticationFake) Status(context.Context) (authsettings.Status, error) {
 func (authenticationFake) Options() authsettings.Options {
 	return authsettings.Options{OIDCEnabled: true, ProviderName: "Keycloak"}
 }
+func (authenticationFake) GroupMapping() domain.GroupMapping {
+	m := domain.DefaultGroupMapping()
+	m.Enabled = true
+	return m
+}
 func (authenticationFake) Save(context.Context, string, authsettings.Update) error { return nil }
-func (authenticationFake) Test(context.Context, authsettings.Update) error         { return nil }
-func (authenticationFake) SetEnabled(context.Context, string, bool) error          { return nil }
-func (authenticationFake) Discard(context.Context, string) error                   { return nil }
+func (authenticationFake) Test(context.Context, authsettings.Update) ([]string, error) {
+	return nil, nil
+}
+func (authenticationFake) SetEnabled(context.Context, string, bool) error { return nil }
+func (authenticationFake) Discard(context.Context, string) error          { return nil }
 func TestPublicSignInOptionsAreMinimal(t *testing.T) {
 	d := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil)
 	d.Authentication = authenticationFake{}
@@ -46,7 +54,8 @@ func TestPublicSignInOptionsAreMinimal(t *testing.T) {
 
 type matrixAuthentication struct{ b *matrixBackend }
 
-func (m matrixAuthentication) Options() authsettings.Options { return authsettings.Options{} }
+func (m matrixAuthentication) GroupMapping() domain.GroupMapping { return domain.GroupMapping{} }
+func (m matrixAuthentication) Options() authsettings.Options     { return authsettings.Options{} }
 func (m matrixAuthentication) Status(context.Context) (authsettings.Status, error) {
 	return authsettings.Status{}, nil
 }
@@ -54,9 +63,9 @@ func (m matrixAuthentication) Save(_ context.Context, actor string, _ authsettin
 	m.b.record("authentication.save", actor)
 	return nil
 }
-func (m matrixAuthentication) Test(context.Context, authsettings.Update) error {
+func (m matrixAuthentication) Test(context.Context, authsettings.Update) ([]string, error) {
 	m.b.record("authentication.test", matrixUserID)
-	return nil
+	return nil, nil
 }
 func (m matrixAuthentication) SetEnabled(_ context.Context, actor string, _ bool) error {
 	if m.b.authRefuses != nil {
@@ -77,7 +86,7 @@ func TestOIDCSecretCannotBypassAuthenticationSettings(t *testing.T) {
 	for _, method := range []string{"PUT", "DELETE"} {
 		endpoint := mutationCase{pattern: method + " /admin/secrets/{name}", path: "/admin/secrets/oidc_client_secret", body: `{"value":"canary-secret"}`}
 		backend := &matrixBackend{t: t}
-		w := matrixRequest(backend, endpoint, "admin", "csrf-token", "http://example.test")
+		w := matrixRequest(backend, endpoint, "superuser", "csrf-token", "http://example.test")
 		if w.Code != 409 || len(backend.effects) != 0 {
 			t.Fatal("OIDC secret must be managed atomically through Authentication settings")
 		}
@@ -85,14 +94,14 @@ func TestOIDCSecretCannotBypassAuthenticationSettings(t *testing.T) {
 }
 
 func TestRecoveryManagementRoutesRequireAdministrator(t *testing.T) {
-	for _, role := range []string{"unauthenticated", "viewer", "requester", "admin"} {
+	for _, role := range []string{"unauthenticated", "viewer", "requester", "admin", "superuser"} {
 		endpoint := mutationCase{pattern: "GET /admin/settings/authentication/local-administrator", path: "/admin/settings/authentication/local-administrator"}
 		b := &matrixBackend{t: t}
 		w := matrixRequest(b, endpoint, role, "csrf-token", "http://example.test")
 		want := 200
 		if role == "unauthenticated" {
 			want = 401
-		} else if role != "admin" {
+		} else if role != "superuser" {
 			want = 403
 		}
 		if w.Code != want {
@@ -120,14 +129,14 @@ func (m matrixLocalManagement) SetDisabled(_ context.Context, actor string, _ bo
 }
 
 func TestAuthenticationSettingsReadRoleMatrix(t *testing.T) {
-	for _, role := range []string{"unauthenticated", "viewer", "requester", "admin"} {
+	for _, role := range []string{"unauthenticated", "viewer", "requester", "admin", "superuser"} {
 		endpoint := mutationCase{pattern: "GET /admin/settings/authentication", path: "/admin/settings/authentication"}
 		b := &matrixBackend{t: t}
 		w := matrixRequest(b, endpoint, role, "csrf-token", "http://example.test")
 		want := 200
 		if role == "unauthenticated" {
 			want = 401
-		} else if role != "admin" {
+		} else if role != "superuser" {
 			want = 403
 		}
 		if w.Code != want {
@@ -138,8 +147,8 @@ func TestAuthenticationSettingsReadRoleMatrix(t *testing.T) {
 func TestAuthenticationResponseSchemasMatchContract(t *testing.T) {
 	for schema, want := range map[string][]string{
 		"SignInOptions":                {"oidcEnabled", "providerName"},
-		"OIDCSettings":                 {"enabled", "providerName", "issuer", "clientId"},
-		"AuthenticationSettingsUpdate": {"enabled", "providerName", "issuer", "clientId", "clientSecret"},
+		"OIDCSettings":                 {"enabled", "providerName", "issuer", "clientId", "scopes", "assignRolesFromGroups", "groupsClaim", "ownerGroup", "adminGroup", "userGroup", "viewerGroup"},
+		"AuthenticationSettingsUpdate": {"enabled", "providerName", "issuer", "clientId", "scopes", "assignRolesFromGroups", "groupsClaim", "ownerGroup", "adminGroup", "userGroup", "viewerGroup", "clientSecret"},
 		"AuthenticationSettings":       {"state", "missing", "ignored", "differing", "saved", "effective", "secretConfigured", "secretUnreadable", "canSaveSecret", "readOnly", "redirectUri", "working", "problem"},
 		"LocalAdministratorStatus":     {"exists", "disabled", "canDisable", "otherAdminExists", "oidcWorking"},
 	} {
@@ -171,7 +180,7 @@ func TestAuthenticationAPIReportsFailureWithoutReplacingWorkingProvider(t *testi
 		}
 		return authProviderForSettings{}, nil
 	})
-	repo := csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "admin"}}}
+	repo := csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "superuser"}}}
 	d := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
 	d.Authentication = svc
 	h := mustRouter(d)
@@ -215,10 +224,36 @@ func TestTurningOIDCOffIsRefusedWhenItWouldLeaveNoSignIn(t *testing.T) {
 		{pattern: "DELETE /admin/settings/authentication", path: "/admin/settings/authentication"},
 	} {
 		backend := &matrixBackend{t: t, authRefuses: authsettings.ErrNoOtherSignIn}
-		w := matrixRequest(backend, endpoint, "admin", "csrf-token", "http://example.test")
+		w := matrixRequest(backend, endpoint, "superuser", "csrf-token", "http://example.test")
 		assertErrorEnvelope(t, w, 409, "oidc_is_only_sign_in")
 		if len(backend.effects) != 0 {
 			t.Fatalf("%s must change nothing when it is refused", endpoint.pattern)
+		}
+	}
+}
+
+// warningAuthentication passes discovery but reports a warning, as the service
+// does for a provider that does not list the groups scope.
+type warningAuthentication struct{ authenticationFake }
+
+func (warningAuthentication) Test(context.Context, authsettings.Update) ([]string, error) {
+	return []string{"The provider does not list the groups scope"}, nil
+}
+
+func TestAuthenticationTestReturnsWarningsWithoutFailing(t *testing.T) {
+	for name, tc := range map[string]struct {
+		svc  AuthenticationService
+		want string
+	}{
+		"warning": {warningAuthentication{}, `"warnings":["The provider does not list the groups scope"]`},
+		"none":    {authenticationFake{}, `"warnings":[]`},
+	} {
+		repo := csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "superuser"}}}
+		d := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
+		d.Authentication = tc.svc
+		w := localCall(mustRouter(d), "POST", "/admin/settings/authentication/test", `{"enabled":true,"providerName":"K","issuer":"https://id.test","clientId":"c","scopes":"openid groups"}`, true)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"ok":true`) || !strings.Contains(w.Body.String(), tc.want) {
+			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
 		}
 	}
 }

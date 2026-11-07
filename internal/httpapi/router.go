@@ -270,7 +270,13 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			apierror.Write(w, r, 500, "users_failed", "could not load users")
 			return
 		}
-		writeJSON(w, 200, map[string]any{"users": users})
+		// The roles each person may be given by the signed-in role, decided here so the page
+		// never compares role names.
+		listed := make([]listedUser, len(users))
+		for i, person := range users {
+			listed[i] = listedUser{AdminUser: person, RoleChoices: domain.Role(user.Role).RoleChoicesFor(domain.Role(person.Role), person.Builtin, person.ID == user.ID)}
+		}
+		writeJSON(w, 200, map[string]any{"users": listed, "rolesFromGroups": d.Authentication.GroupMapping().Enabled})
 	})
 	rt.handle("GET /requests/summary", accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -293,18 +299,21 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil || (input.Role != "admin" && input.Role != "requester" && input.Role != "viewer") {
-			apierror.Write(w, r, 400, "invalid_role", "role must be viewer, requester or admin")
+		if decoder.Decode(&input) != nil || requireJSONEOF(decoder) != nil || !domain.Role(input.Role).Stored() {
+			apierror.Write(w, r, 400, "invalid_role", "role must be viewer, requester, admin or superuser")
 			return
 		}
 		err := d.Users.ChangeUserRole(r.Context(), user.ID, id, input.Role, time.Now().UTC())
+		var refused *domain.RoleChangeRefused
 		switch {
 		case errors.Is(err, auth.ErrBuiltinRole):
 			apierror.Write(w, r, 409, "builtin_admin_role", auth.ErrBuiltinRole.Error())
 		case errors.Is(err, postgres.ErrAdminSelfRoleChange):
 			apierror.Write(w, r, 409, "self_role_change", "cannot change your own role")
-		case errors.Is(err, postgres.ErrLastAdmin):
-			apierror.Write(w, r, 409, "last_admin", "cannot remove the last administrator")
+		case errors.Is(err, postgres.ErrLastSuperuser):
+			apierror.Write(w, r, 409, "last_superuser", postgres.ErrLastSuperuser.Error())
+		case errors.As(err, &refused):
+			apierror.Write(w, r, 403, "role_needed", refused.Error())
 		case errors.Is(err, postgres.ErrAdminUserNotFound):
 			apierror.Write(w, r, 404, "user_not_found", "user not found")
 		case err != nil:
@@ -358,7 +367,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			status, code, message := 500, "transition_failed", "request could not be transitioned"
 			switch {
 			case errors.Is(err, requests.ErrTransitionForbidden):
-				status, code, message = 403, "forbidden", "administrator role required"
+				status, code, message = 403, "forbidden", messageAdminRequired
 			case errors.Is(err, requests.ErrTransitionInvalid):
 				status, code, message = 400, "invalid_transition", "requested requests can be approved or denied; open requests can be cancelled"
 			case errors.Is(err, requests.ErrTransitionConflict):
@@ -448,11 +457,12 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	})
 	rt.handle("POST /requests", accessSession, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 		var in struct {
-			URL       string                   `json:"url"`
-			CatalogID string                   `json:"catalogId"`
-			Note      string                   `json:"note"`
-			Platforms domain.PlatformSelection `json:"platforms"`
-			Selection domain.Selection         `json:"selection"`
+			URL        string                   `json:"url"`
+			CatalogID  string                   `json:"catalogId"`
+			OnBehalfOf string                   `json:"onBehalfOf"`
+			Note       string                   `json:"note"`
+			Platforms  domain.PlatformSelection `json:"platforms"`
+			Selection  domain.Selection         `json:"selection"`
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		decoder := json.NewDecoder(r.Body)
@@ -480,7 +490,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			apierror.Write(w, r, http.StatusBadRequest, "missing_catalog_id", "catalogId is required when url is omitted")
 			return
 		}
-		result, err := requestService.Create(r.Context(), requests.CreateInput{Actor: requests.Actor{ID: user.ID, Role: user.Role}, CatalogID: in.CatalogID, Note: in.Note, Platforms: in.Platforms, Selection: in.Selection})
+		result, err := requestService.Create(r.Context(), requests.CreateInput{Actor: requests.Actor{ID: user.ID, Role: user.Role}, OnBehalfOf: in.OnBehalfOf, CatalogID: in.CatalogID, Note: in.Note, Platforms: in.Platforms, Selection: in.Selection})
 		if err != nil {
 			writeCreateRequestError(w, r, err)
 			return
@@ -537,7 +547,10 @@ func writeCreateRequestError(w http.ResponseWriter, r *http.Request, err error) 
 	status, code, message := http.StatusBadRequest, "invalid_request", "request details are invalid"
 	switch {
 	case errors.Is(err, requests.ErrForbidden):
-		status, code, message = http.StatusForbidden, "forbidden", "request could not be created"
+		status, code, message = http.StatusForbidden, "forbidden", messageRequesterRequired
+		if errors.Is(err, requests.ErrOnBehalfForbidden) {
+			message = messageAdminRequired
+		}
 	case errors.Is(err, requests.ErrCatalogNotFound):
 		status, code, message = http.StatusNotFound, "catalog_item_not_found", "catalog item was not found"
 	case errors.Is(err, requests.ErrAlreadyAvailable):
@@ -623,4 +636,11 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "same-origin")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// listedUser is a row of the Users list: the stored person and the roles the
+// signed-in role may give them.
+type listedUser struct {
+	postgres.AdminUser
+	RoleChoices []domain.Role `json:"roleChoices"`
 }

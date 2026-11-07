@@ -72,7 +72,7 @@ type ReportResult struct {
 }
 
 func signedIn(a Actor) bool {
-	return a.ID != "" && (a.Role == "viewer" || a.Role == "requester" || a.Role == "admin")
+	return a.ID != "" && domain.Role(a.Role).Known()
 }
 
 // Report records a problem with a Library item. Every signed-in role may report.
@@ -109,12 +109,12 @@ func (s *Service) Comment(ctx context.Context, actor Actor, issueID, text string
 	if !ok {
 		return ErrInvalid
 	}
-	return s.repo.Comment(ctx, issueID, actor.ID, actor.Role == "admin", text)
+	return s.repo.Comment(ctx, issueID, actor.ID, domain.Role(actor.Role).CanManageRequests(), text)
 }
 
 // Transition resolves, closes or reopens an Issue. Only admins may.
 func (s *Service) Transition(ctx context.Context, actor Actor, issueID string, to domain.IssueStatus, comment string) (domain.Issue, error) {
-	if actor.Role != "admin" || actor.ID == "" {
+	if !domain.Role(actor.Role).CanManageRequests() || actor.ID == "" {
 		return domain.Issue{}, ErrForbidden
 	}
 	comment = strings.TrimSpace(comment)
@@ -156,7 +156,7 @@ func (s *Service) List(ctx context.Context, actor Actor, q domain.IssueQuery) (d
 	if q.Limit < 1 || q.Limit > 100 {
 		q.Limit = 25
 	}
-	return s.repo.List(ctx, actor.ID, actor.Role == "admin", q)
+	return s.repo.List(ctx, actor.ID, domain.Role(actor.Role).CanManageRequests(), q)
 }
 
 // Detail shows an Issue to an admin or to someone who reported it; to anyone
@@ -165,12 +165,12 @@ func (s *Service) Detail(ctx context.Context, actor Actor, issueID string) (doma
 	if !signedIn(actor) {
 		return domain.IssueDetail{}, ErrForbidden
 	}
-	return s.repo.Detail(ctx, issueID, actor.ID, actor.Role == "admin")
+	return s.repo.Detail(ctx, issueID, actor.ID, domain.Role(actor.Role).CanManageRequests())
 }
 
 func (s *Service) OpenCount(ctx context.Context, actor Actor) (int, error) {
 	if !signedIn(actor) {
 		return 0, ErrForbidden
 	}
-	return s.repo.OpenCount(ctx, actor.ID, actor.Role == "admin")
+	return s.repo.OpenCount(ctx, actor.ID, domain.Role(actor.Role).CanManageRequests())
 }

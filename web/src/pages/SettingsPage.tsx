@@ -8,7 +8,13 @@ import { LibraryConnections } from '../components/LibraryConnections'
 import { AuthenticationSettings } from '../components/AuthenticationSettings'
 import { ProviderIntegrations } from '../components/ProviderIntegrations'
 
-const tabs = [['integrations', 'Integrations'], ['authentication', 'Authentication'], ['activity', 'Activity'], ['matches', 'Matches'], ['users', 'Users']] as const
+const allTabs = [['integrations', 'Integrations'], ['authentication', 'Authentication'], ['activity', 'Activity'], ['matches', 'Matches'], ['users', 'Users']] as const
+type TabKey = (typeof allTabs)[number][0]
+// Integrations and Authentication hold connections, credentials and sign-in: the owner's, and absent for everyone else.
+const accessTabs: TabKey[] = ['integrations', 'authentication']
+
+// Roles the Users table marks with a label; the others read as plain text.
+const roleLabels: Partial<Record<AdminUser['role'], string>> = { superuser: 'Superuser', admin: 'Admin' }
 
 export function SettingsPage({ session }: { session: Session }) {
     return <SettingsForSession key={`${session.user.id}:${session.csrfToken}`} session={session} />
@@ -19,6 +25,7 @@ const withLists = (status: OperationalStatus): OperationalStatus => ({ ...status
 
 function SettingsForSession({ session }: { session: Session }) {
     const [users, setUsers] = useState<AdminUser[]>([])
+    const [rolesFromGroups, setRolesFromGroups] = useState(false)
     const [error, setError] = useState('')
     const [defaultRole, setDefaultRole] = useState<PeopleSettings['defaultRole'] | null>(null)
     const [peopleMessage, setPeopleMessage] = useState('')
@@ -70,22 +77,23 @@ function SettingsForSession({ session }: { session: Session }) {
             else setError(e instanceof Error ? e.message : 'Could not start sync')
         } finally { setStarting(''); void loadRuns(); void loadStatus() }
     }
-    useEffect(() => { api<{ users: AdminUser[] }>('/admin/users').then(result => setUsers(result.users)).catch(e => { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not load users') }) }, [checkAuthorization])
+    useEffect(() => { api<{ users: AdminUser[]; rolesFromGroups?: boolean }>('/admin/users').then(result => { setUsers(result.users); setRolesFromGroups(!!result.rolesFromGroups) }).catch(e => { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not load users') }) }, [checkAuthorization])
     async function changeRole(target: AdminUser, role: AdminUser['role']) {
         setError('')
-        try { await api<void>(`/admin/users/${target.id}/role`, { method: 'PUT', body: JSON.stringify({ role }) }, session.csrfToken); setUsers(current => current.map(item => item.id === target.id ? { ...item, role } : item)) }
+        try { await api<void>(`/admin/users/${target.id}/role`, { method: 'PUT', body: JSON.stringify({ role }) }, session.csrfToken); setUsers(current => current.map(item => item.id === target.id ? { ...item, role, roleFromGroups: false } : item)) }
         catch (e) { checkAuthorization(e); setError(e instanceof Error ? e.message : 'Could not change user role') }
     }
     const when = (value: string | null | undefined) => value ? new Date(value).toLocaleString() : 'Never'
-    const [tab, setTab] = useState<(typeof tabs)[number][0]>(() => tabs.find(([key]) => key === new URLSearchParams(window.location.search).get('tab'))?.[0] ?? 'integrations')
+    const tabs = allTabs.filter(([key]) => session.capabilities.manageAccess || !accessTabs.includes(key))
+    const [tab, setTab] = useState<TabKey>(() => tabs.find(([key]) => key === new URLSearchParams(window.location.search).get('tab'))?.[0] ?? tabs[0][0])
     // A deep link such as /settings?tab=integrations#group-metadata (from Get started) scrolls to its section once it exists.
     useEffect(() => { if (ops && window.location.hash) document.getElementById(window.location.hash.slice(1))?.scrollIntoView() }, [ops])
     const failing = ops?.sources.filter(source => source.configured && source.lastRun?.status === 'failed').length ?? 0
     return <main className="shell settingsPage"><h1 id="opsHeading">Settings</h1>
         <div className="settingsTabs" role="group" aria-label="Settings sections">{tabs.map(([key, label]) => <button key={key} type="button" className="settingsTab" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}{key === 'activity' && failing > 0 && <span className="tabCount" aria-label={`${failing} failing`}>{failing}</span>}</button>)}</div>
-        {tab === 'authentication' && !authorizationLost && <AuthenticationSettings session={session} onRequestError={checkAuthorization} />}
+        {session.capabilities.manageAccess && tab === 'authentication' && !authorizationLost && <AuthenticationSettings session={session} onRequestError={checkAuthorization} />}
         {opsError && <p role="alert" className="error">{opsError}</p>}{!ops && !opsError && <p role="status">Loading operational status…</p>}
-        {ops && <div hidden={tab !== 'integrations'}>
+        {ops && session.capabilities.manageAccess && <div hidden={tab !== 'integrations'}>
             <section className="integrationGroup" aria-labelledby="group-libraries"><div className="groupHead"><h2 id="group-libraries">Media libraries</h2><p>Where Requestarr looks to see what you already have. Saving an address or its credential applies at once; an address set by an environment variable is shown but cannot be changed here.</p></div>
                 <LibraryConnections csrfToken={session.csrfToken} onRequestError={checkAuthorization} sources={ops.sources} syncing={starting || (syncActive ? 'running' : '')} onSync={slug => void syncNow(slug)} /></section>
             <section className="integrationGroup" aria-labelledby="group-metadata"><div className="groupHead"><h2 id="group-metadata">Metadata</h2><p>Where a pasted link is looked up and a name is searched. Credentials are stored encrypted, never shown again, and apply as soon as you save them, including whether Movies &amp; TV and Games appear as search types; an environment value always wins.</p></div>
@@ -99,6 +107,6 @@ function SettingsForSession({ session }: { session: Session }) {
             {!authorizationLost && <DevelopmentLogsPanel session={session} enabled={ops?.developmentLogsEnabled === true} onRequestError={checkAuthorization} />}
         </div>
         <div hidden={tab !== 'matches'}><MatchSuggestions csrfToken={session.csrfToken} onRequestError={checkAuthorization} /></div>
-        <div hidden={tab !== 'users'}><ApprovalPolicy csrfToken={session.csrfToken} onRequestError={checkAuthorization} /><SettingsSection title="New people" description="The role someone gets the first time they sign in. It never applies to people who already have an account, and it cannot be administrator. Every administrator is notified when someone signs in for the first time.">{peopleError && <p role="alert" className="error">{peopleError}</p>}{defaultRole && <label className="field">Role for people who sign in for the first time<select value={defaultRole} onChange={event => void changeDefaultRole(event.target.value as PeopleSettings['defaultRole'])}><option value="viewer">viewer</option><option value="requester">requester</option></select></label>}{peopleMessage && <p role="status">{peopleMessage}</p>}</SettingsSection><SettingsSection title="User management" description="Changing a role revokes that user’s active sessions. Your own role cannot be changed here.">{users.length === 0 ? <p role="status">Loading users…</p> : <div className="table-wrap" role="region" aria-label="Users" tabIndex={0}><table><thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Action</th></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.displayName || user.email || user.id}{user.builtin && <> <span className="badge">Local administrator</span></>}<br /><small>{user.email}</small></td><td>{user.role}</td><td>{user.builtin ? 'Always administrator' : user.id === session.user.id ? 'Current user' : <label><span className="sr-only">Role for {user.displayName || user.email || user.id}</span><select value={user.role} onChange={event => void changeRole(user, event.target.value as AdminUser['role'])}><option value="viewer">viewer</option><option value="requester">requester</option><option value="admin">admin</option></select></label>}</td></tr>)}</tbody></table></div>}</SettingsSection></div>
+        <div hidden={tab !== 'users'}><ApprovalPolicy csrfToken={session.csrfToken} onRequestError={checkAuthorization} /><SettingsSection title="New people" description="The role someone gets the first time they sign in. It never applies to people who already have an account, and it cannot be administrator. Every administrator is notified when someone signs in for the first time.">{peopleError && <p role="alert" className="error">{peopleError}</p>}{defaultRole && <label className="field">Role for people who sign in for the first time<select value={defaultRole} onChange={event => void changeDefaultRole(event.target.value as PeopleSettings['defaultRole'])}><option value="viewer">viewer</option><option value="requester">requester</option></select></label>}{peopleMessage && <p role="status">{peopleMessage}</p>}</SettingsSection><SettingsSection title="User management" description="Changing a role revokes that user’s active sessions. Your own role cannot be changed here.">{rolesFromGroups && <p role="note" className="fieldHelp">Roles are assigned from groups. At each sign-in, a person whose groups match a mapped group gets that group’s role, so a change made here is overridden at their next sign-in.</p>}{users.length === 0 ? <p role="status">Loading users…</p> : <div className="table-wrap" role="region" aria-label="Users" tabIndex={0}><table><thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Action</th></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.displayName || user.email || user.id}{user.builtin && <> <span className="badge">Local administrator</span></>}<br /><small>{user.email}</small></td><td>{roleLabels[user.role] ? <span className="badge">{roleLabels[user.role]}</span> : user.role}{user.roleFromGroups && <> <span className="badge" title="Set by this person’s groups at their last sign-in">Set by groups</span></>}</td><td>{user.builtin ? 'Always a superuser' : user.id === session.user.id ? 'Current user' : user.roleChoices.length === 0 ? 'Only a superuser can change this role' : <label><span className="sr-only">Role for {user.displayName || user.email || user.id}</span><select value={user.role} onChange={event => void changeRole(user, event.target.value as AdminUser['role'])}>{user.roleChoices.map(choice => <option key={choice} value={choice}>{choice}</option>)}</select></label>}</td></tr>)}</tbody></table></div>}</SettingsSection></div>
     </main>
 }

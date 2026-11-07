@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { capabilitiesFor } from './capabilities'
 
 type Conn = { slug: string; name: string; url: string; urlFromEnvironment: boolean; urlEnv: string; saved: boolean; takesUsername: boolean; username: string; active: boolean; missing: string[]; credentials: { secret: string; label: string; configured: boolean; source: string; unreadable: boolean }[] }
 
@@ -13,7 +14,7 @@ async function openSettings(page: Page, conns: Conn[], failWith?: { status: numb
     const secretNames = [['tmdb_read_token', 'TMDb read token'], ...conns.flatMap(c => c.credentials.map(k => [k.secret, k.label]))]
     await page.route('**/api/v1/**', route => {
         const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role: 'admin', displayName: 'Admin' }, csrfToken: 'csrf' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u1', role: 'superuser', displayName: 'Admin' }, capabilities: capabilitiesFor('superuser'), csrfToken: 'csrf' } })
         if (path === '/admin/secrets') return route.fulfill({ json: { enabled: true, secrets: secretNames.map(([name, label]) => { const k = conns.flatMap(c => c.credentials).find(item => item.secret === name); return { name, label, envVar: 'X', configured: !!k?.configured, source: k?.source ?? 'none', unreadable: false, pendingRestart: false } }) } })
         if (path.startsWith('/admin/secrets/') && request.method() === 'PUT') {
             const c = conns.find(item => item.credentials.some(k => k.secret === path.split('/').pop()))

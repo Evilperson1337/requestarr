@@ -6,6 +6,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"github.com/evilperson1337/requestarr/internal/auth"
 	"github.com/evilperson1337/requestarr/internal/authsettings"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
 	"net/http"
 )
@@ -16,8 +17,11 @@ import (
 type AuthenticationService interface {
 	Status(context.Context) (authsettings.Status, error)
 	Options() authsettings.Options
+	// GroupMapping is how groups decide roles at sign-in right now; it is off
+	// whenever OIDC is not working.
+	GroupMapping() domain.GroupMapping
 	Save(context.Context, string, authsettings.Update) error
-	Test(context.Context, authsettings.Update) error
+	Test(context.Context, authsettings.Update) (warnings []string, err error)
 	SetEnabled(context.Context, string, bool) error
 	Discard(context.Context, string) error
 }
@@ -54,7 +58,7 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 		writeJSON(w, 200, st)
 	}
 	admin := func(pattern string, f func(http.ResponseWriter, *http.Request, string)) {
-		rt.handle(pattern, accessAdmin, func(w http.ResponseWriter, r *http.Request, u auth.User) {
+		rt.handle(pattern, accessSuperuser, func(w http.ResponseWriter, r *http.Request, u auth.User) {
 			w.Header().Set("Cache-Control", "no-store")
 			f(w, r, u.ID)
 		})
@@ -76,11 +80,15 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 		if !decodeSettingsBody(w, r, &u, authenticationBodyLimit) {
 			return
 		}
-		if err := s.Test(r.Context(), u); err != nil {
+		warnings, err := s.Test(r.Context(), u)
+		if err != nil {
 			fail(w, r, err)
 			return
 		}
-		writeJSON(w, 200, map[string]bool{"ok": true})
+		if warnings == nil {
+			warnings = []string{}
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "warnings": warnings})
 	})
 	admin("PUT /admin/settings/authentication/enabled", func(w http.ResponseWriter, r *http.Request, actor string) {
 		var u struct {

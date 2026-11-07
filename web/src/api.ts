@@ -1,6 +1,8 @@
 export type User = { id: string; role: string; email: string; displayName: string }
 // localAdministrator: this session is the built-in local administrator, the only account with a local password.
-export type Session = { user: User; csrfToken: string; mustChangePassword?: boolean; localAdministrator?: boolean }
+export type Capabilities = { request: boolean; manageRequests: boolean; manageSystem: boolean; manageAccess: boolean }
+// capabilities: what the signed-in role may do, decided by the server. Never compare role names.
+export type Session = { user: User; capabilities: Capabilities; csrfToken: string; mustChangePassword?: boolean; localAdministrator?: boolean }
 export type SetupTarget = 'general' | 'authentication' | 'tmdb' | 'musicbrainz' | 'igdb' | 'library:jellyfin' | 'library:plex' | 'library:romm' | 'library:navidrome' | 'library:audiobookshelf' | 'notifications'
 export type ChecklistItem = { key: 'libraries' | 'metadata' | 'notifications' | 'oidc' | 'people'; title: string; required: boolean; done: boolean; detail?: string }
 export type Checklist = { items: ChecklistItem[]; dismissed: boolean; visible: boolean }
@@ -14,7 +16,7 @@ export type GameDetails = { overview?: string; genres?: string[]; releaseDate?: 
 export type MusicDetails = { artists?: string[]; primaryType?: string; secondaryTypes?: string[]; releaseDate?: string; genres?: string[]; lengthSeconds?: number; appearsOn?: string[]; tracks?: { id: string; position: number; title: string; lengthSeconds?: number }[]; score?: number; ratingCount?: number }
 export type MoviePreviewState = { availability: 'unknown' | 'available' | 'missing'; canRequest: boolean; canSubscribe: boolean; canExtend?: boolean; request?: { id: string; status: string; subscribed: boolean; selection?: Selection }; libraries?: { name: string; url?: string }[] }
 export type ResolvedItem = { Item: CatalogItem; Platforms: Platform[]; Movie?: MovieDetails; TV?: TVDetails; Game?: GameDetails; Music?: MusicDetails; Preview?: MoviePreviewState }
-export type RequestItem = { ID: string; CatalogItemID: string; Title: string; MediaType: string; ArtworkURL: string; ArtworkKind: string; CatalogPlatforms?: Platform[]; Status: string; Version: number; RequestedBy: string; Note: string; availability: 'unknown' | 'available' | 'missing'; availabilityObservedAt?: string | null; Platforms: { any: boolean; platformKeys?: string[] }; CreatedAt: string; subscribed: boolean; subscriptionSource: 'requester' | 'manual' | ''; selection?: Selection }
+export type RequestItem = { ID: string; CatalogItemID: string; Title: string; MediaType: string; ArtworkURL: string; ArtworkKind: string; CatalogPlatforms?: Platform[]; Status: string; Version: number; RequestedBy: string; madeOnBehalfBy?: string; madeOnBehalfByName?: string; Note: string; availability: 'unknown' | 'available' | 'missing'; availabilityObservedAt?: string | null; Platforms: { any: boolean; platformKeys?: string[] }; CreatedAt: string; subscribed: boolean; subscriptionSource: 'requester' | 'manual' | ''; selection?: Selection }
 export type RecentLibraryItem = { id: string; title: string; year?: number; mediaType: 'movie' | 'tv' | 'album' | 'game' | 'audiobook'; detail?: string; source: string; addedAt: string; artworkUrl?: string }
 export type IssueKindOption = { kind: string; label: string }
 export type LibraryDetails = { synopsis?: string; rating?: number; contentRating?: string; genres?: string[]; runtimeMinutes?: number }
@@ -27,7 +29,7 @@ export type SearchLocal = { catalogId?: string; requestStatus?: 'requested' | 'a
 export type SearchResult = { mediaType: string; provider: string; providerId: string; ref: string; title: string; year?: number; subtitle?: string; artworkUrl?: string; artworkKind?: string; local?: SearchLocal }
 export type SearchPage = { results: SearchResult[]; hasMore: boolean }
 export type RequestPage = { items: RequestItem[]; nextCursor: string | null }
-export type AdminUser = { id: string; email: string; displayName: string; role: 'admin' | 'requester' | 'viewer'; builtin?: boolean; createdAt: string }
+export type AdminUser = { id: string; email: string; displayName: string; role: 'superuser' | 'admin' | 'requester' | 'viewer'; builtin?: boolean; canRequest: boolean; roleFromGroups?: boolean; createdAt: string; roleChoices: AdminUser['role'][] }
 export type PeopleSettings = { defaultRole: 'viewer' | 'requester' }
 export type ApprovalSettings = { autoApproveTypes: string[] }
 export type MatchSuggestion = { id: string; catalogItemId: string; catalogTitle: string; catalogYear: number; inventoryTitle: string; inventoryYear: number; mediaType: string; platformKey: string; sourceName: string; sourceItemId: string; confidence: 'title_year' | 'title_only'; reason: string; observedAt: string }
@@ -89,7 +91,11 @@ export type DevelopmentLogEntry = {
 }
 export type DevelopmentLogs = { entries: DevelopmentLogEntry[]; capacity: number }
 
-export type OIDCSettings = { enabled: boolean; providerName: string; issuer: string; clientId: string }
+export type OIDCSettings = {
+    enabled: boolean; providerName: string; issuer: string; clientId: string; scopes: string
+    // Assign roles from groups: off until switched on; blank names save as their defaults.
+    assignRolesFromGroups: boolean; groupsClaim: string; ownerGroup: string; adminGroup: string; userGroup: string; viewerGroup: string
+}
 export type AuthenticationState = {
     state: 'not_configured' | 'saved_only' | 'environment_only' | 'environment_overriding_saved' | 'environment_incomplete'
     missing: string[]; ignored: string[]; differing: string[]; saved: OIDCSettings | null; effective: OIDCSettings

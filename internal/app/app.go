@@ -87,7 +87,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		st, err := store.LocalAdminStatus(ctx)
 		return st.Disabled, err
 	})
-	authHandler := &auth.Handler{Repo: store, OIDC: authentication.Snapshot, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Local: store, Logger: logger, TrustedProxies: cfg.TrustedProxyPrefixes()}
+	authHandler := &auth.Handler{Repo: store, GroupRoles: store, OIDC: authentication.Snapshot, PublicURL: cfg.PublicURL, Secret: cfg.SessionHMACSecret, Secure: strings.HasPrefix(cfg.PublicURL, "https://"), Local: store, Logger: logger, TrustedProxies: cfg.TrustedProxyPrefixes()}
 	// Old audit rows are pruned at start and then daily; coalesced sign-in counts are flushed each minute.
 	workers.Add(1)
 	go func() {

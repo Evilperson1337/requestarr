@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"time"
 )
@@ -12,7 +13,7 @@ var _ auth.AdminManagementRepository = (*Store)(nil)
 
 func (s *Store) LocalAdminStatus(ctx context.Context) (auth.LocalAdminStatus, error) {
 	var st auth.LocalAdminStatus
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM local_credentials),COALESCE((SELECT disabled FROM local_credentials WHERE username='admin'),false),EXISTS(SELECT 1 FROM users WHERE role='admin' AND NOT builtin)`).Scan(&st.Exists, &st.Disabled, &st.OtherAdmin)
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM local_credentials),COALESCE((SELECT disabled FROM local_credentials WHERE username='admin'),false),EXISTS(SELECT 1 FROM users WHERE role IN (`+domain.SQLRoleList(domain.RolesThatManageAccess())+`) AND NOT builtin)`).Scan(&st.Exists, &st.Disabled, &st.OtherAdmin)
 	st.CanDisable = st.Exists && !st.Disabled && st.OtherAdmin
 	return st, err
 }
@@ -30,7 +31,7 @@ func (s *Store) CreateRecoveryAdmin(ctx context.Context, actor, hash string, now
 		return false, err
 	}
 	id := newUUID()
-	if _, err = tx.Exec(ctx, `INSERT INTO users(id,oidc_subject,display_name,role,builtin,created_at,updated_at) VALUES($1,$2,'Administrator','admin',true,$3,$3)`, id, localAdminSubject, now); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO users(id,oidc_subject,display_name,role,builtin,created_at,updated_at) VALUES($1,$2,'Administrator',$4,true,$3,$3)`, id, localAdminSubject, now, domain.RoleSuperuser); err != nil {
 		return false, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO local_credentials(user_id,username,password_hash,must_change,created_at,updated_at) VALUES($1,'admin',$2,true,$3,$3)`, id, hash, now); err != nil {
@@ -70,7 +71,7 @@ func (s *Store) SetLocalAdminDisabled(ctx context.Context, actor string, disable
 	}
 	if disabled {
 		var another bool
-		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE role='admin' AND NOT builtin)`).Scan(&another); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE role IN (`+domain.SQLRoleList(domain.RolesThatManageAccess())+`) AND NOT builtin)`).Scan(&another); err != nil {
 			return err
 		}
 		if !another {

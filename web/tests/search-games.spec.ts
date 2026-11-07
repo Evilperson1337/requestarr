@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { capabilitiesFor } from './capabilities'
 
 const witcher = { mediaType: 'game', provider: 'igdb', providerId: '1942', ref: 'https://www.igdb.com/games/the-witcher-3-wild-hunt', title: 'The Witcher 3: Wild Hunt', year: 2015, subtitle: 'PC, PS4, XONE +1', artworkUrl: '', artworkKind: 'poster' }
 const resolved = {
@@ -14,7 +15,7 @@ test('Games searches as you type, shows year and a platform hint, and a pick ope
     await page.route('**/api/v1/**', async route => {
         const url = new URL(route.request().url())
         const path = url.pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, capabilities: capabilitiesFor('requester'), csrfToken: 'csrf-token' } })
         if (path === '/search/types') return route.fulfill({ json: { types: ['game'] } })
         if (path === '/search') { types.push(url.searchParams.get('type') ?? ''); return route.fulfill({ json: { results: [witcher], hasMore: false } }) }
         if (path === '/resolve') { resolves.push(route.request().postDataJSON().url); return route.fulfill({ json: resolved }) }

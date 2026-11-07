@@ -1,3 +1,4 @@
+import { capabilitiesFor } from './capabilities'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
@@ -16,7 +17,7 @@ const admin = { id: 'u1', role: 'admin', email: '', displayName: 'Administrator'
 async function mockSession(page: Page, state: { session: 'none' | 'must-change' | 'ready' }) {
     await page.route('**/api/v1/auth/me', route => state.session === 'none'
         ? route.fulfill({ status: 401, json: { error: { code: 'authentication_required', message: 'authentication required', requestId: 'r' } } })
-        : route.fulfill({ json: { user: admin, csrfToken: 'csrf-token', mustChangePassword: state.session === 'must-change' } }))
+        : route.fulfill({ json: { user: admin, capabilities: capabilitiesFor(admin.role), csrfToken: 'csrf-token', mustChangePassword: state.session === 'must-change' } }))
     await page.route('**/api/v1/notifications/summary', route => route.fulfill({ json: { unread: 0 } }))
     await page.route('**/api/v1/admin/checklist', route => route.fulfill({ json: { dismissed: true, visible: false, items: [] } }))
     await page.route('**/api/v1/issues/summary', route => route.fulfill({ json: { open: 0 } }))

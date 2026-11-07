@@ -58,6 +58,9 @@ func (absentRepo) CatalogPlatforms(context.Context, string) ([]domain.Platform, 
 func (absentRepo) Transition(context.Context, requests.TransitionInput) (domain.Request, bool, error) {
 	return domain.Request{}, false, errAbsent
 }
+func (absentRepo) UserRole(context.Context, string) (string, bool, error) {
+	return "", false, errAbsent
+}
 func (absentRepo) Subscribe(context.Context, string, string) (bool, error) { return false, errAbsent }
 func (absentRepo) Unsubscribe(context.Context, string, string, bool) (bool, bool, error) {
 	return false, false, errAbsent

@@ -2,7 +2,14 @@
 package authsettings
 
 // Values contains plaintext credentials and must never be logged or returned.
-type Values struct{ Issuer, ClientID, ClientSecret string }
+type Values struct {
+	Issuer, ClientID, ClientSecret string
+	// Scopes is empty for the environment and for a configuration saved before
+	// scopes were a setting; ScopeList turns that into the legacy request.
+	Scopes string
+	// GroupsClaim is the ID-token claim the groups are read from; empty means groups.
+	GroupsClaim string
+}
 
 func (Values) String() string     { return "OIDC values [redacted]" }
 func (v Values) GoString() string { return v.String() }

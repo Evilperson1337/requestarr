@@ -7,10 +7,8 @@ import (
 
 	"github.com/evilperson1337/requestarr/internal/apierror"
 	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/domain"
 )
-
-// roleAdmin is the role that may call accessAdmin routes.
-const roleAdmin = "admin"
 
 // access is who may call a route.
 type access int
@@ -22,6 +20,15 @@ const (
 	accessSession
 	// accessAdmin needs a signed-in administrator.
 	accessAdmin
+	// accessSuperuser needs a superuser: sign-in, credentials and who is an admin.
+	accessSuperuser
+)
+
+// The refusals a role gate gives; each names the role that is enough.
+const (
+	messageSuperuserRequired = "the superuser role is required"
+	messageAdminRequired     = "the admin role is required"
+	messageRequesterRequired = "the requester role or higher is required"
 )
 
 func (a access) String() string {
@@ -30,8 +37,10 @@ func (a access) String() string {
 		return "public"
 	case accessSession:
 		return "session"
+	case accessSuperuser:
+		return string(domain.RoleSuperuser)
 	}
-	return "admin"
+	return string(domain.RoleAdmin)
 }
 
 // routePolicy is the access rule of one route. CSRF is required for every
@@ -85,8 +94,13 @@ func (t *routeTable) handle(pattern string, a access, fn func(http.ResponseWrite
 				apierror.Write(w, r, http.StatusForbidden, "password_change_required", "choose a new password before continuing")
 				return
 			}
-			if a == accessAdmin && user.Role != roleAdmin {
-				apierror.Write(w, r, http.StatusForbidden, "forbidden", "administrator role required")
+			role := domain.Role(user.Role)
+			if a == accessSuperuser && !role.CanManageAccess() {
+				apierror.Write(w, r, http.StatusForbidden, "forbidden", messageSuperuserRequired)
+				return
+			}
+			if a == accessAdmin && !role.CanManageSystem() {
+				apierror.Write(w, r, http.StatusForbidden, "forbidden", messageAdminRequired)
 				return
 			}
 		}

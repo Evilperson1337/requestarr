@@ -27,7 +27,7 @@ function IssueList({ session }: { session: Session }) {
     const [next, setNext] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
-    const admin = session.user.role === 'admin'
+    const admin = session.capabilities.manageRequests
     const load = useCallback(async (cursor: string | null) => {
         setLoading(true); setError('')
         const q = new URLSearchParams({ limit: '25' })
@@ -66,7 +66,7 @@ function IssueView({ id, session, onChanged }: { id: string; session: Session; o
     const [closing, setClosing] = useState('')
     const [target, setTarget] = useState<IssueStatus>('open')
     const [busy, setBusy] = useState(false)
-    const admin = session.user.role === 'admin'
+    const admin = session.capabilities.manageRequests
     const load = useCallback(async () => {
         try { setDetail(await api<IssueDetail>(`/issues/${encodeURIComponent(id)}`, { cache: 'no-store' })); setMissing(false) }
         catch (e) { if (e instanceof ApiError && e.status === 404) setMissing(true); else setError(e instanceof Error ? e.message : 'The issue could not be loaded.') }

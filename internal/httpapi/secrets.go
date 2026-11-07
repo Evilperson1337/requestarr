@@ -32,7 +32,7 @@ type secretStatusBody struct {
 
 func registerSecretsRoutes(rt *routeTable, service SecretsService) {
 	admin := func(pattern string, next func(http.ResponseWriter, *http.Request, string)) {
-		rt.handle(pattern, accessAdmin, func(w http.ResponseWriter, r *http.Request, user auth.User) {
+		rt.handle(pattern, accessSuperuser, func(w http.ResponseWriter, r *http.Request, user auth.User) {
 			w.Header().Set("Cache-Control", "no-store")
 			next(w, r, user.ID)
 		})

@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 import type { DevelopmentLogEntry } from '../src/api'
+import { capabilitiesFor } from './capabilities'
 
 const record: DevelopmentLogEntry = {
     seq: 1, time: '2026-10-27T12:00:00Z', target: 'igdb', stage: 'oauth',
@@ -16,7 +17,7 @@ async function mock(page: Page, options: { enabled?: boolean; role?: string; sta
         const request = route.request()
         const path = new URL(request.url()).pathname.replace('/api/v1', '')
         state.calls.push(`${request.method()} ${path}`)
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'admin-1', role: options.role ?? 'admin', displayName: 'Test admin', email: 'admin@example.test' }, csrfToken: 'csrf' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'admin-1', role: options.role ?? 'superuser', displayName: 'Test admin', email: 'admin@example.test' }, capabilities: capabilitiesFor(options.role ?? 'superuser'), csrfToken: 'csrf' } })
         if (path === '/auth/logout') return route.fulfill({ status: 204 })
         if (path === '/admin/status') {
             if (state.status) return state.status(route)
@@ -56,7 +57,7 @@ for (const status of [401, 403]) {
                 const path = new URL(route.request().url()).pathname.replace('/api/v1/admin/', '')
                 const denied = () => route.fulfill({ status, json: { error: { code: 'unauthorized', message: 'Authorization lost' } } })
                 if (path === 'sources/jellyfin/sync' || path === 'users/other/role') return denied()
-                if (path === 'users') return route.fulfill({ json: { users: [{ id: 'other', displayName: 'Other user', role: 'viewer' }] } })
+                if (path === 'users') return route.fulfill({ json: { users: [{ id: 'other', displayName: 'Other user', role: 'viewer', roleChoices: ['viewer', 'requester'] }] } })
                 if (path === 'match-suggestions' && fail) return denied()
                 if (path === 'match-suggestions') return route.fulfill({ json: { items: [{ id: 'candidate', catalogTitle: 'Test movie', sourceName: 'Test library', confidence: 'title_year' }] } })
                 if (path === 'match-suggestions/candidate/accept') return denied()

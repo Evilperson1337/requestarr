@@ -11,7 +11,9 @@ import (
 )
 
 var (
-	ErrForbidden               = errors.New("request creation is not permitted")
+	ErrForbidden = errors.New("request creation is not permitted")
+	// ErrOnBehalfForbidden is ErrForbidden for a person who may request but not for someone else.
+	ErrOnBehalfForbidden       = fmt.Errorf("%w: requesting for someone else needs the admin role", ErrForbidden)
 	ErrInvalid                 = errors.New("invalid request")
 	ErrCatalogNotFound         = errors.New("catalog item not found")
 	ErrAlreadyAvailable        = errors.New("item is already available in a library")
@@ -29,11 +31,14 @@ type Actor struct {
 }
 
 type CreateInput struct {
-	Actor     Actor
-	CatalogID string
-	Note      string
-	Platforms domain.PlatformSelection
-	Selection domain.Selection
+	Actor Actor
+	// OnBehalfOf is the person the request is made for; only a role that can
+	// manage requests may set it.
+	OnBehalfOf string
+	CatalogID  string
+	Note       string
+	Platforms  domain.PlatformSelection
+	Selection  domain.Selection
 }
 
 type CreateResult struct {
@@ -74,12 +79,14 @@ type Repository interface {
 	ValidatePlatforms(context.Context, string, domain.PlatformSelection) error
 	CatalogPlatforms(context.Context, string) ([]domain.Platform, error)
 	Transition(context.Context, TransitionInput) (domain.Request, bool, error)
+	// UserRole reports a person's stored role; found is false for an unknown ID.
+	UserRole(ctx context.Context, userID string) (role string, found bool, err error)
 	Subscribe(context.Context, string, string) (bool, error)
 	Unsubscribe(ctx context.Context, requestID, userID string, confirmCancel bool) (changed, cancelled bool, err error)
 }
 
 func (s *Service) Transition(ctx context.Context, in TransitionInput) (TransitionResult, error) {
-	if in.Actor.ID == "" || in.Actor.Role != "admin" {
+	if in.Actor.ID == "" || !domain.Role(in.Actor.Role).CanManageRequests() {
 		return TransitionResult{}, ErrTransitionForbidden
 	}
 	if in.RequestID == "" || in.ExpectedVersion < 1 || in.OperationID == "" {
@@ -166,7 +173,7 @@ func (s *Service) autoApproves(ctx context.Context, media domain.MediaType) bool
 // AwaitingApprovalCount is how many Requests still have status requested; only
 // an administrator can act on them, so only an administrator may ask.
 func (s *Service) AwaitingApprovalCount(ctx context.Context, actor Actor) (int, error) {
-	if actor.ID == "" || actor.Role != "admin" {
+	if actor.ID == "" || !domain.Role(actor.Role).CanManageRequests() {
 		return 0, ErrForbidden
 	}
 	return s.repo.AwaitingApprovalCount(ctx)
@@ -177,11 +184,29 @@ type Service struct{ repo Repository }
 func New(repo Repository) *Service { return &Service{repo: repo} }
 
 func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, error) {
-	if in.Actor.Role != "requester" && in.Actor.Role != "admin" {
+	if !domain.Role(in.Actor.Role).CanRequest() {
 		return CreateResult{}, ErrForbidden
 	}
 	if in.Actor.ID == "" || in.CatalogID == "" || len(in.Note) > 2000 {
 		return CreateResult{}, ErrInvalid
+	}
+	// On behalf: the person becomes the requester and everything below
+	// (approval policy, subscription, notifications) treats them as the asker.
+	requester, madeBy := in.Actor.ID, ""
+	if in.OnBehalfOf != "" {
+		if !domain.Role(in.Actor.Role).CanManageRequests() {
+			return CreateResult{}, ErrOnBehalfForbidden
+		}
+		role, found, err := s.repo.UserRole(ctx, in.OnBehalfOf)
+		if err != nil {
+			return CreateResult{}, fmt.Errorf("load requester: %w", err)
+		}
+		if !found || !domain.Role(role).CanRequest() {
+			return CreateResult{}, fmt.Errorf("%w: the chosen person cannot make requests", ErrInvalid)
+		}
+		if in.OnBehalfOf != in.Actor.ID {
+			requester, madeBy = in.OnBehalfOf, in.Actor.ID
+		}
 	}
 	if strings.TrimSpace(in.Note) == "" {
 		in.Note = ""
@@ -208,18 +233,24 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	if s.autoApproves(ctx, resolvedType) {
 		status = domain.RequestApproved
 	}
-	req := domain.Request{CatalogItemID: in.CatalogID, Status: status, RequestedBy: in.Actor.ID, Note: in.Note, Platforms: in.Platforms, Selection: in.Selection}
-	sub := domain.RequestSubscription{UserID: in.Actor.ID, Source: domain.SubscriptionRequester}
+	req := domain.Request{CatalogItemID: in.CatalogID, Status: status, RequestedBy: requester, MadeOnBehalfBy: madeBy, Note: in.Note, Platforms: in.Platforms, Selection: in.Selection}
+	sub := domain.RequestSubscription{UserID: requester, Source: domain.SubscriptionRequester}
 	created, isNew, err := s.repo.CreateOrGet(ctx, req, sub)
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("create request: %w", err)
 	}
 	if !isNew && created.Status.IsOpen() && !created.Selection.Contains(in.Selection) {
-		merged, changed, err := s.repo.MergeSelection(ctx, created.ID, in.Actor.ID, in.Selection)
+		merged, changed, err := s.repo.MergeSelection(ctx, created.ID, requester, in.Selection)
 		if err != nil {
 			return CreateResult{}, fmt.Errorf("merge request selection: %w", err)
 		}
 		return CreateResult{Request: merged, Merged: changed}, nil
+	}
+	if !isNew && in.OnBehalfOf != "" {
+		// One shared request per item: the person follows the existing one.
+		if _, err := s.repo.Subscribe(ctx, created.ID, requester); err != nil && !errors.Is(err, ErrRequestClosed) {
+			return CreateResult{}, fmt.Errorf("subscribe requester: %w", err)
+		}
 	}
 	return CreateResult{Request: created, Created: isNew}, nil
 }

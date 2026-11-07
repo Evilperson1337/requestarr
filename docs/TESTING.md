@@ -95,7 +95,7 @@ For a focused rerun: `cd web && npm test -- --grep 'phone layout'`.
 # Mutating-endpoint role matrix
 
 `internal/httpapi/role_matrix_test.go` runs the complete HTTP router against
-unauthenticated, viewer, requester, and admin callers for every mutating route.
+unauthenticated, viewer, requester, admin and superuser callers for every mutating route; the superuser-only rows carry policy `superuser`, and `role_coverage_test.go` fails when a row and the route's access level disagree.
 It uses valid bodies, sessions, and CSRF so permission failures are not masked
 by malformed input or an unavailable backend. Denied requests must not invoke
 the intended mutation; permitted requests must reach exactly that mutation with
@@ -145,14 +145,14 @@ authorization-policy change.
 The Get started checklist (D038) has tests at these seams:
 
 - `go test ./internal/checklist ./internal/httpapi ./internal/app` checks how each
-  item is computed from live state with fakes, administrator-only access, CSRF and
+  item is computed from live state with fakes, superuser-only access, CSRF and
   Origin on dismissing, the IGDB client ID setting (including the environment
   winning), and that the OpenAPI contract matches the route table.
 - PostgreSQL integration tests cover the stored IGDB client ID, the read-time
   fallback to a client ID saved in the retired draft, the remembered dismissal, and
   that the retired draft migration still applies and rolls back.
 - `make web-test` runs the local sign-in and checklist browser tests (required and optional
-  items, links to Settings, dismissal, no fields on the page, non-admins never
+  items, links to Settings, dismissal, no fields on the page, non-superusers never
   seeing it) and the IGDB client ID field.
 
 `make test-integration` drops and recreates the dedicated `requestarr_test`

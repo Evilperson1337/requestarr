@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/jackc/pgx/v5"
 )
 
 // The built-in local administrator's storage (D040). The account is an
-// ordinary admin users row marked builtin, with the fixed oidc_subject
+// ordinary superuser users row marked builtin, with the fixed oidc_subject
 // 'local:admin' (OIDC subjects are stored as 'oidc:<digest>', so they cannot
 // collide), plus a local_credentials row.
 
@@ -70,7 +71,7 @@ func (s *Store) CreateLocalAdmin(ctx context.Context, hash string, now time.Time
 		return false, nil
 	}
 	id := newUUID()
-	if _, err = tx.Exec(ctx, `INSERT INTO users(id,oidc_subject,email,display_name,role,created_at,updated_at,builtin) VALUES($1,$2,NULL,'Administrator','admin',$3,$3,TRUE)`, id, localAdminSubject, now); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO users(id,oidc_subject,email,display_name,role,created_at,updated_at,builtin) VALUES($1,$2,NULL,'Administrator',$4,$3,$3,TRUE)`, id, localAdminSubject, now, domain.RoleSuperuser); err != nil {
 		return false, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO local_credentials(user_id,username,password_hash,must_change,created_at,updated_at) VALUES($1,$2,$3,TRUE,$4,$4)`, id, auth.LocalUsername, hash, now); err != nil {
@@ -173,7 +174,7 @@ func (s *Store) ResetOrCreateLocalAdmin(ctx context.Context, hash string, now ti
 		}
 	case errors.Is(err, pgx.ErrNoRows):
 		id = newUUID()
-		if _, err = tx.Exec(ctx, `INSERT INTO users(id,oidc_subject,email,display_name,role,created_at,updated_at,builtin) VALUES($1,$2,NULL,'Administrator','admin',$3,$3,TRUE)`, id, localAdminSubject, now); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO users(id,oidc_subject,email,display_name,role,created_at,updated_at,builtin) VALUES($1,$2,NULL,'Administrator',$4,$3,$3,TRUE)`, id, localAdminSubject, now, domain.RoleSuperuser); err != nil {
 			return false, err
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO local_credentials(user_id,username,password_hash,must_change,created_at,updated_at) VALUES($1,$2,$3,TRUE,$4,$4)`, id, auth.LocalUsername, hash, now); err != nil {

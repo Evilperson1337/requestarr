@@ -103,7 +103,7 @@ availability. Absence is tracked per Source: an item stays available until
 every enabled Source covering its media type has completed a sync without it
 (D015), so Jellyfin dropping an item never hides it while Plex still has it. Availability
 events and notifications are committed atomically with the transition, and
-request lifecycle status is never changed. The administrator-only `GET /api/v1/admin/status`
+request lifecycle status is never changed. The admin-level `GET /api/v1/admin/status`
 endpoint reports, for every Source, whether it is configured, its latest run,
 the time of its last successful snapshot and a bounded safe error message. It
 excludes the server URL, API key, and inventory

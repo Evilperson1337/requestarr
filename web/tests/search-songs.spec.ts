@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { letTimersRun } from './fixtures'
+import { capabilitiesFor } from './capabilities'
 
 const box = 'Search or paste a link…'
 const id = 'b1a9c0e9-d987-4042-ae91-78d6a3267d69'
@@ -17,7 +18,7 @@ async function openHome(page: Page) {
     await page.route('**/api/v1/**', async route => {
         const url = new URL(route.request().url())
         const path = url.pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, capabilities: capabilitiesFor('requester'), csrfToken: 'csrf-token' } })
         if (path === '/search/types') return route.fulfill({ json: { types: ['album', 'song', 'movie_tv'] } })
         if (path === '/search') { searches.push(url); return route.fulfill({ json: { results: [money, other], hasMore: false } }) }
         if (path === '/resolve') { resolves.push(route.request().postDataJSON().url); return route.fulfill({ json: resolved }) }

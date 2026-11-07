@@ -120,7 +120,7 @@ func notifyIssueEvent(ctx context.Context, tx pgx.Tx, issueID, eventID, eventTyp
 			body += " " + shorten(comment, 300)
 		}
 	case "commented":
-		if actorRole != "admin" {
+		if !domain.Role(actorRole).CanManageRequests() {
 			return nil
 		}
 		heading, audience = "Update on your issue: "+title, "reporters"
@@ -138,7 +138,7 @@ func notifyIssueEvent(ctx context.Context, tx pgx.Tx, issueID, eventID, eventTyp
 	default:
 		return nil
 	}
-	who := `SELECT u.id FROM users u WHERE u.role='admin' AND u.id<>$1`
+	who := `SELECT u.id FROM users u WHERE u.role IN (` + domain.SQLRoleList(domain.RolesThatManageRequests()) + `) AND u.id<>$1`
 	if audience == "reporters" {
 		who = `SELECT r.user_id FROM issue_reporters r WHERE r.issue_id=$2 AND r.left_at IS NULL AND r.user_id<>$1`
 	}

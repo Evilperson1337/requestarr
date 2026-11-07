@@ -18,7 +18,7 @@ Packages under `internal/`:
 - `notifications` (+ `apprise`) — fans out domain events to in-app notifications and the Apprise API.
 - `jobs` — the D018 run recorder and no-overlap guard: `Runner` records each run (start, finish, outcome, safe error) in `job_runs`, a per-Source lease in PostgreSQL stops overlap across restarts, and `Schedule` retries failures on the next tick. Every Source's sync runs through it (`internal/app`), on the schedule and via the admin "Sync now" action (`POST /admin/sources/{source}/sync`), which share one guard.
 - `setup` — the connection-check vocabulary (targets, result codes, safe runtime facts) shared by the library Test connection and the checker, with `setup/checks`. The draft wizard was retired in D038.
-- `checklist` — the administrator's Get started checklist, computed from live state (D038).
+- `checklist` — the superuser's Get started checklist, computed from live state (D038).
 - `httpapi` — transport only; no domain policy should live in handlers. `NewRouter(Deps)` takes every dependency explicitly; `access.go` is the route table holding each route's access and CSRF policy; `api/openapi.yaml` is the contract, and a test keeps the two in step.
 - `app` — startup: `resolveBoot` (saved IGDB ID, secrets, validation), `Build` (derives the runtime from the resolved config), and `Run` (starts the server and jobs).
 - `devlogs` — the development-only connection-check recorder.

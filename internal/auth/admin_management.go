@@ -13,7 +13,9 @@ var (
 	// ErrNoWorkingSignIn: another admin exists, but nobody can sign in as them
 	// because OIDC is off or its provider is not working.
 	ErrNoWorkingSignIn = errors.New("turn on OIDC and make sure another admin can sign in first")
-	ErrBuiltinRole     = errors.New("the local administrator always has the admin role")
+	ErrBuiltinRole     = errors.New("the local administrator always has the superuser role")
+	// ErrLastSuperuser: the change would leave no superuser who can sign in.
+	ErrLastSuperuser   = errors.New("cannot remove the last superuser who can sign in")
 	ErrAdminManagement = errors.New("could not update the local administrator")
 )
 

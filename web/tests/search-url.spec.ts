@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { capabilitiesFor } from './capabilities'
 
 const box = 'Search or paste a link…'
 const row = (i: number) => ({ mediaType: 'movie', provider: 'tmdb', providerId: String(1000 + i), ref: `https://www.themoviedb.org/movie/${1000 + i}`, title: `Dune ${i}`, year: 2000 + (i % 20), artworkUrl: '', artworkKind: 'poster' })
@@ -15,7 +16,7 @@ async function open(page: Page, path: string, options: Options = {}) {
     await page.route('**/api/v1/**', async route => {
         const url = new URL(route.request().url())
         const p = url.pathname.replace('/api/v1', '')
-        if (p === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
+        if (p === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, capabilities: capabilitiesFor('requester'), csrfToken: 'csrf-token' } })
         if (p === '/search/types') return route.fulfill({ json: { types: options.types ?? ['movie_tv'] } })
         if (p === '/search') {
             searches.push(url.searchParams.get('q') ?? ''); types.push(url.searchParams.get('type') ?? '')

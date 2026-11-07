@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { capabilitiesFor } from './capabilities'
 
 // The live Get started checklist (D038), after local administrator sign-in (D040).
 
@@ -20,7 +21,7 @@ async function mockChecklist(page: Page, options: { role?: string; items?: Item[
         const request = route.request()
         const path = new URL(request.url()).pathname.replace('/api/v1', '')
         const method = request.method()
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: options.role ?? 'admin', email: 'admin@example.test', displayName: 'Admin' }, csrfToken: 'csrf-token' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: options.role ?? 'superuser', email: 'admin@example.test', displayName: 'Admin' }, capabilities: capabilitiesFor(options.role ?? 'superuser'), csrfToken: 'csrf-token' } })
         state.calls.push({ method, path, csrf: request.headers()['x-csrf-token'] })
         if (path === '/admin/checklist') return route.fulfill({ json: { items: state.items, dismissed: state.dismissed, visible: state.visible } })
         if (path === '/admin/checklist/dismiss') { state.dismissed = true; state.visible = false; return route.fulfill({ status: 204 }) }
@@ -110,7 +111,7 @@ for (const role of ['viewer', 'requester']) {
         await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible()
         await expect(page.getByRole('link', { name: 'Get started' })).toHaveCount(0)
         await page.goto('/get-started')
-        await expect(page.getByRole('heading', { name: 'Administrator access required' })).toBeVisible()
+        await expect(page.getByRole('heading', { name: 'Superuser access required' })).toBeVisible()
         expect(state.calls.some(call => call.path.startsWith('/admin/checklist'))).toBe(false)
     })
 }
@@ -126,7 +127,7 @@ test('a checklist that cannot load says so and offers a retry', async ({ page })
     let fail = true
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'admin', email: 'a@example.test', displayName: 'Admin' }, csrfToken: 'csrf-token' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'superuser', email: 'a@example.test', displayName: 'Admin' }, capabilities: capabilitiesFor('superuser'), csrfToken: 'csrf-token' } })
         if (path === '/admin/checklist') return fail ? route.fulfill({ status: 500, json: { error: { code: 'checklist_failed', message: 'could not load the Get started checklist' } } }) : route.fulfill({ json: { items: fresh, dismissed: false, visible: true } })
         return route.fulfill({ json: {} })
     })

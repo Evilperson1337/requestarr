@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/evilperson1337/requestarr/internal/apierror"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"io"
 	"log/slog"
 	"net/http"
@@ -35,11 +36,14 @@ type Handler struct {
 
 	// The local administrator (D040). Local may be nil, which turns local
 	// sign-in off. Hasher, Clock, Throttle and Logger default sensibly.
-	Local    LocalStore
-	Hasher   PasswordHasher
-	Clock    func() time.Time
-	Throttle *Throttle
-	Logger   *slog.Logger
+	Local LocalStore
+	// GroupRoles applies the role the person's groups map to. Nil turns group
+	// mapping off whatever the settings say.
+	GroupRoles GroupRoleStore
+	Hasher     PasswordHasher
+	Clock      func() time.Time
+	Throttle   *Throttle
+	Logger     *slog.Logger
 	// TrustedProxies are the reverse proxies whose X-Forwarded-For is believed
 	// when finding the client address. Empty means never (D040).
 	TrustedProxies []netip.Prefix
@@ -157,6 +161,10 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 500, "sign_in_failed", "sign-in failed")
 		return
 	}
+	if err = h.applyGroupRole(r.Context(), snap, u, id.Groups); err != nil {
+		apierror.Write(w, r, 500, "sign_in_failed", "sign-in failed")
+		return
+	}
 	if err = h.issueSession(w, r, u.ID); err != nil {
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
@@ -217,11 +225,12 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Session-Expires", exp.UTC().Format(time.RFC3339))
 	_ = json.NewEncoder(w).Encode(struct {
-		User               User   `json:"user"`
-		CSRF               string `json:"csrfToken"`
-		MustChange         bool   `json:"mustChangePassword"`
-		LocalAdministrator bool   `json:"localAdministrator"`
-	}{u, token, u.MustChange, u.LocalAdministrator})
+		User               User                `json:"user"`
+		CSRF               string              `json:"csrfToken"`
+		MustChange         bool                `json:"mustChangePassword"`
+		LocalAdministrator bool                `json:"localAdministrator"`
+		Capabilities       domain.Capabilities `json:"capabilities"`
+	}{u, token, u.MustChange, u.LocalAdministrator, domain.Role(u.Role).Capabilities()})
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
@@ -341,4 +350,34 @@ func (h *Handler) takeOIDC(key string) *authsettings.Snapshot {
 		return nil
 	}
 	return p.snapshot
+}
+
+// GroupRoleStore sets a person's role because of their groups. It ends their
+// sessions and records the change with the group-mapping source, the person
+// themselves as the actor. It returns ErrLastSuperuser when the change would
+// leave no superuser who can sign in.
+type GroupRoleStore interface {
+	ApplyGroupRole(ctx context.Context, userID string, role domain.Role, now time.Time) error
+}
+
+// applyGroupRole sets the role the person's groups map to, before the session
+// is issued so the new session starts with it. The groups are used here and
+// go nowhere else: not stored, not logged. A mapping that would leave no
+// superuser is skipped with a warning and the person signs in with their role.
+func (h *Handler) applyGroupRole(ctx context.Context, snap *authsettings.Snapshot, u User, groups []string) error {
+	if h.GroupRoles == nil {
+		return nil
+	}
+	role, ok := snap.Groups.RoleFor(groups)
+	if !ok || role == domain.Role(u.Role) {
+		return nil
+	}
+	err := h.GroupRoles.ApplyGroupRole(ctx, u.ID, role, h.now())
+	if errors.Is(err, ErrLastSuperuser) {
+		if h.Logger != nil {
+			h.Logger.Warn("Group mapping was skipped for a person at sign-in because it would leave no superuser who can sign in; their role is unchanged")
+		}
+		return nil
+	}
+	return err
 }

@@ -921,6 +921,7 @@ p {
 }
 
 .requestFacts,
+.requestBehalf,
 .requestNote {
     margin: 2px 0 0;
     color: var(--muted);
@@ -2508,6 +2509,9 @@ a.tag-available:hover {
 .authForm h4, .reveal h4 { margin: 0; font-size: 1rem; }
 .authFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 .authFields .wide { grid-column: 1 / -1; }
+.authGroups { display: block; margin: 0; min-width: 0; }
+.authGroups .authFields { margin-top: 12px; }
+.authGroups > .fieldHelp { margin-top: 8px; }
 .authForm .field { display: grid; gap: 6px; align-content: start; margin: 0; }
 .authForm .draftActions, .reveal .draftActions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
 /* These two cards have no brand mark: drop the blank tile so titles start at the card edge. */
@@ -2542,4 +2546,17 @@ a.tag-available:hover {
     .authFields { grid-template-columns: 1fr; }
     .authCopy { flex-direction: column; }
     .authForm .button, .authNotice .button { min-height: 44px; }
+}
+
+/* The request-on-behalf picker: a labelled select with its help line below. */
+.requesterPicker { margin: 14px 0; gap: 6px; }
+.requesterPicker select { width: 100%; min-width: 0; }
+.requesterPicker .fieldHelp { margin: 0; }
+
+/* Touch targets: the controls the four roles added are 44px high at phone width. */
+@media (max-width: 600px) {
+    .settingsPage select,
+    .settingsPage .authForm input:not([type="checkbox"]),
+    .requesterPicker select { min-height: 44px; }
+    .switch { min-height: 44px; }
 }

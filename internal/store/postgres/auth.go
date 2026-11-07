@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -128,7 +129,7 @@ func notifyFirstSignIn(ctx context.Context, tx pgx.Tx, user auth.User) error {
 	}
 	title := shorten(who, 200) + " signed in for the first time as " + user.Role
 	if _, err := tx.Exec(ctx, `INSERT INTO notification_deliveries(id,event_key,user_id,channel,status,title,body,link,created_at,available_at,updated_at)
-		SELECT gen_random_uuid(),'user.first_sign_in:'||$1::text,u.id,'in_app','pending',$2,$3,'/settings?tab=users',now(),now(),now() FROM users u WHERE u.role='admin' AND u.id<>$1::uuid
+		SELECT gen_random_uuid(),'user.first_sign_in:'||$1::text,u.id,'in_app','pending',$2,$3,'/settings?tab=users',now(),now(),now() FROM users u WHERE u.role IN (`+domain.SQLRoleList(domain.RolesThatManageSystem())+`) AND u.id<>$1::uuid
 		ON CONFLICT(event_key,user_id,channel) WHERE event_key IS NOT NULL DO NOTHING`, user.ID, title, "Open Settings, Users to change their role."); err != nil {
 		return fmt.Errorf("enqueue first sign-in notices: %w", err)
 	}
@@ -153,16 +154,21 @@ func (s *Store) RevokeSession(ctx context.Context, hash []byte, now time.Time) e
 }
 
 type AdminUser struct {
-	ID          string    `json:"id"`
-	Email       string    `json:"email"`
-	DisplayName string    `json:"displayName"`
-	Role        string    `json:"role"`
-	Builtin     bool      `json:"builtin"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	Role        string `json:"role"`
+	Builtin     bool   `json:"builtin"`
+	// CanRequest is what the role may do, so the request modal can offer only
+	// people a request can be made for without the web app comparing role names.
+	CanRequest bool `json:"canRequest"`
+	// RoleFromGroups: the person's last role change came from their groups.
+	RoleFromGroups bool      `json:"roleFromGroups"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
-	rows, err := s.pool.Query(ctx, `SELECT u.id::text, COALESCE(i.email,''), COALESCE(i.display_name,u.display_name,''), u.role, u.builtin, u.created_at FROM users u LEFT JOIN LATERAL (SELECT email,display_name FROM oidc_identities WHERE user_id=u.id ORDER BY issuer,subject LIMIT 1) i ON true ORDER BY u.builtin DESC, lower(COALESCE(i.display_name,'')), lower(COALESCE(i.email,'')), u.id`)
+	rows, err := s.pool.Query(ctx, `SELECT u.id::text, COALESCE(i.email,''), COALESCE(i.display_name,u.display_name,''), u.role, u.builtin, COALESCE((SELECT e.source=$1 FROM admin_user_audit_events e WHERE e.target_user_id=u.id ORDER BY e.created_at DESC, e.id DESC LIMIT 1),false), u.created_at FROM users u LEFT JOIN LATERAL (SELECT email,display_name FROM oidc_identities WHERE user_id=u.id ORDER BY issuer,subject LIMIT 1) i ON true ORDER BY u.builtin DESC, lower(COALESCE(i.display_name,'')), lower(COALESCE(i.email,'')), u.id`, auditSourceGroupMapping)
 	if err != nil {
 		return nil, fmt.Errorf("list admin users: %w", err)
 	}
@@ -170,9 +176,10 @@ func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 	users := make([]AdminUser, 0)
 	for rows.Next() {
 		var user AdminUser
-		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.Role, &user.Builtin, &user.CreatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.Role, &user.Builtin, &user.RoleFromGroups, &user.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan admin user: %w", err)
 		}
+		user.CanRequest = domain.Role(user.Role).CanRequest()
 		users = append(users, user)
 	}
 	if err := rows.Err(); err != nil {
@@ -182,13 +189,22 @@ func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 }
 
 var ErrAdminSelfRoleChange = errors.New("cannot change your own role")
-var ErrLastAdmin = errors.New("cannot remove the last administrator")
+var ErrLastSuperuser = auth.ErrLastSuperuser
 var ErrAdminUserNotFound = errors.New("user not found")
 
-func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role string, now time.Time) error {
-	if role != "admin" && role != "requester" && role != "viewer" {
-		return fmt.Errorf("invalid role")
-	}
+// The audit sources of a role change, written to admin_user_audit_events.source
+// and read back by the Users list. The queries take them as arguments.
+const (
+	auditSourceManual       = "manual"
+	auditSourceGroupMapping = "group_mapping"
+)
+
+// changeRole is what ChangeUserRole and ApplyGroupRole share. Under the role
+// lock it reads the target, lets allow decide (it returns false for "nothing
+// to do", or a refusal), refuses a change that would leave no superuser who can
+// sign in, sets the role, ends the target's sessions and writes the audit row
+// with the given actor and source. A group change is its own actor.
+func (s *Store) changeRole(ctx context.Context, targetID string, role domain.Role, actorID, source string, now time.Time, allow func(tx pgx.Tx, previous string, builtin bool) (bool, error)) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin role change: %w", err)
@@ -196,9 +212,6 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 	defer tx.Rollback(ctx)
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, adminRoleAdvisoryLockID); err != nil {
 		return fmt.Errorf("lock role changes: %w", err)
-	}
-	if actorID == targetID {
-		return ErrAdminSelfRoleChange
 	}
 	var previous string
 	var builtin bool
@@ -209,32 +222,85 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 	if err != nil {
 		return fmt.Errorf("read target role: %w", err)
 	}
-	if builtin && role != "admin" {
-		return auth.ErrBuiltinRole
+	apply, err := allow(tx, previous, builtin)
+	if err != nil {
+		return err
 	}
-	if previous == role {
+	if !apply {
 		return tx.Commit(ctx)
 	}
-	if previous == "admin" && role != "admin" {
+	if domain.Role(previous).CanManageAccess() && !role.CanManageAccess() {
 		var count int
-		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users u WHERE role='admin' AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`).Scan(&count); err != nil {
-			return fmt.Errorf("count administrators: %w", err)
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users u WHERE role IN (`+domain.SQLRoleList(domain.RolesThatManageAccess())+`) AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`).Scan(&count); err != nil {
+			return fmt.Errorf("count superusers: %w", err)
 		}
 		if count <= 1 {
-			return ErrLastAdmin
+			return ErrLastSuperuser
 		}
 	}
-	if _, err = tx.Exec(ctx, `UPDATE users SET role=$2,updated_at=$3 WHERE id=$1`, targetID, role, now); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE users SET role=$2,updated_at=$3 WHERE id=$1`, targetID, string(role), now); err != nil {
 		return fmt.Errorf("update user role: %w", err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at=$2 WHERE user_id=$1 AND revoked_at IS NULL`, targetID, now); err != nil {
 		return fmt.Errorf("revoke target sessions: %w", err)
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO admin_user_audit_events(actor_user_id,target_user_id,previous_role,new_role,created_at) VALUES($1,$2,$3,$4,$5)`, actorID, targetID, previous, role, now); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO admin_user_audit_events(actor_user_id,target_user_id,previous_role,new_role,source,created_at) VALUES($1,$2,$3,$4,$5,$6)`, actorID, targetID, previous, string(role), source, now); err != nil {
 		return fmt.Errorf("audit role change: %w", err)
+	}
+	// A first sign-in notice not yet delivered names the role the person ends
+	// up with, not the default they were created with a moment ago.
+	if source == auditSourceGroupMapping {
+		if _, err = tx.Exec(ctx, `UPDATE notification_deliveries SET title=left(title,length(title)-length($2))||$3
+			WHERE event_key='user.first_sign_in:'||$1::text AND status='pending' AND right(title,length($2))=$2`, targetID, previous, string(role)); err != nil {
+			return fmt.Errorf("update first sign-in notices: %w", err)
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit role change: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role string, now time.Time) error {
+	if !domain.Role(role).Stored() {
+		return fmt.Errorf("invalid role")
+	}
+	if actorID == targetID {
+		return ErrAdminSelfRoleChange
+	}
+	return s.changeRole(ctx, targetID, domain.Role(role), actorID, auditSourceManual, now, func(tx pgx.Tx, previous string, builtin bool) (bool, error) {
+		// The actor's role is read under the lock, so a refusal never rests on a stale session.
+		var actorRole string
+		err := tx.QueryRow(ctx, `SELECT role FROM users WHERE id=$1`, actorID).Scan(&actorRole)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, &domain.RoleChangeRefused{Needs: domain.RoleAdmin, Reason: "changing a person's role is for administrators"}
+		}
+		if err != nil {
+			return false, fmt.Errorf("read actor role: %w", err)
+		}
+		if builtin && role != string(domain.RoleSuperuser) {
+			return false, auth.ErrBuiltinRole
+		}
+		if err = domain.Role(actorRole).CheckRoleChange(domain.Role(previous), domain.Role(role)); err != nil {
+			return false, err
+		}
+		return previous != role, nil
+	})
+}
+
+var _ auth.GroupRoleStore = (*Store)(nil)
+
+// ApplyGroupRole sets a person's role because their groups map to it. It is
+// the group-mapping path of ChangeUserRole: the person is their own actor, no
+// actor-role rule applies, and the audit says why. It ends all the person's
+// sessions and refuses, with auth.ErrLastSuperuser, a change that would leave
+// no superuser who can sign in. The built-in account is never changed. The
+// groups themselves never reach this method.
+func (s *Store) ApplyGroupRole(ctx context.Context, userID string, role domain.Role, now time.Time) error {
+	if !role.Stored() {
+		return fmt.Errorf("invalid role")
+	}
+	return s.changeRole(ctx, userID, role, userID, auditSourceGroupMapping, now, func(_ pgx.Tx, previous string, builtin bool) (bool, error) {
+		return !builtin && previous != string(role), nil
+	})
 }
