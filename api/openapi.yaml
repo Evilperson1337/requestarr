@@ -9,6 +9,10 @@ info:
     A session of the local administrator who has not yet chosen their own password (mustChangePassword
     on /auth/me) gets 403 password_change_required from every route except /auth/me, /auth/logout and
     /auth/local/password (D040).
+    Access levels: public, any signed-in session, administrator (admin or superuser), and
+    superuser only. An operation marked x-required-role: superuser answers 403 forbidden with the
+    message "the superuser role is required" to everyone else, an administrator included; an
+    administrator route answers "the admin role is required" below that.
     Initial contract scaffold. Keep this synchronized with implemented handlers and
     generate clients/types only after endpoint semantics are reviewed.
 servers:
@@ -16,8 +20,9 @@ servers:
 paths:
   /admin/settings/authentication/local-administrator:
     get:
+      x-required-role: superuser
       operationId: getLocalAdministratorStatus
-      summary: Admin-only recovery-account presence, disabled state and disable eligibility
+      summary: Superuser-only recovery-account presence, disabled state and disable eligibility
       responses:
         '200':
           description: Local administrator status; Cache-Control no-store
@@ -25,8 +30,9 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LocalAdministratorStatus' }
         '401': { description: Authentication required }
-        '403': { description: Administrator required }
+        '403': { description: The superuser role is required }
     post:
+      x-required-role: superuser
       operationId: createLocalAdministrator
       summary: Explicitly create the single recovery account on an upgraded instance
       description: Requires same-origin and session CSRF. Returns the generated password exactly once; the account must change it on first sign-in. Never resets an existing credential and never logs the password.
@@ -54,6 +60,7 @@ paths:
         '500': { description: Creation or audit failed; no credential returned }
   /admin/settings/authentication/local-administrator/disabled:
     put:
+      x-required-role: superuser
       operationId: setLocalAdministratorDisabled
       summary: Enable or disable the recovery account without changing its password
       description: Requires same-origin and session CSRF. Disabling requires another enabled administrator AND a working OIDC sign-in, and revokes all local sessions atomically with the audit event. A disabled account never satisfies last-admin protection.
@@ -97,8 +104,9 @@ paths:
               schema: { $ref: '#/components/schemas/SignInOptions' }
   /admin/settings/authentication:
     get:
+      x-required-role: superuser
       operationId: getAuthenticationSettings
-      summary: Admin-only OIDC state, source conflicts, saved metadata and redirect URI
+      summary: Superuser-only OIDC state, source conflicts, saved metadata and redirect URI
       responses:
         '200':
           description: Local runtime state; no provider network request; Cache-Control no-store
@@ -106,10 +114,11 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AuthenticationSettings' }
         '401': { description: Authentication required }
-        '403': { description: Administrator required }
+        '403': { description: The superuser role is required }
     put:
+      x-required-role: superuser
       operationId: saveAuthenticationSettings
-      summary: Admin-only atomic save and runtime apply
+      summary: Superuser-only atomic save and runtime apply
       description: >-
         Requires same-origin and session CSRF. A non-empty clientSecret replaces the encrypted secret;
         omitted or empty retains it. REQUESTARR_SECRETS_KEY is required for replacement. Enabled
@@ -139,8 +148,9 @@ paths:
         '422': { description: Invalid settings, unreadable secret or discovery failed }
         '500': { description: Persistence failed; previous configuration retained }
     delete:
+      x-required-role: superuser
       operationId: discardAuthenticationSettings
-      summary: Admin-only discard of saved settings and encrypted secret
+      summary: Superuser-only discard of saved settings and encrypted secret
       description: Requires same-origin and session CSRF. Does not change an environment-controlled provider.
       parameters:
         - in: header
@@ -158,8 +168,9 @@ paths:
         '500': { description: Persistence failed; previous configuration retained }
   /admin/settings/authentication/test:
     post:
+      x-required-role: superuser
       operationId: testAuthenticationSettings
-      summary: Admin-only bounded OIDC discovery; does not save or publish
+      summary: Superuser-only bounded OIDC discovery; does not save or publish
       description: Requires same-origin and session CSRF. Environment values are tested as a unit when present. Discovery checks metadata, not client credentials or a complete login.
       parameters:
         - in: header
@@ -189,8 +200,9 @@ paths:
         '422': { description: Invalid settings, unreadable secret or discovery failed }
   /admin/settings/authentication/enabled:
     put:
+      x-required-role: superuser
       operationId: setAuthenticationEnabled
-      summary: Admin-only enable or disable without losing saved settings
+      summary: Superuser-only enable or disable without losing saved settings
       description: Requires same-origin and session CSRF. Enabling re-runs discovery before publishing. Environment-controlled settings are read-only. Turning OIDC off is refused with 409 oidc_is_only_sign_in while the local administrator is disabled.
       parameters:
         - in: header
@@ -246,12 +258,13 @@ paths:
                   capabilities:
                     type: object
                     additionalProperties: false
-                    required: [request, manageRequests, manageSystem]
+                    required: [request, manageRequests, manageSystem, manageAccess]
                     description: What the role may do, derived on the server. The web app decides what to show from these and never compares role names.
                     properties:
                       request: { type: boolean, description: May create and extend requests }
                       manageRequests: { type: boolean, description: May approve, deny and cancel requests and handle issues }
-                      manageSystem: { type: boolean, description: May use Settings and the administrative surface }
+                      manageSystem: { type: boolean, description: May use Settings and the administrative surface (admin and superuser) }
+                      manageAccess: { type: boolean, description: 'May do what only the owner may: sign-in, credentials, connections, the Get started checklist, and giving or taking the admin and superuser roles (superuser only)' }
                   csrfToken: { type: string }
                   mustChangePassword:
                     type: boolean
@@ -1106,8 +1119,9 @@ paths:
         '502': { description: artwork_unavailable }
   /admin/library-connections:
     get:
+      x-required-role: superuser
       operationId: listLibraryConnections
-      summary: Where each library Source lives, with its credential status (administrator only)
+      summary: Where each library Source lives, with its credential status (superuser only)
       description: >-
         D028. Lists Jellyfin, Plex, RomM, Navidrome and Audiobookshelf with their saved address, whether the
         address comes from an environment variable (which wins and cannot be changed here),
@@ -1135,8 +1149,9 @@ paths:
         required: true
         schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
     put:
+      x-required-role: superuser
       operationId: saveLibraryConnection
-      summary: Save a Source's address, username and credential in one request and apply it (administrator only)
+      summary: Save a Source's address, username and credential in one request and apply it (superuser only)
       description: >-
         Stores the address (and username) and any credentials in one database transaction, then
         rebuilds the Source's sync once from the environment, the saved address and the stored
@@ -1172,8 +1187,9 @@ paths:
         '409': { description: set_by_environment or secrets_disabled }
         '422': { description: invalid_connection, invalid_secret_value or invalid_credential }
     delete:
+      x-required-role: superuser
       operationId: removeLibraryConnection
-      summary: Remove a saved address and stop the Source's sync (administrator only)
+      summary: Remove a saved address and stop the Source's sync (superuser only)
       description: >-
         Deletes the saved address; the Source stops syncing unless an environment address
         remains. Inventory already observed is kept. Requires CSRF and a same-origin Origin header.
@@ -1198,8 +1214,9 @@ paths:
         required: true
         schema: { type: string, enum: [jellyfin, plex, romm, navidrome, audiobookshelf] }
     post:
+      x-required-role: superuser
       operationId: testLibraryConnection
-      summary: Probe a Source with its current address and credentials (administrator only)
+      summary: Probe a Source with its current address and credentials (superuser only)
       description: >-
         An explicit check of this exact Source: one short read-only request, the same probe the
         library checks use. The message never contains a credential. Requires CSRF and a
@@ -1226,8 +1243,9 @@ paths:
         '404': { description: unknown_source }
   /admin/secrets:
     get:
+      x-required-role: superuser
       operationId: listStoredSecrets
-      summary: Stored integration secrets, write-only status (administrator only)
+      summary: Stored integration secrets, write-only status (superuser only)
       description: >-
         D024. Lists each registered secret with whether it is configured, where its effective
         value comes from, and whether a change waits for a restart. The TMDB token, IGDB client secret and Apprise key, like library credentials, apply when saved and so never wait. Values and ciphertext are
@@ -1256,8 +1274,9 @@ paths:
         required: true
         schema: { type: string, enum: [tmdb_read_token, igdb_client_secret, apprise_config_key, navidrome_password, jellyfin_api_key, plex_token, romm_token, audiobookshelf_api_key] }
     put:
+      x-required-role: superuser
       operationId: setStoredSecret
-      summary: Save or replace a stored secret (administrator only)
+      summary: Save or replace a stored secret (superuser only)
       description: >-
         Encrypts the value with the master key (AES-256-GCM) and stores it with the key id.
         Available before and after setup Finish. The value is never returned, logged, audited or
@@ -1289,8 +1308,9 @@ paths:
         '422': { description: "invalid_secret_value" }
         '500': { description: "secret_update_failed (safe generic message), or settings_not_applied (saved, but the previous configuration is still in use)" }
     delete:
+      x-required-role: superuser
       operationId: clearStoredSecret
-      summary: Clear a stored secret (administrator only)
+      summary: Clear a stored secret (superuser only)
       description: >-
         Deletes the stored value (also when the master key is missing or wrong). Records a
         value-free audit event in the same transaction. Clearing an absent secret is a no-op.
@@ -1308,8 +1328,9 @@ paths:
         '500': { description: "secret_update_failed (safe generic message), or settings_not_applied (cleared, but the previous configuration is still in use)" }
   /admin/checklist:
     get:
+      x-required-role: superuser
       operationId: getChecklist
-      summary: The Get started checklist, computed from live state (administrator only, D038)
+      summary: The Get started checklist, computed from live state (superuser only, D038)
       description: >-
         Takes no input. Each item is derived from what the instance is configured with:
         a library connected and synced, a metadata provider (TMDB or IGDB; MusicBrainz
@@ -1343,8 +1364,9 @@ paths:
         '500': { description: "checklist_failed" }
   /admin/checklist/dismiss:
     post:
+      x-required-role: superuser
       operationId: dismissChecklist
-      summary: Dismiss the Get started checklist for the whole instance (administrator only)
+      summary: Dismiss the Get started checklist for the whole instance (superuser only)
       parameters:
         - in: header
           name: X-CSRF-Token
@@ -1357,8 +1379,9 @@ paths:
         '500': { description: "checklist_failed" }
   /admin/settings/igdb:
     get:
+      x-required-role: superuser
       operationId: getIgdbSettings
-      summary: The non-secret IGDB client ID (administrator only)
+      summary: The non-secret IGDB client ID (superuser only)
       description: >-
         Responses use Cache-Control no-store. The client secret is a stored secret
         (see /admin/secrets/{name}); only the client ID is a plain setting.
@@ -1372,8 +1395,9 @@ paths:
         '403': { description: Administrator role required }
         '500': { description: "igdb_settings_failed" }
     put:
+      x-required-role: superuser
       operationId: setIgdbSettings
-      summary: Save the IGDB client ID (administrator only)
+      summary: Save the IGDB client ID (superuser only)
       description: >-
         Applies at once, like the TMDB token and IGDB secret (D039). An empty value clears it.
         An installation upgraded from the retired setup draft keeps the client ID it saved
