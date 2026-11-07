@@ -141,7 +141,7 @@ On a fresh database, Requestarr creates the local administrator when it starts a
 3. Open your public address at `/login`, for example `https://requests.example.com/login`. Sign in as `admin` with that password.
 4. Requestarr asks you to **Choose a new password** (12 to 128 characters, no other rules) before it lets you do anything else. Choose one and keep it in a password manager.
 
-You are now signed in as an administrator. The **Get started** page lists what is still open and links to the Settings that fix it; see [First-run setup](FIRST_RUN.md).
+You are now signed in as a **superuser**, the owner role (see [the four roles](#the-four-roles)). The **Get started** page lists what is still open and links to the Settings that fix it; see [First-run setup](FIRST_RUN.md).
 
 ## 5. Set up OIDC for everyone else (Keycloak example)
 
@@ -152,7 +152,7 @@ OIDC is configured in the app, not in the container settings. In your identity p
 3. Turn **Client authentication** on (this makes it a confidential client, one that has a secret) and keep **Standard flow** ticked. Untick Direct access grants. Next.
 4. **Valid redirect URIs**: the exact **Redirect address** shown in Settings, Authentication, which is your public URL followed by `/api/v1/auth/callback`, for example `https://requests.example.com/api/v1/auth/callback`. The **Copy redirect address** button there copies it. No wildcard. Save.
 5. On the **Credentials** tab copy the **Client secret**.
-6. Leave the default client scopes as they are. Requestarr requests exactly the standard scopes `openid`, `profile` and `email` and needs nothing custom (no groups, no roles). Requestarr decides who is an administrator itself (below), not the identity provider.
+6. Requestarr asks for the scopes `openid profile email groups` by default (the **Scopes** field in the card below). Without groups, Requestarr decides who is what itself (below); to let Keycloak decide, also do [Let your groups decide roles](#let-your-groups-decide-roles-optional) after this section.
 
 In Requestarr open **Settings**, then the **Authentication** section, and in the **OpenID Connect** card fill in:
 
@@ -161,6 +161,7 @@ In Requestarr open **Settings**, then the **Authentication** section, and in the
 | Provider name | Shown on the sign-in button, for example `Keycloak` |
 | Client ID | `requestarr` |
 | Issuer | `https://id.example.com/realms/requestarr` (your Keycloak address, then `/realms/`, then the realm name) |
+| Scopes | `openid profile email groups` for a new setup (`openid` is always requested). Remove `groups` if you will not use groups. |
 | Client secret | The secret from the Credentials tab. It is stored encrypted with the master key and never shown again; leave it blank later to keep the saved one. |
 
 Then:
@@ -168,19 +169,57 @@ Then:
 1. Press **Save OIDC settings**.
 2. Press **Test OIDC connection**. It contacts the issuer and checks its published settings. It does **not** prove that the client secret is right or that a person can sign in; the next steps prove that.
 3. Switch on **Enable OIDC**. The status then reads `On · <provider name>`. Changes apply at once; there is no restart.
-4. Open a private browser window and your public address. It now offers **Sign in with** your provider name. Sign in once with the account you want to make an administrator. The first time, that person is a **viewer**.
+4. Open a private browser window and your public address. It now offers **Sign in with** your provider name. Sign in once with the account you want to make an owner. The first time, that person is a **viewer** (unless you set up groups, below).
 
 You can check the issuer in a browser by opening `<issuer>/.well-known/openid-configuration`; it should show a page of JSON.
 
 **Any other OIDC provider** needs the same things: an https issuer URL, a client ID, a client secret (a confidential client using the authorization-code flow), and the redirect address from Settings, Authentication registered exactly. The provider must put a stable `sub` (subject) in the ID token, which every compliant provider does.
 
-If OIDC breaks later (the provider is down, a secret expired), the administrator form at `/login` keeps working, so OIDC cannot lock you out. The OIDC sign-in page also carries an **Administrator sign-in** link.
+If OIDC breaks later (the provider is down, a secret expired), the local administrator form at `/login` keeps working, so OIDC cannot lock you out. The OIDC sign-in page also carries an **Administrator sign-in** link.
 
-### Promote the first OIDC person, and the role new people get
+The **Test OIDC connection** step above may show a **warning** in addition to passing: *the provider does not list the groups scope*. It is not a failure and sign-in still works. It means the provider's published settings do not name a `groups` scope, so the `groups` claim may be missing from ID tokens and group roles may not apply. Add the client scope (below), or remove `groups` from **Scopes** if you do not use groups. A provider that publishes no scope list at all gives no warning, because Requestarr cannot tell.
 
-No OIDC sign-in becomes an administrator automatically. Back in the administrator session, open **Settings, Users**, find the person in **User management** and change their role to `admin` (or `requester`, who can create requests). The local administrator is shown with a **Local administrator** badge and "Always administrator"; its role cannot be changed. You do not need the person's identity-provider user ID.
+### The four roles
 
-Everyone else who signs in for the first time is a **viewer**: they can browse and use Notify Me but cannot create requests. In the same tab, **New people** has the setting *Role for people who sign in for the first time*, either `viewer` (the default) or `requester`; it never applies to people who already have an account and cannot be administrator. Every administrator is notified when someone signs in for the first time.
+| Role | What it is for |
+| --- | --- |
+| **Superuser** | The owner. Everything, and the only role that can change how people sign in (Settings, Authentication), the local administrator, integration credentials and keys (Integrations), and who is an admin or superuser. The local administrator is a superuser. |
+| **Admin** | Runs requests day to day: approves, denies and cancels, makes requests for people, resolves issues, reviews matches, sees status and activity, and moves people between requester and viewer. Cannot touch sign-in, credentials, or the admin and superuser roles. Settings shows only Activity, Matches and Users. |
+| **Requester** | Browses and makes requests. No Settings. |
+| **Viewer** | Browses libraries, requests and issues, uses Notify Me and can report an issue, but cannot request. |
+
+Every existing administrator became a superuser when this arrived, so nobody lost access; demote people who should be admins in **Settings, Users**. The instance always keeps at least one superuser who can sign in.
+
+### Promote people by hand, and the role new people get
+
+No OIDC sign-in becomes an admin or superuser by default. Back in the superuser session, open **Settings, Users**, find the person in **User management** and change their role (`superuser` and `admin` are offered to superusers only; an admin can only choose between `requester` and `viewer`). The local administrator is shown with a **Local administrator** badge and "Always a superuser"; its role cannot be changed. You do not need the person's identity-provider user ID.
+
+Everyone else who signs in for the first time is a **viewer**: they can browse and use Notify Me but cannot create requests. In the same tab, **New people** has the setting *Role for people who sign in for the first time*, either `viewer` (the default) or `requester`; it never applies to people who already have an account and can never be admin or superuser. Every admin and superuser is notified when someone signs in for the first time.
+
+### Let your groups decide roles (optional)
+
+If you would rather manage roles in Keycloak than in Requestarr, create four groups in your realm (**Groups > Create group**) and put people in them. The names below are Requestarr's defaults:
+
+| Keycloak group | Role |
+| --- | --- |
+| `owner` | Superuser |
+| `admin` | Admin |
+| `user` | Requester |
+| `viewer` | Viewer |
+
+Then make Keycloak put the groups in the ID token:
+
+1. **Client scopes > Create client scope.** Name `groups`, type `Optional` (or `Default`), protocol `OpenID Connect`, **Include in token scope** on. Save.
+2. In that scope open **Mappers > Configure a new mapper > Group Membership.** Name `groups`, **Token Claim Name** `groups`, turn **Full group path** **off** (so the token carries `admin`, not `/admin`; Requestarr also ignores one leading slash), turn **Add to ID token** on. Save.
+3. **Clients > requestarr > Client scopes > Add client scope**, pick `groups` and add it as `Default` (or `Optional`, which works because Requestarr requests the scope by name).
+
+Now in Requestarr, **Settings, Authentication**, in the OpenID Connect card:
+
+1. Check **Scopes** includes `groups` (a new setup does; an upgraded one keeps `openid profile email`, so add it) and press **Save OIDC settings**.
+2. Press **Test OIDC connection**. If it warns that the provider does not list the groups scope, the client scope is missing or is not published by the realm; see the warning explained above.
+3. Under **Assign roles from groups** the claim is `groups` and the four group names are filled in with the defaults above; change any to match groups you already have. Switch on **Assign roles from groups** and save. It is off until you do, because turning it on can change roles at the next sign-in.
+
+How it works: at every sign-in, a person in one or more of the four groups gets the most powerful matching role, which can raise or lower their role (names match ignoring case). A person in none keeps their role, and a first-time person gets the default for new people. Leaving a group does not lower a role by itself. The Users table marks people whose role was set by groups; a manual change to them is overridden at their next sign-in while mapping is on. Requestarr never stores anyone's group list. A mapping that would leave no superuser who can sign in is skipped (the log says why). If the environment configures OIDC, these fields are read-only and mapping is off.
 
 ## 6. Recover access, and the other ways OIDC can be set
 
@@ -209,7 +248,7 @@ docker run --rm --network <your-network> \
 
 **OIDC set in the environment.** If you set the OIDC override fields (`REQUESTARR_OIDC_ISSUER`, `REQUESTARR_OIDC_CLIENT_ID`, `REQUESTARR_OIDC_CLIENT_SECRET`), Settings, Authentication shows the card as **Set by environment** and read-only. If any one of the three is set, all three are taken from the environment and anything saved in the app is ignored; the card then says **Saved settings are ignored**, lists which saved values differ, and offers **Discard saved settings**. If only some of the three are set, the card says the environment configuration is incomplete and names the missing variables; OIDC stays off until all three are set. To manage OIDC in the app again, remove the three variables and restart the container.
 
-**Upgrading an existing instance.** An instance that already has users gets no local administrator automatically, and an OIDC configuration in its environment keeps working unchanged. An existing administrator can create the local administrator in **Settings, Authentication** with **Create local administrator**: the password is shown once on screen and must be changed at first sign-in. The same card can disable and re-enable the account and change its password.
+**Upgrading an existing instance.** An instance that already has users gets no local administrator automatically, and an OIDC configuration in its environment keeps working unchanged. A superuser can create the local administrator in **Settings, Authentication** with **Create local administrator**: the password is shown once on screen and must be changed at first sign-in. The same card can disable and re-enable the account and change its password.
 
 ## 7. Connect a library
 
@@ -243,6 +282,7 @@ Anything else, such as `plex.example.com`, must use `https://`, so that a librar
 | Container never becomes healthy | It cannot reach PostgreSQL. Check the database host, port, user and password, and that container names resolve (step 2). |
 | The provider reports an invalid redirect | The redirect URI registered there is not exactly the Redirect address shown in Settings, Authentication (`<public URL>/api/v1/auth/callback`). |
 | I cannot find the one-time password | It is logged once, when the account is created on a fresh database. A database that already has people (an upgrade, or an earlier test run) gets no local administrator, and the log says so in one line. Run `reset-admin-password` (step 6) to create it and print a one-time password. |
+| Group roles do not apply | **Assign roles from groups** is off, `groups` is not in Scopes, the Keycloak mapper is not adding the claim to the **ID token**, or the group names differ from the four fields. |
 | Signing in at `/login` does not stick | The public address is not https, so the browser drops the Secure cookie. |
 | A saved credential reports "stored secret unreadable" | The master key changed. Restore the original key or enter the credential again. |
 | A library address is rejected | The message says whether to use https or to add the network (step 7). |

@@ -1,7 +1,7 @@
 # Security Baseline
 
 - Everyone except the built-in local administrator signs in through OIDC; Keycloak compatibility covered by integration tests. The local administrator's password is hashed (PBKDF2), must be changed at first sign-in, and failed attempts are delayed (D040).
-- Authorization enforced server-side for every mutating/admin endpoint.
+- Authorization enforced server-side for every mutating/admin endpoint. Four roles (viewer, requester, admin, superuser, D041); authentication, the local administrator, stored secrets, library connections and the Get started checklist are superuser-only. Group names from an ID token decide a role at sign-in and are never stored or logged.
 - Admin user management exposes the IdP-provided email address and display name to administrators so they can deliberately identify and select accounts; no OIDC tokens or credentials are exposed.
 - The initial local administrator password is random, shown once in the server log (or supplied by `REQUESTARR_ADMIN_PASSWORD`), never stored in plaintext, and must be changed at first sign-in. Shell access is the recovery gate (`reset-admin-password`).
 - Never expose provider/library secrets after storage; UI returns redacted configuration state.
