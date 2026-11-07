@@ -369,7 +369,7 @@ func (h *Handler) applyGroupRole(ctx context.Context, snap *authsettings.Snapsho
 		return nil
 	}
 	role, ok := snap.Groups.RoleFor(groups)
-	if !ok || string(role) == u.Role {
+	if !ok || role == domain.Role(u.Role) {
 		return nil
 	}
 	err := h.GroupRoles.ApplyGroupRole(ctx, u.ID, role, h.now())

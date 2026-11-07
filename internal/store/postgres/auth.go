@@ -308,5 +308,11 @@ func (s *Store) ApplyGroupRole(ctx context.Context, userID string, role domain.R
 	if _, err = tx.Exec(ctx, `INSERT INTO admin_user_audit_events(actor_user_id,target_user_id,previous_role,new_role,source,created_at) VALUES($1,$1,$2,$3,'group_mapping',$4)`, userID, previous, string(role), now); err != nil {
 		return fmt.Errorf("audit group role change: %w", err)
 	}
+	// A first sign-in notice not yet delivered names the role the person ends
+	// up with, not the default they were created with a moment ago.
+	if _, err = tx.Exec(ctx, `UPDATE notification_deliveries SET title=left(title,length(title)-length($2))||$3
+		WHERE event_key='user.first_sign_in:'||$1::text AND status='pending' AND right(title,length($2))=$2`, userID, previous, string(role)); err != nil {
+		return fmt.Errorf("update first sign-in notices: %w", err)
+	}
 	return tx.Commit(ctx)
 }
