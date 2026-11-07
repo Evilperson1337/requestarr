@@ -29,7 +29,7 @@ export type SearchLocal = { catalogId?: string; requestStatus?: 'requested' | 'a
 export type SearchResult = { mediaType: string; provider: string; providerId: string; ref: string; title: string; year?: number; subtitle?: string; artworkUrl?: string; artworkKind?: string; local?: SearchLocal }
 export type SearchPage = { results: SearchResult[]; hasMore: boolean }
 export type RequestPage = { items: RequestItem[]; nextCursor: string | null }
-export type AdminUser = { id: string; email: string; displayName: string; role: 'superuser' | 'admin' | 'requester' | 'viewer'; builtin?: boolean; canRequest: boolean; createdAt: string; roleChoices: AdminUser['role'][] }
+export type AdminUser = { id: string; email: string; displayName: string; role: 'superuser' | 'admin' | 'requester' | 'viewer'; builtin?: boolean; canRequest: boolean; roleFromGroups?: boolean; createdAt: string; roleChoices: AdminUser['role'][] }
 export type PeopleSettings = { defaultRole: 'viewer' | 'requester' }
 export type ApprovalSettings = { autoApproveTypes: string[] }
 export type MatchSuggestion = { id: string; catalogItemId: string; catalogTitle: string; catalogYear: number; inventoryTitle: string; inventoryYear: number; mediaType: string; platformKey: string; sourceName: string; sourceItemId: string; confidence: 'title_year' | 'title_only'; reason: string; observedAt: string }
@@ -91,7 +91,11 @@ export type DevelopmentLogEntry = {
 }
 export type DevelopmentLogs = { entries: DevelopmentLogEntry[]; capacity: number }
 
-export type OIDCSettings = { enabled: boolean; providerName: string; issuer: string; clientId: string; scopes: string }
+export type OIDCSettings = {
+    enabled: boolean; providerName: string; issuer: string; clientId: string; scopes: string
+    // Assign roles from groups: off until switched on; blank names save as their defaults.
+    assignRolesFromGroups: boolean; groupsClaim: string; ownerGroup: string; adminGroup: string; userGroup: string; viewerGroup: string
+}
 export type AuthenticationState = {
     state: 'not_configured' | 'saved_only' | 'environment_only' | 'environment_overriding_saved' | 'environment_incomplete'
     missing: string[]; ignored: string[]; differing: string[]; saved: OIDCSettings | null; effective: OIDCSettings

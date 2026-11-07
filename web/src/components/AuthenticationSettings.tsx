@@ -1,5 +1,5 @@
 import { useCallback, useId, useRef, useState, type FormEvent } from 'react'
-import { api, type AuthenticationState, type Session } from '../api'
+import { api, type AuthenticationState, type OIDCSettings, type Session } from '../api'
 import { IntegrationCard, type Tone } from './IntegrationCard'
 import { LoadingCard, useBusy, useLoadedResource } from './authCard'
 import { LocalAdministratorCard } from './LocalAdministratorCard'
@@ -32,12 +32,48 @@ function describe(state: AuthenticationState): { label: string; line: string; to
     return { label: 'Off', line: 'OIDC is off. Saved settings are kept.', tone: 'off' }
 }
 
+type GroupFields = { on: boolean; claim: string; owner: string; admin: string; user: string; viewer: string }
+const defaultGroups: GroupFields = { on: false, claim: 'groups', owner: 'owner', admin: 'admin', user: 'user', viewer: 'viewer' }
+// Older responses may not carry the group settings; they mean the defaults, with mapping off.
+function groupFieldsOf(s: Partial<OIDCSettings>): GroupFields {
+    return { on: s.assignRolesFromGroups ?? false, claim: s.groupsClaim || defaultGroups.claim, owner: s.ownerGroup || defaultGroups.owner, admin: s.adminGroup || defaultGroups.admin, user: s.userGroup || defaultGroups.user, viewer: s.viewerGroup || defaultGroups.viewer }
+}
+const trimmedGroups = (g: GroupFields) => ({ assignRolesFromGroups: g.on, groupsClaim: g.claim.trim(), ownerGroup: g.owner.trim(), adminGroup: g.admin.trim(), userGroup: g.user.trim(), viewerGroup: g.viewer.trim() })
+function groupsChanged(g: GroupFields, saved: OIDCSettings) {
+    const was = groupFieldsOf(saved), now = trimmedGroups(g)
+    return was.on !== now.assignRolesFromGroups || was.claim !== (now.groupsClaim || defaultGroups.claim) || was.owner !== (now.ownerGroup || defaultGroups.owner) || was.admin !== (now.adminGroup || defaultGroups.admin) || was.user !== (now.userGroup || defaultGroups.user) || was.viewer !== (now.viewerGroup || defaultGroups.viewer)
+}
+
+// "Assign roles from groups": the groups in the person's ID token decide their role at sign-in.
+function GroupRoleFields({ id, groups, onChange, locked }: { id: string; groups: GroupFields; onChange: (g: GroupFields) => void; locked: boolean }) {
+    const set = (patch: Partial<GroupFields>) => onChange({ ...groups, ...patch })
+    const help = `${id}-groups-help`
+    const text = (key: 'claim' | 'owner' | 'admin' | 'user' | 'viewer', label: string, note: string) => <div className="field" key={key}>
+        <label htmlFor={`${id}-group-${key}`}>{label}</label>
+        <input id={`${id}-group-${key}`} value={groups[key]} readOnly={locked} maxLength={200} autoComplete="off" spellCheck={false} onChange={e => set({ [key]: e.target.value })} />
+        <p className="fieldHelp">{note}</p>
+    </div>
+    return <fieldset className="field wide authGroups" aria-describedby={help}>
+        <legend>Assign roles from groups</legend>
+        <label className="switch"><input type="checkbox" checked={groups.on} disabled={locked} onChange={e => set({ on: e.target.checked })} /><span>Assign roles from groups</span></label>
+        <p id={help} className="fieldHelp">{locked ? 'Set by environment. Group role mapping is not used while the environment configures OIDC.' : 'Off by default. When on, the groups in a person\u2019s ID token set their role every time they sign in, and can raise or lower it. Turning this on can change roles at the next sign-in. Someone in no mapped group keeps their role. Names ignore letter case and one leading slash.'}</p>
+        <div className="authFields">
+            {text('claim', 'Group claim', 'The ID token claim that lists groups.')}
+            {text('owner', 'Superuser group', 'Makes a person a superuser.')}
+            {text('admin', 'Admin group', 'Makes a person an admin.')}
+            {text('user', 'Requester group', 'Makes a person a requester.')}
+            {text('viewer', 'Viewer group', 'Makes a person a viewer. With several groups, the most powerful role applies.')}
+        </div>
+    </fieldset>
+}
+
 function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestError: (error: unknown) => void }) {
     const id = useId()
     const [providerName, setProviderName] = useState('')
     const [issuer, setIssuer] = useState('')
     const [clientId, setClientId] = useState('')
     const [scopes, setScopes] = useState('')
+    const [groups, setGroups] = useState<GroupFields>(defaultGroups)
     const [warnings, setWarnings] = useState<string[]>([])
     const [secret, setSecret] = useState('')
     // Before anything is saved the switch is a request: save the settings and turn OIDC on together.
@@ -47,7 +83,7 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
     const line = useRef<HTMLParagraphElement>(null)
 
     const fillFields = useCallback((next: AuthenticationState) => {
-        setProviderName(next.effective.providerName); setIssuer(next.effective.issuer); setClientId(next.effective.clientId); setScopes(next.effective.scopes)
+        setProviderName(next.effective.providerName); setIssuer(next.effective.issuer); setClientId(next.effective.clientId); setScopes(next.effective.scopes); setGroups(groupFieldsOf(next.effective))
     }, [])
     const { value: state, setValue: setState, loadError, retry } = useLoadedResource(loadOidc, onRequestError, 'Could not load the OpenID Connect settings.', fillFields)
     const adopt = (next: AuthenticationState) => { setState(next); fillFields(next) }
@@ -57,11 +93,11 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
     const locked = state.readOnly
     const { label, line: stateLine, tone } = describe(state)
     const typedSecret = secret !== ''
-    const dirty = providerName !== state.effective.providerName || issuer !== state.effective.issuer || clientId !== state.effective.clientId || scopes.trim() !== state.effective.scopes || typedSecret
+    const dirty = providerName !== state.effective.providerName || issuer !== state.effective.issuer || clientId !== state.effective.clientId || scopes.trim() !== state.effective.scopes || groupsChanged(groups, state.effective) || typedSecret
     const previous = state.saved || locked ? 'Nothing was changed. The previous configuration is still in use.' : 'Nothing was saved.'
 
     function draft() {
-        const body = { enabled: state!.saved ? state!.effective.enabled : turnOn, providerName: providerName.trim(), issuer: issuer.trim(), clientId: clientId.trim(), scopes: scopes.trim(), ...(typedSecret ? { clientSecret: secret } : {}) }
+        const body = { enabled: state!.saved ? state!.effective.enabled : turnOn, providerName: providerName.trim(), issuer: issuer.trim(), clientId: clientId.trim(), scopes: scopes.trim(), ...trimmedGroups(groups), ...(typedSecret ? { clientSecret: secret } : {}) }
         if (locked) return body
         if (!body.providerName || !body.issuer || !body.clientId) { setError('Enter a provider name, an issuer and a client ID.'); return null }
         if (!typedSecret && !state!.secretConfigured) { setError('Enter the client secret from your provider.'); return null }
@@ -138,6 +174,7 @@ function OidcCard({ csrfToken, onRequestError }: { csrfToken: string; onRequestE
                 <div className="field"><label htmlFor={`${id}-client`}>Client ID</label><input id={`${id}-client`} value={clientId} readOnly={locked} maxLength={512} autoComplete="off" spellCheck={false} onChange={e => setClientId(e.target.value)} /></div>
                 <div className="field wide"><label htmlFor={`${id}-issuer`}>Issuer</label><input id={`${id}-issuer`} type="url" inputMode="url" placeholder="https://" value={issuer} readOnly={locked} maxLength={2048} autoComplete="off" spellCheck={false} onChange={e => setIssuer(e.target.value)} /><p className="fieldHelp">The address of your provider, such as a Keycloak realm.</p></div>
                 <div className="field wide"><label htmlFor={`${id}-scopes`}>Scopes</label><input id={`${id}-scopes`} value={scopes} readOnly={locked} maxLength={1024} autoComplete="off" spellCheck={false} aria-describedby={`${id}-scopes-help`} onChange={e => setScopes(e.target.value)} /><p id={`${id}-scopes-help`} className="fieldHelp">{locked ? 'Set by environment.' : 'Separate with spaces. openid is always requested. Add groups so the provider can send the groups a person belongs to.'}</p></div>
+                <GroupRoleFields id={id} groups={groups} onChange={setGroups} locked={locked} />
                 <div className="field wide"><label htmlFor={`${id}-secret`}>Client secret</label><input id={`${id}-secret`} type="password" value={secret} disabled={locked || !state.canSaveSecret} maxLength={4096} autoComplete="new-password" aria-describedby={`${secretHelp}${missingKey ? ` ${keyHelp}` : ''}`} onChange={e => setSecret(e.target.value)} /><p id={secretHelp} className="fieldHelp">{secretText}</p></div>
             </div>
             <div className="field"><label htmlFor={`${id}-redirect`}>Redirect address</label>

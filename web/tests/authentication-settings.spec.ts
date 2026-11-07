@@ -3,8 +3,9 @@ import { expect, test, type Page } from '@playwright/test'
 import { capabilitiesFor } from './capabilities'
 
 // Settings, Authentication (D040). Every response is a deterministic mock and every credential is synthetic.
-const saved = { enabled: false, providerName: 'Keycloak', issuer: 'https://identity.example.test/realms/home', clientId: 'requestarr', scopes: 'openid profile email' }
-const empty = { enabled: false, providerName: '', issuer: '', clientId: '', scopes: 'openid profile email groups' }
+const groupDefaults = { assignRolesFromGroups: false, groupsClaim: 'groups', ownerGroup: 'owner', adminGroup: 'admin', userGroup: 'user', viewerGroup: 'viewer' }
+const saved = { enabled: false, providerName: 'Keycloak', issuer: 'https://identity.example.test/realms/home', clientId: 'requestarr', scopes: 'openid profile email', ...groupDefaults }
+const empty = { enabled: false, providerName: '', issuer: '', clientId: '', scopes: 'openid profile email groups', ...groupDefaults }
 const base = { state: 'not_configured', missing: [] as string[], ignored: [] as string[], differing: [] as string[], saved: null as typeof saved | null, effective: empty, secretConfigured: false, secretUnreadable: false, canSaveSecret: true, readOnly: false, redirectUri: 'https://requestarr.example.test/api/v1/auth/callback', working: false, problem: '' }
 type State = typeof base
 type Local = { exists: boolean; disabled: boolean; canDisable: boolean; otherAdminExists?: boolean; oidcWorking?: boolean }
@@ -146,7 +147,7 @@ for (const width of [1440, 390]) test(`Test names what failed and changes nothin
     const put = calls.filter(c => c.method === 'PUT')
     expect(put).toHaveLength(1)
     expect(put[0].csrf).toBe('test-csrf')
-    expect(put[0].body).toEqual({ enabled: true, providerName: 'Keycloak', issuer: 'https://changed.example.test', clientId: 'requestarr', scopes: 'openid profile email', clientSecret: SECRET })
+    expect(put[0].body).toEqual({ enabled: true, providerName: 'Keycloak', issuer: 'https://changed.example.test', clientId: 'requestarr', scopes: 'openid profile email', ...groupDefaults, clientSecret: SECRET })
 })
 
 test('saving, enabling and disabling work from the keyboard and the secret never reaches browser storage', async ({ page }) => {
@@ -433,7 +434,7 @@ test('a setup saved before scopes existed shows what it already asks for and cha
     })
     await card.getByRole('button', { name: 'Save OIDC settings' }).press('Enter')
     await expect(card.getByRole('status').filter({ hasText: 'OIDC settings saved' })).toBeVisible()
-    expect(calls.find(c => c.method === 'PUT')!.body).toEqual({ enabled: false, providerName: 'Keycloak', issuer: saved.issuer, clientId: 'requestarr', scopes: 'openid profile email groups' })
+    expect(calls.find(c => c.method === 'PUT')!.body).toEqual({ enabled: false, providerName: 'Keycloak', issuer: saved.issuer, clientId: 'requestarr', scopes: 'openid profile email groups', ...groupDefaults })
 })
 
 for (const width of [1440, 390]) test(`Test shows a warning, not a failure, when the provider does not list groups (${width}px)`, async ({ page }) => {
@@ -469,4 +470,67 @@ for (const width of [1440, 390]) test(`the scopes field is read-only with the us
     await expect(card.getByText('Set by environment', { exact: false }).first()).toBeVisible()
     await noOverflow(page)
     await axe(page)
+})
+
+// Assign roles from groups (four-roles ticket 05): off by default, the names are
+// filled in, saving sends them, and the environment makes them read-only.
+const groupsBox = (card: ReturnType<typeof oidc>) => card.getByRole('group', { name: 'Assign roles from groups' })
+
+for (const width of [1440, 390]) test(`Assign roles from groups is off, shows the default names, and warns that it can change roles (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await setup(page, savedState())
+    const box = groupsBox(oidc(page))
+    await expect(box.getByRole('checkbox', { name: 'Assign roles from groups' })).not.toBeChecked()
+    await expect(box.getByText('can change roles', { exact: false })).toBeVisible()
+    await expect(box.getByLabel('Group claim')).toHaveValue('groups')
+    await expect(box.getByLabel('Superuser group')).toHaveValue('owner')
+    await expect(box.getByLabel('Admin group')).toHaveValue('admin')
+    await expect(box.getByLabel('Requester group')).toHaveValue('user')
+    await expect(box.getByLabel('Viewer group')).toHaveValue('viewer')
+    await noOverflow(page)
+    await axe(page)
+})
+
+for (const width of [1440, 390]) test(`switching mapping on and renaming a group is sent on Save and shown from the server answer (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    const { calls, world } = await setup(page, savedState())
+    const card = oidc(page)
+    const box = groupsBox(card)
+    await expect(card.getByRole('button', { name: 'Save OIDC settings' })).toBeDisabled()
+    await box.getByRole('checkbox', { name: 'Assign roles from groups' }).check()
+    await box.getByLabel('Superuser group').fill('Household-Owners')
+    await box.getByLabel('Group claim').fill('roles')
+    await page.route('**/api/v1/admin/settings/authentication', route => {
+        if (route.request().method() !== 'PUT') return route.fallback()
+        world.auth = { ...base, ...savedState({ assignRolesFromGroups: true, ownerGroup: 'Household-Owners', groupsClaim: 'roles' }) } as State
+        return route.fulfill({ json: world.auth })
+    })
+    await card.getByRole('button', { name: 'Save OIDC settings' }).press('Enter')
+    await expect(card.getByRole('status').filter({ hasText: 'OIDC settings saved' })).toBeVisible()
+    expect(calls.find(c => c.method === 'PUT')!.body).toMatchObject({ assignRolesFromGroups: true, ownerGroup: 'Household-Owners', groupsClaim: 'roles', adminGroup: 'admin', userGroup: 'user', viewerGroup: 'viewer' })
+    await expect(box.getByRole('checkbox', { name: 'Assign roles from groups' })).toBeChecked()
+    await expect(card.getByRole('button', { name: 'Save OIDC settings' })).toBeDisabled()
+    await noOverflow(page)
+    await axe(page)
+})
+
+for (const width of [1440, 390]) test(`the group settings are read-only when the environment configures OIDC (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await setup(page, { state: 'environment_only', effective: { ...saved, enabled: true }, readOnly: true, secretConfigured: true, working: true })
+    const box = groupsBox(oidc(page))
+    await expect(box.getByRole('checkbox', { name: 'Assign roles from groups' })).toBeDisabled()
+    for (const name of ['Group claim', 'Superuser group', 'Admin group', 'Requester group', 'Viewer group']) await expect(box.getByLabel(name)).toHaveAttribute('readonly', '')
+    await expect(box.getByText('Set by environment', { exact: false })).toBeVisible()
+    await noOverflow(page)
+    await axe(page)
+})
+
+test('a response from before the group settings existed shows the defaults with mapping off', async ({ page }) => {
+    const { effective } = savedState()
+    const old = { ...effective } as Record<string, unknown>
+    for (const key of Object.keys(groupDefaults)) delete old[key]
+    await setup(page, { ...savedState(), effective: old as typeof saved })
+    const box = groupsBox(oidc(page))
+    await expect(box.getByRole('checkbox', { name: 'Assign roles from groups' })).not.toBeChecked()
+    await expect(box.getByLabel('Admin group')).toHaveValue('admin')
 })
