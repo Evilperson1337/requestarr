@@ -124,6 +124,16 @@ func (r Role) RoleChoices(from Role) []Role {
 	return choices
 }
 
+// RoleChoicesFor is RoleChoices for a listed person: nobody is offered a change
+// to their own role, and the built-in account's role is fixed. The list is
+// never nil, so it encodes as [].
+func (r Role) RoleChoicesFor(from Role, builtin, self bool) []Role {
+	if builtin || self {
+		return []Role{}
+	}
+	return r.RoleChoices(from)
+}
+
 // RolesThatManageRequests lists the stored roles for which CanManageRequests
 // holds, as strings for SQLRoleList.
 func RolesThatManageRequests() []string { return rolesWhere(Role.CanManageRequests) }

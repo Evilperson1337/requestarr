@@ -271,14 +271,10 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			return
 		}
 		// The roles each person may be given by the signed-in role, decided here so the page
-		// never compares role names. Nobody is offered a change to their own role, and the
-		// built-in account's role is fixed.
+		// never compares role names.
 		listed := make([]listedUser, len(users))
 		for i, person := range users {
-			listed[i] = listedUser{AdminUser: person, RoleChoices: []domain.Role{}}
-			if !person.Builtin && person.ID != user.ID {
-				listed[i].RoleChoices = domain.Role(user.Role).RoleChoices(domain.Role(person.Role))
-			}
+			listed[i] = listedUser{AdminUser: person, RoleChoices: domain.Role(user.Role).RoleChoicesFor(domain.Role(person.Role), person.Builtin, person.ID == user.ID)}
 		}
 		writeJSON(w, 200, map[string]any{"users": listed, "rolesFromGroups": d.Authentication.GroupMapping().Enabled})
 	})

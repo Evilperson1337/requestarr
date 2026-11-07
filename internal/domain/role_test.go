@@ -82,6 +82,18 @@ func TestOnlyASuperuserKeepsTheInstanceSignable(t *testing.T) {
 	}
 }
 
+func TestNobodyIsOfferedAChangeToTheBuiltInAccountOrThemselves(t *testing.T) {
+	if got := RoleSuperuser.RoleChoicesFor(RoleViewer, false, false); len(got) != 4 {
+		t.Errorf("a superuser changing another person: %v, want all four roles", got)
+	}
+	if got := RoleSuperuser.RoleChoicesFor(RoleSuperuser, true, false); got == nil || len(got) != 0 {
+		t.Errorf("the built-in account: %v, want an empty, non-nil list", got)
+	}
+	if got := RoleSuperuser.RoleChoicesFor(RoleViewer, false, true); got == nil || len(got) != 0 {
+		t.Errorf("oneself: %v, want an empty, non-nil list", got)
+	}
+}
+
 func TestRoleListsForSQL(t *testing.T) {
 	if got := RolesThatManageRequests(); len(got) != 2 || got[0] != "admin" || got[1] != "superuser" {
 		t.Errorf("RolesThatManageRequests() = %v, want [admin superuser]", got)
