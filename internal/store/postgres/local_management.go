@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"time"
 )
@@ -12,7 +13,7 @@ var _ auth.AdminManagementRepository = (*Store)(nil)
 
 func (s *Store) LocalAdminStatus(ctx context.Context) (auth.LocalAdminStatus, error) {
 	var st auth.LocalAdminStatus
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM local_credentials),COALESCE((SELECT disabled FROM local_credentials WHERE username='admin'),false),EXISTS(SELECT 1 FROM users WHERE role='admin' AND NOT builtin)`).Scan(&st.Exists, &st.Disabled, &st.OtherAdmin)
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM local_credentials),COALESCE((SELECT disabled FROM local_credentials WHERE username='admin'),false),EXISTS(SELECT 1 FROM users WHERE role IN (`+domain.SQLRoleList(domain.RolesThatManageSystem())+`) AND NOT builtin)`).Scan(&st.Exists, &st.Disabled, &st.OtherAdmin)
 	st.CanDisable = st.Exists && !st.Disabled && st.OtherAdmin
 	return st, err
 }
@@ -70,7 +71,7 @@ func (s *Store) SetLocalAdminDisabled(ctx context.Context, actor string, disable
 	}
 	if disabled {
 		var another bool
-		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE role='admin' AND NOT builtin)`).Scan(&another); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE role IN (`+domain.SQLRoleList(domain.RolesThatManageSystem())+`) AND NOT builtin)`).Scan(&another); err != nil {
 			return err
 		}
 		if !another {

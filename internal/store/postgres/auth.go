@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/evilperson1337/requestarr/internal/auth"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -128,7 +129,7 @@ func notifyFirstSignIn(ctx context.Context, tx pgx.Tx, user auth.User) error {
 	}
 	title := shorten(who, 200) + " signed in for the first time as " + user.Role
 	if _, err := tx.Exec(ctx, `INSERT INTO notification_deliveries(id,event_key,user_id,channel,status,title,body,link,created_at,available_at,updated_at)
-		SELECT gen_random_uuid(),'user.first_sign_in:'||$1::text,u.id,'in_app','pending',$2,$3,'/settings?tab=users',now(),now(),now() FROM users u WHERE u.role='admin' AND u.id<>$1::uuid
+		SELECT gen_random_uuid(),'user.first_sign_in:'||$1::text,u.id,'in_app','pending',$2,$3,'/settings?tab=users',now(),now(),now() FROM users u WHERE u.role IN (`+domain.SQLRoleList(domain.RolesThatManageSystem())+`) AND u.id<>$1::uuid
 		ON CONFLICT(event_key,user_id,channel) WHERE event_key IS NOT NULL DO NOTHING`, user.ID, title, "Open Settings, Users to change their role."); err != nil {
 		return fmt.Errorf("enqueue first sign-in notices: %w", err)
 	}
@@ -186,7 +187,7 @@ var ErrLastAdmin = errors.New("cannot remove the last administrator")
 var ErrAdminUserNotFound = errors.New("user not found")
 
 func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role string, now time.Time) error {
-	if role != "admin" && role != "requester" && role != "viewer" {
+	if !domain.Role(role).Stored() {
 		return fmt.Errorf("invalid role")
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -209,15 +210,15 @@ func (s *Store) ChangeUserRole(ctx context.Context, actorID, targetID, role stri
 	if err != nil {
 		return fmt.Errorf("read target role: %w", err)
 	}
-	if builtin && role != "admin" {
+	if builtin && !domain.Role(role).CanManageSystem() {
 		return auth.ErrBuiltinRole
 	}
 	if previous == role {
 		return tx.Commit(ctx)
 	}
-	if previous == "admin" && role != "admin" {
+	if domain.Role(previous).CanManageSystem() && !domain.Role(role).CanManageSystem() {
 		var count int
-		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users u WHERE role='admin' AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`).Scan(&count); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM users u WHERE role IN (`+domain.SQLRoleList(domain.RolesThatManageSystem())+`) AND NOT EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id AND c.disabled)`).Scan(&count); err != nil {
 			return fmt.Errorf("count administrators: %w", err)
 		}
 		if count <= 1 {

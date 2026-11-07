@@ -88,7 +88,7 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
     const [noteOpen, setNoteOpen] = useState(false)
     const [any, setAny] = useState(true)
     const [platforms, setPlatforms] = useState<string[]>([])
-    const [preview, setPreview] = useState<MoviePreviewState>(resolved.Preview || { availability: 'unknown', canRequest: session.user.role !== 'viewer', canSubscribe: false })
+    const [preview, setPreview] = useState<MoviePreviewState>(resolved.Preview || { availability: 'unknown', canRequest: session.capabilities.request, canSubscribe: false })
     const [success, setSuccess] = useState('')
     const [authLost, setAuthLost] = useState(false)
     const pending = useRef<AbortController | null>(null)
@@ -121,9 +121,9 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
     }
     function toggle(key: string) { setAny(false); setPlatforms(current => current.includes(key) ? current.filter(x => x !== key) : [...current, key]) }
     const platformsValid = !facts.needsPlatforms || any || platforms.length > 0
-    const canCreate = !authLost && !success && preview.canRequest && !preview.request && preview.availability !== 'available' && session.user.role !== 'viewer'
+    const canCreate = !authLost && !success && preview.canRequest && !preview.request && preview.availability !== 'available' && session.capabilities.request
     const tracks = item.MediaType === 'album' ? resolved.Music?.tracks ?? [] : []
-    const canExtend = !authLost && !success && !!preview.canExtend && tracks.length > 0 && session.user.role !== 'viewer'
+    const canExtend = !authLost && !success && !!preview.canExtend && tracks.length > 0 && session.capabilities.request
     const canSubmit = canCreate || canExtend
     async function create() {
         if (pending.current || !canSubmit || !platformsValid || !selectionValid) return
@@ -192,7 +192,7 @@ export function CatalogRequestModal({ resolved, session, onClose }: { resolved: 
                 {!authLost && <section className="movieState" aria-label="Request and availability">
                     {success && <p ref={successMessage} tabIndex={-1} role="status"><strong>{success}</strong></p>}
                     {preview.request && <><p>Shared Request: {preview.request.status}</p><p role="status">{preview.request.subscribed ? 'Notifications On' : 'You are not subscribed to this Request.'}</p></>}
-                    {session.user.role === 'viewer' && !preview.request && <p>Your viewer role cannot create Requests. Ask an administrator to make you a requester.</p>}
+                    {!session.capabilities.request && !preview.request && <p>Your viewer role cannot create Requests. Ask an administrator to make you a requester.</p>}
                 </section>}
                 {canCreate && <><button className="button secondary" aria-expanded={noteOpen} aria-controls="catalog-note" onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? 'Hide note' : 'Add a note'}</button>{noteOpen && <label className="field" id="catalog-note">Note (optional)<textarea maxLength={2000} value={note} disabled={busy} onChange={event => setNote(event.target.value)} /></label>}</>}
                 {error && <p role="alert" className="error">{error}</p>}

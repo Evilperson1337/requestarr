@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { letTimersRun } from './fixtures'
+import { capabilitiesFor } from './capabilities'
 
 const box = 'Search or paste a link…'
 const dune = { mediaType: 'movie', provider: 'tmdb', providerId: '438631', ref: 'https://www.themoviedb.org/movie/438631', title: 'Dune', year: 2021, artworkUrl: '', artworkKind: 'poster' }
@@ -23,7 +24,7 @@ async function openHome(page: Page, options: Options = {}) {
     await page.route('**/api/v1/**', async route => {
         const url = new URL(route.request().url())
         const path = url.pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: options.role ?? 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: options.role ?? 'requester', displayName: 'User' }, capabilities: capabilitiesFor(options.role ?? 'requester'), csrfToken: 'csrf-token' } })
         if (path === '/search/types') return route.fulfill({ json: { types: options.types ?? ['movie_tv'] } })
         if (path === '/search') {
             searches.push(url.searchParams.get('q') ?? '')

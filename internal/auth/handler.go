@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/evilperson1337/requestarr/internal/apierror"
+	"github.com/evilperson1337/requestarr/internal/domain"
 	"io"
 	"log/slog"
 	"net/http"
@@ -217,11 +218,12 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Session-Expires", exp.UTC().Format(time.RFC3339))
 	_ = json.NewEncoder(w).Encode(struct {
-		User               User   `json:"user"`
-		CSRF               string `json:"csrfToken"`
-		MustChange         bool   `json:"mustChangePassword"`
-		LocalAdministrator bool   `json:"localAdministrator"`
-	}{u, token, u.MustChange, u.LocalAdministrator})
+		User               User                `json:"user"`
+		CSRF               string              `json:"csrfToken"`
+		MustChange         bool                `json:"mustChangePassword"`
+		LocalAdministrator bool                `json:"localAdministrator"`
+		Capabilities       domain.Capabilities `json:"capabilities"`
+	}{u, token, u.MustChange, u.LocalAdministrator, domain.Role(u.Role).Capabilities()})
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {

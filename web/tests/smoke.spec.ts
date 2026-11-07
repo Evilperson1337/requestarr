@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { capabilitiesFor } from './capabilities'
 
 type Handler = (path: string, method: string, body: any) => unknown
 
@@ -6,7 +7,7 @@ async function mockApp(page: Page, handler: Handler, role = 'requester') {
     await page.route('**/api/v1/**', route => {
         const request = route.request()
         const path = new URL(request.url()).pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role, email: 'user@example.test', displayName: 'User' }, csrfToken: 'csrf-token' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role, email: 'user@example.test', displayName: 'User' }, capabilities: capabilitiesFor(role), csrfToken: 'csrf-token' } })
         const result = handler(path, request.method(), request.postDataJSON())
         return route.fulfill(result === undefined ? { status: 404, json: { error: { code: 'not_found', message: 'unmocked' } } } : { json: result })
     })

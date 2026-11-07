@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { capabilitiesFor } from './capabilities'
 
 const box = 'Search or paste a link…'
 const base = { provider: 'tmdb', artworkUrl: '', artworkKind: 'poster' }
@@ -15,7 +16,7 @@ const resolved = {
 async function openHome(page: Page) {
     await page.route('**/api/v1/**', async route => {
         const path = new URL(route.request().url()).pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, csrfToken: 'csrf-token' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'user-1', role: 'requester', displayName: 'User' }, capabilities: capabilitiesFor('requester'), csrfToken: 'csrf-token' } })
         if (path === '/search/types') return route.fulfill({ json: { types: ['movie_tv'] } })
         if (path === '/search') return route.fulfill({ json: { results: [requested, held, unseen], hasMore: false } })
         if (path === '/resolve') return route.fulfill({ json: resolved })

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { capabilitiesFor } from './capabilities'
 
 const album = {
     Item: { ID: '11111111-1111-4111-8111-111111111111', MediaType: 'album', Provider: 'musicbrainz', Title: 'Fixture album', Year: 2000, ArtworkURL: '', ArtworkKind: 'square', ExternalURL: 'https://musicbrainz.org/release-group/x' }, Platforms: [],
@@ -18,7 +19,7 @@ const series = {
 async function open(page: Page, resolved: unknown, link: string, posts: { body?: any }, preview?: unknown) {
     await page.route('**/api/v1/**', route => {
         const request = route.request(), path = new URL(request.url()).pathname
-        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'requester', displayName: 'U' }, csrfToken: 'c' } })
+        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'requester', displayName: 'U' }, capabilities: capabilitiesFor('requester'), csrfToken: 'c' } })
         if (path.endsWith('/resolve')) return route.fulfill({ json: resolved })
         if (path.endsWith('/preview')) return route.fulfill({ json: preview ?? (resolved as any).Preview })
         if (path.endsWith('/requests') && request.method() === 'POST') { posts.body = request.postDataJSON(); return route.fulfill({ status: 201, json: { Created: true, Request: { ID: 'r1', Status: 'requested' } } }) }
@@ -112,7 +113,7 @@ test('a second person can add seasons to an open partial request, but not the on
 test('the request list says what part of an item was requested', async ({ page }) => {
     await page.route('**/api/v1/**', route => {
         const path = new URL(route.request().url()).pathname
-        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'requester', displayName: 'U' }, csrfToken: 'c' } })
+        if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'u1', role: 'requester', displayName: 'U' }, capabilities: capabilitiesFor('requester'), csrfToken: 'c' } })
         if (path.endsWith('/requests')) return route.fulfill({ json: { nextCursor: null, items: [
             { ID: 'a', CatalogItemID: 'ca', Title: 'Some album', MediaType: 'album', ArtworkURL: '', ArtworkKind: 'square', Status: 'requested', Version: 1, RequestedBy: 'u1', Note: '', availability: 'unknown', Platforms: { any: true }, CreatedAt: '2026-10-28T12:00:00Z', subscribed: true, subscriptionSource: 'requester', selection: { tracks: [{ id: 't1', title: 'First' }, { id: 't2', title: 'Second' }] } },
             { ID: 'b', CatalogItemID: 'cb', Title: 'Some series', MediaType: 'tv', ArtworkURL: '', ArtworkKind: 'poster', Status: 'requested', Version: 1, RequestedBy: 'u1', Note: '', availability: 'unknown', Platforms: { any: true }, CreatedAt: '2026-10-28T12:00:00Z', subscribed: true, subscriptionSource: 'requester', selection: { seasons: [1, 3], episodes: [{ season: 2, episode: 4 }] } },

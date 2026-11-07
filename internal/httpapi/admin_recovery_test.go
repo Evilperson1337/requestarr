@@ -37,10 +37,10 @@ func TestCurrentUserResponseContractPerRole(t *testing.T) {
 				return
 			}
 			var body map[string]json.RawMessage
-			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil || len(body) != 4 {
-				t.Fatal("current-user response does not match the four-field session contract")
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil || len(body) != 5 {
+				t.Fatal("current-user response does not match the five-field session contract")
 			}
-			for _, key := range []string{"user", "csrfToken", "mustChangePassword", "localAdministrator"} {
+			for _, key := range []string{"user", "csrfToken", "mustChangePassword", "localAdministrator", "capabilities"} {
 				if _, ok := body[key]; !ok {
 					t.Errorf("missing session field %s", key)
 				}

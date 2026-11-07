@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { capabilitiesFor } from './capabilities'
 
 // The Users list among people: the local administrator is marked and its role is locked (D040).
 
@@ -7,7 +8,7 @@ async function openUsers(page: Page) {
     const puts: { path: string; body: unknown }[] = []
     await page.route('**/api/v1/**', route => {
         const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1', '')
-        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u2', role: 'admin', displayName: 'Ann' }, csrfToken: 'csrf' } })
+        if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'u2', role: 'admin', displayName: 'Ann' }, capabilities: capabilitiesFor('admin'), csrfToken: 'csrf' } })
         if (path === '/admin/users') return route.fulfill({ json: { users: [
             { id: 'u1', email: '', displayName: 'Administrator', role: 'admin', builtin: true, createdAt: '2026-10-01T00:00:00Z' },
             { id: 'u2', email: 'ann@example.test', displayName: 'Ann', role: 'admin', builtin: false, createdAt: '2026-10-02T00:00:00Z' },

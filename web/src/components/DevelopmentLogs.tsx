@@ -16,7 +16,7 @@ function unauthorized(error: unknown) {
 // Settings supplies its existing status capability. Setup omits it and performs
 // one optional, local-only status read, independent of loading/checking the draft.
 export function DevelopmentLogsPanel({ session, enabled, onRequestError }: { session: Session; enabled?: boolean; onRequestError?: (error: unknown) => void }) {
-    if (session.user.role !== 'admin') return null
+    if (!session.capabilities.manageSystem) return null
     return <DevelopmentLogsForAdmin key={`${session.user.id}:${session.csrfToken}`} enabled={enabled} onRequestError={onRequestError} />
 }
 
