@@ -3,8 +3,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { capabilitiesFor } from './capabilities'
 
 // Settings, Authentication (D040). Every response is a deterministic mock and every credential is synthetic.
-const saved = { enabled: false, providerName: 'Keycloak', issuer: 'https://identity.example.test/realms/home', clientId: 'requestarr' }
-const empty = { enabled: false, providerName: '', issuer: '', clientId: '' }
+const saved = { enabled: false, providerName: 'Keycloak', issuer: 'https://identity.example.test/realms/home', clientId: 'requestarr', scopes: 'openid profile email' }
+const empty = { enabled: false, providerName: '', issuer: '', clientId: '', scopes: 'openid profile email groups' }
 const base = { state: 'not_configured', missing: [] as string[], ignored: [] as string[], differing: [] as string[], saved: null as typeof saved | null, effective: empty, secretConfigured: false, secretUnreadable: false, canSaveSecret: true, readOnly: false, redirectUri: 'https://requestarr.example.test/api/v1/auth/callback', working: false, problem: '' }
 type State = typeof base
 type Local = { exists: boolean; disabled: boolean; canDisable: boolean; otherAdminExists?: boolean; oidcWorking?: boolean }
@@ -146,7 +146,7 @@ for (const width of [1440, 390]) test(`Test names what failed and changes nothin
     const put = calls.filter(c => c.method === 'PUT')
     expect(put).toHaveLength(1)
     expect(put[0].csrf).toBe('test-csrf')
-    expect(put[0].body).toEqual({ enabled: true, providerName: 'Keycloak', issuer: 'https://changed.example.test', clientId: 'requestarr', clientSecret: SECRET })
+    expect(put[0].body).toEqual({ enabled: true, providerName: 'Keycloak', issuer: 'https://changed.example.test', clientId: 'requestarr', scopes: 'openid profile email', clientSecret: SECRET })
 })
 
 test('saving, enabling and disabling work from the keyboard and the secret never reaches browser storage', async ({ page }) => {
@@ -388,4 +388,85 @@ test('a first setup that fails the provider check saves nothing and says so', as
     await card.getByRole('button', { name: 'Save and turn on OIDC' }).click()
     await expect(card.getByRole('alert').filter({ hasText: 'issuer could not be reached' })).toContainText('Nothing was saved.')
     await expect(card.getByText('OIDC is not configured', { exact: false }).first()).toBeVisible()
+})
+
+// Scopes are a setting (four-roles ticket 04): the default asks for groups, an
+// existing setup keeps what it asked for, and Test warns without failing.
+for (const width of [1440, 390]) test(`a new setup starts with the groups scope and Save sends the edited scopes (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    const { calls, world } = await setup(page)
+    const card = oidc(page)
+    const scopes = card.getByLabel('Scopes', { exact: true })
+    await expect(scopes).toHaveValue('openid profile email groups')
+    await expect(card.getByText('openid is always requested', { exact: false })).toBeVisible()
+    await noOverflow(page)
+    await axe(page)
+    await card.getByLabel('Provider name', { exact: true }).fill('Keycloak')
+    await card.getByLabel('Issuer', { exact: true }).fill(saved.issuer)
+    await card.getByLabel('Client ID', { exact: true }).fill('requestarr')
+    await card.getByLabel('Client secret', { exact: true }).fill(SECRET)
+    await scopes.fill('profile groups offline_access')
+    await page.route('**/api/v1/admin/settings/authentication', route => {
+        if (route.request().method() !== 'PUT') return route.fallback()
+        world.auth = { ...base, ...savedState({ scopes: 'openid profile groups offline_access' }) } as State
+        return route.fulfill({ json: world.auth })
+    })
+    await card.getByRole('button', { name: 'Save OIDC settings' }).press('Enter')
+    await expect(card.getByRole('status').filter({ hasText: 'OIDC settings saved' })).toBeVisible()
+    expect(calls.find(c => c.method === 'PUT')!.body).toMatchObject({ scopes: 'profile groups offline_access' })
+    // The server's normalised list (openid added first) is what the field shows now.
+    await expect(scopes).toHaveValue('openid profile groups offline_access')
+    await axe(page)
+})
+
+test('a setup saved before scopes existed shows what it already asks for and changing only the scopes can be saved', async ({ page }) => {
+    const { calls, world } = await setup(page, savedState())
+    const card = oidc(page)
+    const scopes = card.getByLabel('Scopes', { exact: true })
+    await expect(scopes).toHaveValue('openid profile email')
+    await expect(card.getByRole('button', { name: 'Save OIDC settings' })).toBeDisabled()
+    await scopes.fill('openid profile email groups')
+    await page.route('**/api/v1/admin/settings/authentication', route => {
+        if (route.request().method() !== 'PUT') return route.fallback()
+        world.auth = { ...base, ...savedState({ scopes: 'openid profile email groups' }) } as State
+        return route.fulfill({ json: world.auth })
+    })
+    await card.getByRole('button', { name: 'Save OIDC settings' }).press('Enter')
+    await expect(card.getByRole('status').filter({ hasText: 'OIDC settings saved' })).toBeVisible()
+    expect(calls.find(c => c.method === 'PUT')!.body).toEqual({ enabled: false, providerName: 'Keycloak', issuer: saved.issuer, clientId: 'requestarr', scopes: 'openid profile email groups' })
+})
+
+for (const width of [1440, 390]) test(`Test shows a warning, not a failure, when the provider does not list groups (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    const { calls } = await setup(page, savedState({ scopes: 'openid profile email groups' }))
+    await page.route('**/api/v1/admin/settings/authentication/test', route => route.fulfill({ json: { ok: true, warnings: ['The provider does not list the groups scope, so the groups claim may be missing from ID tokens.'] } }))
+    const card = oidc(page)
+    await card.getByLabel('Client secret', { exact: true }).fill(SECRET)
+    await card.getByRole('button', { name: 'Test OIDC connection' }).press('Enter')
+    await expect(card.getByRole('status').filter({ hasText: 'Discovery passed' })).toBeVisible()
+    await expect(card.getByText('does not list the groups scope', { exact: false })).toBeVisible()
+    await expect(card.getByRole('alert')).toHaveCount(0)
+    expect(calls.find(c => c.path.endsWith('/test'))!.body).toMatchObject({ scopes: 'openid profile email groups' })
+    await noOverflow(page)
+    await axe(page)
+})
+
+test('a passing Test with no warnings shows none', async ({ page }) => {
+    await setup(page, savedState())
+    await page.route('**/api/v1/admin/settings/authentication/test', route => route.fulfill({ json: { ok: true, warnings: [] } }))
+    const card = oidc(page)
+    await card.getByRole('button', { name: 'Test OIDC connection' }).press('Enter')
+    await expect(card.getByRole('status').filter({ hasText: 'Discovery passed' })).toBeVisible()
+    await expect(card.getByText('does not list', { exact: false })).toHaveCount(0)
+})
+
+for (const width of [1440, 390]) test(`the scopes field is read-only with the usual message when the environment configures OIDC (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await setup(page, { state: 'environment_only', effective: { ...saved, enabled: true }, readOnly: true, secretConfigured: true, working: true })
+    const card = oidc(page)
+    await expect(card.getByLabel('Scopes', { exact: true })).toHaveAttribute('readonly', '')
+    await expect(card.getByLabel('Scopes', { exact: true })).toHaveValue('openid profile email')
+    await expect(card.getByText('Set by environment', { exact: false }).first()).toBeVisible()
+    await noOverflow(page)
+    await axe(page)
 })

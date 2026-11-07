@@ -17,7 +17,7 @@ type AuthenticationService interface {
 	Status(context.Context) (authsettings.Status, error)
 	Options() authsettings.Options
 	Save(context.Context, string, authsettings.Update) error
-	Test(context.Context, authsettings.Update) error
+	Test(context.Context, authsettings.Update) (warnings []string, err error)
 	SetEnabled(context.Context, string, bool) error
 	Discard(context.Context, string) error
 }
@@ -76,11 +76,15 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 		if !decodeSettingsBody(w, r, &u, authenticationBodyLimit) {
 			return
 		}
-		if err := s.Test(r.Context(), u); err != nil {
+		warnings, err := s.Test(r.Context(), u)
+		if err != nil {
 			fail(w, r, err)
 			return
 		}
-		writeJSON(w, 200, map[string]bool{"ok": true})
+		if warnings == nil {
+			warnings = []string{}
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "warnings": warnings})
 	})
 	admin("PUT /admin/settings/authentication/enabled", func(w http.ResponseWriter, r *http.Request, actor string) {
 		var u struct {

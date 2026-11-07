@@ -166,7 +166,7 @@ func TestEnvironmentOverrideAndDiscoveryTestNeverMutateSavedState(t *testing.T) 
 		return nil, errors.New("canary-secret")
 	})
 	u := authsettings.Update{Settings: record.Settings, ClientSecret: "saved-canary"}
-	if err := svc.Test(ctx, u); err == nil || strings.Contains(err.Error(), u.ClientSecret) {
+	if _, err := svc.Test(ctx, u); err == nil || strings.Contains(err.Error(), u.ClientSecret) {
 		t.Fatal("failed test must be safe")
 	}
 	if repo.record != nil || svc.Snapshot().Provider != nil {
@@ -212,7 +212,7 @@ func TestFailedTestAndEnablePreserveActiveAndDisabledSettings(t *testing.T) {
 		t.Fatal("saved-only configuration did not survive restart")
 	}
 	u.ClientID = "broken"
-	if svc.Test(ctx, u) == nil || svc.Snapshot() != old || repo.record.Settings.ClientID != "good" {
+	if _, terr := svc.Test(ctx, u); terr == nil || svc.Snapshot() != old || repo.record.Settings.ClientID != "good" {
 		t.Fatal("failed diagnostic test must retain working state")
 	}
 	u.Enabled = false

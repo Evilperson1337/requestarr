@@ -26,9 +26,11 @@ func (authenticationFake) Options() authsettings.Options {
 	return authsettings.Options{OIDCEnabled: true, ProviderName: "Keycloak"}
 }
 func (authenticationFake) Save(context.Context, string, authsettings.Update) error { return nil }
-func (authenticationFake) Test(context.Context, authsettings.Update) error         { return nil }
-func (authenticationFake) SetEnabled(context.Context, string, bool) error          { return nil }
-func (authenticationFake) Discard(context.Context, string) error                   { return nil }
+func (authenticationFake) Test(context.Context, authsettings.Update) ([]string, error) {
+	return nil, nil
+}
+func (authenticationFake) SetEnabled(context.Context, string, bool) error { return nil }
+func (authenticationFake) Discard(context.Context, string) error          { return nil }
 func TestPublicSignInOptionsAreMinimal(t *testing.T) {
 	d := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil)
 	d.Authentication = authenticationFake{}
@@ -54,9 +56,9 @@ func (m matrixAuthentication) Save(_ context.Context, actor string, _ authsettin
 	m.b.record("authentication.save", actor)
 	return nil
 }
-func (m matrixAuthentication) Test(context.Context, authsettings.Update) error {
+func (m matrixAuthentication) Test(context.Context, authsettings.Update) ([]string, error) {
 	m.b.record("authentication.test", matrixUserID)
-	return nil
+	return nil, nil
 }
 func (m matrixAuthentication) SetEnabled(_ context.Context, actor string, _ bool) error {
 	if m.b.authRefuses != nil {
@@ -138,8 +140,8 @@ func TestAuthenticationSettingsReadRoleMatrix(t *testing.T) {
 func TestAuthenticationResponseSchemasMatchContract(t *testing.T) {
 	for schema, want := range map[string][]string{
 		"SignInOptions":                {"oidcEnabled", "providerName"},
-		"OIDCSettings":                 {"enabled", "providerName", "issuer", "clientId"},
-		"AuthenticationSettingsUpdate": {"enabled", "providerName", "issuer", "clientId", "clientSecret"},
+		"OIDCSettings":                 {"enabled", "providerName", "issuer", "clientId", "scopes"},
+		"AuthenticationSettingsUpdate": {"enabled", "providerName", "issuer", "clientId", "scopes", "clientSecret"},
 		"AuthenticationSettings":       {"state", "missing", "ignored", "differing", "saved", "effective", "secretConfigured", "secretUnreadable", "canSaveSecret", "readOnly", "redirectUri", "working", "problem"},
 		"LocalAdministratorStatus":     {"exists", "disabled", "canDisable", "otherAdminExists", "oidcWorking"},
 	} {
@@ -219,6 +221,32 @@ func TestTurningOIDCOffIsRefusedWhenItWouldLeaveNoSignIn(t *testing.T) {
 		assertErrorEnvelope(t, w, 409, "oidc_is_only_sign_in")
 		if len(backend.effects) != 0 {
 			t.Fatalf("%s must change nothing when it is refused", endpoint.pattern)
+		}
+	}
+}
+
+// warningAuthentication passes discovery but reports a warning, as the service
+// does for a provider that does not list the groups scope.
+type warningAuthentication struct{ authenticationFake }
+
+func (warningAuthentication) Test(context.Context, authsettings.Update) ([]string, error) {
+	return []string{"The provider does not list the groups scope"}, nil
+}
+
+func TestAuthenticationTestReturnsWarningsWithoutFailing(t *testing.T) {
+	for name, tc := range map[string]struct {
+		svc  AuthenticationService
+		want string
+	}{
+		"warning": {warningAuthentication{}, `"warnings":["The provider does not list the groups scope"]`},
+		"none":    {authenticationFake{}, `"warnings":[]`},
+	} {
+		repo := csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "admin"}}}
+		d := testDeps(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
+		d.Authentication = tc.svc
+		w := localCall(mustRouter(d), "POST", "/admin/settings/authentication/test", `{"enabled":true,"providerName":"K","issuer":"https://id.test","clientId":"c","scopes":"openid groups"}`, true)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"ok":true`) || !strings.Contains(w.Body.String(), tc.want) {
+			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
 		}
 	}
 }
