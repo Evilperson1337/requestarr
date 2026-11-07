@@ -176,7 +176,13 @@ paths:
           description: Discovery passed
           content:
             application/json:
-              schema: { type: object, additionalProperties: false, required: [ok], properties: { ok: { type: boolean, const: true } } }
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ok, warnings]
+                properties:
+                  ok: { type: boolean, const: true }
+                  warnings: { type: array, items: { type: string }, description: 'Things discovery suggests will not work that do not stop OIDC being used, such as the groups scope being requested but not listed by the provider' }
         '400': { description: Invalid JSON or body exceeds 8192 bytes }
         '401': { description: Authentication required }
         '403': { description: Administrator, Origin and CSRF required }
@@ -1602,21 +1608,23 @@ components:
     OIDCSettings:
       type: object
       additionalProperties: false
-      required: [enabled, providerName, issuer, clientId]
+      required: [enabled, providerName, issuer, clientId, scopes]
       properties:
         enabled: { type: boolean }
         providerName: { type: string, maxLength: 100 }
         issuer: { type: string, maxLength: 2048 }
         clientId: { type: string, maxLength: 512 }
+        scopes: { type: string, maxLength: 1024, description: 'Space-separated OIDC scopes requested at sign-in; openid is always first. A new setup defaults to "openid profile email groups"; a configuration saved before this setting, and an environment configuration, request "openid profile email"' }
     AuthenticationSettingsUpdate:
       type: object
       additionalProperties: false
-      required: [enabled, providerName, issuer, clientId]
+      required: [enabled, providerName, issuer, clientId, scopes]
       properties:
         enabled: { type: boolean }
         providerName: { type: string, minLength: 1, maxLength: 100 }
         issuer: { type: string, format: uri, maxLength: 2048 }
         clientId: { type: string, minLength: 1, maxLength: 512 }
+        scopes: { type: string, maxLength: 1024, description: 'Space-separated scope tokens (printable ASCII, no quotes or backslashes). Normalised on save: duplicates removed, openid always first, so an empty value saves as "openid"' }
         clientSecret: { type: string, maxLength: 4096, writeOnly: true, description: Empty or omitted retains the saved secret; never returned }
     AuthenticationSettings:
       type: object

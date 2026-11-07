@@ -51,6 +51,28 @@ type Client struct {
 	config     *oauth2.Config
 	verifier   *coreoidc.IDTokenVerifier
 	httpClient *http.Client
+	advertised []string
+}
+
+// RequestScopes returns the scopes to request: the configured ones with
+// duplicates removed and openid always first, so an empty setting cannot break
+// sign-in.
+func RequestScopes(configured []string) []string {
+	out := []string{coreoidc.ScopeOpenID}
+	seen := map[string]bool{coreoidc.ScopeOpenID: true}
+	for _, s := range configured {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// AdvertisedScopes returns the scopes the provider lists in its discovery
+// document. known is false when it lists none (the field is optional).
+func (c *Client) AdvertisedScopes() (scopes []string, known bool) {
+	return c.advertised, len(c.advertised) > 0
 }
 
 func New(ctx context.Context, cfg Config, redirectURL string) (*Client, error) {
@@ -70,12 +92,13 @@ func New(ctx context.Context, cfg Config, redirectURL string) (*Client, error) {
 		return nil, ErrDiscoveryDocument
 	}
 	var metadata struct {
-		JWKS string `json:"jwks_uri"`
+		JWKS   string   `json:"jwks_uri"`
+		Scopes []string `json:"scopes_supported"`
 	}
 	if p.Claims(&metadata) != nil || !safeURL(p.Endpoint().AuthURL, cfg.AllowHTTP) || !safeURL(p.Endpoint().TokenURL, cfg.AllowHTTP) || !safeURL(metadata.JWKS, cfg.AllowHTTP) {
 		return nil, ErrDiscoveryMetadata
 	}
-	return &Client{httpClient: client, config: &oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Endpoint: p.Endpoint(), RedirectURL: redirectURL, Scopes: []string{coreoidc.ScopeOpenID, "profile", "email"}}, verifier: p.Verifier(&coreoidc.Config{ClientID: cfg.ClientID})}, nil
+	return &Client{httpClient: client, config: &oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Endpoint: p.Endpoint(), RedirectURL: redirectURL, Scopes: RequestScopes(cfg.Scopes)}, verifier: p.Verifier(&coreoidc.Config{ClientID: cfg.ClientID}), advertised: metadata.Scopes}, nil
 }
 
 func (c *Client) Validate(context.Context, Config) error { return nil }
