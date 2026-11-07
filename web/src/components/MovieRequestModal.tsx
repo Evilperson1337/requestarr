@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { RequesterPicker } from './RequesterPicker'
 import { api, ApiError, type MoviePreviewState, type ResolvedItem, type Selection, type Session } from '../api'
 import { followLink } from '../navigation'
 import { LibraryTags } from './LibraryTags'
@@ -46,12 +47,13 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
         if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus() }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
     }
+    const [onBehalfOf, setOnBehalfOf] = useState('')
     async function create() {
         if (pending.current || !canSubmit || !selectionValid) return
         const controller = new AbortController(); pending.current = controller
         setBusy(true); setError('')
         try {
-            const result = await api<{ Created: boolean; Merged?: boolean; Request: { ID: string; Status: string } }>('/requests', { method: 'POST', signal: controller.signal, body: JSON.stringify({ catalogId: item.ID, note, platforms: { any: true }, selection: isWhole(selection) ? undefined : selection }) }, session.csrfToken)
+            const result = await api<{ Created: boolean; Merged?: boolean; Request: { ID: string; Status: string } }>('/requests', { method: 'POST', signal: controller.signal, body: JSON.stringify({ catalogId: item.ID, onBehalfOf: onBehalfOf || undefined, note, platforms: { any: true }, selection: isWhole(selection) ? undefined : selection }) }, session.csrfToken)
             if (controller.signal.aborted) return
             if (!result?.Request?.ID) throw new Error('The request result could not be confirmed. Retry safely to check the shared Request.')
             setPreview({ availability: preview.availability, canRequest: false, canExtend: false, canSubscribe: !result.Created && !result.Merged && ['requested', 'approved'].includes(result.Request.Status), request: { id: result.Request.ID, status: result.Request.Status, subscribed: result.Created || !!result.Merged } })
@@ -118,6 +120,7 @@ export function MovieRequestModal({ resolved, session, onClose }: { resolved: Re
                     {!session.capabilities.request && !preview.request && <p>Your viewer role cannot create Requests. Ask an administrator to make you a requester.</p>}
                 </section>}
                 {canSubmit && seasonList.length > 0 && <SeasonPicker items={seasonList} existing={preview.request?.selection} noun="series" onChange={(next, valid) => { setSelection(next); setSelectionValid(valid) }} />}
+                {canSubmit && <RequesterPicker session={session} value={onBehalfOf} onChange={setOnBehalfOf} disabled={busy} />}
                 {canCreate && <><button className="button secondary" aria-expanded={noteOpen} aria-controls="movie-note" onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? 'Hide note' : 'Add a note'}</button>{noteOpen && <label className="field" id="movie-note">Note (optional)<textarea maxLength={2000} value={note} disabled={busy} onChange={event => setNote(event.target.value)} /></label>}</>}
                 {error && <p role="alert" className="error">{error}</p>}
             </div>

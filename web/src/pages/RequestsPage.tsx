@@ -163,6 +163,7 @@ export function RequestsPage({ user, canManage, csrfToken, onChanged }: { user: 
                 <h2>{req.Title}</h2>
                 <p className="requestFacts">{[mediaLabels[req.MediaType] ?? req.MediaType, `requested ${new Date(req.CreatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`, req.availability === 'available' ? 'In library' : req.availability === 'missing' ? 'Not in library' : '', req.MediaType === 'game' ? `Platforms: ${req.Platforms?.any ? 'any' : (req.Platforms?.platformKeys || []).map(key => req.CatalogPlatforms?.find(p => p.key === key)?.name || key).join(', ') || 'not specified'}` : ''].filter(Boolean).join(' · ')}</p>
                 {describeSelection(req.selection) && <p className="requestSelection"><strong>Requested:</strong> {describeSelection(req.selection)}</p>}
+                {req.madeOnBehalfByName && <p className="requestBehalf">Made on behalf of the requester by {req.madeOnBehalfByName}</p>}
                 {req.Note && <p className="requestNote">{req.Note}</p>}
             </div>
             <div className="requestMeta"><span className={`badge status-${req.Status}`}>{req.Status}</span><span className="requester">{req.RequestedBy === user.id ? 'Yours' : 'Shared'}</span></div>

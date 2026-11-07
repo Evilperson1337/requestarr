@@ -547,7 +547,7 @@ paths:
                   items:
                     type: array
                     maxItems: 100
-                    description: Existing request objects, including availability, subscription state, and CatalogPlatforms
+                    description: Existing request objects, including availability, subscription state, and CatalogPlatforms. A request made by an administrator for the requester also carries madeOnBehalfBy (that administrator's user ID) and madeOnBehalfByName.
                     items: { type: object }
                   nextCursor: { type: [string, 'null'] }
         '400': { description: invalid_query for unknown, repeated, malformed, or out-of-range parameters; invalid_cursor for malformed, tampered, cross-user, or query-mismatched cursors }
@@ -570,6 +570,7 @@ paths:
                 catalogId: { type: string, format: uuid }
                 url: { type: string, maxLength: 2048, description: Supported TMDB, MusicBrainz, IGDB or Audible metadata URL, or a bare audiobook ASIN. Mutually exclusive with catalogId. }
                 note: { type: string, maxLength: 2000 }
+                onBehalfOf: { type: string, format: uuid, description: Make the request for this person (administrator or superuser only; any other role gets 403). The person becomes the requester with subscription source requester, is notified, and the approval policy applies as if they asked; the request records who acted. If the item already has a request the person is subscribed to it instead. The person must exist and be able to make requests (400 invalid_request otherwise). }
                 platforms:
                   type: object
                   required: [any]
@@ -582,7 +583,7 @@ paths:
         '200': { description: Existing shared request returned. When it was open and the selection added to it, Merged is true, the selection was widened (never narrowed) and the caller now follows it. }
         '400': { description: Invalid request }
         '409': { description: already_available; a library already has the item and no Request exists, so none is created }
-        '403': { description: User role cannot create requests }
+        '403': { description: User role cannot create requests, or onBehalfOf was sent by a role that cannot manage requests }
         '401': { description: Authentication required }
   /admin/sources/{source}/sync:
     post:
@@ -1599,13 +1600,14 @@ components:
     AdminUser:
       type: object
       additionalProperties: false
-      required: [id, email, displayName, role, builtin, createdAt]
+      required: [id, email, displayName, role, builtin, canRequest, createdAt]
       properties:
         id: { type: string, format: uuid }
         email: { type: string }
         displayName: { type: string }
         role: { type: string, enum: [viewer, requester, admin] }
         builtin: { type: boolean, description: True only for the local administrator, whose role is locked to admin }
+        canRequest: { type: boolean, description: Whether a request can be made for this person (the request modal person picker offers only these) }
         createdAt: { type: string, format: date-time }
     SignInOptions:
       type: object

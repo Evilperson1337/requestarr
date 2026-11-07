@@ -154,11 +154,11 @@ func createRequestSnapshot(ctx context.Context, tx pgx.Tx, userID, queryKey stri
 }
 
 func loadRequestPage(ctx context.Context, tx pgx.Tx, userID string, ids []string) ([]domain.Request, error) {
-	rows, err := tx.Query(ctx, `SELECT r.id::text,r.catalog_item_id::text,c.title,c.media_type,COALESCE(c.artwork_url,''),c.artwork_kind,r.status,r.version,r.requested_by::text,COALESCE(r.requester_note,''),r.acceptable_platforms,r.selection,r.requested_at,r.updated_at,r.available_at,c.availability,(SELECT MAX(e.observed_at) FROM availability_evidence e WHERE e.catalog_item_id=c.id),
+	rows, err := tx.Query(ctx, `SELECT r.id::text,r.catalog_item_id::text,c.title,c.media_type,COALESCE(c.artwork_url,''),c.artwork_kind,r.status,r.version,r.requested_by::text,COALESCE(r.made_on_behalf_by::text,''),COALESCE(m.display_name,''),COALESCE(r.requester_note,''),r.acceptable_platforms,r.selection,r.requested_at,r.updated_at,r.available_at,c.availability,(SELECT MAX(e.observed_at) FROM availability_evidence e WHERE e.catalog_item_id=c.id),
 		COALESCE((SELECT source FROM request_subscriptions s WHERE s.request_id=r.id AND s.user_id=$1),''),
 		COALESCE((SELECT array_agg(p.name ORDER BY p.name) FROM catalog_item_platforms p WHERE p.catalog_item_id=r.catalog_item_id AND (r.acceptable_platforms->>'any'='true' OR p.platform_key IN (SELECT jsonb_array_elements_text(r.acceptable_platforms->'platformKeys')))), ARRAY[]::text[])
 		FROM unnest($2::uuid[]) WITH ORDINALITY AS p(id,position)
-		JOIN requests r ON r.id=p.id JOIN catalog_items c ON c.id=r.catalog_item_id ORDER BY p.position`, userID, ids)
+		JOIN requests r ON r.id=p.id JOIN catalog_items c ON c.id=r.catalog_item_id LEFT JOIN users m ON m.id=r.made_on_behalf_by ORDER BY p.position`, userID, ids)
 	if err != nil {
 		return nil, fmt.Errorf("load request page: %w", err)
 	}
@@ -168,7 +168,7 @@ func loadRequestPage(ctx context.Context, tx pgx.Tx, userID string, ids []string
 		var r domain.Request
 		var platformNames pgtype.FlatArray[string]
 		var selection []byte
-		if err := rows.Scan(&r.ID, &r.CatalogItemID, &r.Title, &r.MediaType, &r.ArtworkURL, &r.ArtworkKind, &r.Status, &r.Version, &r.RequestedBy, &r.Note, requestJSON(&r), &selection, &r.CreatedAt, &r.UpdatedAt, &r.AvailableAt, &r.Availability, &r.AvailabilityObservedAt, &r.SubscriptionSource, &platformNames); err != nil {
+		if err := rows.Scan(&r.ID, &r.CatalogItemID, &r.Title, &r.MediaType, &r.ArtworkURL, &r.ArtworkKind, &r.Status, &r.Version, &r.RequestedBy, &r.MadeOnBehalfBy, &r.MadeOnBehalfByName, &r.Note, requestJSON(&r), &selection, &r.CreatedAt, &r.UpdatedAt, &r.AvailableAt, &r.Availability, &r.AvailabilityObservedAt, &r.SubscriptionSource, &platformNames); err != nil {
 			return nil, fmt.Errorf("scan request page: %w", err)
 		}
 		var err error

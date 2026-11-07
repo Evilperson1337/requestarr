@@ -35,15 +35,20 @@ type PlatformSelection struct {
 }
 
 type Request struct {
-	ID                     string
-	Version                int64
-	CatalogItemID          string
-	Title                  string
-	MediaType              MediaType
-	ArtworkURL             string
-	ArtworkKind            ArtworkKind
-	Status                 RequestStatus
-	RequestedBy            string
+	ID            string
+	Version       int64
+	CatalogItemID string
+	Title         string
+	MediaType     MediaType
+	ArtworkURL    string
+	ArtworkKind   ArtworkKind
+	Status        RequestStatus
+	RequestedBy   string
+	// MadeOnBehalfBy is the administrator who made the request for RequestedBy;
+	// empty when the requester made it themselves. MadeOnBehalfByName is the
+	// display name, filled when a request is read.
+	MadeOnBehalfBy         string `json:"madeOnBehalfBy,omitempty"`
+	MadeOnBehalfByName     string `json:"madeOnBehalfByName,omitempty"`
 	Note                   string
 	Platforms              PlatformSelection
 	Selection              Selection `json:"selection"`

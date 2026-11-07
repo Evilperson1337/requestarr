@@ -154,12 +154,15 @@ func (s *Store) RevokeSession(ctx context.Context, hash []byte, now time.Time) e
 }
 
 type AdminUser struct {
-	ID          string    `json:"id"`
-	Email       string    `json:"email"`
-	DisplayName string    `json:"displayName"`
-	Role        string    `json:"role"`
-	Builtin     bool      `json:"builtin"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	Role        string `json:"role"`
+	Builtin     bool   `json:"builtin"`
+	// CanRequest is what the role may do, so the request modal can offer only
+	// people a request can be made for without the web app comparing role names.
+	CanRequest bool      `json:"canRequest"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
@@ -174,6 +177,7 @@ func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.Role, &user.Builtin, &user.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan admin user: %w", err)
 		}
+		user.CanRequest = domain.Role(user.Role).CanRequest()
 		users = append(users, user)
 	}
 	if err := rows.Err(); err != nil {
