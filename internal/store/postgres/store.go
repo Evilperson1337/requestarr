@@ -158,13 +158,19 @@ func (s *Store) CreateOrGet(ctx context.Context, request domain.Request, sub dom
 	}
 	var out domain.Request
 	scanner := requestJSON(&out)
-	err = tx.QueryRow(ctx, `INSERT INTO requests(id,catalog_item_id,status,requested_by,requester_note,acceptable_platforms,selection,requested_at,updated_at) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$7,now(),now()) ON CONFLICT(catalog_item_id) DO NOTHING RETURNING id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at`, newUUID(), request.CatalogItemID, request.Status, request.RequestedBy, request.Note, mustJSON(request.Platforms), mustJSON(request.Selection)).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt)
+	err = tx.QueryRow(ctx, `INSERT INTO requests(id,catalog_item_id,status,requested_by,requester_note,acceptable_platforms,selection,made_on_behalf_by,requested_at,updated_at) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$7,NULLIF($8,'')::uuid,now(),now()) ON CONFLICT(catalog_item_id) DO NOTHING RETURNING id::text,catalog_item_id::text,status,requested_by::text,COALESCE(requester_note,''),acceptable_platforms,requested_at,updated_at,available_at`, newUUID(), request.CatalogItemID, request.Status, request.RequestedBy, request.Note, mustJSON(request.Platforms), mustJSON(request.Selection), request.MadeOnBehalfBy).Scan(&out.ID, &out.CatalogItemID, &out.Status, &out.RequestedBy, &out.Note, scanner, &out.CreatedAt, &out.UpdatedAt, &out.AvailableAt)
 	if err == nil {
 		_, err = tx.Exec(ctx, `INSERT INTO request_subscriptions(request_id,user_id,source,created_at) VALUES($1,$2,$3,now())`, out.ID, sub.UserID, sub.Source)
 		if err != nil {
 			return domain.Request{}, false, err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO request_events(id,request_id,event_type,actor_user_id,data,created_at) VALUES($1,$2,'request.created',$3,'{}',now())`, newUUID(), out.ID, request.RequestedBy)
+		// The actor is whoever pressed the button; for a request made on
+		// someone's behalf that is the administrator, named in the event data.
+		actor, eventData := request.RequestedBy, []byte(`{}`)
+		if request.MadeOnBehalfBy != "" {
+			actor, eventData = request.MadeOnBehalfBy, mustJSON(map[string]any{"onBehalfOf": request.RequestedBy})
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO request_events(id,request_id,event_type,actor_user_id,data,created_at) VALUES($1,$2,'request.created',$3,$4,now())`, newUUID(), out.ID, actor, eventData)
 		if err != nil {
 			return domain.Request{}, false, err
 		}
@@ -514,4 +520,20 @@ func (s *Store) Ready(ctx context.Context) error {
 
 func (s *Store) Close() {
 	s.pool.Close()
+}
+
+// UserRole reports a person's stored role; found is false for an unknown ID.
+func (s *Store) UserRole(ctx context.Context, userID string) (string, bool, error) {
+	if !domain.ValidUUID(userID) {
+		return "", false, nil
+	}
+	var role string
+	err := s.pool.QueryRow(ctx, `SELECT role FROM users WHERE id=$1`, userID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("load user role: %w", err)
+	}
+	return role, true, nil
 }
