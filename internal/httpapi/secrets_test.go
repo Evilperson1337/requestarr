@@ -60,7 +60,7 @@ func secretsHTTP(svc *fakeSecrets, logs *bytes.Buffer, role, method, path, body 
 
 func TestSecretsStatusIsWriteOnly(t *testing.T) {
 	svc := &fakeSecrets{enabled: true, statuses: []secrets.Status{{Name: secrets.TMDBReadToken, EnvVar: "REQUESTARR_TMDB_READ_TOKEN", Label: "TMDb read token", Configured: true, Source: secrets.SourceShadowed, PendingRestart: true}}}
-	w := secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodGet, "/admin/secrets", "")
+	w := secretsHTTP(svc, &bytes.Buffer{}, "superuser", http.MethodGet, "/admin/secrets", "")
 	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status %d cache %q", w.Code, w.Header().Get("Cache-Control"))
 	}
@@ -100,7 +100,7 @@ func TestSecretsRoutesRequireAdmin(t *testing.T) {
 func TestSetSecretNeverEchoesOrLogsTheValue(t *testing.T) {
 	svc := &fakeSecrets{}
 	var logs bytes.Buffer
-	w := secretsHTTP(svc, &logs, "admin", http.MethodPut, "/admin/secrets/tmdb_read_token", `{"value":"`+probeValue+`"}`)
+	w := secretsHTTP(svc, &logs, "superuser", http.MethodPut, "/admin/secrets/tmdb_read_token", `{"value":"`+probeValue+`"}`)
 	if w.Code != 204 || svc.gotValue != probeValue || svc.set[0] != matrixUserID+" tmdb_read_token" {
 		t.Fatalf("status %d set %v", w.Code, svc.set)
 	}
@@ -127,7 +127,7 @@ func TestSetSecretErrorsAreSafeAndFixed(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			svc := &fakeSecrets{setErr: c.err}
 			var logs bytes.Buffer
-			w := secretsHTTP(svc, &logs, "admin", http.MethodPut, "/admin/secrets/tmdb_read_token", c.body)
+			w := secretsHTTP(svc, &logs, "superuser", http.MethodPut, "/admin/secrets/tmdb_read_token", c.body)
 			assertErrorEnvelope(t, w, c.want, c.code)
 			if strings.Contains(w.Body.String(), probeValue) || strings.Contains(logs.String(), probeValue) {
 				t.Fatal("value leaked")
@@ -138,12 +138,12 @@ func TestSetSecretErrorsAreSafeAndFixed(t *testing.T) {
 
 func TestClearSecret(t *testing.T) {
 	svc := &fakeSecrets{}
-	w := secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodDelete, "/admin/secrets/tmdb_read_token", "")
+	w := secretsHTTP(svc, &bytes.Buffer{}, "superuser", http.MethodDelete, "/admin/secrets/tmdb_read_token", "")
 	if w.Code != 204 || svc.cleared[0] != matrixUserID+" tmdb_read_token" {
 		t.Fatalf("status %d cleared %v", w.Code, svc.cleared)
 	}
 	svc = &fakeSecrets{clearErr: secrets.ErrUnknownSecret}
-	assertErrorEnvelope(t, secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodDelete, "/admin/secrets/nope", ""), 404, "unknown_secret")
+	assertErrorEnvelope(t, secretsHTTP(svc, &bytes.Buffer{}, "superuser", http.MethodDelete, "/admin/secrets/nope", ""), 404, "unknown_secret")
 }
 
 // PUT and DELETE on stored secrets enforce the same CSRF token and Origin
@@ -158,7 +158,7 @@ func TestSecretsWritesRequireCSRFAndSameOrigin(t *testing.T) {
 		} {
 			svc := &fakeSecrets{}
 			h := NewWithBackend(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), buildinfo.Info{}, fakeReadiness{}, nil, nil, svc,
-				&auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "admin"}}}, Secret: "test-secret", PublicURL: "http://example.test"})
+				&auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "superuser"}}}, Secret: "test-secret", PublicURL: "http://example.test"})
 			r := httptest.NewRequest(method, "/api/v1/admin/secrets/tmdb_read_token", strings.NewReader(`{"value":"x"}`))
 			r.AddCookie(&http.Cookie{Name: "requestarr_session", Value: "valid"})
 			r.AddCookie(&http.Cookie{Name: "requestarr_csrf", Value: "csrf-token"})
@@ -179,10 +179,10 @@ func TestSecretsWritesRequireCSRFAndSameOrigin(t *testing.T) {
 
 func TestSecretsAreWritableAtAnyTime(t *testing.T) {
 	svc := &fakeSecrets{}
-	if w := secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodPut, "/admin/secrets/tmdb_read_token", `{"value":"`+probeValue+`"}`); w.Code != 204 {
+	if w := secretsHTTP(svc, &bytes.Buffer{}, "superuser", http.MethodPut, "/admin/secrets/tmdb_read_token", `{"value":"`+probeValue+`"}`); w.Code != 204 {
 		t.Fatalf("replace: %d", w.Code)
 	}
-	if w := secretsHTTP(svc, &bytes.Buffer{}, "admin", http.MethodDelete, "/admin/secrets/tmdb_read_token", ""); w.Code != 204 {
+	if w := secretsHTTP(svc, &bytes.Buffer{}, "superuser", http.MethodDelete, "/admin/secrets/tmdb_read_token", ""); w.Code != 204 {
 		t.Fatalf("clear: %d", w.Code)
 	}
 }

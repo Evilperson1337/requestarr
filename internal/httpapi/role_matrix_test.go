@@ -36,12 +36,12 @@ type mutationCase struct {
 // valid positive request is required: denial must not be a validation error.
 func mutationCases() []mutationCase {
 	return []mutationCase{
-		{"create recovery account", "POST /admin/settings/authentication/local-administrator", "/admin/settings/authentication/local-administrator", "", "admin", 201, "localadmin.create"},
-		{"disable recovery account", "PUT /admin/settings/authentication/local-administrator/disabled", "/admin/settings/authentication/local-administrator/disabled", `{"disabled":true}`, "admin", 200, "localadmin.disable"},
-		{"save OIDC", "PUT /admin/settings/authentication", "/admin/settings/authentication", `{"enabled":true,"providerName":"Keycloak","issuer":"https://id.test","clientId":"client","clientSecret":"canary-secret"}`, "admin", 200, "authentication.save"},
-		{"test OIDC", "POST /admin/settings/authentication/test", "/admin/settings/authentication/test", `{}`, "admin", 200, "authentication.test"},
-		{"enable OIDC", "PUT /admin/settings/authentication/enabled", "/admin/settings/authentication/enabled", `{"enabled":true}`, "admin", 200, "authentication.enable"},
-		{"discard OIDC", "DELETE /admin/settings/authentication", "/admin/settings/authentication", "", "admin", 200, "authentication.discard"},
+		{"create recovery account", "POST /admin/settings/authentication/local-administrator", "/admin/settings/authentication/local-administrator", "", "superuser", 201, "localadmin.create"},
+		{"disable recovery account", "PUT /admin/settings/authentication/local-administrator/disabled", "/admin/settings/authentication/local-administrator/disabled", `{"disabled":true}`, "superuser", 200, "localadmin.disable"},
+		{"save OIDC", "PUT /admin/settings/authentication", "/admin/settings/authentication", `{"enabled":true,"providerName":"Keycloak","issuer":"https://id.test","clientId":"client","clientSecret":"canary-secret"}`, "superuser", 200, "authentication.save"},
+		{"test OIDC", "POST /admin/settings/authentication/test", "/admin/settings/authentication/test", `{}`, "superuser", 200, "authentication.test"},
+		{"enable OIDC", "PUT /admin/settings/authentication/enabled", "/admin/settings/authentication/enabled", `{"enabled":true}`, "superuser", 200, "authentication.enable"},
+		{"discard OIDC", "DELETE /admin/settings/authentication", "/admin/settings/authentication", "", "superuser", 200, "authentication.discard"},
 		{"create request", "POST /requests", "/requests", `{"catalogId":"` + matrixItemID + `","platforms":{"any":false}}`, "requester", 201, "request.create"},
 		{"resolve metadata", "POST /resolve", "/resolve", `{"url":"https://www.themoviedb.org/movie/11"}`, "authenticated", 200, "metadata.resolve"},
 		{"subscribe", "PUT /requests/{requestID}/subscription", "/requests/" + matrixItemID + "/subscription", "", "authenticated", 200, "request.subscribe"},
@@ -57,13 +57,13 @@ func mutationCases() []mutationCase {
 		{"accept match", "POST /admin/match-suggestions/{suggestionID}/accept", "/admin/match-suggestions/" + matrixItemID + "/accept", "", "admin", 204, "match.accept"},
 		{"dismiss match", "POST /admin/match-suggestions/{suggestionID}/dismiss", "/admin/match-suggestions/" + matrixItemID + "/dismiss", "", "admin", 204, "match.dismiss"},
 		{"logout", "POST /auth/logout", "/auth/logout", "", "authenticated", 204, "session.revoke"},
-		{"dismiss the Get started checklist", "POST /admin/checklist/dismiss", "/admin/checklist/dismiss", "", "admin", 204, "checklist.dismiss"},
-		{"set the IGDB client ID", "PUT /admin/settings/igdb", "/admin/settings/igdb", `{"clientId":"twitch-id"}`, "admin", 200, "igdb.client_id"},
-		{"set stored secret", "PUT /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", `{"value":"matrix-secret-value"}`, "admin", 204, "secret.set"},
-		{"clear stored secret", "DELETE /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", "", "admin", 204, "secret.clear"},
-		{"save library connection", "PUT /admin/library-connections/{slug}", "/admin/library-connections/plex", `{"url":"https://plex.example.test"}`, "admin", 200, "connection.save"},
-		{"remove library connection", "DELETE /admin/library-connections/{slug}", "/admin/library-connections/plex", "", "admin", 200, "connection.remove"},
-		{"test library connection", "POST /admin/library-connections/{slug}/test", "/admin/library-connections/plex/test", "", "admin", 200, "connection.test"},
+		{"dismiss the Get started checklist", "POST /admin/checklist/dismiss", "/admin/checklist/dismiss", "", "superuser", 204, "checklist.dismiss"},
+		{"set the IGDB client ID", "PUT /admin/settings/igdb", "/admin/settings/igdb", `{"clientId":"twitch-id"}`, "superuser", 200, "igdb.client_id"},
+		{"set stored secret", "PUT /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", `{"value":"matrix-secret-value"}`, "superuser", 204, "secret.set"},
+		{"clear stored secret", "DELETE /admin/secrets/{name}", "/admin/secrets/tmdb_read_token", "", "superuser", 204, "secret.clear"},
+		{"save library connection", "PUT /admin/library-connections/{slug}", "/admin/library-connections/plex", `{"url":"https://plex.example.test"}`, "superuser", 200, "connection.save"},
+		{"remove library connection", "DELETE /admin/library-connections/{slug}", "/admin/library-connections/plex", "", "superuser", 200, "connection.remove"},
+		{"test library connection", "POST /admin/library-connections/{slug}/test", "/admin/library-connections/plex/test", "", "superuser", 200, "connection.test"},
 		{"report an issue", "POST /issues", "/issues", `{"libraryItemId":"` + matrixItemID + `","kind":"video"}`, "authenticated", 201, "issue.report"},
 		{"comment on an issue", "POST /issues/{id}/comments", "/issues/" + matrixItemID + "/comments", `{"text":"still broken"}`, "authenticated", 204, "issue.comment"},
 		{"resolve an issue", "POST /issues/{id}/status", "/issues/" + matrixItemID + "/status", `{"status":"resolved","comment":"fixed"}`, "admin", 200, "issue.status"},
@@ -275,12 +275,15 @@ func TestMutatingEndpointRoleMatrix(t *testing.T) {
 				status, code := endpoint.status, ""
 				if role == "unauthenticated" {
 					status, code = 401, "authentication_required"
-				} else if endpoint.policy == "admin" && role != "admin" && role != "superuser" || endpoint.policy == "requester" && role == "viewer" {
+				} else if endpoint.policy == "superuser" && role != "superuser" || endpoint.policy == "admin" && role != "admin" && role != "superuser" || endpoint.policy == "requester" && role == "viewer" {
 					status, code = 403, "forbidden"
 				}
 				var effects []string
 				if code != "" {
 					assertErrorEnvelope(t, w, status, code)
+					if code == "forbidden" && !strings.Contains(w.Body.String(), "the "+endpoint.policy+" role") && endpoint.policy != "requester" {
+						t.Errorf("refusal does not name the %s role: %s", endpoint.policy, w.Body.String())
+					}
 				} else {
 					if w.Code != status {
 						t.Fatalf("status=%d want %d body=%s", w.Code, status, w.Body.String())

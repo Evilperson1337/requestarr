@@ -22,7 +22,7 @@ func TestWhatEachRoleMayDo(t *testing.T) {
 		{RoleViewer, Capabilities{}},
 		{RoleRequester, Capabilities{Request: true}},
 		{RoleAdmin, Capabilities{Request: true, ManageRequests: true, ManageSystem: true}},
-		{RoleSuperuser, Capabilities{Request: true, ManageRequests: true, ManageSystem: true}},
+		{RoleSuperuser, Capabilities{Request: true, ManageRequests: true, ManageSystem: true, ManageAccess: true}},
 		{"owner", Capabilities{}},
 		{"", Capabilities{}},
 	}

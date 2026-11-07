@@ -24,6 +24,7 @@ type Capabilities struct {
 	Request        bool `json:"request"`
 	ManageRequests bool `json:"manageRequests"`
 	ManageSystem   bool `json:"manageSystem"`
+	ManageAccess   bool `json:"manageAccess"`
 }
 
 // rank orders the roles by power; an unknown role has rank 0 and may do nothing.
@@ -101,7 +102,7 @@ func (r Role) CanManageSystem() bool { return r.rank() >= RoleAdmin.rank() }
 
 // Capabilities derives the session answer from the role.
 func (r Role) Capabilities() Capabilities {
-	return Capabilities{Request: r.CanRequest(), ManageRequests: r.CanManageRequests(), ManageSystem: r.CanManageSystem()}
+	return Capabilities{Request: r.CanRequest(), ManageRequests: r.CanManageRequests(), ManageSystem: r.CanManageSystem(), ManageAccess: r.CanManageAccess()}
 }
 
 // ValidDefault reports whether the role can be the default for people who sign
