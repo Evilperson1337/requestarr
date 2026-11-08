@@ -1,6 +1,6 @@
 # 04: The agent wrapper, the guide and D043
 
-Status: needs-review
+Status: done
 
 **What to build:** `scripts/agent/requestarr-diag.sh status|logs|runs|connections`, reading the address and token from a private directory (mode 600 enforced) and never printing the token; a guide for the operator; D043 in `docs/DECISIONS.md`. (Spec story 11; Implementation Decisions: client.)
 
@@ -8,7 +8,7 @@ Status: needs-review
 
 - [x] The script refuses a token file others can read, passes the token on a private descriptor, and redacts it from any output (tested against a local fake server, as `romm-probe.sh` was)
 - [x] `logs` takes `--level` and `--after`; output is one readable line per record
-- [ ] The guide covers creating the token, where to put it, revoking it and what a token can and cannot read
+- [x] The guide covers creating the token, where to put it, revoking it and what a token can and cannot read
 - [x] D043 records the decision and the open questions' answers; `docs/OIDC_AUTH.md` and `CLAUDE.md` point to the guide
 - [x] `scripts/check.sh` passes
 
@@ -21,3 +21,5 @@ How each criterion was checked (`scripts/agent/requestarr-diag-test.sh` runs the
 - D043 (the last number before it was D042) records the decision and the three answers; `docs/OIDC_AUTH.md` and `CLAUDE.md` point to the guide.
 - `scripts/check.sh` exit 0 (PostgreSQL integration and Playwright included, 365 browser tests passed).
 - Also not checked: a run against a real Requestarr with a real token. The fake server follows `api/openapi.yaml`, not the running server.
+
+- After ticket 03 merged (76fa0c5), the guide was read against `web/src/components/DiagnosticsTokens.tsx`: the name field (1 to 80 characters), the lifetime choice (default 30 days, 90 at most), the copy button, the one-time reveal and revoke in the list row all match the guide's wording, so the last criterion is ticked. Still not run against a real Requestarr: the script was tested against a fake server only.
