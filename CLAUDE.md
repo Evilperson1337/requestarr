@@ -29,6 +29,8 @@ make snapshot       # goreleaser release --snapshot --clean
 make release-check  # goreleaser check
 ```
 
+To cut a release (bump the pinned tag, then run `scripts/wizard-publish-release.sh`), follow "Cutting a release" in `docs/RELEASES.md`.
+
 Single Go test: `go test ./internal/domain/... -run TestName -v`.
 
 Before opening a PR, run `scripts/check.sh` (fmt, test, vet, PostgreSQL integration tests, and web typecheck plus Playwright if `web/node_modules` exists; `make bootstrap` prepares a fresh clone or worktree, and `REQUESTARR_SKIP_BROWSER_TESTS=1` skips the browser tests). This mirrors CI and what `AGENTS.md` calls "required checks before completing a change". Run it after any change, not just Go changes. A change under `internal/store/` or `db/migrations/` is unverified until `make test-integration` has passed (it picks a free Postgres port itself).

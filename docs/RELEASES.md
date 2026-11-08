@@ -9,6 +9,15 @@ The build system uses Make for local ergonomics and GoReleaser v2 for cross-plat
 - `make check-container` (`scripts/check-container.sh`) builds the Docker image, runs it against the dev compose Postgres and Keycloak, and checks it serves the UI, an SPA route and the API.
 - `scripts/check-node-version.sh` fails if the Node major differs between the Dockerfile and the workflows (currently 22).
 
+## Cutting a release
+
+1. Pick the next tag (the last one is `git tag --sort=-v:refname | head -1`; a pre-release is `v0.1.0-rc.N`).
+2. Change the pinned tag from the old one to the new one in `deploy/unraid/requestarr.xml`, `deploy/unraid/requestarr.env.example`, `docs/UNRAID.md` and `pinned_tag` in `scripts/deploy-files-test.sh`. `scripts/deploy-files-test.sh` fails when they disagree.
+3. Run `scripts/check.sh`, commit the pin change on `main` and push it.
+4. Run `scripts/wizard-publish-release.sh` and give it the new tag. It tags the current commit, exports a scrubbed copy of the history, runs the gate that finds no trace of the private domain, pushes to the public GitHub repository (the tag last and alone, which starts `release.yml`), and checks the published image anonymously, as Unraid pulls it. It needs `gh` logged in with the `repo` and `workflow` scopes, plus `git-filter-repo`, `docker`, `python3` and `curl`.
+
+The wizard releases whatever commit is checked out, so push to `main` first. It never moves an existing tag.
+
 ## The embedded UI
 
 The binary embeds the built UI from `internal/webui/dist`. That directory is build output and is **not committed** (only `.gitkeep` is). Every path that builds a binary builds the UI first: the Dockerfile has a Node stage, GoReleaser runs `npm ci` and `make web-build` as `before` hooks, and CI builds it before `go test`. A plain `go build` without `make web-build` embeds an empty directory; `go test` skips the UI test in that case.

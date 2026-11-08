@@ -18,10 +18,13 @@ if grep -qE '\.go$|^api/openapi\.yaml$|^go\.(mod|sum)$' <<<"$staged"; then
 		exit 1
 	fi
 	go vet ./...
-	go test ./...
+	# Quiet on success: the full package list is noise. A failure prints everything.
+	tests="$(go test ./... 2>&1)" || { echo "$tests" >&2; exit 1; }
+	echo 'pre-commit: go vet and go test passed'
 fi
 if grep -q '^web/' <<<"$staged" && [[ -d web/node_modules ]]; then
-	make web-check
+	web="$(make web-check 2>&1)" || { echo "$web" >&2; exit 1; }
+	echo 'pre-commit: web typecheck passed'
 fi
 if grep -qE '^(deploy/|docs/UNRAID\.md$|docs/FIRST_RUN\.md$|scripts/deploy-files-test\.sh$|compose.*\.ya?ml$)' <<<"$staged"; then
 	if docker info >/dev/null 2>&1; then scripts/deploy-files-test.sh; else echo 'pre-commit: no Docker; skipping the deployment-file check (scripts/check.sh runs it)'; fi
