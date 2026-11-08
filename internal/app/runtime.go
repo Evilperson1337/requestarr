@@ -43,10 +43,31 @@ func resolveBoot(ctx context.Context, cfg config.Config, store bootStore, logger
 	if err != nil {
 		return booted{}, err
 	}
-	if err := b.Config.Validate(); err != nil {
+	if err := withoutIncompleteSavedSources(b).Validate(); err != nil {
 		return booted{}, fmt.Errorf("invalid configuration: %w", err)
 	}
 	return b, nil
+}
+
+// withoutIncompleteSavedSources is the configuration to validate: a library
+// Source whose address was saved in Settings but lacks its credential is left
+// out. That is an ordinary state (the credential was never entered, or was
+// cleared), which Settings, Integrations reports as missing and the Source
+// manager holds off. Refusing to start over it would also lock the operator out
+// of the screen that fixes it. An address set by an environment variable stays
+// subject to the pairing rule: that is a mistake in the deployment itself.
+func withoutIncompleteSavedSources(b booted) config.Config {
+	check := b.Config
+	for _, kind := range sources.All() {
+		if b.Connections[kind.Slug].FromEnvironment || len(check.LibraryProblems(kind.Slug)) == 0 {
+			continue
+		}
+		*check.LibraryURL(kind.Slug) = ""
+		for _, credential := range kind.Credentials {
+			*check.LibraryCredential(kind.Slug, credential.Role) = ""
+		}
+	}
+	return check
 }
 
 // resolveConfig is resolveBoot without validation, so one Source can be

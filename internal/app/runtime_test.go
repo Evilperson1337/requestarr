@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/evilperson1337/requestarr/internal/config"
@@ -138,5 +139,27 @@ func TestResolveBootOrdersIGDBIDThenSecretsThenValidation(t *testing.T) {
 	bad := validBase(config.Config{JellyfinURL: "https://jellyfin.example.test"}) // no key: validation must run last and fail
 	if _, err := resolveBoot(context.Background(), bad, bootRepo{}, discardLogger); err == nil {
 		t.Fatal("an invalid configuration must stop startup")
+	}
+}
+
+// A library address saved in Settings with no credential (never entered, or
+// cleared later) is a normal, incomplete state the Integrations tab shows as
+// missing. It must never stop boot, which would also lock the operator out of
+// the screen that fixes it. The same mistake made with environment variables
+// is still refused, with the variable names.
+func TestASavedAddressWithoutACredentialDoesNotStopBoot(t *testing.T) {
+	cfg := validBase(config.Config{})
+	repo := bootRepo{connections: map[string]sources.Connection{"romm": {Slug: "romm", URL: "https://romm.example.test"}}}
+	b, err := resolveBoot(context.Background(), cfg, repo, discardLogger)
+	if err != nil {
+		t.Fatalf("boot must continue: %v", err)
+	}
+	if b.Config.RommURL != "https://romm.example.test" || len(b.Config.LibraryProblems("romm")) == 0 {
+		t.Fatalf("the saved address must stay so Settings can show what is missing: %q", b.Config.RommURL)
+	}
+
+	env := validBase(config.Config{RommURL: "https://romm.example.test"})
+	if _, err := resolveBoot(context.Background(), env, bootRepo{}, discardLogger); err == nil || !strings.Contains(err.Error(), "REQUESTARR_ROMM_URL and REQUESTARR_ROMM_TOKEN must be configured together") {
+		t.Fatalf("an environment mistake must still be refused: %v", err)
 	}
 }
