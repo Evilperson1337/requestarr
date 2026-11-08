@@ -119,6 +119,7 @@ type song struct {
 }
 
 func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
+	inventory.SetStep(ctx, "listing music folders")
 	folders, err := c.get(ctx, "/rest/getMusicFolders.view", nil)
 	if err != nil {
 		return inventory.Snapshot{}, err
@@ -131,6 +132,7 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 	seen := make(map[string]struct{})
 	for page := 0; page < maxPages; page++ {
 		offset := page * pageSize
+		inventory.SetStep(ctx, "listing albums at offset %d", offset)
 		q := url.Values{"type": {"alphabeticalByName"}, "size": {strconv.Itoa(pageSize)}, "offset": {strconv.Itoa(offset)}}
 		result, err := c.get(ctx, "/rest/getAlbumList2.view", q)
 		if err != nil {
@@ -143,7 +145,8 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 		if len(albums) > pageSize || offset+len(albums) > maxAlbums {
 			return inventory.Snapshot{}, fmt.Errorf("Navidrome reports too many albums")
 		}
-		for _, listed := range albums {
+		for n, listed := range albums {
+			inventory.SetStep(ctx, "reading album %d of the page at offset %d", n+1, offset)
 			if listed.ID == "" || len(listed.ID) > 256 || listed.Name == "" || len(listed.Name) > 512 || listed.SongCount < 0 || listed.SongCount > maxAlbums {
 				return inventory.Snapshot{}, fmt.Errorf("invalid Navidrome album summary")
 			}

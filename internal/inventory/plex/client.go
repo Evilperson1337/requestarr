@@ -109,6 +109,7 @@ type container struct {
 // discards everything gathered so far.
 func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 	var libs []library
+	inventory.SetStep(ctx, "listing libraries")
 	sections, err := c.get(ctx, "/library/sections", nil)
 	if err != nil {
 		return inventory.Snapshot{}, err
@@ -166,6 +167,7 @@ func (c *Client) library(ctx context.Context, key string, media domain.MediaType
 	total := -1
 	for page := 0; page < maxPages; page++ {
 		offset := page * c.pageSize
+		inventory.SetStep(ctx, "listing a library's items at offset %d", offset)
 		q := url.Values{"includeGuids": {"1"}, "X-Plex-Container-Start": {strconv.Itoa(offset)}, "X-Plex-Container-Size": {strconv.Itoa(c.pageSize)}}
 		if plexType != "" {
 			q.Set("type", plexType)

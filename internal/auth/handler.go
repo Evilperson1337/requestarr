@@ -83,35 +83,42 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		snap = h.OIDC()
 	}
 	if snap == nil || snap.Provider == nil {
+		h.log(r.Context(), slog.LevelWarn, "OIDC sign-in failed", "stage", "login", "step", "start", "reason", "oidc_not_active")
 		apierror.Write(w, r, 503, "oidc_unavailable", "OIDC sign-in is not available; use administrator sign-in")
 		return
 	}
 
 	preauth, err := oidc.RandomValue()
 	if err != nil {
+		h.log(r.Context(), slog.LevelError, "OIDC sign-in failed", "stage", "login", "step", "start", "reason", "random_value_failed")
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	state, err := oidc.RandomValue()
 	if err != nil {
+		h.log(r.Context(), slog.LevelError, "OIDC sign-in failed", "stage", "login", "step", "start", "reason", "random_value_failed")
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	nonce, err := oidc.RandomValue()
 	if err != nil {
+		h.log(r.Context(), slog.LevelError, "OIDC sign-in failed", "stage", "login", "step", "start", "reason", "random_value_failed")
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	verifier, err := oidc.RandomValue()
 	if err != nil {
+		h.log(r.Context(), slog.LevelError, "OIDC sign-in failed", "stage", "login", "step", "start", "reason", "random_value_failed")
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	if err = h.Repo.SaveTransaction(r.Context(), HashString(h.Secret, state), nonce, verifier, HashString(h.Secret, preauth), h.now().Add(5*time.Minute)); err != nil {
+		h.log(r.Context(), slog.LevelError, "OIDC sign-in failed", "stage", "login", "step", "save_transaction", "reason", "storage_error")
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	if !h.rememberOIDC(HashString(h.Secret, state), snap) {
+		h.log(r.Context(), slog.LevelWarn, "OIDC sign-in failed", "stage", "login", "step", "remember_snapshot", "reason", "too_many_pending_sign_ins")
 		apierror.Write(w, r, 503, "auth_unavailable", "too many pending sign-ins; try again shortly")
 		return
 	}
@@ -122,11 +129,13 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie("requestarr_oidc_state")
 	if err != nil || !Equal(c.Value, r.URL.Query().Get("state")) {
+		h.log(r.Context(), slog.LevelWarn, "OIDC sign-in failed", "stage", "callback", "step", "state_cookie", "reason", "missing_or_mismatch")
 		apierror.Write(w, r, 400, "invalid_login_transaction", "invalid login transaction")
 		return
 	}
 	preauth, err := r.Cookie(preauthCookie)
 	if err != nil {
+		h.log(r.Context(), slog.LevelWarn, "OIDC sign-in failed", "stage", "callback", "step", "preauth_cookie", "reason", "missing")
 		apierror.Write(w, r, 400, "invalid_login_transaction", "invalid login transaction")
 		return
 	}
@@ -134,42 +143,62 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	clearCookie(w, "requestarr_oidc_state", "/api/v1/auth", h.Secure)
 	nonce, verifier, err := h.Repo.ConsumeTransaction(r.Context(), HashString(h.Secret, c.Value), HashString(h.Secret, preauth.Value), h.now())
 	if err != nil {
+		h.log(r.Context(), slog.LevelWarn, "OIDC sign-in failed", "stage", "callback", "step", "consume_transaction", "reason", "unknown_or_expired")
 		apierror.Write(w, r, 400, "invalid_login_transaction", "invalid login transaction")
 		return
 	}
 	snap := h.takeOIDC(HashString(h.Secret, c.Value))
 	if snap == nil {
+		h.log(r.Context(), slog.LevelWarn, "OIDC sign-in failed", "stage", "callback", "step", "login_snapshot", "reason", "expired_or_unknown")
 		apierror.Write(w, r, 400, "invalid_login_transaction", "login expired; start sign-in again")
 		return
 	}
 	if r.URL.Query().Get("error") != "" {
+		h.log(r.Context(), slog.LevelWarn, "OIDC sign-in failed: the identity provider returned an error", "stage", "callback", "step", "provider_response", "reason", "oauth_"+oidc.OAuthErrorCode(r.URL.Query().Get("error")))
 		apierror.Write(w, r, 401, "sign_in_rejected", "identity provider rejected sign-in")
 		return
 	}
 	id, err := snap.Provider.Exchange(r.Context(), r.URL.Query().Get("code"), verifier, nonce)
 	if err != nil {
+		h.signInFailed(r.Context(), "callback", err)
 		apierror.Write(w, r, 401, "sign_in_failed", "sign-in failed")
 		return
 	}
 	uid, err := oidc.RandomUUID()
 	if err != nil {
+		h.log(r.Context(), slog.LevelError, "OIDC sign-in failed", "stage", "callback", "step", "user_id", "reason", "random_value_failed")
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	u, err := h.Repo.Login(r.Context(), snap.Issuer, id.Subject, id.Email, id.DisplayName, uid, h.now())
 	if err != nil {
+		h.log(r.Context(), slog.LevelError, "OIDC sign-in failed", "stage", "callback", "step", "save_user", "reason", "storage_error")
 		apierror.Write(w, r, 500, "sign_in_failed", "sign-in failed")
 		return
 	}
 	if err = h.applyGroupRole(r.Context(), snap, u, id); err != nil {
+		h.log(r.Context(), slog.LevelError, "OIDC sign-in failed", "stage", "callback", "step", "apply_group_role", "reason", "storage_error")
 		apierror.Write(w, r, 500, "sign_in_failed", "sign-in failed")
 		return
 	}
 	if err = h.issueSession(w, r, u.ID); err != nil {
+		h.log(r.Context(), slog.LevelError, "OIDC sign-in failed", "stage", "callback", "step", "issue_session", "reason", "storage_error")
 		apierror.Write(w, r, 500, "auth_unavailable", "auth unavailable")
 		return
 	}
 	http.Redirect(w, r, h.PublicURL+"/", http.StatusSeeOther)
+}
+
+// signInFailed logs a failed code exchange or ID token check by its fixed
+// step and reason (oidc.SignInError), never the code, a token or the
+// provider's own text, so Settings, Logs says what to fix.
+func (h *Handler) signInFailed(ctx context.Context, stage string, err error) {
+	var failure *oidc.SignInError
+	if errors.As(err, &failure) {
+		h.log(ctx, slog.LevelWarn, "OIDC sign-in failed", "stage", stage, "step", failure.Step, "reason", failure.Reason)
+		return
+	}
+	h.log(ctx, slog.LevelWarn, "OIDC sign-in failed", "stage", stage, "step", "exchange", "reason", "unknown")
 }
 
 // issueSession creates a session for the user and sets its cookies.

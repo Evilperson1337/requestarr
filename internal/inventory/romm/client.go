@@ -73,6 +73,7 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 		ID     *int `json:"id"`
 		IGDBID *int `json:"igdb_id"`
 	}
+	inventory.SetStep(ctx, "listing platforms")
 	if err := c.get(ctx, "/api/platforms", nil, &platforms); err != nil {
 		return inventory.Snapshot{}, err
 	}
@@ -113,6 +114,7 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 			Total  *int `json:"total"`
 			Offset *int `json:"offset"`
 		}
+		inventory.SetStep(ctx, "listing games at offset %d", offset)
 		if err := c.get(ctx, "/api/roms", q, &res); err != nil {
 			return inventory.Snapshot{}, err
 		}

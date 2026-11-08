@@ -221,6 +221,8 @@ Now in Requestarr, **Settings, Authentication**, in the OpenID Connect card:
 
 How it works: at every sign-in, a person in one or more of the four groups gets the most powerful matching role, which can raise or lower their role (names match ignoring case). A person in none keeps their role, and a first-time person gets the default for new people. Leaving a group does not lower a role by itself. The Users table marks people whose role was set by groups; a manual change to them is overridden at their next sign-in while mapping is on. Requestarr never stores anyone's group list. A mapping that would leave no superuser who can sign in is skipped (the log says why). If the environment configures OIDC, these fields are read-only and mapping is off.
 
+**Sign-in failing or showing "sign-in failed"?** Open **Settings, Logs** (as the local administrator) and read the `OIDC sign-in failed` line: `step=code_exchange reason=oauth_invalid_client` means the client ID or secret is wrong; `oauth_invalid_grant` means the redirect address does not match the one registered at the provider; `id_token_verify` means the issuer, client ID or the server's clock is off.
+
 **A role did not change?** Sign in again as that person, then open **Settings, Logs** as a superuser and look for the `OIDC sign-in:` line. It says whether mapping is off, whether the ID token had no groups claim (it lists the claims the token does have, so you can see if the Group Membership mapper is missing or not added to the ID token), or whether none of the person's groups matched a mapped name. To use Keycloak realm roles instead of groups, set the group claim to `realm_access.roles`.
 
 ## 6. Recover access, and the other ways OIDC can be set

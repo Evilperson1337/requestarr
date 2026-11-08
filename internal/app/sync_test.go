@@ -1,10 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -237,5 +239,32 @@ func TestSyncWithAliasRefreshRefreshesFirstAndStillSyncsWhenRefreshFails(t *test
 	refresh := func(context.Context) { order = append(order, "refresh") }
 	if err := withAliasRefresh(refresh, job)(context.Background()); err != nil || len(order) != 2 || order[0] != "refresh" || order[1] != "sync" {
 		t.Fatalf("order=%v err=%v", order, err)
+	}
+}
+
+// stepSource reports where it is, then fails there.
+type stepSource struct{ fakeSource }
+
+func (s stepSource) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
+	inventory.SetStep(ctx, "listing platforms")
+	inventory.SetStep(ctx, "listing games at offset %d", 400)
+	return inventory.Snapshot{}, errors.New("RomM inventory returned HTTP 500")
+}
+
+// The log says where in the enumeration a sync failed, while the stored error
+// stays the fixed string.
+func TestAFailedSyncLogsTheStepItWasOn(t *testing.T) {
+	var logs bytes.Buffer
+	store := &fakeSyncStore{}
+	err := sourceSyncJob(slog.New(slog.NewTextHandler(&logs, nil)), store, stepSource{}, "http://jellyfin.example")(context.Background())
+	if err == nil || err.Error() != "inventory request failed" {
+		t.Fatalf("error = %v", err)
+	}
+	out := logs.String()
+	if !strings.Contains(out, `step="listing games at offset 400"`) || !strings.Contains(out, "HTTP 500") {
+		t.Fatalf("log = %q", out)
+	}
+	if len(store.failures) != 1 || strings.Contains(store.failures[0], "offset") {
+		t.Fatalf("stored failure = %v", store.failures)
 	}
 }

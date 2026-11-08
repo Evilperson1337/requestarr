@@ -71,6 +71,7 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 	total := -1
 	for page := 0; page < maxPages; page++ {
 		offset := page * pageSize
+		inventory.SetStep(ctx, "listing movies and shows at offset %d", offset)
 		u, _ := url.Parse(c.baseURL + "/Items")
 		q := u.Query()
 		q.Set("Recursive", "true")

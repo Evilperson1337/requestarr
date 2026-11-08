@@ -8,9 +8,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,5 +100,40 @@ func TestGroupsAreReadFromTheConfiguredIDTokenClaim(t *testing.T) {
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// A failed exchange says which step failed and why, from a fixed set, so an
+// operator can act on it; nothing the provider said is kept.
+func TestAFailedExchangeNamesItsStepAndReason(t *testing.T) {
+	var base string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": base, "authorization_endpoint": base + "/authorize", "token_endpoint": base + "/token", "jwks_uri": base + "/keys", "id_token_signing_alg_values_supported": []string{"RS256"}})
+		case "/token":
+			w.WriteHeader(401)
+			_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"canary-secret-echo"}`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	base = srv.URL
+	client, err := oidc.New(context.Background(), oidc.Config{Issuer: base, ClientID: "client", ClientSecret: "secret", AllowHTTP: true}, "http://localhost/api/v1/auth/callback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Exchange(context.Background(), "code", "v", "nonce")
+	var failure *oidc.SignInError
+	if !errors.As(err, &failure) || failure.Step != oidc.StepCodeExchange || failure.Reason != "oauth_invalid_client" {
+		t.Fatalf("err = %#v", err)
+	}
+	if strings.Contains(err.Error(), "canary") || strings.Contains(failure.Reason, "canary") {
+		t.Fatalf("the provider's text was kept: %v", err)
+	}
+	if oidc.OAuthErrorCode("canary-made-up") != "other" {
+		t.Fatal("an unknown error code must not be kept")
 	}
 }

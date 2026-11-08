@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -118,19 +119,87 @@ func (c *Client) AuthorizationURL(state, nonce, challenge string) string {
 	return c.config.AuthCodeURL(state, oauth2.SetAuthURLParam("nonce", nonce), oauth2.SetAuthURLParam("code_challenge", challenge), oauth2.SetAuthURLParam("code_challenge_method", "S256"))
 }
 
+// SignInError is a failed sign-in exchange, described by fixed categories an
+// operator can act on: the Step that failed and a Reason from a short, fixed
+// set. It never holds the code, a token or anything the provider said beyond a
+// standard OAuth error code from the list below. Error() stays a fixed phrase
+// per step, safe to show or log.
+type SignInError struct{ Step, Reason string }
+
+func (e *SignInError) Error() string {
+	switch e.Step {
+	case StepCodeExchange:
+		return "OIDC code exchange failed"
+	case StepTokenVerify:
+		return "OIDC ID token verification failed"
+	case StepClaims:
+		return "OIDC claims could not be decoded"
+	}
+	return "OIDC " + e.Step + " failed"
+}
+
+// The steps of the callback exchange, as SignInError.Step.
+const (
+	StepCodeExchange = "code_exchange"
+	StepTokenMissing = "id_token_missing"
+	StepTokenVerify  = "id_token_verify"
+	StepClaims       = "claims_decode"
+	StepSubjectNonce = "subject_or_nonce"
+)
+
+// oauthErrorCodes are the standard error codes (RFC 6749 section 5.2) worth
+// naming: invalid_client is a wrong client ID or secret, invalid_grant a reused
+// or expired code or a redirect address the provider does not match.
+var oauthErrorCodes = map[string]bool{
+	"invalid_request": true, "invalid_client": true, "invalid_grant": true, "unauthorized_client": true,
+	"unsupported_grant_type": true, "invalid_scope": true, "access_denied": true, "server_error": true, "temporarily_unavailable": true,
+}
+
+// OAuthErrorCode returns code when it is a standard OAuth error code, and
+// "other" for anything else, so nothing a provider chose to say is kept.
+func OAuthErrorCode(code string) string {
+	if oauthErrorCodes[code] {
+		return code
+	}
+	return "other"
+}
+
+// exchangeReason names why the token request failed without keeping its text.
+func exchangeReason(err error) string {
+	var retrieve *oauth2.RetrieveError
+	if errors.As(err, &retrieve) {
+		if retrieve.ErrorCode != "" {
+			return "oauth_" + OAuthErrorCode(retrieve.ErrorCode)
+		}
+		if retrieve.Response != nil {
+			return fmt.Sprintf("http_%d", retrieve.Response.StatusCode)
+		}
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+	return "network_or_response"
+}
+
 func (c *Client) Exchange(ctx context.Context, code, verifier, nonce string) (*Identity, error) {
 	ctx = coreoidc.ClientContext(ctx, c.httpClient)
 	tok, err := c.config.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", verifier))
 	if err != nil {
-		return nil, errors.New("OIDC code exchange failed")
+		return nil, &SignInError{Step: StepCodeExchange, Reason: exchangeReason(err)}
 	}
 	raw, ok := tok.Extra("id_token").(string)
 	if !ok || raw == "" {
-		return nil, fmt.Errorf("OIDC response is missing ID token")
+		return nil, &SignInError{Step: StepTokenMissing, Reason: "no_id_token_in_response"}
 	}
 	id, err := c.verifier.Verify(ctx, raw)
 	if err != nil {
-		return nil, errors.New("OIDC ID token verification failed")
+		reason := "rejected_check_issuer_client_id_and_signing_keys"
+		var expired *coreoidc.TokenExpiredError
+		if errors.As(err, &expired) {
+			reason = "expired_check_server_clock"
+		}
+		return nil, &SignInError{Step: StepTokenVerify, Reason: reason}
 	}
 	var claims struct {
 		Subject string `json:"sub"`
@@ -139,14 +208,17 @@ func (c *Client) Exchange(ctx context.Context, code, verifier, nonce string) (*I
 		Name    string `json:"name"`
 	}
 	if err := id.Claims(&claims); err != nil {
-		return nil, errors.New("OIDC claims could not be decoded")
+		return nil, &SignInError{Step: StepClaims, Reason: "undecodable"}
 	}
 	var all map[string]json.RawMessage
 	if err := id.Claims(&all); err != nil {
-		return nil, errors.New("OIDC claims could not be decoded")
+		return nil, &SignInError{Step: StepClaims, Reason: "undecodable"}
 	}
-	if claims.Subject == "" || claims.Nonce != nonce {
-		return nil, fmt.Errorf("OIDC subject or nonce is invalid")
+	if claims.Subject == "" {
+		return nil, &SignInError{Step: StepSubjectNonce, Reason: "no_subject"}
+	}
+	if claims.Nonce != nonce {
+		return nil, &SignInError{Step: StepSubjectNonce, Reason: "nonce_mismatch"}
 	}
 	groupsClaim, found := claimAt(all, c.groupsClaim)
 	names := make([]string, 0, len(all))

@@ -83,6 +83,17 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	if err != nil {
 		return fmt.Errorf("initialize authentication settings: %w", err)
 	}
+	// Startup discovery failures only reach the Authentication page otherwise.
+	if st, err := authentication.Status(ctx); err == nil {
+		switch {
+		case st.Problem != "":
+			logger.Warn("OIDC sign-in is configured but not working", "reason", st.Problem)
+		case st.Working:
+			logger.Info("OIDC sign-in is active", "read_only", st.ReadOnly)
+		case !st.Effective.Enabled:
+			logger.Info("OIDC sign-in is not enabled")
+		}
+	}
 	// A disabled local administrator plus switched-off OIDC would lock everyone out.
 	authentication.RequireSignInPath(func(ctx context.Context) (bool, error) {
 		st, err := store.LocalAdminStatus(ctx)
@@ -190,9 +201,11 @@ func sourceSyncJob(logger *slog.Logger, db sourceSyncStore, src inventory.Source
 	return func(ctx context.Context) error {
 		d := src.Descriptor()
 		started := time.Now().UTC()
+		ctx, steps := inventory.WithStepTracker(ctx)
 		snap, err := src.Snapshot(ctx)
 		if err == nil && !snap.Complete {
 			err = errInventoryRequest
+			logger.Warn("source snapshot incomplete", "source", d.Kind, "step", steps.Current())
 		}
 		if err != nil {
 			if ctx.Err() != nil {
@@ -201,7 +214,7 @@ func sourceSyncJob(logger *slog.Logger, db sourceSyncStore, src inventory.Source
 			// The stored error stays a fixed string, but the operator's log says why. Adapter
 			// errors are fixed phrases that never carry provider text (inventorytest checks).
 			if !errors.Is(err, errInventoryRequest) {
-				logger.Warn("source snapshot failed", "source", d.Kind, "reason", err.Error())
+				logger.Warn("source snapshot failed", "source", d.Kind, "step", steps.Current(), "reason", err.Error())
 			}
 			if e := db.RecordSyncFailure(ctx, d, started, errInventoryRequest.Error()); e != nil {
 				logger.Warn("record sync health failed", "source", d.Kind)

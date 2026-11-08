@@ -3,6 +3,7 @@ package auth
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -167,5 +168,62 @@ func TestSignInLogsWhatTheGroupMappingDecided(t *testing.T) {
 	signIn(t, &groupStore{role: "viewer"}, mappingOn(), []string{"canary-group", "canary-other"}, &logs)
 	if !strings.Contains(logs.String(), "group_count=2") {
 		t.Errorf("no-match log should count the groups: %q", logs.String())
+	}
+}
+
+// A failed sign-in logs its step and reason, never the code, state or any
+// text from the provider.
+type failingProvider struct {
+	authProviderFake
+	err error
+}
+
+func (p failingProvider) Exchange(context.Context, string, string, string) (*oidc.Identity, error) {
+	return nil, p.err
+}
+
+func TestFailedSignInsAreLoggedByStepAndReason(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"wrong client secret", &oidc.SignInError{Step: oidc.StepCodeExchange, Reason: "oauth_invalid_client"}, "step=code_exchange reason=oauth_invalid_client"},
+		{"clock or issuer", &oidc.SignInError{Step: oidc.StepTokenVerify, Reason: "expired_check_server_clock"}, "step=id_token_verify reason=expired_check_server_clock"},
+		{"anything else", errors.New("canary-provider-text"), "step=exchange reason=unknown"},
+	}
+	for _, c := range cases {
+		snap := &authsettings.Snapshot{Provider: failingProvider{err: c.err}, Issuer: "https://id.example", Groups: mappingOn()}
+		var logs bytes.Buffer
+		store := &groupStore{role: "viewer"}
+		h := &Handler{Repo: store, GroupRoles: store, OIDC: func() *authsettings.Snapshot { return snap }, Secret: "secret", PublicURL: "https://app.example", Logger: slog.New(slog.NewTextHandler(&logs, nil))}
+		loginRec := httptest.NewRecorder()
+		h.login(loginRec, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+		req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=canary-code&state=", nil)
+		state := ""
+		for _, ck := range loginRec.Result().Cookies() {
+			req.AddCookie(ck)
+			if ck.Name == "requestarr_oidc_state" {
+				state = ck.Value
+			}
+		}
+		req.URL.RawQuery = "code=canary-code&state=" + state
+		rec := httptest.NewRecorder()
+		h.callback(rec, req)
+		out := logs.String()
+		if rec.Code != http.StatusUnauthorized || !strings.Contains(out, "OIDC sign-in failed") || !strings.Contains(out, c.want) {
+			t.Errorf("%s: status %d, log %q", c.name, rec.Code, out)
+		}
+		if strings.Contains(out, "canary") {
+			t.Errorf("%s: secret text reached the log: %q", c.name, out)
+		}
+	}
+	// A request with no cookies says why it was refused.
+	var logs bytes.Buffer
+	h := &Handler{Repo: &groupStore{}, Secret: "secret", Logger: slog.New(slog.NewTextHandler(&logs, nil))}
+	rec := httptest.NewRecorder()
+	h.callback(rec, httptest.NewRequest(http.MethodGet, "/auth/callback?code=c&state=s", nil))
+	if !strings.Contains(logs.String(), "step=state_cookie reason=missing_or_mismatch") {
+		t.Errorf("log = %q", logs.String())
 	}
 }

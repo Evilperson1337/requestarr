@@ -112,6 +112,7 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 	var libs struct {
 		Libraries []library `json:"libraries"`
 	}
+	inventory.SetStep(ctx, "listing libraries")
 	if err := c.get(ctx, "/api/libraries", nil, &libs); err != nil {
 		return inventory.Snapshot{}, err
 	}
@@ -151,6 +152,7 @@ func (c *Client) libraryItems(ctx context.Context, lib library, items *[]invento
 	for page := 0; page < maxPages; page++ {
 		q := url.Values{"limit": {strconv.Itoa(c.pageSize)}, "page": {strconv.Itoa(page)}, "minified": {"1"}, "sort": {"addedAt"}}
 		var res itemPage
+		inventory.SetStep(ctx, "listing a library's items on page %d", page)
 		if err := c.get(ctx, "/api/libraries/"+lib.ID+"/items", q, &res); err != nil {
 			return err
 		}

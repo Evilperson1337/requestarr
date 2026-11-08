@@ -8,6 +8,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/authsettings"
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/secrets"
+	"log/slog"
 	"net/http"
 )
 
@@ -26,7 +27,14 @@ type AuthenticationService interface {
 	Discard(context.Context, string) error
 }
 
-func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
+func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService, logger *slog.Logger) {
+	// note logs a change or a failed attempt by its fixed outcome and the acting
+	// administrator's ID. Never the settings, the secret or the provider's text.
+	note := func(r *http.Request, level slog.Level, msg string, args ...any) {
+		if logger != nil {
+			logger.Log(r.Context(), level, msg, append(args, "request_id", apierror.RequestID(r.Context()))...)
+		}
+	}
 	rt.handle("GET /auth/options", accessPublic, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, 200, s.Options())
@@ -47,6 +55,7 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 		case errors.Is(err, authsettings.ErrDiscovery):
 			status, code, message = 422, "oidc_discovery_failed", authsettings.DiscoveryMessage(err)
 		}
+		note(r, slog.LevelWarn, "OIDC settings request failed", "code", code, "detail", message)
 		apierror.Write(w, r, status, code, message)
 	}
 	respond := func(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +82,7 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 			fail(w, r, err)
 			return
 		}
+		note(r, slog.LevelInfo, "OIDC settings saved", "actor_id", actor, "enabled", u.Enabled, "groups_mapping", u.AssignRolesFromGroups)
 		respond(w, r)
 	})
 	admin("POST /admin/settings/authentication/test", func(w http.ResponseWriter, r *http.Request, _ string) {
@@ -85,6 +95,7 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 			fail(w, r, err)
 			return
 		}
+		note(r, slog.LevelInfo, "OIDC discovery test passed", "warning_count", len(warnings))
 		if warnings == nil {
 			warnings = []string{}
 		}
@@ -105,6 +116,7 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 			fail(w, r, err)
 			return
 		}
+		note(r, slog.LevelInfo, "OIDC enabled or disabled", "actor_id", actor, "enabled", *u.Enabled)
 		respond(w, r)
 	})
 	admin("DELETE /admin/settings/authentication", func(w http.ResponseWriter, r *http.Request, actor string) {
@@ -112,6 +124,7 @@ func registerAuthenticationRoutes(rt *routeTable, s AuthenticationService) {
 			fail(w, r, err)
 			return
 		}
+		note(r, slog.LevelInfo, "OIDC settings discarded", "actor_id", actor)
 		respond(w, r)
 	})
 }
