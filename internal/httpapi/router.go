@@ -523,13 +523,15 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		policy, known := rt.policyFor(r, path)
-		if auth.HasBearerHeader(r) && authHandler != nil {
-			// A request with an Authorization header is judged as a token request
-			// only: no session, cookie or query parameter is looked at.
+		if auth.IsTokenRequest(r) && authHandler != nil {
+			// A request with exactly one "Authorization: Bearer rqd_..." header is
+			// judged as a token request only: no session, cookie or query parameter
+			// is looked at. Any other Authorization header (a proxy's Basic, another
+			// scheme) is ignored and the request is judged as a session request.
 			var bearerErr *auth.BearerError
 			var tokenUser auth.User
 			if !known || !policy.TokenReadable || r.Method != http.MethodGet {
-				bearerErr = authHandler.RefuseBearer(r, auth.BearerNotReadable)
+				bearerErr = authHandler.RefuseUnreadable(r)
 			} else {
 				tokenUser, bearerErr = authHandler.AuthenticateBearer(r)
 			}

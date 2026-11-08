@@ -107,6 +107,30 @@ printf '%s\n' "$canary" > "$dir/diag.token"
 [[ -s "$work/argv.log" ]] || fail "the curl shim saw nothing"
 if grep -q CANARY "$work/argv.log"; then fail "the token was passed on a command line"; fi
 
+# A token that is not rqd_ plus URL-safe characters is refused with a message before any request, so it
+# can never break out of the curl config it is written into.
+before="$(wc -l < "$work/requests.log")"
+for bad in 'rqd_ab"cd' 'rqd_ab\cd' 'rqd_ab cd' 'rqd_' 'abc_notadiagnosticstoken' 'rqd_ab"
+header = "X-Evil: 1'; do
+  printf '%s\n' "$bad" > "$dir/diag.token"
+  if out="$(diag status 2>&1)"; then fail "a malformed token must be refused: $bad"; fi
+  grep -q 'rqd_' <<<"$out" || fail "the refusal does not say what a token looks like: $out"
+done
+printf '%s\n' "$canary" > "$dir/diag.token"
+[[ "$(wc -l < "$work/requests.log")" == "$before" ]] || fail "a request was made with a malformed token"
+
+# scripts/agent/romm-probe.sh builds its curl config the same way: a token with a double quote, a
+# backslash, whitespace or a control character is refused before any request.
+printf 'http://127.0.0.1:%s\n' "$port" > "$dir/romm.url"
+romm() { REQUESTARR_PROBE_DIR="$dir" PATH="$work/bin:$PATH" scripts/agent/romm-probe.sh "$@"; }
+for bad in 'tok"en' 'tok\en' 'tok en' $'tok\ten' $'tok\ren'; do
+  printf '%s\n' "$bad" > "$dir/romm.token"; chmod 600 "$dir/romm.token"
+  if out="$(romm 2>&1)"; then fail "romm-probe must refuse a token with a quote, backslash or whitespace: $bad"; fi
+  grep -q 'token' <<<"$out" && ! grep -q 'HTTP\|Authorization' <<<"$out" || fail "romm-probe refusal unclear: $out"
+done
+[[ "$(wc -l < "$work/requests.log")" == "$before" ]] || fail "romm-probe made a request with a malformed token"
+rm "$dir/romm.token" "$dir/romm.url"
+
 # A token file others can read, a directory others can enter, or an address with a path or credentials
 # is refused before any request.
 before="$(wc -l < "$work/requests.log")"

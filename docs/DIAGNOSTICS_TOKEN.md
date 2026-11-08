@@ -29,7 +29,7 @@ Sign in as a superuser, open **Settings, Logs** and use the diagnostics token ca
 
 ## Where to put it
 
-The script reads two files from a private directory, never from an argument or the environment, so the value is not in your shell history or a process list. Run this yourself, not through the agent:
+The script reads two files from a private directory, never from an argument or the environment, so the value is not in your shell history or a process list. Run this yourself, not through the agent, in bash (type `bash` first if your login shell is fish or zsh: `read -rs -p` is bash-only):
 
 ```bash
 mkdir -p ~/.config/requestarr-probe && chmod 700 ~/.config/requestarr-probe
@@ -59,8 +59,8 @@ Tell the agent only the command to run. Do not paste the token into a conversati
 
 ## Revoke it
 
-In Settings, Logs, revoke the token in its row. It is refused on its very next request. Tokens that expire need no action. Creating and revoking are recorded in the authentication audit with who did it, never the value; a failed use is logged at warning level with a fixed reason (unknown, expired, revoked, creator not a superuser). If a token may have leaked, revoke it, then delete `diag.token`.
+In Settings, Logs, revoke the token in its row. It is refused on its very next request. Tokens that expire need no action. Creating and revoking are recorded in the authentication audit with who did it, never the value; a failed use is logged at warning level with a fixed reason (unknown, expired, revoked, creator_not_superuser, malformed, throttled, rate_limited, not_readable, unavailable). If a token may have leaked, revoke it, then delete `diag.token`.
 
 ## Limits
 
-A token may make 60 requests a minute. Repeated failures from one address are slowed down. Successful reads are not logged, so using a token does not fill the log it reads.
+A token may make 60 requests a minute. Repeated failures from one address are slowed down, on a counter of their own that sign-in does not share. Only a request with exactly one `Authorization: Bearer rqd_...` header is a token request; any other Authorization header (for example Basic auth added by a reverse proxy) is ignored and the request is judged as an ordinary session request. A malformed or unknown `rqd_` token counts as a failed attempt on any route, a valid one on a route that takes no tokens does not. Refusals that a client can repeat at will (`throttled`, `rate_limited`) are logged at most once a minute per address or token, with a count of the ones held back. Successful reads are not logged, so using a token does not fill the log it reads.

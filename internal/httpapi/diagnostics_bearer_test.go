@@ -243,10 +243,8 @@ func TestEveryRefusedTokenAnswersTheSame401AndLogsAFixedReason(t *testing.T) {
 		break_       func(f *bearerFixture)
 	}{
 		{"unknown", "unknown", func(*bearerFixture) string { return "Bearer rqd_" + strings.Repeat("A", 43) }, nil},
-		{"wrong prefix", "unknown", func(f *bearerFixture) string { return "Bearer xyz_" + strings.TrimPrefix(f.token, "rqd_") }, nil},
-		{"malformed empty", "malformed", func(*bearerFixture) string { return "Bearer" }, nil},
-		{"malformed scheme", "malformed", func(f *bearerFixture) string { return "Basic " + f.token }, nil},
-		{"malformed spaces", "malformed", func(f *bearerFixture) string { return "Bearer  " + f.token + " extra" }, nil},
+		{"malformed spaces", "malformed", func(f *bearerFixture) string { return "Bearer " + f.token + " extra" }, nil},
+		{"malformed tab", "malformed", func(f *bearerFixture) string { return "Bearer " + f.token + "\tx" }, nil},
 		{"revoked", "revoked", func(f *bearerFixture) string { return "Bearer " + f.token }, func(f *bearerFixture) {
 			_ = f.svc.Revoke(context.Background(), auth.User{ID: matrixUserID, Role: "superuser"}, f.id, "10.0.0.1")
 		}},

@@ -7,9 +7,9 @@ Status: done
 **Blocked by:** 01
 
 - [x] The route table has a per-route token-readable marker; a route without it answers 401 to a token, and so does every non-GET
-- [x] A token in a query parameter or cookie is ignored; a request with the header is judged as a token request only
+- [x] A token in a query parameter or cookie is ignored; a request with exactly one `Bearer rqd_` header is judged as a token request only (any other Authorization header is ignored)
 - [x] `TestTokenReadableRoutesAreExactlyThese` pins the list
-- [x] Expired, revoked, unknown, malformed and wrong-prefix tokens answer the same 401; demoting or disabling the creator ends the token on the next request
+- [x] Expired, revoked, unknown and malformed `rqd_` tokens answer the same 401; demoting or disabling the creator ends the token on the next request
 - [x] Failed attempts are throttled per client address and logged at warning level with a fixed reason; a token is limited to 60 requests a minute; `last_used_at` is written at most once a minute
 - [x] A canary token never appears in any log line or response
 - [x] `scripts/check.sh` passes
@@ -26,8 +26,10 @@ How each criterion was checked (all in `internal/httpapi/diagnostics_bearer_test
 - `scripts/check.sh` exit 0.
 
 Notes for tickets 03 and 04:
-- Gate: `auth.Handler.AuthenticateBearer` / `RefuseBearer` in `internal/auth/diagnostics_bearer.go`; wired in `apiHandler` in `internal/httpapi/router.go`. `auth.Handler.Diagnostics` (`*auth.DiagnosticsTokens`) is set in `internal/app/app.go`; nil refuses every bearer request.
-- Any request with an Authorization header is judged as a token request only. Not-marked or non-GET gives 401 without a throttle count; bad tokens give 401 and count against the address; a held address gets 429 before the token is looked at.
+- Gate: `auth.Handler.AuthenticateBearer` / `RefuseUnreadable` in `internal/auth/diagnostics_bearer.go`; wired in `apiHandler` in `internal/httpapi/router.go`. `auth.Handler.Diagnostics` (`*auth.DiagnosticsTokens`) is set in `internal/app/app.go`; nil refuses every bearer request.
+- A request with exactly one `Authorization: Bearer rqd_...` header is judged as a token request only; any other Authorization header is ignored (review fix). Not-marked or non-GET gives 401; a malformed or unknown `rqd_` token counts against the address on any route, a valid one on an unmarked route does not; a held address gets 429 before the token is looked at.
 - A token acts as `auth.DiagnosticsPrincipal(tok)`: ID `diagnostics-token:<id>`, role `domain.DiagnosticsTokenRole` (superuser), carried in the request context (`tokenUserKey`). The route wrapper skips the session when it is present. Ticket 03's management routes must stay unmarked so a token can never create or revoke tokens.
-- Throttle: per-address delay reuses the sign-in address table (`Throttle.FailAddress`, `Throttle.AddressHeld`, grace 5 then 1s doubling to 15s). Rate: `auth.DiagnosticsRateLimit` (60) per `auth.DiagnosticsRateWindow` (1 minute), fixed window per token, in memory.
+- Throttle: per-address delay on a table of its own (a second `Throttle` instance used through `FailAddress` and `AddressHeld`; review fix, it no longer shares sign-in's), grace 5 then 1s doubling to 15s. Rate: `auth.DiagnosticsRateLimit` (60) per `auth.DiagnosticsRateWindow` (1 minute), fixed window per token, in memory.
 - OpenAPI: `x-token-readable: true` on the five GETs and the `diagnosticsBearer` scheme under `components.securitySchemes` (no per-operation `security` yet).
+
+Review follow-up (the caveat above is closed): `TestDemotingOrDisablingTheCreatorEndsTheBearerTokenOnTheNextRequestIntegration` (`internal/store/postgres/diagnostics_tokens_integration_test.go`, run by `make test-integration`) creates a token with the real PostgreSQL store, then sends bearer requests through `auth.Handler.AuthenticateBearer`, the gate every token request passes: accepted, then refused 401 `creator_not_superuser` right after the creator is demoted, accepted again when restored, refused again when the creator's local credential is disabled. It runs the gate over the real store, not the whole router (the router imports the store package, so a router test cannot live there); the router half is the in-memory-store tests above, and the gate calls `Lookup` on every request with no cache. That is what makes the criterion honestly checked.

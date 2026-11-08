@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -292,5 +293,47 @@ func TestThePlainTokenIsNowhereInTheDatabaseOrLogIntegration(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), body) {
 		t.Fatal("the token reached the log")
+	}
+}
+
+// The bearer gate (the code every token request goes through) over the real
+// store: demoting or disabling the creator ends the token on the very next
+// request. The router above the gate is covered in internal/httpapi, which
+// imports this package and so cannot be built here.
+func TestDemotingOrDisablingTheCreatorEndsTheBearerTokenOnTheNextRequestIntegration(t *testing.T) {
+	ctx, s := freshStore(t)
+	h := &auth.Handler{Secret: diagSecret, Diagnostics: diagService(s)}
+	u := diagUser(t, ctx, s, "superuser")
+	value, _, err := h.Diagnostics.Create(ctx, u, "agent", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := func(addr string) *auth.BearerError {
+		r := httptest.NewRequest("GET", "/api/v1/admin/logs", nil)
+		r.RemoteAddr = addr + ":4000"
+		r.Header.Set("Authorization", "Bearer "+value)
+		_, berr := h.AuthenticateBearer(r)
+		return berr
+	}
+	if berr := next("192.0.2.1"); berr != nil {
+		t.Fatalf("before: %+v", berr)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if berr := next("192.0.2.2"); berr == nil || berr.Status != 401 || berr.Reason != string(auth.DiagnosticsCreatorNotSuperuser) {
+		t.Fatalf("demoted creator: %+v", berr)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE users SET role='superuser' WHERE id=$1`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if berr := next("192.0.2.3"); berr != nil {
+		t.Fatalf("restored creator: %+v", berr)
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO local_credentials(user_id,username,password_hash,must_change,disabled) VALUES($1,'someone','pbkdf2-sha256$1$a$b',false,true)`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if berr := next("192.0.2.4"); berr == nil || berr.Status != 401 || berr.Reason != string(auth.DiagnosticsCreatorNotSuperuser) {
+		t.Fatalf("disabled creator: %+v", berr)
 	}
 }
