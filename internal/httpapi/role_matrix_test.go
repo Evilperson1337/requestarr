@@ -64,6 +64,8 @@ func mutationCases() []mutationCase {
 		{"save library connection", "PUT /admin/library-connections/{slug}", "/admin/library-connections/plex", `{"url":"https://plex.example.test"}`, "superuser", 200, "connection.save"},
 		{"remove library connection", "DELETE /admin/library-connections/{slug}", "/admin/library-connections/plex", "", "superuser", 200, "connection.remove"},
 		{"test library connection", "POST /admin/library-connections/{slug}/test", "/admin/library-connections/plex/test", "", "superuser", 200, "connection.test"},
+		{"create diagnostics token", "POST /admin/diagnostics-tokens", "/admin/diagnostics-tokens", `{"name":"matrix"}`, "superuser", 201, "diagnostics_token.create"},
+		{"revoke diagnostics token", "DELETE /admin/diagnostics-tokens/{id}", "/admin/diagnostics-tokens/" + matrixItemID, "", "superuser", 204, "diagnostics_token.revoke"},
 		{"report an issue", "POST /issues", "/issues", `{"libraryItemId":"` + matrixItemID + `","kind":"video"}`, "authenticated", 201, "issue.report"},
 		{"comment on an issue", "POST /issues/{id}/comments", "/issues/" + matrixItemID + "/comments", `{"text":"still broken"}`, "authenticated", 204, "issue.comment"},
 		{"resolve an issue", "POST /issues/{id}/status", "/issues/" + matrixItemID + "/status", `{"status":"resolved","comment":"fixed"}`, "admin", 200, "issue.status"},
@@ -249,9 +251,30 @@ func (b *matrixBackend) TestConnection(context.Context, string) (ConnectionTest,
 	return ConnectionTest{OK: true, Code: "connected"}, nil
 }
 
+// matrixBackend is also the diagnostics token store; it keeps nothing and
+// records the actor each change is audited under.
+func (b *matrixBackend) CreateDiagnosticsToken(_ context.Context, _ auth.DiagnosticsToken, _ []byte, audit auth.AuditEvent) error {
+	b.record("diagnostics_token.create", audit.UserID)
+	return nil
+}
+func (b *matrixBackend) ListDiagnosticsTokens(context.Context) ([]auth.DiagnosticsToken, error) {
+	return nil, nil
+}
+func (b *matrixBackend) RevokeDiagnosticsToken(_ context.Context, id string, _ time.Time, audit auth.AuditEvent) error {
+	if id != matrixItemID {
+		b.t.Errorf("unexpected token id %q", id)
+	}
+	b.record("diagnostics_token.revoke", audit.UserID)
+	return nil
+}
+func (b *matrixBackend) DiagnosticsTokenByHash(context.Context, []byte) (auth.DiagnosticsTokenRecord, error) {
+	return auth.DiagnosticsTokenRecord{}, auth.ErrDiagnosticsTokenNotFound
+}
+func (b *matrixBackend) TouchDiagnosticsToken(context.Context, string, time.Time) error { return nil }
+
 func matrixRequest(backend *matrixBackend, tc mutationCase, role, csrf, origin string) *httptest.ResponseRecorder {
 	repo := matrixAuthRepo{csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: role, Issuer: "https://issuer.example", Subject: "subject-1"}}}, backend}
-	h := NewWithBackend(testLogger(), buildinfo.Info{}, backend, backend, backend, backend, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test"})
+	h := NewWithBackend(testLogger(), buildinfo.Info{}, backend, backend, backend, backend, &auth.Handler{Repo: repo, Secret: "test-secret", PublicURL: "http://example.test", Diagnostics: &auth.DiagnosticsTokens{Store: backend, Secret: "test-secret"}})
 	method, _, _ := strings.Cut(tc.pattern, " ")
 	r := httptest.NewRequest(method, "/api/v1"+tc.path, strings.NewReader(tc.body))
 	if role != "unauthenticated" {

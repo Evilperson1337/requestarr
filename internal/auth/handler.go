@@ -44,6 +44,9 @@ type Handler struct {
 	Clock      func() time.Time
 	Throttle   *Throttle
 	Logger     *slog.Logger
+	// Diagnostics judges "Authorization: Bearer rqd_..." (D043). Nil means
+	// every bearer request is refused.
+	Diagnostics *DiagnosticsTokens
 	// TrustedProxies are the reverse proxies whose X-Forwarded-For is believed
 	// when finding the client address. Empty means never (D040).
 	TrustedProxies []netip.Prefix
@@ -53,6 +56,7 @@ type Handler struct {
 	throttleOnce, dummyOnce, auditOnce sync.Once
 	auditLim                           *auditLimiter
 	dummy                              string
+	bearer                             bearerState
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {

@@ -239,3 +239,26 @@ func (t *Throttle) beginHold() (end func(), ok bool) {
 	t.holds++
 	return func() { t.mu.Lock(); t.holds--; t.mu.Unlock() }, true
 }
+
+// FailAddress records a failed bearer-token attempt from a client address. The
+// bearer gate keeps its own Throttle for this (Handler.bearerAddrs), so these
+// failures never share the sign-in table; it touches no account entry.
+func (t *Throttle) FailAddress(addr string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.bump(1, t.addrs, addr, addressGrace, t.now())
+}
+
+// AddressHeld is how much longer a client address stays refused after its last
+// failure: zero within the grace allowance or once the delay for its failures
+// has passed. A held address is refused without any work being done for it.
+func (t *Throttle) AddressHeld(addr string) time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := t.now()
+	a := t.addrs[addr]
+	if a == nil || !a.live(now) {
+		return 0
+	}
+	return max(0, delayFor(a.failures, addressGrace)-now.Sub(a.last))
+}

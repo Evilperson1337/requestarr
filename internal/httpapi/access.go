@@ -49,7 +49,14 @@ type routePolicy struct {
 	Pattern string // "METHOD /path", as registered on the API mux
 	Access  access
 	CSRF    bool
+	// TokenReadable marks a GET route a diagnostics token (D043) may call. It
+	// is set only by markTokenReadable, so no route is readable by accident.
+	TokenReadable bool
 }
+
+// tokenUserKey carries the principal of a diagnostics token from the request
+// pipeline to the route wrapper, which then skips the session lookup.
+type tokenUserKey struct{}
 
 // routeTable is the one place routes are registered and their access and CSRF
 // policy recorded, so the policy cannot drift from the routes. The request
@@ -80,7 +87,12 @@ func (t *routeTable) handle(pattern string, a access, fn func(http.ResponseWrite
 	t.policies[pattern] = routePolicy{Pattern: pattern, Access: a, CSRF: a != accessPublic && mutating(pattern)}
 	t.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		var user auth.User
-		if a != accessPublic {
+		if tokenUser, ok := r.Context().Value(tokenUserKey{}).(auth.User); ok {
+			// The pipeline already judged the bearer token for this route, which
+			// is marked token-readable. The token acts as a superuser, so the
+			// role gates below pass for the five routes it may reach.
+			user = tokenUser
+		} else if a != accessPublic {
 			if t.auth == nil {
 				apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
 				return
@@ -106,6 +118,18 @@ func (t *routeTable) handle(pattern string, a access, fn func(http.ResponseWrite
 		}
 		fn(w, r, user)
 	})
+}
+
+// markTokenReadable lets a diagnostics token call an already registered route.
+// Only a GET route may carry it; anything else is a programming error found at
+// startup.
+func (t *routeTable) markTokenReadable(pattern string) {
+	p, ok := t.policies[pattern]
+	if !ok || mutating(pattern) || !strings.HasPrefix(pattern, "GET ") {
+		panic("httpapi: only a registered GET route can be token-readable: " + pattern)
+	}
+	p.TokenReadable = true
+	t.policies[pattern] = p
 }
 
 // record notes a route registered elsewhere (the auth handler's own routes).

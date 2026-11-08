@@ -5,7 +5,8 @@
 # the HTTP status, a few response headers, and the SHAPE of a JSON answer (field
 # names and types, never values). Any occurrence of the token is replaced.
 #
-# Setup, once, by the person who owns the token (not in the repository):
+# Setup, once, by the person who owns the token (not in the repository).
+# Run these lines in bash (`bash`, then paste them): `read -rs -p` is bash-only, and fish and zsh differ:
 #   mkdir -p ~/.config/requestarr-probe && chmod 700 ~/.config/requestarr-probe
 #   printf '%s\n' 'https://romm.example' > ~/.config/requestarr-probe/romm.url
 #   read -rs -p 'RomM token: ' t && printf '%s\n' "$t" > ~/.config/requestarr-probe/romm.token; unset t
@@ -26,6 +27,14 @@ base="$(tr -d '[:space:]' < "$url_file")"
 base="${base%/}"
 [[ "$base" =~ ^https?://[^/?#@]+$ ]] || { echo "romm.url must be a bare http(s) origin such as https://romm.example" >&2; exit 2; }
 [[ "$base" != *your-romm-address* ]] || { echo "romm.url still holds the example address; replace it with your RomM server's address ($url_file)" >&2; exit 2; }
+# The value goes into a curl config file, so a quote, backslash, whitespace or control character
+# (which could end the header line and add another) is refused.
+romm_token="$(<"$token_file")"
+unsafe='[[:space:][:cntrl:]"\\]'
+if [[ -z "$romm_token" || "$romm_token" =~ $unsafe ]]; then
+  echo "refusing: $token_file must hold only the RomM token, with no quotes, backslashes, spaces or other lines" >&2; exit 2
+fi
+unset romm_token
 for tool in curl python3; do command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 2; }; done
 
 requestarr_ua='Requestarr/1.0 (+https://github.com/evilperson1337/requestarr)'
