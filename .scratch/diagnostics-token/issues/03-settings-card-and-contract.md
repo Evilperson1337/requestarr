@@ -1,6 +1,6 @@
 # 03: Create and revoke tokens in Settings, and the API contract
 
-Status: done
+Status: needs-review
 
 **What to build:** `GET`, `POST`, `DELETE /admin/diagnostics-tokens`, superuser-only, with a card in Settings, Logs to create (name and lifetime; the value shown once with a copy button), list (name, created, expires, last used) and revoke. The OpenAPI contract gains the bearer scheme and the token-readable marker. (Spec stories 1-4; Implementation Decisions: managing tokens, contract.)
 
@@ -9,7 +9,7 @@ Status: done
 - [x] The three routes are superuser-only, CSRF on change, `no-store`; a token cannot call them
 - [x] The creation response is the only place the value appears; the page says so and clears it when dismissed
 - [x] `TestSuperuserOnlyRoutesAreExactlyThese` and the OpenAPI contract tests are updated; a test ties `x-token-readable` to the route table
-- [x] Playwright with axe at desktop and phone widths covers create, list and revoke
+- [ ] Playwright with axe at desktop and phone widths covers create, list and revoke (checked against a mocked API only; the live check is missing, see Comments)
 - [x] `scripts/check.sh` passes
 
 ## Comments
@@ -25,3 +25,5 @@ Notes:
 - Request body `{"name","lifetimeDays"}` (0 or omitted = 30, at most 90); response `{"value","token"}`; list `{"tokens","maxActive"}`. Errors: 422 `invalid_diagnostics_token`, 409 `diagnostics_token_limit`, 404 `diagnostics_token_not_found` (also for a malformed id), 503 `diagnostics_tokens_unavailable` if no service is wired.
 - Added `auth.Handler.ClientAddr` so the audit row records the same address as the sign-in audit. The in-memory token store in `diagnostics_bearer_test.go` now lists and refuses revoking an unknown token.
 - axe found two things in the first draft that are fixed: a duplicate landmark name (region named like its section) and an h4 under an h2.
+
+Review follow-up: set to `needs-review`. The Playwright criterion is unticked because the browser run uses a mocked API (`page.route`), so the card has never been run against a real server. The live check that is missing: start Requestarr with PostgreSQL (`make stack-up`), sign in as a superuser, and in Settings, Logs create a token, see the value once, use it with `scripts/agent/requestarr-diag.sh status`, revoke it, and confirm the next call is refused 401; then repeat at a phone width. The Go side (routes, CSRF, no-store, audit) is checked against the real router and, for storage, PostgreSQL.

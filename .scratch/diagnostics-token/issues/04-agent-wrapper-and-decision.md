@@ -1,8 +1,8 @@
-# 04: The agent wrapper, the guide and D043
+# 04: The agent wrapper (status, logs, runs, connections, secrets), the guide and D043
 
 Status: done
 
-**What to build:** `scripts/agent/requestarr-diag.sh status|logs|runs|connections`, reading the address and token from a private directory (mode 600 enforced) and never printing the token; a guide for the operator; D043 in `docs/DECISIONS.md`. (Spec story 11; Implementation Decisions: client.)
+**What to build:** `scripts/agent/requestarr-diag.sh status|logs|runs|connections|secrets` (`logs` takes `--level` and `--after`), reading the address and token from a private directory (mode 600 enforced) and never printing the token; a guide for the operator; D043 in `docs/DECISIONS.md`. (Spec story 11; Implementation Decisions: client.)
 
 **Blocked by:** 02
 

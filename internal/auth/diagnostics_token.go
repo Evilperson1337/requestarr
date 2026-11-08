@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/evilperson1337/requestarr/internal/auth/oidc"
 	"github.com/evilperson1337/requestarr/internal/domain"
 )
 
@@ -17,7 +18,7 @@ import (
 // so that a tool can read a short fixed list of read-only routes. It is shown
 // once, stored only as a keyed hash (Hash, as sessions are), expires, and
 // stops working when revoked or when its creator stops being a superuser who
-// can sign in. This file is the service; no HTTP route uses it yet.
+// can sign in. This file is the service.
 const (
 	DiagnosticsTokenPrefix = "rqd_"
 	// DiagnosticsTokenDefaultLifetime applies when the caller names none.
@@ -32,6 +33,8 @@ const (
 	DiagnosticsTokenTouchInterval = time.Minute
 
 	diagnosticsTokenBytes = 32
+	// maxDiagnosticsTokenValueLength bounds a presented value before it is hashed.
+	maxDiagnosticsTokenValueLength = 256
 )
 
 // Audit event types for diagnostics tokens. The rows carry the actor and the
@@ -151,7 +154,11 @@ func (s *DiagnosticsTokens) Create(ctx context.Context, actor User, name string,
 	}
 	value := DiagnosticsTokenPrefix + base64.RawURLEncoding.EncodeToString(buf)
 	now := s.now()
-	tok := DiagnosticsToken{ID: newTokenID(), Name: name, CreatedBy: actor.ID, CreatedAt: now, ExpiresAt: now.Add(lifetime)}
+	id, err := oidc.RandomUUID()
+	if err != nil {
+		return "", DiagnosticsToken{}, errors.New("could not make a diagnostics token")
+	}
+	tok := DiagnosticsToken{ID: id, Name: name, CreatedBy: actor.ID, CreatedAt: now, ExpiresAt: now.Add(lifetime)}
 	audit := AuditEvent{Type: AuditDiagnosticsTokenCreated, UserID: actor.ID, RemoteAddr: remoteAddr, At: now}
 	if err := s.Store.CreateDiagnosticsToken(ctx, tok, Hash(s.Secret, value), audit); err != nil {
 		return "", DiagnosticsToken{}, err
@@ -186,7 +193,7 @@ func (s *DiagnosticsTokens) Lookup(ctx context.Context, value string) (Diagnosti
 	refuse := func(r DiagnosticsRefusalReason) (DiagnosticsToken, error) {
 		return DiagnosticsToken{}, &DiagnosticsRefusal{Reason: r}
 	}
-	if !strings.HasPrefix(value, DiagnosticsTokenPrefix) || len(value) > 256 {
+	if !strings.HasPrefix(value, DiagnosticsTokenPrefix) || len(value) > maxDiagnosticsTokenValueLength {
 		return refuse(DiagnosticsUnknown)
 	}
 	rec, err := s.Store.DiagnosticsTokenByHash(ctx, Hash(s.Secret, value))
@@ -210,20 +217,4 @@ func (s *DiagnosticsTokens) Lookup(ctx context.Context, value string) (Diagnosti
 // Touch records a use, at most once a minute.
 func (s *DiagnosticsTokens) Touch(ctx context.Context, id string) error {
 	return s.Store.TouchDiagnosticsToken(ctx, id, s.now())
-}
-
-func newTokenID() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	b[6] = b[6]&0x0f | 0x40
-	b[8] = b[8]&0x3f | 0x80
-	const hex = "0123456789abcdef"
-	out := make([]byte, 0, 36)
-	for i, c := range b {
-		if i == 4 || i == 6 || i == 8 || i == 10 {
-			out = append(out, '-')
-		}
-		out = append(out, hex[c>>4], hex[c&15])
-	}
-	return string(out)
 }

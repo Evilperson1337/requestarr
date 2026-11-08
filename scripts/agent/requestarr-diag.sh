@@ -5,7 +5,8 @@
 # occurrence of the token in what it prints. The token is passed to curl on a private file
 # descriptor, never on a command line.
 #
-# Setup, once, by the superuser who created the token in Settings, Logs (not in the repository):
+# Setup, once, by the superuser who created the token in Settings, Logs (not in the repository).
+# Run these lines in bash (`bash`, then paste them): `read -rs -p` is bash-only, and fish and zsh differ:
 #   mkdir -p ~/.config/requestarr-probe && chmod 700 ~/.config/requestarr-probe
 #   printf '%s\n' 'https://requestarr.example' > ~/.config/requestarr-probe/diag.url
 #   read -rs -p 'Diagnostics token: ' t && printf '%s\n' "$t" > ~/.config/requestarr-probe/diag.token; unset t
@@ -54,8 +55,10 @@ dir_perms="$(stat -c '%a' "$dir")"
 base="$(tr -d '[:space:]' < "$url_file")"
 base="${base%/}"
 [[ "$base" =~ ^https?://[^/?#@]+$ ]] || { echo "diag.url must be a bare http(s) origin such as https://requestarr.example" >&2; exit 2; }
-token="$(tr -d '[:space:]' < "$token_file")"
+token="$(<"$token_file")"
 [[ -n "$token" ]] || { echo "$token_file is empty" >&2; exit 2; }
+# The value goes into a curl config file, so only the characters of a real token are allowed.
+[[ "$token" =~ ^rqd_[A-Za-z0-9_-]+$ ]] || { echo "refusing: $token_file must hold only the diagnostics token (rqd_ followed by letters, digits, - and _), with no quotes, spaces or other lines" >&2; exit 2; }
 for tool in curl python3; do command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 2; }; done
 
 body="$(mktemp)"

@@ -14,6 +14,11 @@ import (
 // diagnostics tokens (D043). These routes are deliberately not marked
 // token-readable: a token can never create or revoke tokens. Every response is
 // no-store, and the token value appears only in the creation response.
+// maxDiagnosticsTokenBody bounds the create request body.
+const maxDiagnosticsTokenBody = 4 << 10
+
+const hoursPerDay = 24 * time.Hour
+
 func registerDiagnosticsTokenRoutes(rt *routeTable) {
 	service := func(w http.ResponseWriter, r *http.Request) *auth.DiagnosticsTokens {
 		if rt.auth == nil || rt.auth.Diagnostics == nil {
@@ -25,16 +30,16 @@ func registerDiagnosticsTokenRoutes(rt *routeTable) {
 	fail := func(w http.ResponseWriter, r *http.Request, err error) {
 		switch {
 		case errors.Is(err, auth.ErrDiagnosticsTokenName), errors.Is(err, auth.ErrDiagnosticsTokenLifetime):
-			apierror.Write(w, r, 422, "invalid_diagnostics_token", err.Error())
+			apierror.Write(w, r, http.StatusUnprocessableEntity, "invalid_diagnostics_token", err.Error())
 		case errors.Is(err, auth.ErrDiagnosticsTokenLimit):
-			apierror.Write(w, r, 409, "diagnostics_token_limit", err.Error())
+			apierror.Write(w, r, http.StatusConflict, "diagnostics_token_limit", err.Error())
 		case errors.Is(err, auth.ErrDiagnosticsTokenNotFound):
-			apierror.Write(w, r, 404, "diagnostics_token_not_found", "diagnostics token not found")
+			apierror.Write(w, r, http.StatusNotFound, "diagnostics_token_not_found", "diagnostics token not found")
 		case errors.Is(err, auth.ErrDiagnosticsTokenForbidden):
-			apierror.Write(w, r, 403, "forbidden", messageSuperuserRequired)
+			apierror.Write(w, r, http.StatusForbidden, "forbidden", messageSuperuserRequired)
 		default:
 			// Storage errors can carry connection details; never echo them.
-			apierror.Write(w, r, 500, "diagnostics_token_failed", "could not complete the diagnostics token request")
+			apierror.Write(w, r, http.StatusInternalServerError, "diagnostics_token_failed", "could not complete the diagnostics token request")
 		}
 	}
 	rt.handle("GET /admin/diagnostics-tokens", accessSuperuser, func(w http.ResponseWriter, r *http.Request, user auth.User) {
@@ -59,7 +64,7 @@ func registerDiagnosticsTokenRoutes(rt *routeTable) {
 		if svc == nil {
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+		r.Body = http.MaxBytesReader(w, r.Body, maxDiagnosticsTokenBody)
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
 		var in struct {
@@ -67,17 +72,17 @@ func registerDiagnosticsTokenRoutes(rt *routeTable) {
 			LifetimeDays *int   `json:"lifetimeDays"`
 		}
 		if decoder.Decode(&in) != nil || requireJSONEOF(decoder) != nil {
-			apierror.Write(w, r, 400, "invalid_diagnostics_token_input", "provide one JSON object with a name and optionally lifetimeDays")
+			apierror.Write(w, r, http.StatusBadRequest, "invalid_diagnostics_token_input", "provide one JSON object with a name and optionally lifetimeDays")
 			return
 		}
 		var lifetime time.Duration
 		if in.LifetimeDays != nil {
-			if *in.LifetimeDays < 0 || *in.LifetimeDays > 365 {
-				// The service refuses anything outside its range; this only keeps
-				// the multiplication from overflowing.
+			if *in.LifetimeDays < 0 || *in.LifetimeDays > int(auth.DiagnosticsTokenMaxLifetime/hoursPerDay) {
+				// Out of range: the service names the error; this keeps the
+				// multiplication from overflowing.
 				lifetime = -1
 			} else {
-				lifetime = time.Duration(*in.LifetimeDays) * 24 * time.Hour
+				lifetime = time.Duration(*in.LifetimeDays) * hoursPerDay
 			}
 		}
 		value, token, err := svc.Create(r.Context(), user, in.Name, lifetime, rt.auth.ClientAddr(r))

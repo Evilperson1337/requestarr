@@ -240,9 +240,9 @@ func (t *Throttle) beginHold() (end func(), ok bool) {
 	return func() { t.mu.Lock(); t.holds--; t.mu.Unlock() }, true
 }
 
-// FailAddress records a failed bearer-token attempt from a client address. It
-// shares the address table of the sign-in throttle (and so its grace and
-// doubling delay) but touches no account entry.
+// FailAddress records a failed bearer-token attempt from a client address. The
+// bearer gate keeps its own Throttle for this (Handler.bearerAddrs), so these
+// failures never share the sign-in table; it touches no account entry.
 func (t *Throttle) FailAddress(addr string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

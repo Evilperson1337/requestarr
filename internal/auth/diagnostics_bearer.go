@@ -20,6 +20,9 @@ const (
 	// DiagnosticsRateWindow.
 	DiagnosticsRateLimit  = 60
 	DiagnosticsRateWindow = time.Minute
+
+	// maxRateWindows bounds the rate-window table before stale ones are dropped.
+	maxRateWindows = 64
 )
 
 // BearerReason is the fixed vocabulary for logging a refused bearer request.
@@ -51,11 +54,17 @@ func DiagnosticsPrincipal(tok DiagnosticsToken) User {
 	return User{ID: "diagnostics-token:" + tok.ID, Role: string(domain.DiagnosticsTokenRole), DisplayName: "Diagnostics token " + tok.Name}
 }
 
-// bearerState is the per-process memory of the bearer gate.
+// bearerState is the per-process memory of the bearer gate. Its failed-address
+// table is its own, so a noisy agent cannot hold sign-in from the same address
+// and failed sign-ins cannot hold token use.
 type bearerState struct {
 	mu      sync.Mutex
 	windows map[string]*rateWindow
 	touched map[string]time.Time
+	logs    map[string]*logGate
+
+	addrOnce sync.Once
+	addrs    *Throttle
 }
 
 type rateWindow struct {
@@ -63,35 +72,80 @@ type rateWindow struct {
 	count int
 }
 
-// HasBearerHeader reports whether the request carries any Authorization header.
-// Such a request is judged as a token request only.
-func HasBearerHeader(r *http.Request) bool { return len(r.Header.Values("Authorization")) > 0 }
-
-// RefuseBearer logs a refusal of a bearer request that never reached a token
-// check (a route that does not take tokens) and returns the error to answer.
-func (h *Handler) RefuseBearer(r *http.Request, reason BearerReason) *BearerError {
-	h.warnBearer(r, string(reason))
-	return &BearerError{Status: http.StatusUnauthorized, Reason: string(reason)}
+// logGate remembers when a refusal was last logged for one address or token.
+type logGate struct {
+	last       time.Time
+	suppressed int
 }
 
-// AuthenticateBearer judges the Authorization header of r. On success it is the
-// principal the token acts as. Failures count against the client address;
-// a held address is refused before the token is looked at.
+const (
+	// bearerLogInterval is the least gap between warnings of the same kind for
+	// the same address or token.
+	bearerLogInterval = time.Minute
+	maxBearerLogKeys  = 4096
+)
+
+// IsTokenRequest reports whether r is a diagnostics-token request: exactly one
+// Authorization header, and it is "Bearer rqd_..." (scheme case-insensitive).
+// Any other Authorization header (Basic from a proxy, another scheme, another
+// bearer value) is ignored and the request is judged as a session request.
+func IsTokenRequest(r *http.Request) bool {
+	values := r.Header.Values("Authorization")
+	if len(values) != 1 {
+		return false
+	}
+	scheme, value, found := strings.Cut(values[0], " ")
+	return found && strings.EqualFold(scheme, "Bearer") && strings.HasPrefix(value, DiagnosticsTokenPrefix)
+}
+
+func (h *Handler) bearerAddrs() *Throttle {
+	h.bearer.addrOnce.Do(func() { h.bearer.addrs = NewThrottle(h.now) })
+	return h.bearer.addrs
+}
+
+// RefuseUnreadable answers a token request for a route that does not take
+// tokens (or a method that may not carry one). The answer is always a refusal,
+// but a malformed or unknown token still counts as a failed attempt, so
+// guessing cannot go through unmarked routes; a valid token does not count.
+func (h *Handler) RefuseUnreadable(r *http.Request) *BearerError {
+	_, err := h.judge(r, false)
+	return err
+}
+
+// AuthenticateBearer judges the Authorization header of r for a route that
+// takes tokens. On success it is the principal the token acts as. Failures
+// count against the client address; a held address is refused before the token
+// is looked at.
 func (h *Handler) AuthenticateBearer(r *http.Request) (User, *BearerError) {
+	return h.judge(r, true)
+}
+
+func (h *Handler) judge(r *http.Request, readable bool) (User, *BearerError) {
 	ctx := r.Context()
 	addr := h.clientAddr(r)
 	fail := func(status int, reason string, retry time.Duration) (User, *BearerError) {
 		h.warnBearer(r, reason)
 		return User{}, &BearerError{Status: status, Reason: reason, RetryAfter: retry}
 	}
+	// failQuiet is for refusals that flood on purpose: one warning a minute per key.
+	failQuiet := func(key string, status int, reason string, retry time.Duration) (User, *BearerError) {
+		if ok, suppressed := h.bearer.allowLog(key, h.now()); ok {
+			if suppressed > 0 {
+				h.log(ctx, slog.LevelWarn, "diagnostics token refused", "reason", reason, "client_addr", addr, "method", r.Method, "path", r.URL.Path, "suppressed", suppressed)
+			} else {
+				h.warnBearer(r, reason)
+			}
+		}
+		return User{}, &BearerError{Status: status, Reason: reason, RetryAfter: retry}
+	}
 	if h.Diagnostics == nil {
 		return fail(http.StatusUnauthorized, string(DiagnosticsUnknown), 0)
 	}
-	if wait := h.throttle().AddressHeld(addr); wait > 0 {
-		return fail(http.StatusTooManyRequests, string(BearerThrottled), wait)
+	if wait := h.bearerAddrs().AddressHeld(addr); wait > 0 {
+		return failQuiet("throttled:"+addr, http.StatusTooManyRequests, string(BearerThrottled), wait)
 	}
 	refuse := func(reason string) (User, *BearerError) {
-		h.throttle().FailAddress(addr)
+		h.bearerAddrs().FailAddress(addr)
 		return fail(http.StatusUnauthorized, reason, 0)
 	}
 	value, ok := bearerValue(r)
@@ -106,9 +160,12 @@ func (h *Handler) AuthenticateBearer(r *http.Request) (User, *BearerError) {
 		}
 		return fail(http.StatusServiceUnavailable, string(BearerUnavailable), 0)
 	}
+	if !readable {
+		return fail(http.StatusUnauthorized, string(BearerNotReadable), 0)
+	}
 	now := h.now()
 	if wait, over := h.bearer.take(tok.ID, now); over {
-		return fail(http.StatusTooManyRequests, string(BearerRateLimited), wait)
+		return failQuiet("rate_limited:"+tok.ID, http.StatusTooManyRequests, string(BearerRateLimited), wait)
 	}
 	if h.bearer.dueTouch(tok.ID, now) {
 		if err := h.Diagnostics.Touch(ctx, tok.ID); err != nil {
@@ -116,6 +173,39 @@ func (h *Handler) AuthenticateBearer(r *http.Request) (User, *BearerError) {
 		}
 	}
 	return DiagnosticsPrincipal(tok), nil
+}
+
+// allowLog reports whether a warning for key may be written now, and how many
+// were held back since the last one. The table is bounded: when it is full of
+// live keys a new key is simply not logged.
+func (s *bearerState) allowLog(key string, now time.Time) (bool, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.logs == nil {
+		s.logs = map[string]*logGate{}
+	}
+	g := s.logs[key]
+	if g == nil {
+		if len(s.logs) >= maxBearerLogKeys {
+			for k, v := range s.logs {
+				if !now.Before(v.last.Add(bearerLogInterval)) {
+					delete(s.logs, k)
+				}
+			}
+			if len(s.logs) >= maxBearerLogKeys {
+				return false, 0
+			}
+		}
+		s.logs[key] = &logGate{last: now}
+		return true, 0
+	}
+	if now.Before(g.last.Add(bearerLogInterval)) {
+		g.suppressed++
+		return false, 0
+	}
+	suppressed := g.suppressed
+	g.last, g.suppressed = now, 0
+	return true, suppressed
 }
 
 func (h *Handler) warnBearer(r *http.Request, reason string) {
@@ -146,7 +236,7 @@ func (s *bearerState) take(id string, now time.Time) (time.Duration, bool) {
 	}
 	w := s.windows[id]
 	if w == nil || !now.Before(w.start.Add(DiagnosticsRateWindow)) {
-		if len(s.windows) > 64 { // only a few tokens exist; drop the stale ones
+		if len(s.windows) > maxRateWindows { // only a few tokens exist; drop the stale ones
 			for k, v := range s.windows {
 				if !now.Before(v.start.Add(DiagnosticsRateWindow)) {
 					delete(s.windows, k)
