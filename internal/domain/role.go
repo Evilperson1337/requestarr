@@ -163,3 +163,8 @@ func SQLRoleList(roles []string) string {
 	}
 	return strings.Join(quoted, ",")
 }
+
+// DiagnosticsTokenRole is the role a diagnostics token acts with (D043). It is
+// what the role gates of the routes marked token-readable need; the route
+// table, not the role, keeps a token away from every other route.
+const DiagnosticsTokenRole = RoleSuperuser

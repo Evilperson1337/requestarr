@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -505,6 +507,12 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		}
 		writeJSON(w, status, result)
 	})
+	// The routes a diagnostics token may read (D043): operational state only,
+	// never people, requests or secret values. TestTokenReadableRoutesAreExactlyThese
+	// pins this list.
+	for _, pattern := range []string{"GET /admin/logs", "GET /admin/status", "GET /admin/job-runs", "GET /admin/library-connections", "GET /admin/secrets"} {
+		rt.markTokenReadable(pattern)
+	}
 	// Auth endpoints retain their own method/session/CSRF controls. Product
 	// routes and even unknown API paths require a session before dispatch.
 	apiHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -514,6 +522,24 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		policy, known := rt.policyFor(r, path)
+		if auth.HasBearerHeader(r) && authHandler != nil {
+			// A request with an Authorization header is judged as a token request
+			// only: no session, cookie or query parameter is looked at.
+			var bearerErr *auth.BearerError
+			var tokenUser auth.User
+			if !known || !policy.TokenReadable || r.Method != http.MethodGet {
+				bearerErr = authHandler.RefuseBearer(r, auth.BearerNotReadable)
+			} else {
+				tokenUser, bearerErr = authHandler.AuthenticateBearer(r)
+			}
+			if bearerErr != nil {
+				writeBearerRefusal(w, r, bearerErr)
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), tokenUserKey{}, tokenUser))
+			http.StripPrefix("/api/v1", routeMisses(api)).ServeHTTP(w, r)
+			return
+		}
 		if known && policy.Access == accessPublic {
 			http.StripPrefix("/api/v1", routeMisses(api)).ServeHTTP(w, r)
 			return
@@ -540,10 +566,25 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 		dispatch.ServeHTTP(w, r)
 	})
 	mux.Handle("/api/v1/", apiHandler)
-	mux.Handle("GET /api/v1/version", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, buildInfo) }))
 	mux.Handle("/", webui.Handler())
 
 	return apierror.Middleware(requestLogger(logger, securityHeaders(mux))), rt, nil
+}
+
+// writeBearerRefusal answers a refused bearer request. Every bad token gets the
+// same 401 whatever the reason (the reason is only logged); 429 and 503 say to
+// wait.
+func writeBearerRefusal(w http.ResponseWriter, r *http.Request, e *auth.BearerError) {
+	w.Header().Set("Cache-Control", "no-store")
+	switch e.Status {
+	case http.StatusTooManyRequests:
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(e.RetryAfter.Seconds()))))
+		apierror.Write(w, r, e.Status, "too_many_requests", "too many requests; wait and try again")
+	case http.StatusServiceUnavailable:
+		apierror.Write(w, r, e.Status, "unavailable", "the service is not available; try again")
+	default:
+		apierror.Write(w, r, http.StatusUnauthorized, "authentication_required", "authentication required")
+	}
 }
 
 // writeCreateRequestError maps a failed request creation to its HTTP status.
