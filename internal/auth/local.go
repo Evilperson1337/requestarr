@@ -149,6 +149,10 @@ func (h *Handler) audit(ctx context.Context, typ, userID, username string, r *ht
 	return h.Local.RecordAuthEvent(ctx, AuditEvent{Type: typ, UserID: userID, Username: username, RemoteAddr: h.clientAddr(r), At: h.now().UTC()})
 }
 
+// ClientAddr exposes clientAddr for the audit rows other packages write on a
+// person's behalf.
+func (h *Handler) ClientAddr(r *http.Request) string { return h.clientAddr(r) }
+
 // clientAddr is the address a request is attributed to, for the sign-in delay
 // and the audit. It is the TCP peer address, unless the peer is inside the
 // operator's trusted proxy set (D040): then it is the rightmost X-Forwarded-For

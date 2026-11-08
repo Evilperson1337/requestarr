@@ -14,10 +14,12 @@ import (
 func TestSuperuserOnlyRoutesAreExactlyThese(t *testing.T) {
 	_, rt := newRouter(testLogger(), buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, &auth.Handler{Secret: "test-secret"})
 	want := []string{
+		"DELETE /admin/diagnostics-tokens/{id}",
 		"DELETE /admin/library-connections/{slug}",
 		"DELETE /admin/secrets/{name}",
 		"DELETE /admin/settings/authentication",
 		"GET /admin/checklist",
+		"GET /admin/diagnostics-tokens",
 		"GET /admin/library-connections",
 		"GET /admin/logs",
 		"GET /admin/secrets",
@@ -25,6 +27,7 @@ func TestSuperuserOnlyRoutesAreExactlyThese(t *testing.T) {
 		"GET /admin/settings/authentication/local-administrator",
 		"GET /admin/settings/igdb",
 		"POST /admin/checklist/dismiss",
+		"POST /admin/diagnostics-tokens",
 		"POST /admin/library-connections/{slug}/test",
 		"POST /admin/settings/authentication/local-administrator",
 		"POST /admin/settings/authentication/test",

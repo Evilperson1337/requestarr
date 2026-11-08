@@ -1286,6 +1286,107 @@ paths:
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
         '404': { description: unknown_source }
+  /admin/diagnostics-tokens:
+    get:
+      x-required-role: superuser
+      operationId: listDiagnosticsTokens
+      summary: Unrevoked diagnostics tokens (superuser only)
+      description: >-
+        Lists the tokens a superuser made and have not revoked, oldest first, with when each was
+        made, expires and was last used (at most once a minute). A token's value and hash are never
+        returned. A diagnostics token cannot call this route; it answers 401 to a bearer header.
+        Responses are no-store.
+      responses:
+        '200':
+          description: The tokens
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tokens, maxActive]
+                properties:
+                  tokens:
+                    type: array
+                    items: { $ref: '#/components/schemas/DiagnosticsToken' }
+                  maxActive: { type: integer, const: 5 }
+        '401': { description: Authentication required, or a bearer token was presented }
+        '403': { description: The superuser role is required }
+        '503': { description: diagnostics_tokens_unavailable }
+    post:
+      x-required-role: superuser
+      operationId: createDiagnosticsToken
+      summary: Make a diagnostics token (superuser only)
+      description: >-
+        Requires same-origin and session CSRF. The response is the only place the token value ever
+        appears; store it then, because it cannot be shown again. The token reads only the routes
+        marked x-token-readable and stops working when revoked, when it expires, or when its creator
+        stops being a superuser who can sign in. At most five tokens may be active at once.
+        The response is no-store. The creation is audited without the value.
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80, description: A plain name for what will use the token; no control characters }
+                lifetimeDays: { type: integer, minimum: 0, maximum: 90, description: Days until it expires. Omitted or 0 means 30. }
+      responses:
+        '201':
+          description: Made; the value is shown this once
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [value, token]
+                properties:
+                  value: { type: string, description: 'The bearer token, rqd_ followed by 43 URL-safe characters' }
+                  token: { $ref: '#/components/schemas/DiagnosticsToken' }
+        '400': { description: invalid_diagnostics_token_input; not one JSON object with known fields }
+        '401': { description: Authentication required, or a bearer token was presented }
+        '403': { description: The superuser role is required, or CSRF or origin check failed }
+        '409': { description: diagnostics_token_limit; five tokens are already active }
+        '422': { description: invalid_diagnostics_token; the name or lifetime is not allowed }
+        '503': { description: diagnostics_tokens_unavailable }
+  /admin/diagnostics-tokens/{id}:
+    delete:
+      x-required-role: superuser
+      operationId: revokeDiagnosticsToken
+      summary: Revoke a diagnostics token (superuser only)
+      description: >-
+        Requires same-origin and session CSRF. The token stops working at once. Revoking is audited
+        without the value. A token that is unknown or already revoked is 404.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '204':
+          description: Revoked
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+        '401': { description: Authentication required, or a bearer token was presented }
+        '403': { description: The superuser role is required, or CSRF or origin check failed }
+        '404': { description: diagnostics_token_not_found }
+        '503': { description: diagnostics_tokens_unavailable }
   /admin/secrets:
     get:
       x-token-readable: true
@@ -2088,6 +2189,19 @@ components:
             properties:
               name: { type: string }
               url: { type: string, format: uri, description: Present only when the library supplies a usable link without credentials }
+    DiagnosticsToken:
+      type: object
+      additionalProperties: false
+      description: What is kept about a diagnostics token other than its value, which is never kept.
+      required: [id, name, createdBy, createdAt, expiresAt, lastUsedAt, revokedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
     ServerLogEntry:
       type: object
       additionalProperties: false

@@ -2507,7 +2507,7 @@ a.tag-available:hover {
 .authCards>.integration { min-width: 0; }
 .authLoadingTitle { margin: 0 0 8px; font-size: 1.1rem; }
 .authForm { display: grid; gap: 16px; }
-.authForm h4, .reveal h4 { margin: 0; font-size: 1rem; }
+.authForm h4, .reveal h4, .reveal h3 { margin: 0; font-size: 1rem; }
 .authFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 .authFields .wide { grid-column: 1 / -1; }
 .authGroups { display: block; margin: 0; min-width: 0; }

@@ -226,6 +226,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	registerChecklistRoutes(rt, d.Checklist)
 	registerSettingsRoutes(rt, d.People, d.Approvals, d.IGDB)
 	registerSecretsRoutes(rt, d.Secrets)
+	registerDiagnosticsTokenRoutes(rt)
 	registerAuthenticationRoutes(rt, d.Authentication, d.Logger)
 	registerLocalManagementRoutes(rt, d.LocalAdmin)
 	registerConnectionRoutes(rt, d.Connections)
