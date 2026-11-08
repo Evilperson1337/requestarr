@@ -668,6 +668,7 @@ paths:
         '404': { description: Development logs disabled; authenticated request to absent route }
   /admin/logs:
     get:
+      x-token-readable: true
       x-required-role: superuser
       operationId: getServerLogs
       summary: Recent server log records (superuser only)
@@ -708,6 +709,7 @@ paths:
         '403': { description: The superuser role is required }
   /admin/status:
     get:
+      x-token-readable: true
       operationId: getOperationalStatus
       summary: Provider and library Source status (administrator only)
       description: >-
@@ -766,6 +768,7 @@ paths:
         '503': { description: status_unavailable }
   /admin/job-runs:
     get:
+      x-token-readable: true
       operationId: listJobRuns
       summary: Recent background job runs per Source (administrator only)
       description: >-
@@ -1160,6 +1163,7 @@ paths:
         '502': { description: artwork_unavailable }
   /admin/library-connections:
     get:
+      x-token-readable: true
       x-required-role: superuser
       operationId: listLibraryConnections
       summary: Where each library Source lives, with its credential status (superuser only)
@@ -1284,6 +1288,7 @@ paths:
         '404': { description: unknown_source }
   /admin/secrets:
     get:
+      x-token-readable: true
       x-required-role: superuser
       operationId: listStoredSecrets
       summary: Stored integration secrets, write-only status (superuser only)
@@ -1643,6 +1648,13 @@ paths:
         '404': { description: Request not found }
         '409': { description: Stale request version }
 components:
+  securitySchemes:
+    diagnosticsBearer:
+      type: http
+      scheme: bearer
+      description: >-
+        A diagnostics token (rqd_...) made by a superuser. It is accepted only on GET
+        operations marked x-token-readable: true, and answers 401 everywhere else.
   headers:
     RequestId:
       description: >-
