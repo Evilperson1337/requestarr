@@ -31,6 +31,8 @@ make release-check  # goreleaser check
 
 To cut a release (bump the pinned tag, then run `scripts/wizard-publish-release.sh`), follow "Cutting a release" in `docs/RELEASES.md`.
 
+To look at a running instance (server log, status, sync runs, connections) without a superuser session, use a read-only diagnostics token with `scripts/agent/requestarr-diag.sh`; set it up and use it as `docs/DIAGNOSTICS_TOKEN.md` says (D043). Never print the token or pass it on a command line.
+
 Single Go test: `go test ./internal/domain/... -run TestName -v`.
 
 Before opening a PR, run `scripts/check.sh` (fmt, test, vet, PostgreSQL integration tests, and web typecheck plus Playwright if `web/node_modules` exists; `make bootstrap` prepares a fresh clone or worktree, and `REQUESTARR_SKIP_BROWSER_TESTS=1` skips the browser tests). This mirrors CI and what `AGENTS.md` calls "required checks before completing a change". Run it after any change, not just Go changes. A change under `internal/store/` or `db/migrations/` is unverified until `make test-integration` has passed (it picks a free Postgres port itself).
