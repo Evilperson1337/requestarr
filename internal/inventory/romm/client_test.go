@@ -49,6 +49,10 @@ func (b *backend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	offset := r.URL.Query().Get("offset")
+	if r.URL.Path == "/api/roms" && r.URL.Query().Get("with_rom_id_index") != "false" {
+		// RomM 5.4 returns the whole library's id list with every page unless asked not to.
+		b.t.Errorf("the games request must turn the id index off: %s", r.URL.RawQuery)
+	}
 	switch {
 	case r.URL.Path == "/api/platforms":
 		_, _ = w.Write(fixture(b.t, "platforms.json"))

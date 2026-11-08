@@ -140,6 +140,8 @@ RomM accepts for `Authorization: Bearer`, with at least the `roms.read` and
 `platforms.read` scopes. It syncs through the job runner on the same schedule and
 Sync now action as the others.
 
+A 403 from RomM means it recognised the token but the token lacks a scope (a 401 means it did not recognise it). To find out which call fails and whether a proxy answers instead, `scripts/agent/romm-probe.sh` makes the same calls with a token read from a private file, printing only statuses and the shape of the answers; its header has the setup. `go run ./scripts/agent/romm-sync-probe` uses the same files to run Requestarr's own connection check and a full sync against the server and prints counts, timings and the failing step.
+
 Each ROM is matched to a game Request by its IGDB game id. RomM keeps one ROM per
 platform, so evidence and absence streaks are tracked per platform: the platform
 is RomM's platform mapped to its IGDB platform id (`igdb:<id>`, the same keys the

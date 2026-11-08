@@ -93,7 +93,10 @@ func (c *Client) Snapshot(ctx context.Context) (inventory.Snapshot, error) {
 	total := -1
 	for page := 0; page < maxPages; page++ {
 		offset := page * c.pageSize
-		q := url.Values{"limit": {strconv.Itoa(c.pageSize)}, "offset": {strconv.Itoa(offset)}, "with_char_index": {"false"}, "with_filter_values": {"false"}}
+		q := url.Values{"limit": {strconv.Itoa(c.pageSize)}, "offset": {strconv.Itoa(offset)}, "with_char_index": {"false"}, "with_filter_values": {"false"},
+			// Without this RomM returns the ordered id list of the whole library (9,049 ids in a
+			// measured library) with every page. The total still comes from a count. Older RomM ignores it.
+			"with_rom_id_index": {"false"}}
 		var res struct {
 			Items []struct {
 				ID            *int   `json:"id"`
