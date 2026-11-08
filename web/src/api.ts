@@ -107,3 +107,8 @@ export type AuthenticationState = {
 // canDisable is true only while another admin exists AND OIDC is working; the two flags say which is missing.
 export type LocalAdministratorState = { exists: boolean; disabled: boolean; canDisable: boolean; otherAdminExists: boolean; oidcWorking: boolean }
 export type CreatedLocalAdministrator = { username: string; password: string; mustChangePassword: true }
+
+// Diagnostics tokens (D043). The value is in the creation response only.
+export type DiagnosticsToken = { id: string; name: string; createdAt: string; expiresAt: string; lastUsedAt: string | null }
+export type DiagnosticsTokenList = { tokens: DiagnosticsToken[]; maxActive: number }
+export type CreatedDiagnosticsToken = { value: string; token: DiagnosticsToken }

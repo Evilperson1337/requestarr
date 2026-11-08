@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -46,6 +47,7 @@ type memTokenStore struct {
 	hashes  map[string]string                       // id to hash
 	touches int
 	lookups int
+	limit   bool // answer every create with the limit error, as the real store does at five
 }
 
 func newMemTokenStore() *memTokenStore {
@@ -55,17 +57,33 @@ func newMemTokenStore() *memTokenStore {
 func (s *memTokenStore) CreateDiagnosticsToken(_ context.Context, t auth.DiagnosticsToken, hash []byte, _ auth.AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.limit {
+		return auth.ErrDiagnosticsTokenLimit
+	}
 	s.rows[string(hash)] = &auth.DiagnosticsTokenRecord{DiagnosticsToken: t, CreatorCanSignIn: true}
 	s.hashes[t.ID] = string(hash)
 	return nil
 }
 func (s *memTokenStore) ListDiagnosticsTokens(context.Context) ([]auth.DiagnosticsToken, error) {
-	return nil, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []auth.DiagnosticsToken
+	for _, r := range s.rows {
+		if r.RevokedAt == nil {
+			out = append(out, r.DiagnosticsToken)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
 }
 func (s *memTokenStore) RevokeDiagnosticsToken(_ context.Context, id string, now time.Time, _ auth.AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.rows[s.hashes[id]].RevokedAt = &now
+	row, ok := s.rows[s.hashes[id]]
+	if !ok || row.RevokedAt != nil {
+		return auth.ErrDiagnosticsTokenNotFound
+	}
+	row.RevokedAt = &now
 	return nil
 }
 func (s *memTokenStore) DiagnosticsTokenByHash(_ context.Context, hash []byte) (auth.DiagnosticsTokenRecord, error) {
@@ -97,7 +115,11 @@ type bearerFixture struct {
 	now   time.Time
 }
 
-func newBearerFixture(t *testing.T) *bearerFixture {
+func newBearerFixture(t *testing.T) *bearerFixture { return newBearerFixtureAs(t, "superuser") }
+
+// newBearerFixtureAs signs the session user in with the given role; the token
+// it holds is always made by a superuser.
+func newBearerFixtureAs(t *testing.T, role string) *bearerFixture {
 	t.Helper()
 	f := &bearerFixture{store: newMemTokenStore(), logs: &bytes.Buffer{}, now: time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)}
 	clock := func() time.Time { f.mu.Lock(); defer f.mu.Unlock(); return f.now }
@@ -105,7 +127,7 @@ func newBearerFixture(t *testing.T) *bearerFixture {
 	buf := logbuffer.New()
 	logger := slog.New(logbuffer.NewHandler(slog.NewTextHandler(f.logs, &slog.HandlerOptions{Level: slog.LevelDebug}), buf))
 	logger.Info("hello")
-	handler := &auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: "superuser"}}}, Secret: "test-secret", PublicURL: "http://example.test", Clock: clock, Logger: logger, Diagnostics: f.svc}
+	handler := &auth.Handler{Repo: csrfAuthRepo{statusAuthRepo{user: auth.User{ID: matrixUserID, Role: role}}}, Secret: "test-secret", PublicURL: "http://example.test", Clock: clock, Logger: logger, Diagnostics: f.svc}
 	d := testDeps(logger, buildinfo.Info{}, fakeReadiness{}, nil, nil, nil, handler)
 	d.ServerLogs = buf
 	h, rt, err := buildRouter(d)
