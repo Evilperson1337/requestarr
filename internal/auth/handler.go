@@ -161,7 +161,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, 500, "sign_in_failed", "sign-in failed")
 		return
 	}
-	if err = h.applyGroupRole(r.Context(), snap, u, id.Groups); err != nil {
+	if err = h.applyGroupRole(r.Context(), snap, u, id); err != nil {
 		apierror.Write(w, r, 500, "sign_in_failed", "sign-in failed")
 		return
 	}
@@ -364,20 +364,50 @@ type GroupRoleStore interface {
 // is issued so the new session starts with it. The groups are used here and
 // go nowhere else: not stored, not logged. A mapping that would leave no
 // superuser is skipped with a warning and the person signs in with their role.
-func (h *Handler) applyGroupRole(ctx context.Context, snap *authsettings.Snapshot, u User, groups []string) error {
+//
+// Every OIDC sign-in logs what the mapping decided, so an operator can tell
+// from Settings, Logs why a role did or did not change: the switch is off, the
+// ID token has no groups claim (with the names of the claims it does have),
+// no group matched (with how many groups there were), or the role it chose.
+func (h *Handler) applyGroupRole(ctx context.Context, snap *authsettings.Snapshot, u User, id *oidc.Identity) error {
 	if h.GroupRoles == nil {
 		return nil
 	}
-	role, ok := snap.Groups.RoleFor(groups)
-	if !ok || role == domain.Role(u.Role) {
+	m := snap.Groups
+	base := []any{"user_id", u.ID, "role", u.Role}
+	// A provider that reports groups had the claim, whatever it says about finding it.
+	claimFound := id.GroupsClaimFound || len(id.Groups) > 0
+	switch {
+	case !m.Enabled:
+		h.log(ctx, slog.LevelInfo, "OIDC sign-in: roles from groups are off, role unchanged", append(base, "groups_claim_found", claimFound)...)
+		return nil
+	case !claimFound:
+		h.log(ctx, slog.LevelWarn, "OIDC sign-in: the ID token has no groups claim, role unchanged; add the claim to the ID token at the identity provider (Keycloak: a Group Membership or User Realm Role mapper with Add to ID token on) or change the groups claim in Settings, Authentication",
+			append(base, "groups_claim", m.Claim, "token_claims", strings.Join(id.ClaimNames, ","))...)
+		return nil
+	}
+	role, ok := m.RoleFor(id.Groups)
+	if !ok {
+		h.log(ctx, slog.LevelInfo, "OIDC sign-in: no group matched a mapped group, role unchanged", append(base, "groups_claim", m.Claim, "group_count", len(id.Groups))...)
+		return nil
+	}
+	if role == domain.Role(u.Role) {
+		h.log(ctx, slog.LevelInfo, "OIDC sign-in: groups map to the role the person already has", base...)
 		return nil
 	}
 	err := h.GroupRoles.ApplyGroupRole(ctx, u.ID, role, h.now())
 	if errors.Is(err, ErrLastSuperuser) {
-		if h.Logger != nil {
-			h.Logger.Warn("Group mapping was skipped for a person at sign-in because it would leave no superuser who can sign in; their role is unchanged")
-		}
+		h.log(ctx, slog.LevelWarn, "OIDC sign-in: group mapping skipped because it would leave no superuser who can sign in, role unchanged", base...)
 		return nil
 	}
+	if err == nil {
+		h.log(ctx, slog.LevelInfo, "OIDC sign-in: role set from groups", "user_id", u.ID, "previous_role", u.Role, "role", string(role))
+	}
 	return err
+}
+
+func (h *Handler) log(ctx context.Context, level slog.Level, msg string, args ...any) {
+	if h.Logger != nil {
+		h.Logger.Log(ctx, level, msg, args...)
+	}
 }

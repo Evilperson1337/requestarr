@@ -111,7 +111,7 @@ func TestEverySongFixtureRefIsAcceptedByTheResolver(t *testing.T) {
 func TestSongSearchFailuresAreErrorsNeverEmptyResults(t *testing.T) {
 	var seen []*http.Request
 	_, err := New(songClient(t, 503, &seen)).SongSearcher().Search(context.Background(), metadata.SearchQuery{Text: "money", Page: 1})
-	if !errors.Is(err, metadata.ErrBusy) || len(seen) != 1 {
+	if !errors.Is(err, metadata.ErrBusy) || len(seen) != searchAttempts {
 		t.Fatalf("err = %v after %d attempts", err, len(seen))
 	}
 }

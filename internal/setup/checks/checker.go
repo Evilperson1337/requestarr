@@ -11,6 +11,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/mail"
@@ -34,7 +35,11 @@ var errAuthentication = errors.New("setup authentication rejected")
 type Config struct {
 	// Diagnostics is optional and records only allowlisted connection-check facts.
 	Diagnostics *devlogs.Recorder
-	Runtime     setup.Runtime
+	// Logger is optional. A failed probe is logged with the same allowlisted
+	// facts Diagnostics keeps (target, stage, code, HTTP status), never an
+	// error value, URL or response body.
+	Logger  *slog.Logger
+	Runtime setup.Runtime
 	// OIDCClientSecret is environment-only; it is not a stored secret.
 	OIDCClientSecret string
 	// Secrets supplies every stored-capable secret (environment, else stored):
@@ -149,7 +154,8 @@ func (c *Checker) apprise(ctx context.Context, n setup.NotificationSettings) (se
 // slug, credential fields and URL come from the sources registry.
 type libraryProbe struct {
 	path        string
-	acceptedXML bool // the response is XML, not JSON
+	acceptedXML bool  // the response is XML, not JSON
+	maxBytes    int64 // the largest answer read; zero means 64 KiB
 	headers     func(token string) map[string]string
 	valid       func(data []byte) bool
 }
@@ -162,7 +168,10 @@ var libraryProbes = map[string]libraryProbe{
 		}
 		return xml.Unmarshal(data, &result) == nil && result.XMLName.Local == "MediaContainer"
 	}},
-	"romm": {path: "/api/platforms", headers: func(t string) map[string]string { return map[string]string{"Authorization": "Bearer " + t} }, valid: validJSON},
+	// RomM lists every platform with its firmware files, alternative names and
+	// description (RomM 5.4 added more of these), so a large library's answer is
+	// far past 64 KiB. It is read with the inventory client's own scale in mind.
+	"romm": {path: "/api/platforms", maxBytes: 8 << 20, headers: func(t string) map[string]string { return map[string]string{"Authorization": "Bearer " + t} }, valid: validJSONList},
 	// Audiobookshelf lists its libraries to anyone with a valid key; the check
 	// needs at least one book library, since podcasts hold no audiobooks.
 	"audiobookshelf": {path: "/api/libraries", headers: func(t string) map[string]string { return map[string]string{"Authorization": "Bearer " + t} }, valid: validAudiobookshelfLibraries},
@@ -191,6 +200,12 @@ func validAudiobookshelfLibraries(data []byte) bool {
 		}
 	}
 	return false
+}
+
+// validJSONList accepts a JSON array, the shape of a list endpoint.
+func validJSONList(data []byte) bool {
+	var result []json.RawMessage
+	return json.Unmarshal(data, &result) == nil && result != nil
 }
 
 func validJSON(data []byte) bool {
@@ -259,8 +274,12 @@ func (c *Checker) library(ctx context.Context, slug string, libraries setup.Libr
 		accept = "application/xml"
 		types = []string{"application/xml", "text/xml"}
 	}
+	limit := probeSpec.maxBytes
+	if limit == 0 {
+		limit = 64 << 10
+	}
 	if err := c.fetch(ctx, fetchSpec{stage: devlogs.StageRequest, method: http.MethodGet, endpoint: endpoint, headers: headers, accept: accept,
-		trusted: true, types: types, maxBytes: 64 << 10, validate: probeSpec.valid}); err != nil {
+		trusted: true, types: types, maxBytes: limit, validate: probeSpec.valid}); err != nil {
 		return setup.CheckUnavailable, errCheck
 	}
 	return setup.CheckOK, nil

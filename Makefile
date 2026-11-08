@@ -57,27 +57,32 @@ test:
 # from an earlier run cannot leak in, and two runs at once (two worktrees, two agents) do
 # not collide. It is dropped when the run ends. Override REQUESTARR_TEST_DATABASE_URL to
 # target another disposable database instead; that database is never dropped for you.
-# Set REQUESTARR_POSTGRES_PORT when host port 5432 is already taken.
-REQUESTARR_POSTGRES_PORT ?= 5432
-export REQUESTARR_POSTGRES_PORT
-TEST_DB_BASE ?= postgres://requestarr:requestarr@localhost:$(REQUESTARR_POSTGRES_PORT)
-
+# The host port: REQUESTARR_POSTGRES_PORT when set; otherwise the port the dev compose
+# Postgres already listens on; otherwise 5432, or the first free port from 55432 when
+# 5432 is taken by something else. So a machine with 5432 in use needs no setting.
 test-integration:
 	@set -e; \
 	if [ -z "$$REQUESTARR_TEST_DATABASE_URL" ]; then \
 	  export REQUESTARR_OIDC_ISSUER=unused REQUESTARR_OIDC_CLIENT_ID=unused REQUESTARR_OIDC_CLIENT_SECRET=unused REQUESTARR_SESSION_HMAC_SECRET=unused; \
-	  mapped="$$(docker compose -f compose.dev.yaml port postgres 5432 2>/dev/null || true)"; \
-	  if [ "$${mapped##*:}" != "$(REQUESTARR_POSTGRES_PORT)" ] && (exec 3<>/dev/tcp/127.0.0.1/$(REQUESTARR_POSTGRES_PORT)) 2>/dev/null; then \
-	    echo "Port $(REQUESTARR_POSTGRES_PORT) is taken by something other than the dev compose Postgres." >&2; \
-	    echo "Rerun with a free port, e.g. REQUESTARR_POSTGRES_PORT=55432 make test-integration" >&2; \
+	  free() { ! (exec 3<>/dev/tcp/127.0.0.1/$$1) 2>/dev/null; }; \
+	  mapped="$$(docker compose -f compose.dev.yaml port postgres 5432 2>/dev/null || true)"; mapped="$${mapped##*:}"; \
+	  port="$${REQUESTARR_POSTGRES_PORT:-}"; \
+	  if [ -z "$$port" ]; then \
+	    if [ -n "$$mapped" ]; then port="$$mapped"; \
+	    elif free 5432; then port=5432; \
+	    else port=55432; while ! free "$$port"; do port=$$((port + 1)); done; \
+	      echo "Port 5432 is taken; the dev compose Postgres will listen on $$port." >&2; fi; \
+	  elif [ "$$mapped" != "$$port" ] && ! free "$$port"; then \
+	    echo "Port $$port is taken by something other than the dev compose Postgres; unset REQUESTARR_POSTGRES_PORT to pick a free one." >&2; \
 	    exit 1; \
 	  fi; \
+	  export REQUESTARR_POSTGRES_PORT="$$port"; \
 	  docker compose -f compose.dev.yaml up -d --wait postgres; \
 	  db="requestarr_test_$$$$"; \
 	  psql() { docker compose -f compose.dev.yaml exec -T postgres psql -U requestarr -d requestarr -v ON_ERROR_STOP=1 "$$@"; }; \
 	  psql -c "create database $$db"; \
 	  trap 'psql -c "drop database if exists '"$$db"' with (force)" >/dev/null' EXIT; \
-	  REQUESTARR_TEST_DATABASE_URL="$(TEST_DB_BASE)/$$db?sslmode=disable"; export REQUESTARR_TEST_DATABASE_URL; \
+	  REQUESTARR_TEST_DATABASE_URL="postgres://requestarr:requestarr@localhost:$$port/$$db?sslmode=disable"; export REQUESTARR_TEST_DATABASE_URL; \
 	fi; \
 	go test -tags integration -count=1 ./internal/store/postgres/...
 

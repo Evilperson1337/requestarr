@@ -61,6 +61,20 @@ func exchangeWithClaims(t *testing.T, cfg oidc.Config, extra map[string]any) *oi
 	return id
 }
 
+func TestTheIdentitySaysWhetherTheGroupsClaimWasThere(t *testing.T) {
+	missing := exchangeWithClaims(t, oidc.Config{}, map[string]any{"email": "a@example.test"})
+	if missing.GroupsClaimFound {
+		t.Fatal("found a groups claim that is not there")
+	}
+	want := []string{"aud", "email", "exp", "iat", "iss", "nonce", "sub"}
+	if !reflect.DeepEqual(missing.ClaimNames, want) {
+		t.Fatalf("claim names = %v, want %v", missing.ClaimNames, want)
+	}
+	if !exchangeWithClaims(t, oidc.Config{}, map[string]any{"groups": []string{}}).GroupsClaimFound {
+		t.Fatal("an empty groups claim is still a groups claim")
+	}
+}
+
 func TestGroupsAreReadFromTheConfiguredIDTokenClaim(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -74,6 +88,10 @@ func TestGroupsAreReadFromTheConfiguredIDTokenClaim(t *testing.T) {
 		{"the claim is missing", oidc.Config{}, map[string]any{}, nil},
 		{"a claim of the wrong type gives no groups", oidc.Config{}, map[string]any{"groups": 7}, nil},
 		{"non-text list items are skipped", oidc.Config{}, map[string]any{"groups": []any{"user", 3, nil}}, []string{"user"}},
+		{"a dotted name is a path to Keycloak's realm roles", oidc.Config{GroupsClaim: "realm_access.roles"}, map[string]any{"realm_access": map[string]any{"roles": []string{"admin", "offline_access"}}}, []string{"admin", "offline_access"}},
+		{"a dotted path to a client's roles", oidc.Config{GroupsClaim: "resource_access.requestarr.roles"}, map[string]any{"resource_access": map[string]any{"requestarr": map[string]any{"roles": []string{"owner"}}}}, []string{"owner"}},
+		{"a claim named with dots wins over the path", oidc.Config{GroupsClaim: "https://example.test/groups"}, map[string]any{"https://example.test/groups": []string{"user"}}, []string{"user"}},
+		{"a path through a non-object gives no groups", oidc.Config{GroupsClaim: "realm_access.roles"}, map[string]any{"realm_access": "admin"}, nil},
 	}
 	for _, c := range cases {
 		got := exchangeWithClaims(t, c.cfg, c.extra).Groups

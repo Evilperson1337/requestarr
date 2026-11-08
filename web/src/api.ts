@@ -90,6 +90,8 @@ export type DevelopmentLogEntry = {
     httpStatus?: number; durationMs: number
 }
 export type DevelopmentLogs = { entries: DevelopmentLogEntry[]; capacity: number }
+export type ServerLogEntry = { seq: number; time: string; level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'; message: string; attrs: { key: string; value: string }[] }
+export type ServerLogs = { entries: ServerLogEntry[]; capacity: number }
 
 export type OIDCSettings = {
     enabled: boolean; providerName: string; issuer: string; clientId: string; scopes: string

@@ -17,6 +17,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/devlogs"
 	"github.com/evilperson1337/requestarr/internal/domain"
 	"github.com/evilperson1337/requestarr/internal/jobs"
+	"github.com/evilperson1337/requestarr/internal/logbuffer"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/opstatus"
 	"github.com/evilperson1337/requestarr/internal/requests"
@@ -114,6 +115,8 @@ type Deps struct {
 
 	// DevelopmentLogs is nil unless the development-only flag enabled it.
 	DevelopmentLogs *devlogs.Recorder
+	// ServerLogs is optional: without it Settings, Logs answers with no entries.
+	ServerLogs *logbuffer.Buffer
 }
 
 // missing names the required dependencies that are nil.
@@ -169,6 +172,7 @@ func buildRouter(d Deps) (http.Handler, *routeTable, error) {
 	rt := newRouteTable(api, authHandler)
 	logs := d.DevelopmentLogs
 	registerDevelopmentLogs(rt, logs)
+	registerServerLogs(rt, d.ServerLogs)
 	{
 		authHandler.Register(api)
 		rt.record("GET /auth/login", accessPublic, false)

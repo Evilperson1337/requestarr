@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"github.com/evilperson1337/requestarr/internal/logbuffer"
 	"log/slog"
 	"strings"
 	"time"
@@ -90,7 +91,8 @@ func BootstrapLocalAdmin(ctx context.Context, store BootstrapStore, o BootstrapO
 	}
 	loginURL := strings.TrimRight(o.PublicURL, "/") + "/login"
 	if generated {
-		o.Logger.Info("Requestarr created the local administrator. Sign in as 'admin' at "+loginURL+" with the one-time password in this line; you will be asked to choose a new password. Anyone who can read this log can read it.",
+		// Standard output only: Settings, Logs must never show a password.
+		o.Logger.InfoContext(logbuffer.StdoutOnly(ctx), "Requestarr created the local administrator. Sign in as 'admin' at "+loginURL+" with the one-time password in this line; you will be asked to choose a new password. Anyone who can read this log can read it.",
 			"username", LocalUsername, "one_time_password", pw)
 		return nil
 	}

@@ -56,9 +56,9 @@ function GroupRoleFields({ id, groups, onChange, locked }: { id: string; groups:
     return <fieldset className="field wide authGroups" aria-describedby={help}>
         <legend>Assign roles from groups</legend>
         <label className="switch"><input type="checkbox" checked={groups.on} disabled={locked} onChange={e => set({ on: e.target.checked })} /><span>Assign roles from groups</span></label>
-        <p id={help} className="fieldHelp">{locked ? 'Set by environment. Group role mapping is not used while the environment configures OIDC.' : 'Off by default. When on, the groups in a person\u2019s ID token set their role every time they sign in, and can raise or lower it. Turning this on can change roles at the next sign-in. Someone in no mapped group keeps their role. Names ignore letter case and one leading slash.'}</p>
+        <p id={help} className="fieldHelp">{locked ? 'Set by environment. Group role mapping is not used while the environment configures OIDC.' : 'Off by default. When on, the groups in a person\u2019s ID token set their role every time they sign in, and can raise or lower it. Turning this on can change roles at the next sign-in. Someone in no mapped group keeps their role. Names ignore letter case and one leading slash. Groups are read from the ID token only: in Keycloak, add a Group Membership mapper (claim name groups) with Add to ID token on. Settings, Logs shows what each sign-in decided.'}</p>
         <div className="authFields">
-            {text('claim', 'Group claim', 'The ID token claim that lists groups.')}
+            {text('claim', 'Group claim', 'The ID token claim that lists groups. A dotted name reads inside the token, for example realm_access.roles for Keycloak realm roles.')}
             {text('owner', 'Superuser group', 'Makes a person a superuser.')}
             {text('admin', 'Admin group', 'Makes a person an admin.')}
             {text('user', 'Requester group', 'Makes a person a requester.')}

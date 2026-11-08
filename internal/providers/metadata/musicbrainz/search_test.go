@@ -148,16 +148,58 @@ func TestEveryFixtureResultRefIsAcceptedByTheResolver(t *testing.T) {
 	}
 }
 
+// MusicBrainz answers "busy" now and then even inside its rate limit, so a
+// busy answer is asked again, a bounded number of times, and is an error
+// (never an empty list) when it stays busy. Other failures are not retried.
 func TestSearchFailuresAreErrorsNeverEmptyResults(t *testing.T) {
-	for status, want := range map[int]error{429: metadata.ErrBusy, 503: metadata.ErrBusy, 502: metadata.ErrBusy} {
+	for status, want := range map[int]error{429: metadata.ErrBusy, 503: metadata.ErrBusy, 502: metadata.ErrBusy, 500: nil} {
 		var seen []*http.Request
 		_, err := New(searchClient(t, status, &seen)).Search(context.Background(), metadata.SearchQuery{Text: "dark", Page: 1})
-		if !errors.Is(err, want) {
+		if err == nil || want != nil && !errors.Is(err, want) {
 			t.Errorf("status %d: err = %v, want %v", status, err, want)
 		}
-		if len(seen) != 1 {
-			t.Errorf("status %d: %d attempts; a search never retries, which would break the 1 per second budget", status, len(seen))
+		attempts := searchAttempts
+		if want == nil {
+			attempts = 1
 		}
+		if len(seen) != attempts {
+			t.Errorf("status %d: %d attempts, want %d", status, len(seen), attempts)
+		}
+	}
+}
+
+// A busy answer followed by a good one is a good search, and the retry waited
+// for its own slot in the spacer: it never spends the budget early.
+func TestABusySearchIsAskedAgainInItsOwnSlot(t *testing.T) {
+	clock := newFakeClock()
+	saved := apiSpacer
+	apiSpacer = &spacer{interval: time.Second, clock: clock}
+	defer func() { apiSpacer = saved }()
+	fixture, err := os.ReadFile("testdata/search_release_group.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var attempts []time.Time
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		attempts = append(attempts, clock.Now())
+		status := 200
+		if len(attempts) == 1 {
+			status = 503
+		}
+		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(string(fixture)))}, nil
+	})}
+	done := make(chan error, 1)
+	go func() {
+		_, err := New(client).Search(context.Background(), metadata.SearchQuery{Text: "dark", Page: 1})
+		done <- err
+	}()
+	waitForQueue(t, apiSpacer, 1) // the retry is waiting for the next slot
+	clock.Advance(time.Second)
+	if err := <-done; err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if len(attempts) != 2 || attempts[1].Sub(attempts[0]) < time.Second {
+		t.Fatalf("attempts at %v; the retry must wait a full interval", attempts)
 	}
 }
 

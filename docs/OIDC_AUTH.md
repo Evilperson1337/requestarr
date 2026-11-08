@@ -70,12 +70,14 @@ In Settings, Authentication, the OpenID Connect card has **Assign roles from gro
 Rules:
 
 - Groups are read from the ID token only, by the claim name above, as a list of text values or one text value. The userinfo endpoint is not called. Request the `groups` scope and make the provider put the claim in the ID token (the Keycloak steps are in the [Unraid guide](UNRAID.md)).
+- A claim whose name is exactly the setting is used as is, so a namespaced name such as `https://example.com/groups` works. Otherwise a dotted name is a path into the token, so Keycloak roles can be used instead of groups: `realm_access.roles` for realm roles, `resource_access.<client-id>.roles` for a client's roles (D042).
 - Names match ignoring letter case and one leading `/`, so Keycloak's path-style `/admin` matches `admin` (a nested path such as `/team/admin` does not).
 - At every sign-in, if at least one of the person's groups matches, the most powerful matching role is applied, whether that raises or lowers the person's role. In several groups, the highest wins.
 - With no match, an existing person keeps their role and a first-time person gets the default for new people. Leaving a group never lowers a role by itself.
 - A change by groups ends the person's other sessions and is audited with source `group_mapping`. The Users table marks such people **Set by groups** and says a manual change is overridden at their next sign-in while mapping is on.
 - A mapping that would leave no superuser who can sign in is skipped and logged as a warning; the person still signs in with their current role. The local administrator is never changed by groups.
 - A person's group list is used for the decision only; it is never stored or logged.
+- Every OIDC sign-in logs one line saying what the mapping decided, readable in **Settings, Logs** (D042): mapping off; the ID token has no groups claim (a warning naming the claims the token does have, names only); no group matched (with how many groups the token held); already that role; or the role set. When a role does not change as expected, that line says why.
 
 ## Endpoints and deployment configuration
 

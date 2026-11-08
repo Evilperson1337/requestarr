@@ -2561,3 +2561,57 @@ a.tag-available:hover {
     .requesterPicker select { min-height: 44px; }
     .switch { min-height: 44px; }
 }
+
+/* Settings, Logs: the server's recent records. */
+.logControls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 12px 16px;
+}
+
+.logControls .field {
+    margin: 0;
+}
+
+.logFollow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+}
+
+.logTable td {
+    vertical-align: top;
+}
+
+.logTable td:nth-child(3),
+.logAttrs {
+    overflow-wrap: anywhere;
+}
+
+.logLevel {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: .8rem;
+    font-weight: 600;
+    background: var(--pill-neutral-bg);
+    color: var(--pill-neutral-ink);
+}
+
+.logLevel.logWarn { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+.logLevel.logError { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+.logLevel.logDebug { color: var(--muted); }
+
+.logAttrs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .85rem;
+}
+
+.logKey {
+    color: var(--muted);
+}

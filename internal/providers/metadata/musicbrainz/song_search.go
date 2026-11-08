@@ -20,7 +20,7 @@ type songSearcher struct{ r *Resolver }
 // Search runs one recording search. MusicBrainz already returns a recording
 // once, with every release it appears on nested inside, so a row is a recording
 // and the "first release" is the earliest dated release of that list. It waits
-// in the same spacer as album search and previews and makes a single attempt.
+// in the same spacer as album search and previews, through searchFetch.
 func (s songSearcher) Search(ctx context.Context, q metadata.SearchQuery) (domain.SearchPage, error) {
 	query := termsQuery(q.Text, "recording")
 	if query == "" {
@@ -46,10 +46,7 @@ func (s songSearcher) Search(ctx context.Context, q metadata.SearchQuery) (domai
 			} `json:"releases"`
 		} `json:"recordings"`
 	}
-	if err := apiSpacer.waitSearch(ctx); err != nil {
-		return domain.SearchPage{}, err
-	}
-	if err := metadata.Fetch(ctx, s.r.client, "https://musicbrainz.org/ws/2/recording?"+params.Encode(), nil, &data); err != nil {
+	if err := searchFetch(ctx, s.r.client, "https://musicbrainz.org/ws/2/recording?"+params.Encode(), &data); err != nil {
 		return domain.SearchPage{}, err
 	}
 	out := domain.SearchPage{Results: []domain.SearchResult{}, HasMore: offset+len(data.Recordings) < data.Count}

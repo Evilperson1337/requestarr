@@ -25,6 +25,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/inventory/romm"
 	"github.com/evilperson1337/requestarr/internal/issues"
 	"github.com/evilperson1337/requestarr/internal/jobs"
+	"github.com/evilperson1337/requestarr/internal/logbuffer"
 	"github.com/evilperson1337/requestarr/internal/notifications"
 	"github.com/evilperson1337/requestarr/internal/opstatus"
 	"github.com/evilperson1337/requestarr/internal/providers/metadata/musicbrainz"
@@ -133,7 +134,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 	if cfg.DevelopmentLogs { // cfg.Validate above rejects this outside development.
 		logs = &devlogs.Recorder{}
 	}
-	checker := checks.New(checks.Config{Diagnostics: logs, Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, Secrets: secretsService})
+	checker := checks.New(checks.Config{Diagnostics: logs, Logger: logger, Runtime: setupRuntime, OIDCClientSecret: cfg.OIDCClientSecret, Secrets: secretsService})
 	connections := &connectionsService{store: store, boot: store, envCfg: envCfg, manager: manager, secrets: secretsService, checker: checker, logger: logger}
 
 	handler, err := httpapi.NewRouter(httpapi.Deps{
@@ -142,6 +143,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, build buil
 		MoviePreview: store,
 		JobRuns:      store, Status: ops, Users: store, People: peopleSettings{store}, Approvals: approvalSettings{store}, Syncer: syncer,
 		Checklist: checklist.New(ops, store).WithSignIn(oidcSignIn{authentication}), IGDB: igdbSettingsService{store: store, envID: envCfg.IGDBClientID, providers: providers}, Secrets: reloadingSecrets{Service: secretsService, manager: manager, providers: providers, logger: logger}, Connections: connections, Library: &libraryService{store: store, manager: manager}, Search: providers, SearchLocal: store, Issues: httpapi.NewIssueService(issues.New(store.Issues())), DevelopmentLogs: logs,
+		ServerLogs: logbuffer.BufferOf(logger),
 	})
 	if err != nil {
 		return fmt.Errorf("initialize HTTP API: %w", err)

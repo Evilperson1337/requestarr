@@ -666,6 +666,46 @@ paths:
         '401': { description: Authentication required (including when disabled) }
         '403': { description: Administrator role required }
         '404': { description: Development logs disabled; authenticated request to absent route }
+  /admin/logs:
+    get:
+      x-required-role: superuser
+      operationId: getServerLogs
+      summary: Recent server log records (superuser only)
+      description: >-
+        The most recent server log records, oldest first, kept in memory only (D042). It holds the
+        same records the process writes to standard output, at the configured REQUESTARR_LOG_LEVEL
+        or above, at most 1000 of them; a restart clears them and seq restarts at 1. Records never
+        hold credentials, OIDC group names, search text or provider response bodies, because the
+        server never logs them. Reading this calls no external service. Responses are no-store.
+      parameters:
+        - in: query
+          name: level
+          description: Only records at this level or above. Default debug (everything kept).
+          schema: { type: string, enum: [debug, info, warn, error] }
+        - in: query
+          name: after
+          description: Only records with a greater seq, to fetch what is new since the last read.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Recent records
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [entries, capacity]
+                properties:
+                  entries:
+                    type: array
+                    maxItems: 1000
+                    items: { $ref: '#/components/schemas/ServerLogEntry' }
+                  capacity: { type: integer, const: 1000 }
+        '400': { description: invalid_log_query; level or after is not valid }
+        '401': { description: Authentication required }
+        '403': { description: The superuser role is required }
   /admin/status:
     get:
       operationId: getOperationalStatus
@@ -2036,6 +2076,26 @@ components:
             properties:
               name: { type: string }
               url: { type: string, format: uri, description: Present only when the library supplies a usable link without credentials }
+    ServerLogEntry:
+      type: object
+      additionalProperties: false
+      required: [seq, time, level, message, attrs]
+      properties:
+        seq: { type: integer, minimum: 1, description: Process-local; restarts at 1 }
+        time: { type: string, format: date-time }
+        level: { type: string, enum: [DEBUG, INFO, WARN, ERROR] }
+        message: { type: string, maxLength: 1003 }
+        attrs:
+          type: array
+          maxItems: 32
+          description: The record's key and value pairs as text; a grouped key is dotted.
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, value]
+            properties:
+              key: { type: string }
+              value: { type: string, maxLength: 2003 }
     DevelopmentLogEntry:
       type: object
       additionalProperties: false

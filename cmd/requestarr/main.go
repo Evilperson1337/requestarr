@@ -16,6 +16,7 @@ import (
 	"github.com/evilperson1337/requestarr/internal/auth/password"
 	"github.com/evilperson1337/requestarr/internal/buildinfo"
 	"github.com/evilperson1337/requestarr/internal/config"
+	"github.com/evilperson1337/requestarr/internal/logbuffer"
 	"github.com/evilperson1337/requestarr/internal/store/postgres"
 )
 
@@ -65,7 +66,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "requestarr: invalid configuration: %v\n", err)
 		os.Exit(1)
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel()}))
+	// Records still go to stdout; the most recent are also kept for Settings, Logs.
+	logger := slog.New(logbuffer.NewHandler(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel()}), logbuffer.New()))
 
 	if migrateOnly {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

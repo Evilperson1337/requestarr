@@ -2,6 +2,8 @@ package musicbrainz
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -19,8 +21,7 @@ const (
 // Search finds albums by name with one release-group search. The artist,
 // type and first-release year arrive in the same answer, and cover art is only
 // a URL derived from the identifier, so nothing here makes a second call. It
-// waits in the shared spacer behind any resolve, and makes one attempt: a
-// retry would spend the one-per-second budget that previews need.
+// goes through searchFetch, which waits in the shared spacer behind any resolve.
 func (r *Resolver) Search(ctx context.Context, q metadata.SearchQuery) (domain.SearchPage, error) {
 	query := albumQuery(q.Text, q.IncludeSingles)
 	if query == "" {
@@ -46,10 +47,7 @@ func (r *Resolver) Search(ctx context.Context, q metadata.SearchQuery) (domain.S
 			} `json:"artist-credit"`
 		} `json:"release-groups"`
 	}
-	if err := apiSpacer.waitSearch(ctx); err != nil {
-		return domain.SearchPage{}, err
-	}
-	if err := metadata.Fetch(ctx, r.client, "https://musicbrainz.org/ws/2/release-group?"+params.Encode(), nil, &data); err != nil {
+	if err := searchFetch(ctx, r.client, "https://musicbrainz.org/ws/2/release-group?"+params.Encode(), &data); err != nil {
 		return domain.SearchPage{}, err
 	}
 	out := domain.SearchPage{Results: []domain.SearchResult{}, HasMore: offset+len(data.ReleaseGroups) < data.Count}
@@ -130,6 +128,31 @@ func albumQuery(text string, includeSingles bool) string {
 // both are escaped, which also turns AND, OR, NOT and field names into plain
 // words. A word with no letter or digit (a lone "*", say) is dropped. An empty
 // result means there is nothing to ask.
+// searchAttempts bounds how often one name search asks MusicBrainz.
+const searchAttempts = 3
+
+// searchFetch runs one name search. MusicBrainz's search servers answer 503
+// "busy" now and then even to a client well inside its rate limit (in a live
+// measurement, about one recording search in four), so a busy answer is asked
+// again, up to searchAttempts times. Every attempt waits for its own slot in
+// the search line of the shared spacer, so a retry keeps the one-per-second
+// budget and never goes ahead of a preview, which is always served first. The
+// shared search service's time budget bounds the whole thing. A full search
+// line, a cancelled search and any other failure are not retried.
+func searchFetch(ctx context.Context, client *http.Client, endpoint string, dst any) error {
+	var err error
+	for attempt := 0; attempt < searchAttempts; attempt++ {
+		if err = apiSpacer.waitSearch(ctx); err != nil {
+			return err
+		}
+		err = metadata.Fetch(ctx, client, endpoint, nil, dst)
+		if err == nil || !errors.Is(err, metadata.ErrBusy) || ctx.Err() != nil {
+			return err
+		}
+	}
+	return err
+}
+
 func termsQuery(text, titleField string) string {
 	var clauses []string
 	for _, word := range strings.Fields(text) {

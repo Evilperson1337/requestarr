@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	coreoidc "github.com/coreos/go-oidc/v3/oidc"
@@ -37,6 +39,13 @@ type Identity struct {
 	Email       string
 	DisplayName string
 	Groups      []string
+	// GroupsClaimFound reports whether the ID token had the groups claim at
+	// all, so a sign-in can tell "no claim" from "claim with no match".
+	GroupsClaimFound bool
+	// ClaimNames are the names of the ID token's top-level claims, sorted,
+	// for the sign-in diagnostic when the groups claim is missing. Names only:
+	// never their values.
+	ClaimNames []string
 }
 
 // Provider boundary. The concrete implementation should use standards-compliant
@@ -139,7 +148,13 @@ func (c *Client) Exchange(ctx context.Context, code, verifier, nonce string) (*I
 	if claims.Subject == "" || claims.Nonce != nonce {
 		return nil, fmt.Errorf("OIDC subject or nonce is invalid")
 	}
-	return &Identity{Subject: claims.Subject, Email: claims.Email, DisplayName: claims.Name, Groups: groupsFrom(all[c.groupsClaim])}, nil
+	groupsClaim, found := claimAt(all, c.groupsClaim)
+	names := make([]string, 0, len(all))
+	for name := range all {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return &Identity{Subject: claims.Subject, Email: claims.Email, DisplayName: claims.Name, Groups: groupsFrom(groupsClaim), GroupsClaimFound: found, ClaimNames: names}, nil
 }
 
 func RandomValue() (string, error) {
@@ -176,6 +191,36 @@ func claimName(configured string) string {
 		return DefaultGroupsClaim
 	}
 	return configured
+}
+
+// claimAt finds the groups claim. A claim whose name is exactly the setting
+// wins, so a namespaced name such as https://example.com/groups works as is.
+// Otherwise a dotted name is a path into nested objects, so Keycloak's role
+// claims can be used directly: realm_access.roles, or
+// resource_access.<client>.roles for a client's roles.
+func claimAt(all map[string]json.RawMessage, name string) (json.RawMessage, bool) {
+	if raw, ok := all[name]; ok {
+		return raw, true
+	}
+	parts := strings.Split(name, ".")
+	if len(parts) < 2 {
+		return nil, false
+	}
+	current := all
+	for i, part := range parts {
+		raw, ok := current[part]
+		if !ok {
+			return nil, false
+		}
+		if i == len(parts)-1 {
+			return raw, true
+		}
+		current = nil
+		if json.Unmarshal(raw, &current) != nil || current == nil {
+			return nil, false
+		}
+	}
+	return nil, false
 }
 
 // groupsFrom reads a groups claim that is a list of text values or a single

@@ -67,7 +67,7 @@ test('an admin who opens Get started by address is told it is for the superuser'
 
 test('a superuser sees every tab and Get started', async ({ page }) => {
     await openSettings(page, 'superuser')
-    expect(await tabNames(page)).toEqual(['Integrations', 'Authentication', 'Activity', 'Matches', 'Users'])
+    expect(await tabNames(page)).toEqual(['Integrations', 'Authentication', 'Activity', 'Matches', 'Users', 'Logs'])
     await expect(mainNav(page).getByRole('link', { name: 'Get started' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Media libraries' })).toBeVisible()
 })

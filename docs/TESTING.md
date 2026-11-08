@@ -23,7 +23,7 @@ make test-integration
 
 This starts the dev-compose `postgres` service, creates a database for the run alone, named `requestarr_test_<pid>` (never the application's `requestarr` database), and drops it when the run ends, and runs `go test -tags integration ./internal/store/postgres/...`. Without the `integration` tag, or without `REQUESTARR_TEST_DATABASE_URL`, these tests are skipped.
 
-- If host port 5432 is taken, use `make test-integration REQUESTARR_POSTGRES_PORT=5433`.
+- The host port needs no setting: the run uses the port the dev compose Postgres already listens on, else 5432, else the first free port from 55432. `REQUESTARR_POSTGRES_PORT` forces a port.
 - To use your own disposable database, set `REQUESTARR_TEST_DATABASE_URL`; the target then skips compose and runs against it.
 - `scripts/check.sh` runs the suite when `REQUESTARR_TEST_DATABASE_URL` is set, and skips it otherwise.
 
@@ -46,8 +46,8 @@ callback, and confirm `/api/v1/auth/me` returns the signed-in user. It prints
 `PASS: ...` and exits 0, or prints `FAIL: <step>` and exits non-zero. Requires
 docker, curl and go.
 
-- Honors `REQUESTARR_POSTGRES_PORT` (use it when 5432 is taken, as for
-  `make test-integration`), `REQUESTARR_LOGIN_CHECK_PORT` (default 18080) and
+- Honors `REQUESTARR_POSTGRES_PORT` (set it when 5432 is taken; unlike
+  `make test-integration`, this script does not pick a port itself), `REQUESTARR_LOGIN_CHECK_PORT` (default 18080) and
   `REQUESTARR_KEYCLOAK_URL` (default `http://localhost:8081`).
 - It needs the development-only allowance for a plain-HTTP loopback issuer; any
   other issuer must be HTTPS.

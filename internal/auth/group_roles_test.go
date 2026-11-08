@@ -133,3 +133,39 @@ func TestAFailedGroupRoleChangeStopsTheSignIn(t *testing.T) {
 		t.Fatal("no session may be issued")
 	}
 }
+
+// Every OIDC sign-in says in the log what the group mapping decided, without
+// the group names, so an operator can see why a role did or did not change.
+func TestSignInLogsWhatTheGroupMappingDecided(t *testing.T) {
+	cases := []struct {
+		name    string
+		mapping domain.GroupMapping
+		role    string
+		groups  []string
+		want    string
+	}{
+		{"mapping off", domain.DefaultGroupMapping(), "viewer", []string{"canary-group"}, "level=INFO msg=\"OIDC sign-in: roles from groups are off, role unchanged\""},
+		{"no groups claim", mappingOn(), "viewer", nil, "level=WARN msg=\"OIDC sign-in: the ID token has no groups claim"},
+		{"no match", mappingOn(), "viewer", []string{"canary-group", "canary-other"}, "no group matched a mapped group, role unchanged\" user_id="},
+		{"already that role", mappingOn(), "admin", []string{"admin"}, "groups map to the role the person already has"},
+		{"applied", mappingOn(), "viewer", []string{"owner"}, "msg=\"OIDC sign-in: role set from groups\""},
+	}
+	for _, c := range cases {
+		var logs bytes.Buffer
+		if code := signIn(t, &groupStore{role: c.role}, c.mapping, c.groups, &logs); code != http.StatusSeeOther {
+			t.Fatalf("%s: sign-in got %d", c.name, code)
+		}
+		out := logs.String()
+		if !strings.Contains(out, c.want) {
+			t.Errorf("%s: log %q lacks %q", c.name, out, c.want)
+		}
+		if strings.Contains(out, "canary") {
+			t.Errorf("%s: a group name reached the log: %q", c.name, out)
+		}
+	}
+	var logs bytes.Buffer
+	signIn(t, &groupStore{role: "viewer"}, mappingOn(), []string{"canary-group", "canary-other"}, &logs)
+	if !strings.Contains(logs.String(), "group_count=2") {
+		t.Errorf("no-match log should count the groups: %q", logs.String())
+	}
+}
