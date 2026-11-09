@@ -33,7 +33,7 @@ Requestarr is **request + availability + notification software**. It must not ac
 - State changes must emit auditable events and be idempotent.
 - Reconciliation must be targeted when possible; avoid full-library/full-request N×M comparisons.
 - Keep URLs/bookmarkable filters in the shared Requests page.
-- UI should follow `references/mockups/final/` and `docs/UI_UX.md`, but accessibility and responsive behavior take precedence over pixel matching.
+- UI follows the SignalLuxe direction (D044; `references/requestarr-signalluxe-handoff/`, behavior in `docs/UI_UX.md`), but accessibility and responsive behavior take precedence over pixel matching.
 - Reference projects are for learning. Do not copy GPL/AGPL code into Requestarr unless the project license decision explicitly permits it and attribution obligations are understood.
 
 ## Required checks before completing a change

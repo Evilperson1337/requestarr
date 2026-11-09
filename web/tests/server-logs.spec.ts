@@ -30,7 +30,7 @@ async function mock(page: Page, role: string) {
 
 test('a superuser reads the server logs newest first, filters them and narrows the level', async ({ page }) => {
     const calls = await mock(page, 'superuser')
-    await page.goto('/settings?tab=logs')
+    await page.goto('/logs')
     const table = page.getByRole('region', { name: 'Server log records' })
     await expect(table.getByRole('row')).toHaveCount(3)
     await expect(table.getByRole('row').nth(1)).toContainText('connection check failed')
@@ -46,10 +46,22 @@ test('a superuser reads the server logs newest first, filters them and narrows t
     expect(calls).toContain('/admin/logs?level=warn')
 })
 
-test('an admin has no Logs tab', async ({ page }) => {
+test('an admin reads the logs from the Logs page, and Settings has no Logs tab', async ({ page }) => {
     const calls = await mock(page, 'admin')
     await page.goto('/settings')
     await expect(page.getByRole('button', { name: 'Activity', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Logs', exact: true })).toHaveCount(0)
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Logs' }).click()
+    await expect(page.getByRole('heading', { name: 'Logs', level: 1 })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Server log records' }).getByRole('row')).toHaveCount(3)
+    await expect(page.getByRole('heading', { name: 'Diagnostics tokens' })).toHaveCount(0)
+    expect(calls.some(call => call.startsWith('/admin/logs'))).toBe(true)
+})
+
+test('a requester has no Logs link and the address shows no logs', async ({ page }) => {
+    const calls = await mock(page, 'requester')
+    await page.goto('/logs')
+    await expect(page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Logs' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Server log records' })).toHaveCount(0)
     expect(calls.some(call => call.startsWith('/admin/logs'))).toBe(false)
 })

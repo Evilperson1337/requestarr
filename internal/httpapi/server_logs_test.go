@@ -26,8 +26,11 @@ func serverLogsHTTP(t *testing.T, buf *logbuffer.Buffer, role, query string) *ht
 	return w
 }
 
-func TestServerLogsAreSuperuserOnly(t *testing.T) {
-	for _, role := range []string{"", "viewer", "requester", "admin"} {
+func TestServerLogsAreAdminAndUp(t *testing.T) {
+	if w := serverLogsHTTP(t, logbuffer.New(), "admin", ""); w.Code != 200 {
+		t.Errorf("admin: status %d, want 200", w.Code)
+	}
+	for _, role := range []string{"", "viewer", "requester"} {
 		w := serverLogsHTTP(t, logbuffer.New(), role, "")
 		want, code := 403, "forbidden"
 		if role == "" {

@@ -36,7 +36,7 @@ test('movie preview exposes rich facts, genre tags and the whole official synops
 test('movie scrollbar uses the dark theme and respects forced system colors', async ({ page }) => {
     const dialog = await openMovie(page)
     const scroll = dialog.locator('.movieScroll')
-    await expect(scroll).toHaveCSS('scrollbar-color', 'rgb(68, 68, 68) rgb(17, 17, 17)')
+    await expect(scroll).toHaveCSS('scrollbar-color', 'rgb(74, 81, 128) rgb(16, 22, 43)')
     await expect(dialog).toHaveCSS('color-scheme', 'dark')
     await page.emulateMedia({ forcedColors: 'active' })
     await expect(scroll).toHaveCSS('scrollbar-color', 'auto')

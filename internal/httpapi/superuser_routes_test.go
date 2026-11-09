@@ -21,7 +21,6 @@ func TestSuperuserOnlyRoutesAreExactlyThese(t *testing.T) {
 		"GET /admin/checklist",
 		"GET /admin/diagnostics-tokens",
 		"GET /admin/library-connections",
-		"GET /admin/logs",
 		"GET /admin/secrets",
 		"GET /admin/settings/authentication",
 		"GET /admin/settings/authentication/local-administrator",
