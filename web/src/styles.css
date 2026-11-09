@@ -2768,3 +2768,162 @@ textarea {
         background-attachment: scroll, scroll;
     }
 }
+
+/* Signed-out screens (D044): backdrop, wordmark bar, one glass card. */
+.authScreen {
+    min-height: 100dvh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    background-color: var(--ra-canvas);
+    background-image: url('./assets/signalluxe-background.svg');
+    background-size: cover;
+    background-position: center;
+}
+
+.authBar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 28px;
+    padding: 28px clamp(20px, 5vw, 90px) 0;
+}
+
+.authBar p {
+    margin: 0;
+    padding-left: 28px;
+    border-left: 1px solid rgb(255 255 255 / .25);
+    color: #c9cbe0;
+    font-size: .8rem;
+    letter-spacing: .28em;
+    text-transform: uppercase;
+}
+
+.authWordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: #fff;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -.02em;
+}
+
+.authWordmark .brandMark { color: var(--ra-pink-bright); }
+.authWordmark span span { color: var(--ra-pink-bright); }
+
+.authStage {
+    display: grid;
+    place-items: center;
+    padding: 40px clamp(16px, 4vw, 48px) 48px;
+}
+
+.authGlass {
+    position: relative;
+    width: min(100%, 910px);
+    display: grid;
+    justify-items: center;
+    gap: 22px;
+    padding: 76px clamp(24px, 6vw, 80px) 44px;
+    text-align: center;
+    border: 1px solid rgb(150 160 255 / .45);
+    border-radius: 36px;
+    background: linear-gradient(160deg, rgb(14 16 36 / .72), rgb(10 8 24 / .8));
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 0 60px rgb(244 68 189 / .22), inset 0 -1px 40px rgb(244 68 189 / .12);
+}
+
+.authGlass.wide { width: min(100%, 640px); }
+
+.authGlass h1 {
+    margin: 0;
+    font-size: clamp(2.2rem, 5.4vw, 3.4rem);
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    max-width: none;
+}
+
+.authAccent {
+    background: linear-gradient(90deg, #d982ff, #ff65cf);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.authLead {
+    margin: 0;
+    max-width: 44ch;
+    text-wrap: balance;
+    color: #c4c6dc;
+    font-size: 1.15rem;
+    line-height: 1.6;
+}
+
+.authEmblem {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    translate: -50% -50%;
+    display: grid;
+    place-items: center;
+    width: 94px;
+    height: 94px;
+    border: 1px solid rgb(190 150 255 / .6);
+    border-radius: 26px;
+    background: rgb(18 14 40 / .95);
+    color: var(--ra-violet);
+    box-shadow: 0 0 28px rgb(167 122 255 / .35);
+}
+
+.authKinds {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    margin: 6px 0 4px;
+    padding: 0;
+    list-style: none;
+}
+
+.authKinds li {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    border: 1px solid rgb(255 255 255 / .12);
+    border-radius: 999px;
+    background: rgb(255 255 255 / .05);
+    color: #fff;
+    font-size: .95rem;
+}
+
+.authKinds svg { color: var(--ra-violet); }
+
+.authCta {
+    gap: 14px;
+    min-width: min(100%, 500px);
+    min-height: 68px;
+    font-size: 1.4rem;
+    font-weight: 700;
+    background: linear-gradient(100deg, #9a2bb0, #d8359f);
+    box-shadow: 0 0 34px rgb(216 53 159 / .45), inset 0 0 0 1px rgb(255 160 230 / .5);
+}
+
+.authAlt { margin: 4px 0 0; }
+.authAlt a { color: #fff; font-size: 1.15rem; }
+
+.authGlass .setupForm, .authGlass .errorBox, .authGlass .setupForm label { text-align: left; }
+.authGlass .setupForm { width: 100%; margin-top: 4px; }
+.authGlass .setupForm .button { min-height: 52px; }
+
+@media (max-width: 600px) {
+    .authBar p { padding-left: 0; border-left: 0; }
+    .authGlass { padding-top: 68px; border-radius: 28px; }
+    .authKinds li { padding: 10px 14px; }
+    .authCta { font-size: 1.15rem; min-height: 60px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .authCta { transition: filter .15s, transform .15s; }
+    .authCta:hover { transform: translateY(-1px); }
+}

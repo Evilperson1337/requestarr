@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { api, ApiError } from '../api'
+import { AuthScreen } from '../components/AuthScreen'
 import { followLink, navigate } from '../navigation'
 
 // The local administrator's sign-in (D040). It has its own address, /login, so a broken or
@@ -28,11 +29,11 @@ export function LocalSignInPage({ onSignedIn, heading = 'Administrator sign-in',
         } finally { setBusy(false) }
     }
 
-    return <main className="shell setupShell"><section className="card setupCard">
+    return <AuthScreen wide>
         <h1>{heading}</h1>
-        {intro && <p>{intro}</p>}
+        {intro && <p className="authLead">{intro}</p>}
         {notice}
-        <p>Sign in as the local administrator. Everyone else signs in through the organization account.</p>
+        <p className="authLead">Sign in as the local administrator. Everyone else signs in through the organization account.</p>
         <form className="setupForm" onSubmit={submit}>
             <label>Username
                 <input required maxLength={64} autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={e => setUsername(e.target.value)} />
@@ -43,6 +44,6 @@ export function LocalSignInPage({ onSignedIn, heading = 'Administrator sign-in',
             {error && <p role="alert" className="errorBox">{error}</p>}
             <button className="button" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
         </form>
-        {backToOptions && <p className="setupGuide"><a href="/" onClick={followLink}>Back to the sign-in options</a></p>}
-    </section></main>
+        {backToOptions && <p className="authAlt"><a href="/" onClick={followLink}>Back to the sign-in options</a></p>}
+    </AuthScreen>
 }
