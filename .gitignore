@@ -69,3 +69,12 @@ web/playwright-report/
 # Built UI is produced by `make web-build` (Dockerfile, CI and GoReleaser run it); never commit it.
 /internal/webui/dist/*
 !/internal/webui/dist/.gitkeep
+
+# design-sync (Claude Design sync)
+/web/design-sync/dist/
+/.ds-sync/
+/web/.ds-sync/
+/web/ds-bundle/
+/web/.design-sync/.cache/
+/web/.design-sync/learnings/
+/web/.design-sync/node_modules
