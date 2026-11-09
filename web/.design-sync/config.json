@@ -1,0 +1,25 @@
+{
+  "projectId": "1ba2fe42-b114-480c-a609-d8e14b6324c0",
+  "shape": "package",
+  "pkg": "requestarr-ui",
+  "globalName": "RequestarrUI",
+  "buildCmd": "sh web/design-sync/build.sh",
+  "srcDir": "../src/components",
+  "cssEntry": "dist/style.css",
+  "overrides": {
+    "Modal": {
+      "cardMode": "single",
+      "viewport": "760x600"
+    },
+    "RequestRail": {
+      "cardMode": "column"
+    },
+    "LibraryRail": {
+      "cardMode": "column"
+    },
+    "SettingsSection": {
+      "cardMode": "column"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}

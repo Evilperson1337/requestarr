@@ -1,0 +1,9 @@
+{
+  "name": "requestarr-ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "module": "dist/index.js",
+  "types": "dist/design-sync/src/index.d.ts",
+  "exports": { ".": { "types": "./dist/design-sync/src/index.d.ts", "import": "./dist/index.js" } }
+}
