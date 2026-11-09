@@ -1,22 +1,40 @@
 :root {
-    --ground: #000000;
-    --surface: #111111;
-    --raised: #2a2a2a;
-    --border: #1a1a1a;
-    --rule: #161616;
-    --control: #444444;
-    --text: #ffffff;
-    --muted: #b4b4b4;
-    --faint: #949494;
-    --accent: #c6f24e;
-    --positive: #c6f24e;
-    --negative: #e5484d;
-    --warning: #e5a93b;
-    --pill-positive-bg: #222a10; --pill-positive-ink: #c6f24e;
-    --pill-negative-bg: #2c1a20; --pill-negative-ink: #e5566f;
-    --pill-warning-bg: #2b2414; --pill-warning-ink: #e5a93b;
-    --pill-neutral-bg: #222222; --pill-neutral-ink: #ffffff;
-    --radius-card: 20px;
+    /* SignalLuxe (D044). The older role names below stay as the vocabulary the rest of this file uses. */
+    --ra-canvas: #070914;
+    --ra-sidebar: #0b0e1d;
+    --ra-surface: #10162b;
+    --ra-surface-raised: #19223a;
+    --ra-surface-hover: #222c48;
+    --ra-border: #343a60;
+    --ra-border-muted: #222843;
+    --ra-pink: #f444bd;
+    --ra-pink-bright: #ff65cf;
+    --ra-violet: #a77aff;
+    --ra-cyan: #43d6ed;
+    --ra-radius-card: 18px;
+    --ra-radius-control: 12px;
+    --ra-sidebar-width: 264px;
+    --ra-font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --ra-cta: linear-gradient(115deg, #8f2a9c, #c82f9f);
+    --ra-glow-active: 0 0 0 1px rgb(244 68 189 / .55), 0 0 18px rgb(244 68 189 / .2);
+    --ground: var(--ra-canvas);
+    --surface: var(--ra-surface);
+    --raised: var(--ra-surface-raised);
+    --border: var(--ra-border-muted);
+    --rule: var(--ra-border-muted);
+    --control: #4a5180;
+    --text: #f4f4fc;
+    --muted: #b7bad2;
+    --faint: #9a9fbd;
+    --accent: var(--ra-pink-bright);
+    --positive: #4ed68a;
+    --negative: #fc6575;
+    --warning: #f2b84d;
+    --pill-positive-bg: #12301f; --pill-positive-ink: #6ee7a0;
+    --pill-negative-bg: #3a1822; --pill-negative-ink: #ff8795;
+    --pill-warning-bg: #36290f; --pill-warning-ink: #f5c566;
+    --pill-neutral-bg: #222c48; --pill-neutral-ink: #f4f4fc;
+    --radius-card: var(--ra-radius-card);
     --gap: 14px;
 }
 
@@ -401,7 +419,8 @@ body {
     margin: 0;
     min-height: 100dvh;
     background: var(--ground);
-    color: var(--text)
+    color: var(--text);
+    font-family: var(--ra-font)
 }
 
 button,
@@ -421,7 +440,7 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-    outline: 3px solid #fff;
+    outline: 3px solid var(--ra-cyan);
     outline-offset: 3px
 }
 
@@ -431,7 +450,7 @@ textarea:focus-visible {
 }
 
 .developmentLogs summary:focus-visible {
-    outline: 3px solid #fff;
+    outline: 3px solid var(--ra-cyan);
     outline-offset: 3px;
 }
 
@@ -545,8 +564,12 @@ p {
 
 .appShell {
     display: grid;
-    grid-template-columns: 210px minmax(0, 1fr);
+    grid-template-columns: var(--ra-sidebar-width) minmax(0, 1fr);
     min-height: 100dvh;
+    background-color: var(--ra-canvas);
+    background-image: linear-gradient(180deg, rgb(7 9 20 / .45), rgb(7 9 20 / .94) 560px), url('./assets/signalluxe-background.svg');
+    background-size: cover, cover;
+    background-attachment: scroll, fixed;
 }
 
 .appMain {
@@ -559,10 +582,21 @@ p {
     height: 100dvh;
     display: flex;
     flex-direction: column;
-    gap: 28px;
-    padding: 24px 14px;
-    background: var(--ground);
-    border-right: 1px solid var(--border);
+    gap: 24px;
+    margin: 12px 0 12px 12px;
+    height: calc(100dvh - 24px);
+    padding: 20px 14px;
+    background: rgb(11 14 29 / .92);
+    border: 1px solid var(--ra-border-muted);
+    border-radius: var(--ra-radius-card);
+    overflow-y: auto;
+}
+
+.railTop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
 }
 
 .brand {
@@ -570,39 +604,121 @@ p {
     align-items: center;
     gap: 10px;
     padding: 0 10px;
-    font-weight: 600;
+    font-weight: 700;
     color: #fff;
     text-decoration: none;
-    font-size: 1.2rem
+    font-size: 1.25rem
+}
+
+.brand .brandMark {
+    color: var(--ra-pink-bright);
+}
+
+.navToggle {
+    display: none;
 }
 
 .rail nav {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
 }
 
 .navlink {
-    display: block;
-    border: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid transparent;
     background: none;
-    color: #bbb;
+    color: var(--muted);
     cursor: pointer;
-    padding: 8px 10px;
-    border-radius: 8px;
-    text-decoration: none
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: var(--ra-radius-control);
+    text-decoration: none;
+    transition: background-color .15s, color .15s
 }
 
-.navlink:hover,
+.navlink .navIcon {
+    flex: none;
+    width: 20px;
+    height: 20px;
+}
+
+.navlink:hover {
+    background: var(--ra-surface-hover);
+    color: #fff;
+}
+
 .navlink[aria-current="page"] {
     color: #fff;
+    background: linear-gradient(90deg, rgb(244 68 189 / .28), rgb(167 122 255 / .1));
+    border-color: rgb(244 68 189 / .66);
+    box-shadow: var(--ra-glow-active);
+}
+
+.navlink .navCount {
+    margin-left: auto;
+}
+
+.railPanel {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Tablet and phone: the sidebar becomes a top bar with a menu button; the links open as a drawer. */
+@media (max-width: 899px) {
+    .appShell {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .rail {
+        position: sticky;
+        z-index: 20;
+        top: 0;
+        height: auto;
+        max-height: 100dvh;
+        margin: 0;
+        padding: 8px 14px;
+        gap: 0;
+        border-width: 0 0 1px;
+        border-radius: 0;
+        background: rgb(11 14 29 / .97);
+    }
+
+    .navToggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+        padding: 6px 14px;
+        border: 1px solid var(--ra-border);
+        border-radius: 999px;
+        background: var(--raised);
+        color: var(--text);
+        cursor: pointer;
+    }
+
+    .railPanel {
+        display: none;
+        padding: 12px 0 8px;
+    }
+
+    .rail[data-open="true"] .railPanel {
+        display: flex;
+    }
 }
 
 .account {
     margin-top: auto;
     display: grid;
     gap: 10px;
-    padding: 0 10px;
+    padding: 16px 10px 0;
+    border-top: 1px solid var(--ra-border-muted);
     min-width: 0;
     color: var(--muted);
     font-size: .9rem;
@@ -623,15 +739,16 @@ p {
     padding: 10px 18px;
     border: 0;
     border-radius: 999px;
-    background: #fff;
-    color: #000;
+    background: var(--ra-cta);
+    color: #fff;
     font-weight: 600;
     text-decoration: none;
-    cursor: pointer
+    cursor: pointer;
+    transition: filter .15s
 }
 
 .button:hover {
-    background: #e6e6e6
+    filter: brightness(1.15)
 }
 
 .button:disabled {
@@ -641,6 +758,7 @@ p {
 
 .button.secondary {
     background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--ra-border);
     color: var(--text)
 }
 
@@ -663,7 +781,8 @@ p {
 }
 
 .button.secondary:hover {
-    background: #3a3a3a
+    background: var(--ra-surface-hover);
+    filter: none
 }
 
 .hero form {
@@ -848,8 +967,9 @@ p {
 }
 
 .statusFilters [aria-pressed="true"] {
-    background: #fff;
-    color: #000;
+    background: rgb(244 68 189 / .2);
+    box-shadow: inset 0 0 0 1px var(--ra-pink);
+    color: #fff;
 }
 
 .requestFilters {
@@ -1129,60 +1249,6 @@ legend {
         padding: 24px 14px
     }
 
-    .appShell {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    /* On a phone the rail is a slim top bar (brand, sign out) and the links a bottom bar. */
-    .rail {
-        position: static;
-        height: auto;
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        padding: 8px 14px;
-        border-right: 0;
-    }
-
-    .rail nav {
-        position: fixed;
-        z-index: 4;
-        inset: auto 0 0 0;
-        flex-direction: row;
-        justify-content: space-around;
-        gap: 0;
-        padding: 6px 4px max(6px, env(safe-area-inset-bottom));
-        background: var(--surface);
-        /* Six or seven links do not always fit a narrow phone: the bar scrolls sideways rather than cutting a label off. */
-        overflow-x: auto;
-        scrollbar-width: none;
-    }
-
-    .rail .navlink {
-        flex: 1 0 auto;
-        padding: 10px 4px;
-        text-align: center;
-        font-size: .76rem;
-        white-space: nowrap;
-    }
-
-    .account {
-        margin: 0;
-        padding: 0;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .account>span {
-        display: none;
-    }
-
-    .appMain {
-        padding-bottom: 64px;
-    }
-
     .account {
         font-size: .9rem
     }
@@ -1383,7 +1449,7 @@ a {
 }
 
 :root {
-    accent-color: #fff;
+    accent-color: var(--ra-pink);
 }
 
 /* Status marks: colour only on the state, as a pale pill. */
@@ -1428,7 +1494,7 @@ a {
 
 .railArrow.prev { left: -12px; }
 .railArrow.next { right: -12px; }
-.railArrow:hover:not(:disabled) { background: #fff; color: #000; }
+.railArrow:hover:not(:disabled) { background: var(--ra-pink-bright); color: #000; }
 .railArrow:disabled { opacity: .35; cursor: default; }
 
 .railCard {
@@ -1493,7 +1559,7 @@ a {
 
 .railStatus { left: 10px; background: #000c; color: var(--text); }
 .railStatus.status-approved { background: var(--warning); color: #000; }
-.railStatus.status-available { background: var(--accent); color: #000; }
+.railStatus.status-available { background: var(--positive); color: #000; }
 .railStatus.status-denied { background: var(--negative); color: #000; }
 
 .railOpen {
@@ -1502,8 +1568,8 @@ a {
     bottom: 10px;
     padding: 8px 14px;
     border-radius: 999px;
-    background: var(--accent);
-    color: #000;
+    background: var(--ra-cta);
+    color: #fff;
     font-weight: 600;
     font-size: .9rem;
     opacity: 0;
@@ -1889,7 +1955,8 @@ a.tag-available:hover {
 }
 
 .settingsTab[aria-pressed="true"] {
-    background: var(--raised);
+    background: rgb(244 68 189 / .2);
+    box-shadow: inset 0 0 0 1px var(--ra-pink);
     color: var(--text);
 }
 
@@ -1972,7 +2039,7 @@ a.tag-available:hover {
 }
 
 .integrationState.on {
-    color: var(--accent);
+    color: var(--positive);
 }
 
 .integrationState.warn {
@@ -2534,7 +2601,7 @@ a.tag-available:hover {
 .authNotice p { margin: 0; }
 .authNotice.warn { border-left: 3px solid var(--warning); }
 .authNotice .button { justify-self: start; background: var(--ground); }
-.authOk { margin: 0; color: var(--accent); }
+.authOk { margin: 0; color: var(--positive); }
 .authOk:empty { display: none; }
 .reveal { margin-bottom: 16px; }
 .reveal:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -2614,4 +2681,90 @@ a.tag-available:hover {
 
 .logKey {
     color: var(--muted);
+}
+
+/* SignalLuxe surfaces (D044): navy panels with a soft stroke. Glow is kept for the active nav row; panels never glow. */
+.card,
+.settingPanel,
+.integration {
+    background: linear-gradient(145deg, rgb(25 34 58 / .92), rgb(11 16 34 / .94));
+    border: 1px solid var(--ra-border-muted);
+}
+
+.card.hero {
+    border: 0;
+    background: none;
+}
+
+.integrationBody {
+    background: rgb(7 9 20 / .6);
+    border: 1px solid var(--ra-border-muted);
+}
+
+h1 {
+    font-size: clamp(1.75rem, 3vw, 2.2rem);
+    letter-spacing: -.01em;
+}
+
+.railCover {
+    border-radius: 14px;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / .06);
+    transition: transform .15s;
+}
+
+.railCard:hover .railCover,
+.railCard:focus-visible .railCover {
+    transform: translateY(-2px);
+    outline-color: var(--ra-pink);
+}
+
+.feedList {
+    padding: 4px 18px;
+    border: 1px solid var(--ra-border-muted);
+    border-radius: var(--ra-radius-card);
+    background: rgb(16 22 43 / .85);
+}
+
+.feedList li:first-child {
+    border-top: 0;
+}
+
+/* Unread is shown by a marker and weight as well as colour. */
+.feedList li.unread strong::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 10px;
+    border-radius: 50%;
+    background: var(--ra-pink-bright);
+    vertical-align: middle;
+}
+
+.badge,
+.statusFilters .button,
+.chip {
+    border: 1px solid transparent;
+}
+
+input:where([type="text"], [type="search"], [type="password"], [type="email"], [type="url"], :not([type])),
+select,
+textarea {
+    border-radius: var(--ra-radius-control);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        transition-duration: .01ms !important;
+        animation-duration: .01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+@media (max-width: 899px) {
+    .appShell {
+        background-attachment: scroll, scroll;
+    }
 }

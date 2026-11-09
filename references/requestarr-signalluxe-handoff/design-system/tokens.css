@@ -1,0 +1,39 @@
+/* SignalLuxe starter tokens. Colors are inferred from concept art, not pixel-sampled. */
+:root {
+  --ra-canvas: #070914;
+  --ra-canvasElevated: #0B1022;
+  --ra-sidebar: #0B0E1D;
+  --ra-surface: #10162B;
+  --ra-surfaceRaised: #19223A;
+  --ra-surfaceHover: #222C48;
+  --ra-border: #343A60;
+  --ra-borderMuted: #222843;
+  --ra-textPrimary: #F4F4FC;
+  --ra-textSecondary: #B7BAD2;
+  --ra-textMuted: #868BA9;
+  --ra-accentPink: #F444BD;
+  --ra-accentPinkBright: #FF65CF;
+  --ra-accentViolet: #A77AFF;
+  --ra-accentBlue: #53A7FF;
+  --ra-accentCyan: #43D6ED;
+  --ra-success: #4ED68A;
+  --ra-warning: #F2B84D;
+  --ra-danger: #FC6575;
+  --ra-info: #59B7FF;
+  --ra-radius-card: 18px;
+  --ra-radius-control: 12px;
+  --ra-sidebar-width: 264px;
+  --ra-space-unit: 4px;
+  --ra-font: Inter, ui-sans-serif, system-ui, sans-serif;
+  --ra-shadow-panel: 0 14px 40px rgb(0 0 0 / .28);
+  --ra-glow-active: 0 0 0 1px rgb(244 68 189 / .55), 0 0 22px rgb(244 68 189 / .23);
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { margin:0; color:var(--ra-textPrimary); background:var(--ra-canvas); font-family:var(--ra-font); }
+.ra-app { min-height:100dvh; background-image: linear-gradient(180deg, rgb(7 9 20 / .26), rgb(7 9 20 / .92) 580px), url('../assets/signalluxe-background.svg'); background-size:cover,cover; background-attachment:scroll,fixed; }
+.ra-panel { background:linear-gradient(145deg, rgb(25 34 58 / .92), rgb(11 16 34 / .94)); border:1px solid var(--ra-borderMuted); border-radius:var(--ra-radius-card); box-shadow:var(--ra-shadow-panel); }
+.ra-nav-active { background:linear-gradient(90deg, rgb(244 68 189 / .28),rgb(167 122 255 / .10)); box-shadow:var(--ra-glow-active); border:1px solid rgb(244 68 189 / .66); }
+.ra-button-primary { border:1px solid rgb(255 160 225 / .65); color:#fff; background:linear-gradient(115deg,#A62A94,#F444BD); box-shadow:0 3px 22px rgb(244 68 189 / .20); }
+.ra-focusable:focus-visible { outline:2px solid var(--ra-accentCyan); outline-offset:3px; }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
+@media (max-width:800px) { .ra-app { background-attachment:scroll; } }

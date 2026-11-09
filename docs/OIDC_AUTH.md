@@ -77,7 +77,7 @@ Rules:
 - A change by groups ends the person's other sessions and is audited with source `group_mapping`. The Users table marks such people **Set by groups** and says a manual change is overridden at their next sign-in while mapping is on.
 - A mapping that would leave no superuser who can sign in is skipped and logged as a warning; the person still signs in with their current role. The local administrator is never changed by groups.
 - A person's group list is used for the decision only; it is never stored or logged.
-- Every OIDC sign-in logs one line saying what the mapping decided, readable in **Settings, Logs** (D042): mapping off; the ID token has no groups claim (a warning naming the claims the token does have, names only); no group matched (with how many groups the token held); already that role; or the role set. When a role does not change as expected, that line says why.
+- Every OIDC sign-in logs one line saying what the mapping decided, readable in **Logs** (D042, D044): mapping off; the ID token has no groups claim (a warning naming the claims the token does have, names only); no group matched (with how many groups the token held); already that role; or the role set. When a role does not change as expected, that line says why.
 - To let an agent read those lines (and the sync status) from a running instance without your session, create a read-only diagnostics token; see `docs/DIAGNOSTICS_TOKEN.md` (D043).
 
 ## Endpoints and deployment configuration

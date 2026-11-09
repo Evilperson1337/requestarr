@@ -1,3 +1,4 @@
+import { openNav } from './nav'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import type { DiagnosticsToken } from '../src/api'
@@ -51,7 +52,7 @@ for (const size of [{ name: 'desktop', width: 1280, height: 900 }, { name: 'phon
         await context.grantPermissions(['clipboard-read', 'clipboard-write'])
         await page.setViewportSize({ width: size.width, height: size.height })
         const calls = await open(page)
-        await page.goto('/settings?tab=logs')
+        await page.goto('/logs')
         const list = page.getByRole('region', { name: 'Diagnostics token list' })
         await expect(list.getByRole('row')).toHaveCount(2)
         await expect(list.getByRole('row').nth(1)).toContainText('old laptop')
@@ -96,7 +97,7 @@ for (const size of [{ name: 'desktop', width: 1280, height: 900 }, { name: 'phon
 
 test('revoking the token whose value is on screen clears the value', async ({ page }) => {
     await open(page)
-    await page.goto('/settings?tab=logs')
+    await page.goto('/logs')
     await page.getByLabel('Token name').fill('temp')
     await page.getByRole('button', { name: 'Create token' }).click()
     await expect(page.getByText(VALUE)).toBeVisible()
@@ -106,9 +107,7 @@ test('revoking the token whose value is on screen clears the value', async ({ pa
 
 test('an admin has no diagnostics tokens card and makes no request for them', async ({ page }) => {
     const calls = await open(page, 'admin')
-    await page.goto('/settings')
-    await expect(page.getByRole('button', { name: 'Logs', exact: true })).toHaveCount(0)
-    await page.goto('/settings?tab=logs')
+    await page.goto('/logs')
     await expect(page.getByRole('heading', { name: 'Diagnostics tokens' })).toHaveCount(0)
     expect(calls).toEqual([])
 })
@@ -123,7 +122,7 @@ for (const size of [{ name: 'desktop', width: 1280, height: 900 }, { name: 'phon
         test(`a create answered ${failure.status} shows an alert and no token at ${size.name} width`, async ({ page }) => {
             await page.setViewportSize({ width: size.width, height: size.height })
             await open(page, 'superuser', { createFails: failure })
-            await page.goto('/settings?tab=logs')
+            await page.goto('/logs')
             await page.getByLabel('Token name').fill('my agent')
             await page.getByRole('button', { name: 'Create token' }).click()
             await expect(page.getByRole('alert').filter({ hasText: failure.message })).toBeVisible()
@@ -135,7 +134,7 @@ for (const size of [{ name: 'desktop', width: 1280, height: 900 }, { name: 'phon
     test(`Create is disabled at the active limit and says why at ${size.name} width`, async ({ page }) => {
         await page.setViewportSize({ width: size.width, height: size.height })
         await open(page, 'superuser', { tokens: [1, 2, 3, 4, 5].map(farFuture) })
-        await page.goto('/settings?tab=logs')
+        await page.goto('/logs')
         await page.getByLabel('Token name').fill('one more')
         await expect(page.getByRole('button', { name: 'Create token' })).toBeDisabled()
         await expect(page.getByText('Revoke a token to make another.')).toBeVisible()
@@ -146,7 +145,7 @@ for (const size of [{ name: 'desktop', width: 1280, height: 900 }, { name: 'phon
         await page.setViewportSize({ width: size.width, height: size.height })
         const listFails = { on: true }
         await open(page, 'superuser', { listFails })
-        await page.goto('/settings?tab=logs')
+        await page.goto('/logs')
         const alert = page.getByRole('alert').filter({ hasText: 'could not complete the diagnostics token request' })
         await expect(alert).toBeVisible()
         await axe(page); await noOverflow(page)
@@ -160,24 +159,26 @@ for (const size of [{ name: 'desktop', width: 1280, height: 900 }, { name: 'phon
     test(`an expired token shows the Expired badge at ${size.name} width`, async ({ page }) => {
         await page.setViewportSize({ width: size.width, height: size.height })
         await open(page, 'superuser', { tokens: [{ ...existing, expiresAt: '2020-01-01T00:00:00Z' }, farFuture(1)] })
-        await page.goto('/settings?tab=logs')
+        await page.goto('/logs')
         const rows = page.getByRole('region', { name: 'Diagnostics token list' }).getByRole('row')
         await expect(rows.nth(1)).toContainText('Expired')
         await expect(rows.nth(2)).not.toContainText('Expired')
         await axe(page); await noOverflow(page)
     })
 
-    test(`the new token value disappears when another Settings tab is opened and back at ${size.name} width`, async ({ page }) => {
+    test(`the new token value disappears when another page is opened and back at ${size.name} width`, async ({ page }) => {
         await page.setViewportSize({ width: size.width, height: size.height })
         await open(page)
-        await page.goto('/settings?tab=logs')
+        await page.goto('/logs')
         await page.getByLabel('Token name').fill('temp')
         await page.getByRole('button', { name: 'Create token' }).click()
         await expect(page.getByText(VALUE)).toBeVisible()
         await axe(page); await noOverflow(page)
-        await page.getByRole('button', { name: 'Activity', exact: true }).click()
+        await openNav(page)
+        await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Settings' }).click()
         await expect(page.getByText(VALUE)).toHaveCount(0)
-        await page.getByRole('button', { name: 'Logs', exact: true }).click()
+        await openNav(page)
+        await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Logs' }).click()
         await expect(page.getByRole('heading', { name: 'Diagnostics tokens' })).toBeVisible()
         await expect(page.getByText(VALUE)).toHaveCount(0)
         expect(await page.content()).not.toContain(VALUE)

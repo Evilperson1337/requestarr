@@ -1,0 +1,21 @@
+{
+  "package": "Requestarr SignalLuxe UI implementation handoff",
+  "version": "1.0.0",
+  "created": "2026-11-09",
+  "type": "reference mockups and editable design starter assets",
+  "imageMockups": [
+    "request-home.png",
+    "library.png",
+    "requests.png",
+    "issues.png",
+    "settings-integrations.png",
+    "logs.png",
+    "original-signalluxe-concept.png",
+    "visual-design-board.png"
+  ],
+  "notes": [
+    "Mockups are generated concept art, not production source files",
+    "SVG background is original approximation, not exact extracted scene",
+    "No application repository source supplied"
+  ]
+}

@@ -11,11 +11,11 @@ import (
 )
 
 // registerServerLogs serves the recent server log records kept in memory
-// (D042). It is superuser-only: records can name sources, catalog items and
-// provider errors, the same things the superuser-only Integrations tab shows.
+// (D042). It is admin-and-up (D044, amending D042): records can name sources, catalog items and
+// provider errors; administrators already see sources and sync runs in Activity.
 // The route exists even without a buffer, answering an empty list.
 func registerServerLogs(rt *routeTable, buf *logbuffer.Buffer) {
-	rt.handle("GET /admin/logs", accessSuperuser, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	rt.handle("GET /admin/logs", accessAdmin, func(w http.ResponseWriter, r *http.Request, _ auth.User) {
 		q := r.URL.Query()
 		level := slog.LevelDebug
 		if raw := q.Get("level"); raw != "" {

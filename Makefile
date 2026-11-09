@@ -147,7 +147,8 @@ stack-start:
 	REQUESTARR_DEV_LOGS=$(or $(STACK_DEV_LOGS),false) docker compose -f compose.test.yaml up -d --build --wait
 	@url="$$(bash scripts/stack-http-url.sh)" && printf '\n%s\n' \
 	  "Requestarr:  $$url  (administrator sign-in: /login)" \
-	  'Local administrator: admin. Read the initial one-time password in the container log, then choose your own password.' \
+	  'Local administrator: admin' \
+	  "$$(pw="$$(scripts/stack-admin-password.sh)"; if [ -n "$$pw" ]; then printf 'One-time password: %s  (you will be asked to choose your own)' "$$pw"; else echo 'No one-time password in the log: this database already had users. Run the recovery command below to get a new one.'; fi)" \
 	  'Recovery: docker compose -f compose.test.yaml exec requestarr /requestarr reset-admin-password' \
 	  'Keycloak:    http://localhost:8081  (admin / admin)'
 

@@ -669,9 +669,9 @@ paths:
   /admin/logs:
     get:
       x-token-readable: true
-      x-required-role: superuser
+      x-required-role: admin
       operationId: getServerLogs
-      summary: Recent server log records (superuser only)
+      summary: Recent server log records (administrator and superuser)
       description: >-
         The most recent server log records, oldest first, kept in memory only (D042). It holds the
         same records the process writes to standard output, at the configured REQUESTARR_LOG_LEVEL
