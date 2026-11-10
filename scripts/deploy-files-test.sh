@@ -15,7 +15,7 @@ dir=deploy/unraid
 compose=$dir/compose.yaml
 example=$dir/requestarr.env.example
 template=$dir/requestarr.xml
-pinned_tag=v0.1.0-rc.10
+pinned_tag=v0.1.0-rc.12
 # Independent list of what an operator must supply (the spec's settings).
 required=(REQUESTARR_TAG POSTGRES_PASSWORD REQUESTARR_PUBLIC_URL REQUESTARR_SESSION_HMAC_SECRET REQUESTARR_SECRETS_KEY)
 # Optional settings (D040): OIDC is an override of what is saved in Settings, Authentication, and the
