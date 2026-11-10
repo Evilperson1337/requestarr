@@ -131,12 +131,11 @@ test('the server explains a wrong current password', async ({ page }) => {
     await expect(page.getByRole('alert')).toContainText('The current password is incorrect.')
 })
 
-test('the OIDC button stays on the signed-out screen, with a way to the local form', async ({ page }) => {
+test('the OIDC button stays on the signed-out screen, with the local form one click away', async ({ page }) => {
     await mockSession(page, { session: 'none' })
     await page.route('**/api/v1/auth/options', route => route.fulfill({ json: { oidcEnabled: true, providerName: 'Keycloak' } }))
     await page.goto('/')
     await expect(page.getByRole('link', { name: 'Sign in with Keycloak' })).toHaveAttribute('href', '/api/v1/auth/login')
-    await page.getByRole('link', { name: 'Administrator sign-in' }).click()
-    await expect(page).toHaveURL(/\/login$/)
-    await expect(page.getByRole('heading', { name: 'Administrator sign-in' })).toBeVisible()
+    await page.getByRole('button', { name: 'Username / Password' }).click()
+    await expect(page.getByLabel('Password')).toBeVisible()
 })
