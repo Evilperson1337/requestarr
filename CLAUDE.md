@@ -29,7 +29,7 @@ make snapshot       # goreleaser release --snapshot --clean
 make release-check  # goreleaser check
 ```
 
-To cut a release (bump the pinned tag, then run `scripts/wizard-publish-release.sh`), follow "Cutting a release" in `docs/RELEASES.md`.
+To cut a release (bump the pinned tag, then run `scripts/publish-release.sh <tag>`, which is non-interactive), follow "Cutting a release" in `docs/RELEASES.md`.
 
 To look at a running instance (server log, status, sync runs, connections) without a superuser session, use a read-only diagnostics token with `scripts/agent/requestarr-diag.sh`; set it up and use it as `docs/DIAGNOSTICS_TOKEN.md` says (D043). Never print the token or pass it on a command line.
 

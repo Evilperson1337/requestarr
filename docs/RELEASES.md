@@ -14,9 +14,11 @@ The build system uses Make for local ergonomics and GoReleaser v2 for cross-plat
 1. Pick the next tag (the last one is `git tag --sort=-v:refname | head -1`; a pre-release is `v0.1.0-rc.N`).
 2. Change the pinned tag from the old one to the new one in `deploy/unraid/requestarr.xml`, `deploy/unraid/requestarr.env.example`, `docs/UNRAID.md` and `pinned_tag` in `scripts/deploy-files-test.sh`. `scripts/deploy-files-test.sh` fails when they disagree.
 3. Run `scripts/check.sh`, commit the pin change on `main` and push it.
-4. Run `scripts/wizard-publish-release.sh` and give it the new tag. It tags the current commit, exports a scrubbed copy of the history, runs the gate that finds no trace of the private domain, pushes to the public GitHub repository (the tag last and alone, which starts `release.yml`), and checks the published image anonymously, as Unraid pulls it. It needs `gh` logged in with the `repo` and `workflow` scopes, plus `git-filter-repo`, `docker`, `python3` and `curl`.
+4. Run `scripts/publish-release.sh vX.Y.Z-rc.N` with the new tag. It needs no prompts, so an agent can run it when the owner asks for a release. It checks that `main` is clean, pushed and pinned to the tag, tags the current commit (an existing tag is never moved), exports a scrubbed copy of the history, runs the gate that finds no trace of the private domain, pushes to the public GitHub repository (the tag last and alone, which starts `release.yml`), waits for the workflow, and checks the image anonymously as Unraid pulls it (platforms, attestation, and the cosign signature when `cosign` is installed). Any failed check stops it with a non-zero exit and a message. It needs `gh` logged in as the repository owner with the `repo` and `workflow` scopes, plus `git-filter-repo`, `docker`, `python3` and `curl`.
 
-The wizard releases whatever commit is checked out, so push to `main` first. It never moves an existing tag.
+   `scripts/wizard-publish-release.sh` is the interactive version. Use it for the first release or when the public repository or its package visibility needs setting up by hand: a package published by a workflow starts private, and making it public is a manual step on GitHub that only the wizard walks through.
+
+Both scripts release whatever commit is checked out, so push to `main` first. It never moves an existing tag.
 
 ## The embedded UI
 
